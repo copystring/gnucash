@@ -615,17 +615,62 @@ find_gnc_acc_cb(gpointer key, gpointer value, gpointer user_data)
     return FALSE;
 }
 
+typedef struct
+{
+    ABInitialInfo *info;
+    GWeakRef window;
+    GNC_AB_ACCOUNT_SPEC *ab_acc;
+    Account *old_value;
+} AccountPickerSelection;
+
+static void
+account_picker_finished_cb (Account *gnc_acc, gboolean accepted, gpointer user_data)
+{
+    AccountPickerSelection *selection = user_data;
+    GtkWidget *window = g_weak_ref_get (&selection->window);
+
+    if (window && accepted && selection->old_value != gnc_acc)
+    {
+        ABInitialInfo *info = selection->info;
+        if (gnc_acc)
+        {
+            RevLookupData data;
+            gchar *gnc_name;
+
+            data.gnc_acc = gnc_acc;
+            data.ab_acc = NULL;
+            g_hash_table_find (info->gnc_hash, (GHRFunc) find_gnc_acc_cb, &data);
+            if (data.ab_acc)
+                delete_account_match (info, &data);
+
+            g_hash_table_insert (info->gnc_hash, selection->ab_acc, gnc_acc);
+            gnc_name = gnc_account_get_full_name (gnc_acc);
+            account_row_update (info, selection->ab_acc, gnc_name);
+            g_free (gnc_name);
+        }
+        else
+        {
+            g_hash_table_remove (info->gnc_hash, selection->ab_acc);
+            account_row_update (info, selection->ab_acc, "");
+        }
+    }
+
+    g_clear_object (&window);
+    g_weak_ref_clear (&selection->window);
+    g_free (selection);
+}
+
 static void
 account_list_clicked_cb (GtkColumnView *view, guint position, gpointer user_data)
 {
     ABInitialInfo *info = user_data;
     GtkStringObject *row;
     GNC_AB_ACCOUNT_SPEC *ab_acc;
-    gchar *longname, *gnc_name;
-    Account *old_value, *gnc_acc;
+    gchar *longname;
+    Account *old_value;
     const gchar *currency;
     gnc_commodity *commodity = NULL;
-    gboolean ok_pressed;
+    AccountPickerSelection *selection;
 
     g_return_if_fail(info);
 
@@ -650,38 +695,16 @@ account_list_clicked_cb (GtkColumnView *view, guint position, gpointer user_data
                             currency);
         }
 
-        gnc_acc = gnc_import_select_account(info->window, NULL, TRUE,
-                                            longname, commodity, ACCT_TYPE_BANK,
-                                            old_value, &ok_pressed);
+        selection = g_new0 (AccountPickerSelection, 1);
+        selection->info = info;
+        selection->ab_acc = ab_acc;
+        selection->old_value = old_value;
+        g_weak_ref_init (&selection->window, info->window);
+        gnc_import_select_account_async (info->window, NULL, TRUE,
+                                         longname, commodity, ACCT_TYPE_BANK,
+                                         old_value, account_picker_finished_cb,
+                                         selection);
         g_free(longname);
-
-        if (ok_pressed && old_value != gnc_acc)
-        {
-            if (gnc_acc)
-            {
-                RevLookupData data;
-
-                /* Lookup and clear other mappings to gnc_acc */
-                data.gnc_acc = gnc_acc;
-                data.ab_acc = NULL;
-                g_hash_table_find(info->gnc_hash, (GHRFunc) find_gnc_acc_cb,
-                                  &data);
-                if (data.ab_acc)
-                    delete_account_match(info, &data);
-
-                /* Map ab_acc to gnc_acc */
-                g_hash_table_insert(info->gnc_hash, ab_acc, gnc_acc);
-                gnc_name = gnc_account_get_full_name(gnc_acc);
-                account_row_update (info, ab_acc, gnc_name);
-                g_free(gnc_name);
-
-            }
-            else
-            {
-                g_hash_table_remove(info->gnc_hash, ab_acc);
-                account_row_update (info, ab_acc, "");
-            }
-        }
     }
     g_object_unref (row);
 }

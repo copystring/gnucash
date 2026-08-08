@@ -39,7 +39,7 @@ struct AccountPicker
     GtkSingleSelection *selection;
     GtkColumnView *view;
     gchar *online_id;
-    const gchar *description;
+    gchar *description;
     const gnc_commodity *commodity;
     GNCAccountType account_type;
     GncImportAccountSelectedCB callback;
@@ -190,6 +190,7 @@ picker_finish (AccountPicker *picker, gboolean accepted)
     auto callback = picker->callback;
     auto user_data = picker->user_data;
     g_free (picker->online_id);
+    g_free (picker->description);
     g_free (picker);
     if (callback)
         callback (account, account != nullptr, user_data);
@@ -299,7 +300,7 @@ gnc_import_select_account_async (GtkWidget *parent, const gchar *online_id,
     }
     auto picker = g_new0 (AccountPicker, 1);
     picker->online_id = g_strdup (online_id);
-    picker->description = description;
+    picker->description = g_strdup (description);
     picker->commodity = commodity;
     picker->account_type = account_type;
     picker->callback = callback;
