@@ -46,7 +46,7 @@
 #include <unistd.h>
 #include <regex.h>
 
-#include <webkit2/webkit2.h>
+#include <webkit/webkit.h>
 
 #include "Account.h"
 #include "gnc-prefs.h"
@@ -157,6 +157,13 @@ gnc_html_webkit_init( GncHtmlWebkit* self )
 
      priv->html_string = nullptr;
      priv->web_view = WEBKIT_WEB_VIEW (gnc_html_webkit_webview_new ());
+     priv->temporary_report = nullptr;
+     priv->pending_anchor = nullptr;
+
+     /* GncHtml is a controller. The backend exposes its actual visible widget
+      * instead of wrapping it in a legacy container. */
+     g_clear_object (&priv->base.container);
+     priv->base.container = GTK_WIDGET (g_object_ref_sink (priv->web_view));
 
 
      /* Scale everything up */
@@ -164,11 +171,6 @@ gnc_html_webkit_init( GncHtmlWebkit* self )
                  GNC_PREF_RPT_DFLT_ZOOM);
      webkit_web_view_set_zoom_level (priv->web_view, zoom);
 
-
-     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (priv->base.container),
-                                    GTK_WIDGET (priv->web_view));
-
-     g_object_ref_sink( priv->base.container );
 
      /* signals */
      g_signal_connect (priv->web_view, "decide-policy",
@@ -224,9 +226,6 @@ gnc_html_webkit_dispose( GObject* obj )
 
      if ( priv->web_view != nullptr )
      {
-          gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (priv->base.container),
-                                         nullptr);
-
           priv->web_view = nullptr;
      }
 
@@ -235,6 +234,12 @@ gnc_html_webkit_dispose( GObject* obj )
           g_free( priv->html_string );
           priv->html_string = nullptr;
      }
+     if ( priv->temporary_report != nullptr )
+     {
+          g_remove (priv->temporary_report);
+          g_clear_pointer (&priv->temporary_report, g_free);
+     }
+     g_clear_pointer (&priv->pending_anchor, g_free);
 
      gnc_prefs_remove_cb_by_func (GNC_PREFS_GROUP_GENERAL_REPORT,
                                   GNC_PREF_RPT_DFLT_ZOOM,
@@ -493,6 +498,8 @@ load_to_stream( GncHtmlWebkit* self, URLType type,
                          g_free( priv->html_string );
                     }
                     priv->html_string = g_strdup( fdata );
+                    g_free (priv->pending_anchor);
+                    priv->pending_anchor = g_strdup (label);
                     impl_webkit_show_data( GNC_HTML(self), fdata, strlen(fdata) );
                }
                else
@@ -506,14 +513,6 @@ load_to_stream( GncHtmlWebkit* self, URLType type,
 
                g_free( fdata );
 
-               if ( label )
-               {
-                    while ( gtk_events_pending() )
-                    {
-                         gtk_main_iteration();
-                    }
-                    /* No action required: Webkit jumps to the anchor on its own. */
-               }
                return TRUE;
           }
      }
@@ -713,7 +712,7 @@ gnc_html_open_scm( GncHtmlWebkit* self, const gchar * location,
 static void
 impl_webkit_show_data( GncHtml* self, const gchar* data, int datalen )
 {
-     constexpr char TEMPLATE_REPORT_FILE_NAME[] = "gnc-report-XXXXXX.html";
+     constexpr char TEMPLATE_REPORT_FILE_NAME[] = "gnc-report-XXXXXX";
      g_return_if_fail( self != nullptr );
      g_return_if_fail( GNC_IS_HTML_WEBKIT(self) );
 
@@ -726,14 +725,57 @@ impl_webkit_show_data( GncHtml* self, const gchar* data, int datalen )
         viewed because they are local resources).  On Windows, this allows the embedded images to
         be viewed (maybe for the same reason as on Linux, but I haven't found where it puts those
         messages. */
-     gchar *filename = g_build_filename(g_get_tmp_dir(), TEMPLATE_REPORT_FILE_NAME, (gchar *)nullptr);
+     gchar *filename = g_build_filename(g_get_tmp_dir(), TEMPLATE_REPORT_FILE_NAME,
+                                        (gchar *)nullptr);
      int fd = g_mkstemp( filename );
-     impl_webkit_export_to_file( self, filename );
+     GError *error = nullptr;
+
+     if (fd == -1)
+     {
+          PERR ("Unable to create the temporary report file: %s", g_strerror (errno));
+          g_free (filename);
+          return;
+     }
      close( fd );
-     gchar *uri = g_strdup_printf( "file://%s", filename );
-     g_free(filename);
+
+     g_free (priv->html_string);
+     priv->html_string = g_strndup (data, datalen);
+     if (!impl_webkit_export_to_file( self, filename ))
+     {
+          g_remove (filename);
+          g_free (filename);
+          return;
+     }
+
+     if (priv->temporary_report)
+          g_remove (priv->temporary_report);
+     g_clear_pointer (&priv->temporary_report, g_free);
+     priv->temporary_report = filename;
+     gchar *uri = g_filename_to_uri (priv->temporary_report, nullptr, &error);
+     if (!uri)
+     {
+          PERR ("Unable to create a URI for the temporary report: %s",
+                error->message);
+          g_clear_error (&error);
+          g_remove (priv->temporary_report);
+          g_clear_pointer (&priv->temporary_report, g_free);
+          return;
+     }
+
+     if (priv->pending_anchor && *priv->pending_anchor)
+     {
+          gchar *fragment = g_uri_escape_string (priv->pending_anchor, nullptr,
+                                                  nullptr);
+          gchar *anchored_uri = g_strconcat (uri, "#", fragment, nullptr);
+
+          webkit_web_view_load_uri (priv->web_view, anchored_uri);
+          g_free (anchored_uri);
+          g_free (fragment);
+     }
+     else
+          webkit_web_view_load_uri (priv->web_view, uri);
+     g_clear_pointer (&priv->pending_anchor, g_free);
      DEBUG("Loading uri '%s'", uri);
-     webkit_web_view_load_uri( priv->web_view, uri );
      g_free( uri );
 
      LEAVE("");

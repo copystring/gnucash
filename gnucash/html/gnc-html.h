@@ -158,7 +158,7 @@ typedef void (* GncHTMLFlyoverCB)(GncHtml* html, const gchar* url,
 typedef void (* GncHTMLLoadCB)(GncHtml* html, URLType type,
                                const gchar* location, const gchar* label,
                                gpointer data);
-typedef int  (* GncHTMLButtonCB)(GncHtml* html, GdkEventButton* event,
+typedef int  (* GncHTMLButtonCB)(GncHtml* html, GdkEvent* event,
                                  gpointer data);
 
 #ifdef __cplusplus
