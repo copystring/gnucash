@@ -129,8 +129,8 @@ typedef struct GncPluginPageReportPrivate
     GncHtml *html;
     gboolean webkit2;
 
-    /// the container the above HTML widget is in.
-    GtkContainer *container;
+    /// The report page widget containing the above HTML widget.
+    GtkWidget *container;
 } GncPluginPageReportPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE(GncPluginPageReport, gnc_plugin_page_report, GNC_TYPE_PLUGIN_PAGE)
@@ -463,8 +463,12 @@ gnc_plugin_page_report_load_uri (GncPluginPage *page)
 
 /* used to capture Ctrl+Alt+PgUp/Down for tab selection */
 static gboolean
-webkit_key_press_event_cb (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
+webkit_key_pressed_cb (GtkEventControllerKey *controller, guint keyval,
+                       guint keycode, GdkModifierType state, gpointer user_data)
 {
+    (void)controller;
+    (void)keycode;
+
     GncPluginPageReport *report = GNC_PLUGIN_PAGE_REPORT(user_data);
     GncPluginPageReportPrivate *priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
     GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask ();
@@ -473,15 +477,19 @@ webkit_key_press_event_cb (GtkWidget *widget, GdkEventKey *event, gpointer user_
     if (GNC_PLUGIN_PAGE(report) != gnc_main_window_get_current_page (GNC_MAIN_WINDOW(window)))
         return FALSE;
 
-    if ((event->keyval == GDK_KEY_Page_Up || event->keyval == GDK_KEY_Page_Down ||
-         event->keyval == GDK_KEY_KP_Page_Up || event->keyval == GDK_KEY_KP_Page_Down)
-          && (event->state & modifiers) == (GDK_CONTROL_MASK | GDK_MOD1_MASK))
+    if ((keyval == GDK_KEY_Page_Up || keyval == GDK_KEY_Page_Down ||
+         keyval == GDK_KEY_KP_Page_Up || keyval == GDK_KEY_KP_Page_Down)
+          && (state & modifiers) == (GDK_CONTROL_MASK | GDK_MOD1_MASK))
     {
-        GtkNotebook *notebook = GTK_NOTEBOOK(gtk_widget_get_parent (GTK_WIDGET(priv->container)));
+        auto parent = gtk_widget_get_parent (priv->container);
+        if (!GTK_IS_NOTEBOOK (parent))
+            return FALSE;
+
+        GtkNotebook *notebook = GTK_NOTEBOOK(parent);
         gint pages = gtk_notebook_get_n_pages (notebook);
         gint current_page = gtk_notebook_get_current_page (notebook);
 
-        if (event->keyval == GDK_KEY_Page_Up || event->keyval == GDK_KEY_KP_Page_Up)
+        if (keyval == GDK_KEY_Page_Up || keyval == GDK_KEY_KP_Page_Up)
         {
             if (current_page == 0)
                 gtk_notebook_set_current_page (notebook, pages - 1);
@@ -534,11 +542,10 @@ gnc_plugin_page_report_create_widget( GncPluginPage *page )
                                          gnc_plugin_page_report_history_destroy_cb,
                                          (gpointer)priv);
 
-    priv->container = GTK_CONTAINER(gtk_frame_new(nullptr));
-    gtk_frame_set_shadow_type(GTK_FRAME(priv->container), GTK_SHADOW_NONE);
+    priv->container = gtk_frame_new(nullptr);
 
     // Set the name for this widget so it can be easily manipulated with css
-    gtk_widget_set_name (GTK_WIDGET(priv->container), "gnc-id-report-page");
+    gtk_widget_set_name (priv->container, "gnc-id-report-page");
 
     gtk_frame_set_child (GTK_FRAME(priv->container), gnc_html_get_widget(priv->html));
 
@@ -574,17 +581,17 @@ gnc_plugin_page_report_create_widget( GncPluginPage *page )
     webview = gnc_html_get_webview (priv->html);
     if (webview)
     {
-        gtk_widget_add_events (webview, gtk_widget_get_events (webview) |
-                               GDK_KEY_PRESS_MASK);
-
-        g_signal_connect (webview, "key-press-event",
-                          G_CALLBACK(webkit_key_press_event_cb),
+        auto controller = gtk_event_controller_key_new ();
+        gtk_event_controller_set_propagation_phase (controller, GTK_PHASE_CAPTURE);
+        gtk_widget_add_controller (webview, controller);
+        g_signal_connect (controller, "key-pressed",
+                          G_CALLBACK(webkit_key_pressed_cb),
                           page);
     }
 
-    gtk_widget_set_visible (GTK_WIDGET(priv->container), TRUE);
+    gtk_widget_set_visible (priv->container, TRUE);
     LEAVE("container %p", priv->container);
-    return GTK_WIDGET( priv->container );
+    return priv->container;
 }
 
 /********************************************************************
