@@ -1,37 +1,14 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <object class="GtkListStore" id="liststore1">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">Bid</col>
-      </row>
-      <row>
-        <col id="0">Ask</col>
-      </row>
-      <row>
-        <col id="0">Last</col>
-      </row>
-      <row>
-        <col id="0">Net Asset Value</col>
-      </row>
-      <row>
-        <col id="0">Unknown</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="liststore2">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-  </object>
-  <object class="GtkListStore" id="liststore3">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
+  <object class="GtkStringList" id="price_type_strings">
+    <items>
+      <item>Bid</item>
+      <item>Ask</item>
+      <item>Last</item>
+      <item>Net Asset Value</item>
+      <item>Unknown</item>
+    </items>
   </object>
   <object class="GtkWindow" id="price_dialog">
     <property name="modal">1</property>
@@ -54,7 +31,6 @@
                 <property name="halign">end</property>
                 <property name="justify">center</property>
                 <property name="label" translatable="yes">Nam_espace</property>
-                <property name="mnemonic-widget">namespace_cbwe</property>
                 <property name="use-underline">1</property>
                 <layout>
                   <property name="column">0</property>
@@ -67,7 +43,6 @@
                 <property name="halign">end</property>
                 <property name="justify">center</property>
                 <property name="label" translatable="yes">_Security</property>
-                <property name="mnemonic-widget">commodity_cbwe</property>
                 <property name="use-underline">1</property>
                 <layout>
                   <property name="column">0</property>
@@ -139,16 +114,9 @@
               </object>
             </child>
             <child>
-              <object class="GtkComboBox" id="namespace_cbwe">
-                <property name="has-entry">1</property>
-                <property name="entry-text-column">0</property>
-                <property name="model">liststore3</property>
-                <child internal-child="entry">
-                  <object class="GtkEntry" id="combobox-entry3">
-                    <property name="visible">1</property>
-                  </object>
-                </child>
-                <signal name="changed" handler="pedit_commodity_ns_changed_cb"/>
+              <object class="GtkBox" id="namespace_cbwe">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">6</property>
                 <layout>
                   <property name="column">1</property>
                   <property name="row">0</property>
@@ -156,16 +124,9 @@
               </object>
             </child>
             <child>
-              <object class="GtkComboBox" id="commodity_cbwe">
-                <property name="entry-text-column">0</property>
-                <property name="has-entry">1</property>
-                <property name="model">liststore2</property>
-                <child internal-child="entry">
-                  <object class="GtkEntry" id="combobox-entry2">
-                    <property name="visible">1</property>
-                  </object>
-                </child>
-                <signal name="changed" handler="pedit_commodity_changed_cb"/>
+              <object class="GtkBox" id="commodity_cbwe">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">6</property>
                 <layout>
                   <property name="column">1</property>
                   <property name="row">1</property>
@@ -200,15 +161,8 @@
               </object>
             </child>
             <child>
-              <object class="GtkComboBox" id="type_combobox">
-                <property name="model">liststore1</property>
-                <child>
-                  <object class="GtkCellRendererText" id="cellrenderertext1"/>
-                  <!-- Custom child fragments -->
-                  <attributes>
-                    <attribute name="text">0</attribute>
-                  </attributes>
-                </child>
+              <object class="GtkDropDown" id="type_combobox">
+                <property name="model">price_type_strings</property>
                 <layout>
                   <property name="column">1</property>
                   <property name="row">5</property>
@@ -428,6 +382,27 @@
                   <property name="column">0</property>
                   <property name="column-span">2</property>
                   <property name="row">3</property>
+                </layout>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel" id="remove_namespace_label">
+                <property name="halign">end</property>
+                <property name="label" translatable="yes">_Namespace</property>
+                <property name="use-underline">1</property>
+                <layout>
+                  <property name="column">0</property>
+                  <property name="row">2</property>
+                </layout>
+              </object>
+            </child>
+            <child>
+              <object class="GtkBox" id="namespace_combo_we">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">6</property>
+                <layout>
+                  <property name="column">1</property>
+                  <property name="row">2</property>
                 </layout>
               </object>
             </child>

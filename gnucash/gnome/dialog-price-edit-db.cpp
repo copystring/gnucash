@@ -431,13 +431,14 @@ get_fiscal_end_date (void)
 }
 
 static void
-namespace_changed_cb (GtkComboBox *cbwe, gpointer data)
+namespace_changed_cb (GtkEditable *, gpointer data)
 {
     auto pdb_dialog = static_cast<PricesDialog *>(data);
 
     if (pdb_dialog->target_namespace_name)
         g_free (pdb_dialog->target_namespace_name);
-    pdb_dialog->target_namespace_name = gnc_ui_namespace_picker_ns (GTK_WIDGET(cbwe));
+    pdb_dialog->target_namespace_name = gnc_ui_namespace_picker_ns (
+        pdb_dialog->namespace_cbwe);
 
     gnc_prices_dialog_load_view (pdb_dialog->remove_view,
                                  pdb_dialog->price_db,
@@ -477,7 +478,6 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
 
     ENTER(" ");
     auto builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-price.ui", "liststore3");
     gnc_builder_add_from_file (builder, "dialog-price.ui", "liststore4");
     gnc_builder_add_from_file (builder, "dialog-price.ui", "deletion_date_dialog");
 
@@ -494,10 +494,13 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
 
     // Setup namespace
     pdb_dialog->namespace_cbwe = GTK_WIDGET(gtk_builder_get_object (builder, "namespace_combo_we"));
-    gnc_ui_update_namespace_picker (pdb_dialog->namespace_cbwe, nullptr, DIAG_COMM_ALL);
-    gnc_cbwe_require_list_item (GTK_COMBO_BOX(pdb_dialog->namespace_cbwe));
-    gtk_combo_box_set_active (GTK_COMBO_BOX(pdb_dialog->namespace_cbwe), 1);
-    g_signal_connect (G_OBJECT(pdb_dialog->namespace_cbwe), "changed",
+    gnc_ui_commodity_picker_setup (pdb_dialog->namespace_cbwe);
+    auto namespace_label = GTK_WIDGET(gtk_builder_get_object (builder, "remove_namespace_label"));
+    gtk_label_set_mnemonic_widget (GTK_LABEL (namespace_label), GTK_WIDGET (
+        gnc_ui_commodity_picker_get_entry (pdb_dialog->namespace_cbwe)));
+    gnc_ui_update_namespace_picker (pdb_dialog->namespace_cbwe,
+                                    GNC_COMMODITY_NS_NONISO_GUI, DIAG_COMM_ALL);
+    g_signal_connect (gnc_ui_commodity_picker_get_entry (pdb_dialog->namespace_cbwe), "changed",
                       G_CALLBACK(namespace_changed_cb), pdb_dialog);
 
     // Setup the commodity view

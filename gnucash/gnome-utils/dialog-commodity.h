@@ -212,10 +212,23 @@ gnc_ui_edit_commodity_modal (gnc_commodity *commodity,
 /** @name Auxiliary Dialog Functions */
 /** @{ */
 
-/** Given a combo box, fill in the known commodity namespaces and then
+/** Create an editable GTK4 picker backed by a string model. The picker
+ *  combines a text entry with a drop-down list, so callers can retain the
+ *  existing namespace-entry workflow without depending on a deprecated
+ *  composite selector.
+ */
+GtkWidget *gnc_ui_commodity_picker_new (void);
+
+/** Initialise a picker that was declared as a GtkBox in a builder file. */
+void gnc_ui_commodity_picker_setup (GtkWidget *picker);
+
+/** Return the editable part of a commodity picker. */
+GtkEntry *gnc_ui_commodity_picker_get_entry (GtkWidget *picker);
+
+/** Given a commodity picker, fill in the known commodity namespaces and then
  *  select one.
  *
- *  @param cbwe The widget to populate with information.
+ *  @param picker The widget to populate with information.
  *
  *  @param sel The namespace that should be initially selected when
  *  the combo box appears.
@@ -223,24 +236,24 @@ gnc_ui_edit_commodity_modal (gnc_commodity *commodity,
  *  @param mode Determines in which namespaces the user may select a
  *  commodity
  */
-void gnc_ui_update_namespace_picker (GtkWidget *cbwe,
+void gnc_ui_update_namespace_picker (GtkWidget *picker,
                                      const gchar *sel,
                                      dialog_commodity_mode mode);
 
-/** Given a combo box, return the currently selected namespaces.
+/** Given a commodity picker, return the currently selected namespace.
  *
- *  @param cbwe The combo box of namespaces.
+ *  @param picker The picker of namespaces.
  *
  *  @return The currently selected namespace.
  *
  *  @note This string must be freed by with g_free.
  */
-gchar *gnc_ui_namespace_picker_ns (GtkWidget *cbwe);
+gchar *gnc_ui_namespace_picker_ns (GtkWidget *picker);
 
-/** Given a combo box, fill in all the known commodities for the
+/** Given a commodity picker, fill in all the known commodities for the
  *  specified namespace, and then select one.
  *
- *  @param cbwe The widget to populate with information.
+ *  @param picker The widget to populate with information.
  *
  *  @param namespace All commodities with this namespace will be added
  *  to the combo box.
@@ -248,7 +261,7 @@ gchar *gnc_ui_namespace_picker_ns (GtkWidget *cbwe);
  *  @param sel The commodity that should be initially selected when
  *  the combo box appears.
  */
-void gnc_ui_update_commodity_picker (GtkWidget *cbwe,
+void gnc_ui_update_commodity_picker (GtkWidget *picker,
                                      const gchar *name_space,
                                      const gchar *sel);
 /** @} */

@@ -1130,7 +1130,6 @@ static QIFCommNotebookPage *
 new_security_notebook_page (SCM security_hash_key, gnc_commodity *comm, QIFImportWindow *wind)
 {
     QIFCommNotebookPage *comm_nb_page = g_new0(QIFCommNotebookPage, 1);
-    GtkListStore *store;
     GtkWidget    *table;
     GtkWidget    *label;
     gchar        *title = NULL;
@@ -1228,22 +1227,14 @@ new_security_notebook_page (SCM security_hash_key, gnc_commodity *comm, QIFImpor
                       G_CALLBACK(gnc_ui_qif_import_comm_changed_cb), wind);
 
     /* Namespace entry */
-    store = gtk_list_store_new (1, G_TYPE_STRING);
-    comm_nb_page->namespace_combo = gtk_combo_box_new_with_model_and_entry (GTK_TREE_MODEL(store));
-    g_object_unref (store);
-
-    entry = gtk_combo_box_get_child (GTK_COMBO_BOX(comm_nb_page->namespace_combo));
-//FIXME gtk4    gtk_widget_set_events (GTK_WIDGET(entry), GDK_FOCUS_CHANGE_MASK);
+    comm_nb_page->namespace_combo = gnc_ui_commodity_picker_new ();
+    entry = GTK_WIDGET (gnc_ui_commodity_picker_get_entry (comm_nb_page->namespace_combo));
     g_signal_connect (G_OBJECT (entry), "changed",
                       G_CALLBACK(gnc_ui_qif_import_comm_namespace_changed_cb), wind);
 
-    /* Set the column for the text */
-    gtk_combo_box_set_entry_text_column (GTK_COMBO_BOX(comm_nb_page->namespace_combo), 0);
-
-    gnc_cbwe_add_completion (GTK_COMBO_BOX(comm_nb_page->namespace_combo));
     label = gtk_label_new_with_mnemonic (
                 _("_Exchange or abbreviation type"));
-    gtk_label_set_mnemonic_widget (GTK_LABEL(label), comm_nb_page->namespace_combo);
+    gtk_label_set_mnemonic_widget (GTK_LABEL(label), entry);
     gnc_label_set_alignment (label, 0, 0.5);
 
     gtk_widget_set_tooltip_text (label, namespace_tooltip);
@@ -3081,8 +3072,8 @@ gnc_ui_qif_import_commodity_notebook_update_combos (QIFImportWindow * wind, gboo
                 DIAG_COMM_ALL);
 
             if(!init_combos)
-                gnc_entry_set_text (GTK_ENTRY(gtk_combo_box_get_child (GTK_COMBO_BOX
-                                              (comm_nb_page->namespace_combo))), "");
+                gnc_entry_set_text (gnc_ui_commodity_picker_get_entry (
+                                        comm_nb_page->namespace_combo), "");
         }
         else
             gnc_ui_update_namespace_picker (comm_nb_page->namespace_combo, ns, DIAG_COMM_ALL);
