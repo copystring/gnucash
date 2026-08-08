@@ -573,8 +573,9 @@ gnc_html_get_webview( GncHtml* self ) noexcept
     g_return_val_if_fail (self != nullptr, nullptr);
     g_return_val_if_fail (GNC_IS_HTML(self), nullptr);
 
-    auto priv = GNC_HTML_GET_PRIVATE(self);
-    return gtk_scrolled_window_get_child (GTK_SCROLLED_WINDOW(priv->container));
+    /* GncHtml is a controller. Backends own and expose their visible widget
+     * directly, so there is no longer a mandatory GtkScrolledWindow layer. */
+    return GNC_HTML_GET_PRIVATE(self)->container;
 }
 
 
@@ -621,6 +622,20 @@ gnc_html_register_urltype( URLType type, const char *protocol ) noexcept
         g_hash_table_insert (gnc_html_proto_to_type_hash, static_cast<gpointer>(lc_proto), lc_type);
 
     return TRUE;
+}
+
+gboolean
+gnc_html_urltype_is_internal (URLType type) noexcept
+{
+    return !g_strcmp0 (type, URL_TYPE_REGISTER) ||
+           !g_strcmp0 (type, URL_TYPE_ACCTTREE) ||
+           !g_strcmp0 (type, URL_TYPE_REPORT) ||
+           !g_strcmp0 (type, URL_TYPE_OPTIONS) ||
+           !g_strcmp0 (type, URL_TYPE_SCHEME) ||
+           !g_strcmp0 (type, URL_TYPE_HELP) ||
+           !g_strcmp0 (type, URL_TYPE_XMLDATA) ||
+           !g_strcmp0 (type, URL_TYPE_PRICE) ||
+           !g_strcmp0 (type, URL_TYPE_BUDGET);
 }
 
 void

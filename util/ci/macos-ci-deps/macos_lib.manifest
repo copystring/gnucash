@@ -55,8 +55,6 @@ libgc.1.dylib
 libgc.dylib
 libgcrypt.20.dylib
 libgcrypt.dylib
-libgdk-3.0.dylib
-libgdk-3.dylib
 libgdk_pixbuf-2.0.0.dylib
 libgdk_pixbuf-2.0.dylib
 libgettextlib-0.21.dylib

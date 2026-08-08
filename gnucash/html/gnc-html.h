@@ -109,6 +109,13 @@ extern "C"
 gboolean gnc_html_register_urltype( URLType type, const gchar* protocol ) NOEXCEPT;
 
 /**
+ * Returns whether @type identifies an action handled by GnuCash rather than
+ * a resource that a renderer may load directly. Report backends must route
+ * user-initiated links of this kind through gnc_html_show_url().
+ */
+gboolean gnc_html_urltype_is_internal (URLType type) NOEXCEPT;
+
+/**
  * Initializes the html subsystem
  */
 void gnc_html_initialize( void ) NOEXCEPT;

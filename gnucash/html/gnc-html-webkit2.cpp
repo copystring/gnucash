@@ -564,12 +564,37 @@ load_to_stream( GncHtmlWebkit* self, URLType type,
 }
 
 static gboolean
+is_current_document_navigation (WebKitWebView *web_view, const gchar *uri)
+{
+     const gchar *current_uri = webkit_web_view_get_uri (web_view);
+     gchar *current_document;
+     gchar *requested_document;
+     gchar *fragment;
+     gboolean matches;
+
+     if (!current_uri || !uri)
+          return FALSE;
+
+     current_document = g_strdup (current_uri);
+     requested_document = g_strdup (uri);
+     fragment = strchr (current_document, '#');
+     if (fragment)
+          *fragment = '\0';
+     fragment = strchr (requested_document, '#');
+     if (fragment)
+          *fragment = '\0';
+     matches = g_strcmp0 (current_document, requested_document) == 0;
+     g_free (current_document);
+     g_free (requested_document);
+     return matches;
+}
+
+static gboolean
 perform_navigation_policy (WebKitWebView *web_view,
                WebKitNavigationPolicyDecision *decision,
-               GncHtml *self)
+               GncHtml *self, gboolean new_window)
 {
      gchar *location = nullptr, *label = nullptr;
-     bool ignore = false;
      WebKitNavigationAction *action =
       webkit_navigation_policy_decision_get_navigation_action (decision);
      if (webkit_navigation_action_get_navigation_type (action) !=
@@ -581,17 +606,29 @@ perform_navigation_policy (WebKitWebView *web_view,
      auto req = webkit_navigation_action_get_request (action);
      const gchar *uri = webkit_uri_request_get_uri (req);
      const gchar *scheme =  gnc_html_parse_url (self, uri, &location, &label);
-     if (strcmp (scheme, URL_TYPE_FILE) != 0)
+     if (gnc_html_urltype_is_internal (scheme))
      {
-          impl_webkit_show_url (self, scheme, location, label, FALSE);
-          ignore = true;
+          /* GnuCash actions never cross the renderer boundary directly.
+           * This is also used for target=_blank, which remains in this
+           * controller instead of creating an unmanaged WebKit window. */
+          impl_webkit_show_url (self, scheme, location, label, new_window);
+     }
+     else if (!new_window && is_current_document_navigation (web_view, uri))
+     {
+          /* Fragment links within the generated report are safe and must
+           * remain renderer-native so that scrolling reaches the anchor. */
+          webkit_policy_decision_use ((WebKitPolicyDecision *)decision);
+          g_free (location);
+          g_free (label);
+          return TRUE;
+     }
+     else
+     {
+          PWARN ("Blocked report navigation to '%s'", uri ? uri : "(null)");
      }
      g_free (location);
      g_free (label);
-     if (ignore)
-          webkit_policy_decision_ignore ((WebKitPolicyDecision*)decision);
-     else
-          webkit_policy_decision_use ((WebKitPolicyDecision*)decision);
+     webkit_policy_decision_ignore ((WebKitPolicyDecision*)decision);
      return TRUE;
 }
 
@@ -602,14 +639,16 @@ webkit_decide_policy_cb (WebKitWebView *web_view,
              gpointer user_data)
 {
 /* This turns out to be the signal to intercept for handling a link-click. */
-     if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
+     if (decision_type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION ||
+         decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION)
      {
-          webkit_policy_decision_use (decision);
-          return TRUE;
+          return perform_navigation_policy (
+              web_view, WEBKIT_NAVIGATION_POLICY_DECISION (decision),
+              GNC_HTML (user_data),
+              decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION);
      }
-     return perform_navigation_policy (
-      web_view, (WebKitNavigationPolicyDecision*) decision,
-      GNC_HTML (user_data));
+     webkit_policy_decision_use (decision);
+     return TRUE;
 }
 
 static void
@@ -1019,6 +1058,7 @@ impl_webkit_cancel( GncHtml* self )
 
      auto priv = GNC_HTML_WEBKIT_GET_PRIVATE(self);
 
+     webkit_web_view_stop_loading (priv->web_view);
      g_hash_table_foreach_remove( priv->base.request_info, webkit_cancel_helper, nullptr );
 }
 
