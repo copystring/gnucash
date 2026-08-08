@@ -68,7 +68,7 @@ GHashTable* gnc_html_url_handlers = nullptr;
 /* hashes an HTML <object classid="ID"> classid to a handler function */
 extern GHashTable* gnc_html_object_handlers;
 
-G_DEFINE_ABSTRACT_TYPE(GncHtml, gnc_html, GTK_TYPE_BIN)
+G_DEFINE_ABSTRACT_TYPE(GncHtml, gnc_html, G_TYPE_OBJECT)
 
 static void gnc_html_dispose( GObject* obj );
 static void gnc_html_finalize( GObject* obj );
@@ -104,7 +104,7 @@ gnc_html_init( GncHtml* self )
 {
     GncHtmlPrivate *priv = self->priv = g_new0( GncHtmlPrivate, 1 );
 
-    priv->container = gtk_scrolled_window_new( nullptr, nullptr );
+    priv->container = GTK_WIDGET(g_object_ref_sink(gtk_scrolled_window_new()));
     gtk_scrolled_window_set_policy( GTK_SCROLLED_WINDOW(priv->container),
                                     GTK_POLICY_AUTOMATIC,
                                     GTK_POLICY_AUTOMATIC );
@@ -121,9 +121,7 @@ gnc_html_dispose( GObject* obj )
 
     if ( priv->container != nullptr )
     {
-        gtk_widget_destroy( GTK_WIDGET(priv->container) );
-        g_object_unref( G_OBJECT(priv->container) );
-        priv->container = nullptr;
+        g_clear_object (&priv->container);
     }
     if ( priv->request_info != nullptr )
     {
@@ -576,25 +574,7 @@ gnc_html_get_webview( GncHtml* self ) noexcept
     g_return_val_if_fail (GNC_IS_HTML(self), nullptr);
 
     auto priv = GNC_HTML_GET_PRIVATE(self);
-    GList *sw_list = gtk_container_get_children (GTK_CONTAINER(priv->container));
-    GtkWidget *webview = nullptr;
-
-    if (sw_list) // the scroll window has only one child
-    {
-#ifdef WEBKIT1
-        webview = static_cast<GtkWidget *>(sw_list->data);
-#else
-        GList *vp_list = gtk_container_get_children (GTK_CONTAINER(sw_list->data));
-
-        if (vp_list) // the viewport has only one child
-        {
-            webview = static_cast<GtkWidget *>(vp_list->data);
-            g_list_free (vp_list);
-        }
-#endif
-    }
-    g_list_free (sw_list);
-    return webview;
+    return gtk_scrolled_window_get_child (GTK_SCROLLED_WINDOW(priv->container));
 }
 
 

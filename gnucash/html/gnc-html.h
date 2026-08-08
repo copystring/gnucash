@@ -121,7 +121,7 @@ void gnc_html_initialize( void ) NOEXCEPT;
 
 struct _GncHtmlClass
 {
-    GtkBinClass parent_class;
+    GObjectClass parent_class;
 
     /* Methods */
     void (*show_url)( GncHtml* html,
@@ -146,7 +146,7 @@ struct _GncHtmlClass
 
 struct _GncHtml
 {
-    GtkBin parent_instance;
+    GObject parent_instance;
 
     /*< private >*/
     GncHtmlPrivate* priv;
