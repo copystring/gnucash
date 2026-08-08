@@ -3360,7 +3360,7 @@ gnc_main_window_open_page (GncMainWindow *window,
     // Create a custom clickable area for the tab to support middle-clicking
     tab_clickable_area = gtk_event_box_new();
     gtk_widget_show(tab_clickable_area);
-    gtk_box_pack_start (GTK_BOX (tab_container), tab_clickable_area, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX (tab_container), tab_clickable_area, TRUE, TRUE, 0);
 
     // Create a box for the tab's content
     // Give it a name so we can find it later (see main_window_find_tab_items)
@@ -3373,16 +3373,16 @@ gnc_main_window_open_page (GncMainWindow *window,
     {
         image = gtk_image_new_from_icon_name (icon, GTK_ICON_SIZE_MENU);
         gtk_widget_show (image);
-        gtk_box_pack_start (GTK_BOX (tab_content), image, FALSE, FALSE, 0);
+        gnc_box_append_full (GTK_BOX (tab_content), image, FALSE, FALSE, 0);
         gtk_widget_set_margin_start (GTK_WIDGET(image), 5);
-        gtk_box_pack_start (GTK_BOX (tab_content), label, TRUE, TRUE, 0);
+        gnc_box_append_full (GTK_BOX (tab_content), label, TRUE, TRUE, 0);
     }
     else
-        gtk_box_pack_start (GTK_BOX (tab_content), label, TRUE, TRUE, 0);
+        gnc_box_append_full (GTK_BOX (tab_content), label, TRUE, TRUE, 0);
 
     entry = gtk_entry_new();
     gtk_widget_hide (entry);
-    gtk_box_pack_start (GTK_BOX (tab_content), entry, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX (tab_content), entry, TRUE, TRUE, 0);
     g_signal_connect(G_OBJECT(entry), "activate",
                      G_CALLBACK(gnc_main_window_tab_entry_activate), page);
     g_signal_connect(G_OBJECT(entry), "focus-out-event",
@@ -3421,7 +3421,7 @@ gnc_main_window_open_page (GncMainWindow *window,
         g_signal_connect_swapped (G_OBJECT (close_button), "clicked",
                                   G_CALLBACK(gnc_main_window_close_page), page);
 
-        gtk_box_pack_start (GTK_BOX (tab_container), close_button, FALSE, FALSE, 0);
+        gnc_box_append_full (GTK_BOX (tab_container), close_button, FALSE, FALSE, 0);
         gtk_widget_set_margin_end (GTK_WIDGET(close_button), 5);
         g_object_set_data (G_OBJECT (page), PLUGIN_PAGE_CLOSE_BUTTON, close_button);
     }
@@ -4207,7 +4207,7 @@ gnc_main_window_setup_window (GncMainWindow *window)
     priv->menu_dock = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (priv->menu_dock), FALSE);
     gtk_widget_show (priv->menu_dock);
-    gtk_box_pack_start (GTK_BOX (main_vbox), priv->menu_dock,
+    gnc_box_append_full (GTK_BOX (main_vbox), priv->menu_dock,
                         FALSE, TRUE, 0);
 
     priv->notebook = gtk_notebook_new ();
@@ -4222,19 +4222,19 @@ gnc_main_window_setup_window (GncMainWindow *window)
                       G_CALLBACK (gnc_main_window_page_reordered), window);
     g_signal_connect (G_OBJECT (priv->notebook), "focus-in-event",
                       G_CALLBACK (gnc_main_window_page_focus_in), window);
-    gtk_box_pack_start (GTK_BOX (main_vbox), priv->notebook,
+    gnc_box_append_full (GTK_BOX (main_vbox), priv->notebook,
                         TRUE, TRUE, 0);
 
     priv->statusbar = gtk_statusbar_new ();
     gtk_widget_show (priv->statusbar);
-    gtk_box_pack_start (GTK_BOX (main_vbox), priv->statusbar,
+    gnc_box_append_full (GTK_BOX (main_vbox), priv->statusbar,
                         FALSE, TRUE, 0);
 
     priv->progressbar = gtk_progress_bar_new ();
     gtk_progress_bar_set_show_text (GTK_PROGRESS_BAR(priv->progressbar), TRUE);
     gtk_progress_bar_set_text(GTK_PROGRESS_BAR(priv->progressbar), " ");
     gtk_widget_show (priv->progressbar);
-    gtk_box_pack_start (GTK_BOX (priv->statusbar), priv->progressbar,
+    gnc_box_append_full (GTK_BOX (priv->statusbar), priv->progressbar,
                         FALSE, TRUE, 0);
     gtk_progress_bar_set_pulse_step(GTK_PROGRESS_BAR(priv->progressbar),
                                     0.01);

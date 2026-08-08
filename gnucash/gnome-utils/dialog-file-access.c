@@ -31,6 +31,7 @@
 #include "gnc-ui-util.h"
 #include "gnc-uri-utils.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "dialog-file-access.h"
 #include "gnc-file.h"
 #include "gnc-plugin-file-history.h"
@@ -374,7 +375,7 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     file_chooser = GTK_WIDGET(gtk_builder_get_object (builder, "file_chooser" ));
     fileChooser = GTK_FILE_CHOOSER_WIDGET(gtk_file_chooser_widget_new( fileChooserAction ));
     faw->fileChooser = GTK_FILE_CHOOSER(fileChooser);
-    gtk_box_pack_start( GTK_BOX(file_chooser), GTK_WIDGET(fileChooser), TRUE, TRUE, 6 );
+    gnc_box_append_full( GTK_BOX(file_chooser), GTK_WIDGET(fileChooser), TRUE, TRUE, 6 );
 
     gnc_file_chooser_add_filters (faw->fileChooser,
                                   gnc_file_chooser_get_datafile_filters ());

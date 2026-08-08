@@ -486,7 +486,7 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
     auto box = GTK_WIDGET(gtk_builder_get_object (builder, "date_hbox"));
     auto date = gnc_date_edit_new (time (NULL), FALSE, FALSE);
 
-    gtk_box_pack_start (GTK_BOX (box), date, FALSE, FALSE, 0);
+    gnc_box_append_full (GTK_BOX (box), date, FALSE, FALSE, 0);
     gtk_widget_show (date);
     gtk_entry_set_activates_default(GTK_ENTRY(GNC_DATE_EDIT(date)->date_entry), TRUE);
     auto label = GTK_WIDGET(gtk_builder_get_object (builder, "date_label"));

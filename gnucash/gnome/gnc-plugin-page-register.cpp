@@ -1162,7 +1162,7 @@ gnc_plugin_page_register_create_widget (GncPluginPage* plugin_page)
     g_object_ref (gsr);
 
     gtk_widget_show (gsr);
-    gtk_box_pack_start (GTK_BOX (priv->widget), gsr, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX (priv->widget), gsr, TRUE, TRUE, 0);
 
     g_signal_connect (G_OBJECT (gsr), "help-changed",
                       G_CALLBACK (gnc_plugin_page_help_changed_cb),
@@ -1186,7 +1186,7 @@ gnc_plugin_page_register_create_widget (GncPluginPage* plugin_page)
     if (plugin_page->summarybar)
     {
         gtk_widget_set_visible (plugin_page->summarybar, TRUE);
-        gtk_box_pack_start (GTK_BOX (priv->widget), plugin_page->summarybar,
+        gnc_box_append_full (GTK_BOX (priv->widget), plugin_page->summarybar,
                             FALSE, FALSE, 0);
 
         gnc_plugin_page_register_summarybar_position_changed (NULL, NULL, page);

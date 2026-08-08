@@ -950,12 +950,12 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
         menu = gnc_ui_source_menu_create(SOURCE_SINGLE);
     }
     retval->source_menu[SOURCE_SINGLE] = menu;
-    gtk_box_pack_start(GTK_BOX(box), menu, TRUE, TRUE, 0);
+    gnc_box_append_full(GTK_BOX(box), menu, TRUE, TRUE, 0);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder, "multi_source_box"));
     menu = gnc_ui_source_menu_create(SOURCE_MULTI);
     retval->source_menu[SOURCE_MULTI] = menu;
-    gtk_box_pack_start(GTK_BOX(box), menu, TRUE, TRUE, 0);
+    gnc_box_append_full(GTK_BOX(box), menu, TRUE, TRUE, 0);
 
     if (gnc_quote_source_num_entries(SOURCE_UNKNOWN))
     {
@@ -964,7 +964,7 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
         box = GTK_WIDGET(gtk_builder_get_object (builder, "unknown_source_box"));
         menu = gnc_ui_source_menu_create(SOURCE_UNKNOWN);
         retval->source_menu[SOURCE_UNKNOWN] = menu;
-        gtk_box_pack_start(GTK_BOX(box), menu, TRUE, TRUE, 0);
+        gnc_box_append_full(GTK_BOX(box), menu, TRUE, TRUE, 0);
     }
     else
     {
@@ -979,7 +979,7 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
 
     box = GTK_WIDGET(gtk_builder_get_object (builder, "quote_tz_box"));
     retval->quote_tz_menu = gnc_ui_quote_tz_menu_create();
-    gtk_box_pack_start(GTK_BOX(box), retval->quote_tz_menu, TRUE, TRUE, 0);
+    gnc_box_append_full(GTK_BOX(box), retval->quote_tz_menu, TRUE, TRUE, 0);
 
     /* Commodity editing is next to nil */
     if (gnc_commodity_namespace_is_iso(selected_namespace))

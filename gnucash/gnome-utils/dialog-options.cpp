@@ -37,6 +37,7 @@
 #include <qofbookslots.h> // for OPTION_SECTION_ACCOUNTS
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-component-manager.h"
 #include <gnc-prefs.h> // for GNC_PREFS_NUM_SOURCE
 #include "gnc-session.h" // for gnc_get_current_session
@@ -207,7 +208,7 @@ static GtkGrid*
 create_options_box(GtkBox* content_box)
 {
     auto options_scrolled_win = gtk_scrolled_window_new(NULL, NULL);
-    gtk_box_pack_start(GTK_BOX(content_box), options_scrolled_win,
+    gnc_box_append_full(GTK_BOX(content_box), options_scrolled_win,
                        TRUE, TRUE, 0);
 
     /* Build space for the content - the options box */
@@ -234,7 +235,7 @@ create_reset_button_box(GtkBox* page_content_box)
     gtk_button_box_set_layout (GTK_BUTTON_BOX (buttonbox),
                                GTK_BUTTONBOX_EDGE);
     gtk_container_set_border_width(GTK_CONTAINER (buttonbox), 5);
-    gtk_box_pack_end(GTK_BOX(page_content_box), buttonbox, FALSE, FALSE, 0);
+    gnc_box_prepend_full(GTK_BOX(page_content_box), buttonbox, FALSE, FALSE, 0);
     return GTK_BUTTON_BOX(buttonbox);
 }
 
@@ -312,7 +313,7 @@ dialog_append_page(GncOptionsDialog* dlg, GncOptionSectionPtr& section)
                      G_CALLBACK(dialog_reset_cb), dlg);
     g_object_set_data(G_OBJECT(reset_button), "section",
                       static_cast<void*>(section.get()));
-    gtk_box_pack_end(GTK_BOX(buttonbox), reset_button, FALSE, FALSE, 0);
+    gnc_box_prepend_full(GTK_BOX(buttonbox), reset_button, FALSE, FALSE, 0);
     gtk_widget_set_visible (GTK_WIDGET(page_content_box), TRUE);
     gtk_notebook_append_page(GTK_NOTEBOOK(dlg->get_notebook()),
                              GTK_WIDGET(page_content_box), page_label);
@@ -606,7 +607,7 @@ GncOptionsDialog::GncOptionsDialog(bool modal, const char* title,
     gtk_widget_set_vexpand (m_notebook, TRUE);
 
     gtk_widget_show(m_notebook);
-    gtk_box_pack_start(GTK_BOX(hbox), m_notebook, TRUE, TRUE, 5);
+    gnc_box_append_full(GTK_BOX(hbox), m_notebook, TRUE, TRUE, 5);
 
     auto component_id = gnc_register_gui_component (m_component_class,
                                                     nullptr,

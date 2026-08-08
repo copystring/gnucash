@@ -48,6 +48,7 @@
 #include "gnc-state.h"
 #include "gnc-prefs.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 
 /* The actual state key for a particular column visibility.  This is
  * attached to the menu items that are in the column selection menu.
@@ -273,10 +274,10 @@ gnc_tree_view_init (GncTreeView *view)
 
     gtk_widget_set_margin_start (GTK_WIDGET(icon), 5);
 
-    gtk_box_pack_end (GTK_BOX(priv->column_menu_icon_box), icon, FALSE, FALSE, 0);
+    gnc_box_prepend_full (GTK_BOX(priv->column_menu_icon_box), icon, FALSE, FALSE, 0);
 
     sep = gtk_separator_new (GTK_ORIENTATION_VERTICAL);
-    gtk_box_pack_end (GTK_BOX(priv->column_menu_icon_box), sep, FALSE, FALSE, 0);
+    gnc_box_prepend_full (GTK_BOX(priv->column_menu_icon_box), sep, FALSE, FALSE, 0);
 
     gtk_widget_set_visible (priv->column_menu_icon_box, TRUE);
 

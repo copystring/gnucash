@@ -66,6 +66,7 @@
 #include <glib/gi18n.h>
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-currency-edit.h"
 #include "gnc-date-edit.h"
 #include "gnc-gobject-utils.h"
@@ -968,7 +969,7 @@ file_chooser_clear_cb (GtkButton *button, gpointer user_data)
     g_object_set_data_full (G_OBJECT(fcb_new),"group", g_strdup (group), (GDestroyNotify) g_free);
     g_object_set_data_full (G_OBJECT(fcb_new),"pref", g_strdup (pref), (GDestroyNotify) g_free);
 
-    gtk_box_pack_start (GTK_BOX(box), fcb_new, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), fcb_new, TRUE, TRUE, 0);
     gtk_box_reorder_child (GTK_BOX(box), fcb_new, 0);
     gtk_widget_show (fcb_new);
 
@@ -1408,47 +1409,47 @@ gnc_preferences_dialog_create (GtkWindow *parent)
                      "pref/" GNC_PREFS_GROUP_ACCT_SUMMARY "/" GNC_PREF_START_PERIOD));
     period = gnc_period_select_new (TRUE);
     gtk_widget_show (period);
-    gtk_box_pack_start (GTK_BOX(box), period, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), period, TRUE, TRUE, 0);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder,
                      "pref/" GNC_PREFS_GROUP_ACCT_SUMMARY "/" GNC_PREF_END_PERIOD));
     period = gnc_period_select_new (FALSE);
     gtk_widget_show (period);
-    gtk_box_pack_start (GTK_BOX(box), period, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), period, TRUE, TRUE, 0);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder,
                      "pref/" GNC_PREFS_GROUP_ACCT_SUMMARY "/" GNC_PREF_START_DATE));
     date = gnc_date_edit_new (gnc_time (NULL), FALSE, FALSE);
     gtk_widget_show (date);
-    gtk_box_pack_start (GTK_BOX(box), date, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), date, TRUE, TRUE, 0);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder,
                      "pref/" GNC_PREFS_GROUP_ACCT_SUMMARY "/" GNC_PREF_END_DATE));
     date = gnc_date_edit_new (gnc_time (NULL), FALSE, FALSE);
     gtk_widget_show (date);
-    gtk_box_pack_start (GTK_BOX(box), date, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), date, TRUE, TRUE, 0);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder,
                      "pref/" GNC_PREFS_GROUP_GENERAL "/" GNC_PREF_CURRENCY_OTHER));
     currency = gnc_currency_edit_new ();
     gnc_currency_edit_set_currency (GNC_CURRENCY_EDIT(currency), gnc_default_currency());
     gtk_widget_show (currency);
-    gtk_box_pack_start (GTK_BOX(box), currency, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), currency, TRUE, TRUE, 0);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder,
                      "pref/" GNC_PREFS_GROUP_GENERAL_REPORT "/" GNC_PREF_CURRENCY_OTHER));
     currency = gnc_currency_edit_new ();
     gnc_currency_edit_set_currency (GNC_CURRENCY_EDIT(currency), gnc_default_currency());
     gtk_widget_show (currency);
-    gtk_box_pack_start (GTK_BOX(box), currency, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), currency, TRUE, TRUE, 0);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder,
                      "pref/" GNC_PREFS_GROUP_GENERAL "/" GNC_DOC_LINK_PATH_HEAD));
     fcb = gtk_file_chooser_button_new (_("Select a folder"),
                                        GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER);
-    gtk_box_pack_start (GTK_BOX(box), fcb, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), fcb, TRUE, TRUE, 0);
     button = gtk_button_new_with_label (_("Clear"));
-    gtk_box_pack_start (GTK_BOX(box), button, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(box), button, TRUE, TRUE, 0);
     gtk_widget_show (button);
     g_signal_connect (GTK_BUTTON(button), "clicked",
                       G_CALLBACK(file_chooser_clear_cb), fcb);

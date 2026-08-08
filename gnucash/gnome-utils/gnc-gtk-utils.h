@@ -53,6 +53,16 @@ void gnc_cbwe_set_by_string(GtkComboBox *cbwe, const gchar *text);
 void gnc_cbwe_add_completion (GtkComboBox *cbwe);
 void gnc_cbwe_require_list_item (GtkComboBox *cbwe);
 
+/**
+ * Append or prepend a child while retaining the GtkBox packing intent from
+ * the pre-GTK4 layout.  GTK4 stores expansion and alignment on the child,
+ * so callers provide the former GtkBox packing flags explicitly.
+ */
+void gnc_box_append_full (GtkBox *box, GtkWidget *child, gboolean expand,
+                          gboolean fill, guint padding);
+void gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
+                           gboolean fill, guint padding);
+
 gboolean gnc_is_dark_theme (GdkRGBA *fg_color);
 void gnc_style_context_get_background_color (GtkStyleContext *context,
                                              GdkRGBA         *color);

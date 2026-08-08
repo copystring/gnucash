@@ -35,6 +35,7 @@
 #include <gtk/gtk.h>
 #include <glib/gi18n.h>
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-date.h"
 #include "gnc-date-edit.h"
 #include "gnc-string-utils.h"
@@ -1434,7 +1435,7 @@ setup_period_select (GtkBuilder *builder, gboolean start_type, const gchar *hbox
     GtkWidget *period_select = GTK_WIDGET(gnc_period_select_new (start_type));
 
     auto hbox = GTK_WIDGET(gtk_builder_get_object (builder, hbox_txt));
-    gtk_box_pack_start (GTK_BOX(hbox), period_select, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(hbox), period_select, TRUE, TRUE, 0);
     gtk_widget_show (period_select);
     gnc_period_select_set_active (GNC_PERIOD_SELECT(period_select), GNC_ACCOUNTING_PERIOD_TODAY);
     gtk_widget_set_sensitive (GTK_WIDGET(period_select), FALSE);
@@ -1446,7 +1447,7 @@ setup_date_edit (GtkBuilder *builder, const gchar *hbox_txt)
 {
     GtkWidget *date_widget = gnc_date_edit_new (gnc_time (nullptr), FALSE, FALSE);
     auto hbox = GTK_WIDGET(gtk_builder_get_object (builder, hbox_txt));
-    gtk_box_pack_start (GTK_BOX(hbox), date_widget, TRUE, TRUE, 0);
+    gnc_box_append_full (GTK_BOX(hbox), date_widget, TRUE, TRUE, 0);
     gtk_widget_show (date_widget);
     gtk_widget_set_sensitive (GTK_WIDGET(date_widget), FALSE);
     return date_widget;

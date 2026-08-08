@@ -28,6 +28,63 @@
 #define LAST_INDEX "last_index"
 #define CHANGED_ID "changed_id"
 
+static void
+gnc_box_pack_full (GtkBox *box, GtkWidget *child, gboolean expand,
+                   gboolean fill, guint padding, gboolean prepend)
+{
+    GtkOrientation orientation;
+
+    g_return_if_fail (GTK_IS_BOX (box));
+    g_return_if_fail (GTK_IS_WIDGET (child));
+
+    orientation = gtk_orientable_get_orientation (GTK_ORIENTABLE (box));
+    if (orientation == GTK_ORIENTATION_HORIZONTAL)
+    {
+        gtk_widget_set_hexpand (child, expand);
+        if (expand && !fill)
+            gtk_widget_set_halign (child, GTK_ALIGN_CENTER);
+        if (padding)
+        {
+            gtk_widget_set_margin_start
+                (child, gtk_widget_get_margin_start (child) + padding);
+            gtk_widget_set_margin_end
+                (child, gtk_widget_get_margin_end (child) + padding);
+        }
+    }
+    else
+    {
+        gtk_widget_set_vexpand (child, expand);
+        if (expand && !fill)
+            gtk_widget_set_valign (child, GTK_ALIGN_CENTER);
+        if (padding)
+        {
+            gtk_widget_set_margin_top
+                (child, gtk_widget_get_margin_top (child) + padding);
+            gtk_widget_set_margin_bottom
+                (child, gtk_widget_get_margin_bottom (child) + padding);
+        }
+    }
+
+    if (prepend)
+        gtk_box_prepend (box, child);
+    else
+        gtk_box_append (box, child);
+}
+
+void
+gnc_box_append_full (GtkBox *box, GtkWidget *child, gboolean expand,
+                     gboolean fill, guint padding)
+{
+    gnc_box_pack_full (box, child, expand, fill, padding, FALSE);
+}
+
+void
+gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
+                      gboolean fill, guint padding)
+{
+    gnc_box_pack_full (box, child, expand, fill, padding, TRUE);
+}
+
 
 /** Find an entry in the GtkComboBox by its text value, and set
  *  the widget to that value.  This function also records the index of

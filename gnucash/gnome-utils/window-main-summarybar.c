@@ -38,6 +38,7 @@
 #include "gnc-ui-util.h"
 #include "window-main-summarybar.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 
 typedef struct
 {
@@ -623,7 +624,7 @@ gnc_main_window_summary_new (void)
     }
 
     gtk_container_set_border_width (GTK_CONTAINER (retval->hbox), 2);
-    gtk_box_pack_start (GTK_BOX(retval->hbox), retval->totals_combo, TRUE, TRUE, 5);
+    gnc_box_append_full (GTK_BOX(retval->hbox), retval->totals_combo, TRUE, TRUE, 5);
     gtk_widget_show (retval->totals_combo);
     gtk_widget_show (retval->hbox);
 
