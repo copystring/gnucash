@@ -518,7 +518,7 @@ gnc_gen_trans_list_show_all (GNCImportMainMatcher *info)
     gnc_gen_trans_list_create_matches (info);
     load_hash_tables (info);
     resolve_conflicts (info);
-    gtk_widget_show_all (GTK_WIDGET(info->main_widget));
+    gtk_widget_set_visible (GTK_WIDGET(info->main_widget), TRUE);
     gnc_gen_trans_list_show_accounts_column (info);
 }
 
@@ -1070,7 +1070,7 @@ input_new_fields (GNCImportMainMatcher *info, RowInfo& rowinfo,
     gtk_widget_show (dialog);
 
     bool  retval = false;
-    switch (gtk_dialog_run (GTK_DIALOG(dialog)))
+    switch (gnc_dialog_run_non_destructive (GTK_DIALOG(dialog)))
     {
     case GTK_RESPONSE_OK:
         *new_desc = g_strdup (gtk_entry_get_text (GTK_ENTRY (desc_entry)));
@@ -1082,7 +1082,7 @@ input_new_fields (GNCImportMainMatcher *info, RowInfo& rowinfo,
         break;
     }
 
-    gtk_widget_destroy (dialog);
+    gtk_window_destroy (GTK_WINDOW (dialog));
     g_object_unref (G_OBJECT(builder));
     return retval;
 }
@@ -1444,7 +1444,7 @@ gnc_gen_trans_view_popup_menu (GtkTreeView *treeview,
 
     gtk_menu_attach_to_widget (GTK_MENU (menu), GTK_WIDGET (treeview), NULL);
 
-    gtk_widget_show_all (menu);
+    gtk_widget_set_visible (menu, TRUE);
     /* Note: event can be NULL here when called from view_onPopupMenu; */
     gtk_menu_popup_at_pointer (GTK_MENU(menu), (GdkEvent*)event);
 
@@ -1790,7 +1790,7 @@ gnc_gen_trans_list_new (GtkWidget *parent,
     gnc_restore_window_size (GNC_PREFS_GROUP, GTK_WINDOW(info->main_widget), GTK_WINDOW(parent));
 
     if (show_all)
-        gtk_widget_show_all (GTK_WIDGET(info->main_widget));
+        gtk_widget_set_visible (GTK_WIDGET(info->main_widget), TRUE);
 
     // Register this UI, it needs to be closed when the session is closed.
     info->id = gnc_register_gui_component (IMPORT_MAIN_MATCHER_CM_CLASS,
@@ -1859,7 +1859,7 @@ bool
 gnc_gen_trans_list_run (GNCImportMainMatcher *info)
 {
     /* DEBUG("Begin"); */
-    bool result = gtk_dialog_run (GTK_DIALOG (info->main_widget));
+    bool result = gnc_dialog_run_non_destructive (GTK_DIALOG (info->main_widget));
     /* DEBUG("Result was %d", result); */
 
     /* No destroying here since the dialog was already destroyed through

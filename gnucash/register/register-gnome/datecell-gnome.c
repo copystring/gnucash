@@ -113,8 +113,7 @@ check_readonly_threshold (const gchar *datestr, GDate *d, gboolean warn)
                                    "%s", dialog_title);
             gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
                                  "%s", dialog_msg);
-            gtk_dialog_run (GTK_DIALOG(dialog));
-            gtk_widget_destroy (dialog);
+            gnc_dialog_run (GTK_DIALOG(dialog));
 
 //        g_warning("Entered date %s is before the \"auto-read-only threshold\";"
 //              " resetting to the threshold.", datestr);
@@ -640,7 +639,7 @@ gnc_date_cell_realize (BasicCell *bcell, gpointer data)
     box->sheet = sheet;
     box->item_edit = item_edit;
     box->date_picker = GNC_DATE_PICKER (gnc_date_picker_new ());
-    gtk_widget_show_all (GTK_WIDGET(box->date_picker));
+    gtk_widget_set_visible (GTK_WIDGET(box->date_picker), TRUE);
     g_object_ref_sink(box->date_picker);
 
     /* to mark cell as realized, remove the realize method */

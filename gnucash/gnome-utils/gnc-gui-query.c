@@ -78,7 +78,7 @@ gnc_ok_cancel_dialog (GtkWindow *parent,
 //        gtk_window_set_skip_taskbar_hint(GTK_WINDOW(dialog), FALSE);
 
     gtk_dialog_set_default_response (GTK_DIALOG(dialog), default_result);
-    result = gnc_dialog_run (GTK_DIALOG(dialog));
+    result = gnc_dialog_run_non_destructive (GTK_DIALOG(dialog));
 
     return (result);
 }
@@ -107,9 +107,7 @@ gnc_action_dialog (GtkWindow *parent, const gchar *action,
     gtk_dialog_set_default_response (GTK_DIALOG(dialog), action_default ?
                                      GTK_RESPONSE_ACCEPT : GTK_RESPONSE_CANCEL);
 
-    gint result = gtk_dialog_run(GTK_DIALOG(dialog));
-
-    gtk_widget_destroy (dialog);
+    gint result = gnc_dialog_run(GTK_DIALOG(dialog));
     g_free(buffer);
 
     return result == GTK_RESPONSE_ACCEPT;
@@ -410,6 +408,7 @@ gnc_input_dialog_internal (GtkWidget *parent, const gchar *title,
             user_input = gtk_text_buffer_get_text (buffer, &start, &end, FALSE);
         }
     }
+    gtk_window_destroy (GTK_WINDOW(dialog));
     return user_input;
 }
 

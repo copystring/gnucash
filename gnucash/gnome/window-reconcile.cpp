@@ -894,7 +894,7 @@ startRecnWindow(GtkWidget *parent, Account *account,
                 gtk_widget_set_sensitive(GTK_WIDGET(interest), FALSE);
         }
 
-        gtk_widget_show_all(dialog);
+        gtk_widget_set_visible (dialog, TRUE);
 
         gtk_widget_hide (data.future_text);
         gtk_widget_hide (data.future_icon);
@@ -911,7 +911,7 @@ startRecnWindow(GtkWidget *parent, Account *account,
         gnc_reconcile_interest_xfer_run( &data );
     }
 
-    while (gtk_dialog_run (GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
+    while (gnc_dialog_run_non_destructive (GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
     {
         if (gnc_date_edit_get_date_end(GNC_DATE_EDIT(date_value)) != *statement_date)
             recn_date_changed_cb(date_value, &data);
@@ -938,7 +938,7 @@ startRecnWindow(GtkWidget *parent, Account *account,
     }
     // must remove the focus-out handler
     g_signal_handler_disconnect (G_OBJECT(entry), fo_handler_id);
-    gtk_widget_destroy (dialog);
+    gtk_window_destroy (GTK_WINDOW (dialog));
     g_object_unref(G_OBJECT(builder));
 
     return (result == GTK_RESPONSE_OK);
@@ -2210,7 +2210,7 @@ use Find Transactions to find them, unreconcile, and re-reconcile."));
 
     /* Allow resize */
     gtk_window_set_resizable(GTK_WINDOW(recnData->window), TRUE);
-    gtk_widget_show_all(recnData->window);
+    gtk_widget_set_visible (recnData->window, TRUE);
 
     gnc_reconcile_window_set_titles(recnData);
 

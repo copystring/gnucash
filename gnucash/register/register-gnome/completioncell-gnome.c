@@ -851,7 +851,7 @@ gnc_completion_cell_gui_realize (BasicCell* bcell, gpointer data)
     set_sort_column_enabled (box, FALSE);
     unblock_list_signals (cell);
 
-    gtk_widget_show_all (GTK_WIDGET(box->item_list));
+    gtk_widget_set_visible (GTK_WIDGET(box->item_list), TRUE);
     g_object_ref_sink (box->item_list);
 
     /* to mark cell as realized, remove the realize method */

@@ -541,7 +541,7 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
 
     bool leave = false;
     int response = 0;
-    while (!leave && (response = gtk_dialog_run (GTK_DIALOG(pdb_dialog->remove_dialog))))
+    while (!leave && (response = gnc_dialog_run_non_destructive (GTK_DIALOG(pdb_dialog->remove_dialog))))
     {
         if ((response == GTK_RESPONSE_CLOSE) || (response == GTK_RESPONSE_DELETE_EVENT))
             leave = true;
@@ -618,7 +618,7 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
     if (pdb_dialog->target_namespace_name)
         g_free (pdb_dialog->target_namespace_name);
 
-    gtk_widget_destroy (pdb_dialog->remove_dialog);
+    gtk_window_destroy (GTK_WINDOW (pdb_dialog->remove_dialog));
     g_object_unref (G_OBJECT(builder));
     LEAVE(" ");
 }

@@ -2121,8 +2121,7 @@ xaccTransWarnReadOnly (GtkWidget* parent, Transaction* trans)
                                          GTK_BUTTONS_OK,
                                          format,
                                          reason);
-        gtk_dialog_run (GTK_DIALOG (dialog));
-        gtk_widget_destroy (dialog);
+        gnc_dialog_run (GTK_DIALOG (dialog));
         return TRUE;
     }
     return FALSE;

@@ -43,6 +43,7 @@
 #include "Account.h"
 #include "gnc-prefs.h"
 #include "gnc-gui-query.h"
+#include "dialog-utils.h"
 #include "gnc-engine.h"
 #include "gnc-html.h"
 #include "gnc-html-webkit.hpp"
@@ -1243,7 +1244,7 @@ impl_webkit_print( GncHtml* self, const gchar* jobname, gboolean export_pdf )
         }
         g_free(export_dirname);
 
-        result = gtk_dialog_run (GTK_DIALOG (dialog));
+        result = gnc_dialog_run_non_destructive (GTK_DIALOG (dialog));
         // Weird. In gtk_dialog_run, the gtk code will run a fstat() on the
         // proposed new output filename, which of course fails with "file not
         // found" as this file doesn't exist. It will still show a warning output
@@ -1268,7 +1269,7 @@ impl_webkit_print( GncHtml* self, const gchar* jobname, gboolean export_pdf )
             }
             g_free(dirname);
         }
-        gtk_widget_destroy (dialog);
+        gtk_window_destroy (GTK_WINDOW (dialog));
 
         if (result != GTK_RESPONSE_ACCEPT)
         {

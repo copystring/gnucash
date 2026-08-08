@@ -1286,17 +1286,17 @@ gnc_main_window_prompt_for_save (GtkWidget *window)
         gtk_widget_show (label);
 
         msg_area = gtk_message_dialog_get_message_area (GTK_MESSAGE_DIALOG(dialog));
-        gtk_box_pack_end (GTK_BOX(msg_area), label, TRUE, TRUE, 0);
+        gtk_box_append (GTK_BOX(msg_area), label);
         g_object_set (G_OBJECT (label), "xalign", 0.0, nullptr);
 
         g_object_set_data (G_OBJECT (dialog), "count-down-label", label);
         timer_source = g_timeout_add_seconds (1, (GSourceFunc)auto_save_countdown, dialog);
     }
 
-    response = gtk_dialog_run (GTK_DIALOG (dialog));
+    response = gnc_dialog_run_non_destructive (GTK_DIALOG (dialog));
     if (timer_source)
         g_source_remove (timer_source);
-    gtk_widget_destroy(dialog);
+    gtk_window_destroy (GTK_WINDOW (dialog));
 
     switch (response)
     {
@@ -3100,8 +3100,7 @@ gnc_main_window_engine_commit_error_callback( gpointer data,
                                      GTK_BUTTONS_CLOSE,
                                      "%s",
                                      reason );
-    gtk_dialog_run(GTK_DIALOG (dialog));
-    gtk_widget_destroy(dialog);
+    gnc_dialog_run(GTK_DIALOG (dialog));
 
 }
 
@@ -4653,8 +4652,7 @@ gnc_book_options_dialog_apply_helper(GncOptionDB * options)
                                                    GTK_BUTTONS_OK,
                                                    "%s",
                                                    (char*)iter->data);
-        gtk_dialog_run(GTK_DIALOG(dialog));
-        gtk_widget_destroy(dialog);
+        gnc_dialog_run(GTK_DIALOG(dialog));
         g_free (iter->data);
     }
     g_list_free (results);
@@ -5527,7 +5525,7 @@ add_about_paths (GtkDialog *dialog)
 
     gtk_container_add_with_properties (GTK_CONTAINER(page_vbox), textview,
                                        "position", 1, nullptr);
-    gtk_widget_show_all (page_vbox);
+    gtk_widget_set_visible (page_vbox, TRUE);
 }
 
 /** Create and display the "about" dialog for gnucash.
@@ -5595,8 +5593,7 @@ gnc_main_window_cmd_help_about (GSimpleAction *simple,
 
     gtk_window_set_transient_for (GTK_WINDOW (dialog),
                                   GTK_WINDOW (window));
-    gtk_dialog_run (dialog);
-    gtk_widget_destroy (GTK_WIDGET (dialog));
+    gnc_dialog_run (dialog);
 }
 
 

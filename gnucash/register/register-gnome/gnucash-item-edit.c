@@ -929,7 +929,7 @@ gnc_item_edit_new (GnucashSheet *sheet)
                       G_CALLBACK(tb_button_press_cb), NULL);
 
     gtk_box_pack_start (GTK_BOX(item_edit), item_edit->popup_toggle.ebox, FALSE, FALSE, 0);
-    gtk_widget_show_all (GTK_WIDGET(item_edit));
+    gtk_widget_set_visible (GTK_WIDGET(item_edit), TRUE);
     g_signal_connect (G_OBJECT(item_edit), "destroy",
                       G_CALLBACK(gnc_item_edit_destroying), NULL);
     return GTK_WIDGET(item_edit);
@@ -1181,4 +1181,3 @@ gnc_item_edit_get_has_selection (GncItemEdit *item_edit)
     editable = GTK_EDITABLE(item_edit->editor);
     return gtk_editable_get_selection_bounds (editable, NULL, NULL);
 }
-

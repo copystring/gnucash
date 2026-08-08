@@ -225,9 +225,9 @@ gnc_account_separator_validate (GtkWidget *dialog)
         gtk_label_set_text (GTK_LABEL(msg_label), conflict_msg);
 
         g_object_unref (G_OBJECT(builder));
-        gtk_widget_show_all (msg_dialog);
+        gtk_widget_set_visible (msg_dialog, TRUE);
 
-        response = gtk_dialog_run (GTK_DIALOG(msg_dialog));
+        response = gnc_dialog_run_non_destructive (GTK_DIALOG(msg_dialog));
         if (response == GTK_RESPONSE_ACCEPT) // reset to original
         {
             gchar *original_sep = g_object_get_data (G_OBJECT(entry), "original_text");
@@ -239,7 +239,7 @@ gnc_account_separator_validate (GtkWidget *dialog)
             ret = FALSE;
 
         g_free (conflict_msg);
-        gtk_widget_destroy (msg_dialog);
+        gtk_window_destroy (GTK_WINDOW (msg_dialog));
     }
     g_free (separator);
     return ret;
@@ -709,7 +709,7 @@ gnc_preferences_build_page (gpointer data,
         label = gtk_label_new (add_in->tabname);
         gnc_label_set_alignment (label, 0.0, 0.5);
         gtk_notebook_append_page (notebook, existing_content, label);
-        gtk_widget_show_all (existing_content);
+        gtk_widget_set_visible (existing_content, TRUE);
         DEBUG("created new page %s, appended it", add_in->tabname);
     }
     else
@@ -816,7 +816,7 @@ gnc_prefs_connect_font_button (GtkFontButton *fb)
     g_free (group);
     g_free (pref);
 
-    gtk_widget_show_all (GTK_WIDGET(fb));
+    gtk_widget_set_visible (GTK_WIDGET(fb), TRUE);
 }
 
 /****************************************************************************/
@@ -924,7 +924,7 @@ gnc_prefs_connect_file_chooser_button (GtkFileChooserButton *fcb, const gchar *b
     g_free (pref);
     g_free (uri);
 
-    gtk_widget_show_all (GTK_WIDGET(fcb));
+    gtk_widget_set_visible (GTK_WIDGET(fcb), TRUE);
 }
 
 /** Callback for a 'Clear' button for GtkFileChooserButton widget.
@@ -1101,7 +1101,7 @@ gnc_prefs_connect_currency_edit (GNCCurrencyEdit *gce, const gchar *boxname )
     g_free (group);
     g_free (pref);
 
-    gtk_widget_show_all (GTK_WIDGET(gce));
+    gtk_widget_set_visible (GTK_WIDGET(gce), TRUE);
 }
 
 /****************************************************************************/

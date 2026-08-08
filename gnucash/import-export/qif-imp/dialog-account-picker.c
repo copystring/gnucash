@@ -241,7 +241,7 @@ gnc_ui_qif_account_picker_new_cb(GtkButton * w, gpointer user_data)
     gtk_box_prepend (GTK_BOX(gtk_dialog_get_content_area (GTK_DIALOG(dlg))), GTK_WIDGET(entry));
 
     /* Run the dialog to get the new account name. */
-    response = gnc_dialog_run (GTK_DIALOG(dlg));
+    response = gnc_dialog_run_non_destructive (GTK_DIALOG(dlg));
 
     name = gnc_entry_get_text(GTK_ENTRY(entry));
 
@@ -261,7 +261,7 @@ gnc_ui_qif_account_picker_new_cb(GtkButton * w, gpointer user_data)
         wind->selected_name = fullname;
         scm_call_2(name_setter, wind->map_entry, scm_from_utf8_string(fullname));
     }
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(dlg));
+    gtk_window_destroy (GTK_WINDOW(dlg));
 
     /* Refresh the tree display and give it the focus. */
     build_acct_tree(wind, wind->qif_wind);

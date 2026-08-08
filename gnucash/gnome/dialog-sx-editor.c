@@ -723,9 +723,7 @@ split_error_warning_dialog (GtkWidget *parent, const gchar *title,
     gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (dialog),
                                               "%s", message);
     gtk_window_set_transient_for (GTK_WINDOW (dialog), GTK_WINDOW (parent));
-    g_signal_connect_swapped (dialog, "response",
-                              G_CALLBACK (gtk_widget_destroy), dialog);
-    gtk_dialog_run (GTK_DIALOG (dialog));
+    gnc_dialog_run (GTK_DIALOG (dialog));
 
 }
 
@@ -1373,7 +1371,7 @@ schedXact_editor_create_freq_sel (GncSxEditorDialog *sxed)
     gtk_container_add (GTK_CONTAINER (example_cal_scrolled_win), GTK_WIDGET (sxed->example_cal));
 
 
-    gtk_widget_show_all (example_cal_scrolled_win);
+    gtk_widget_set_visible (example_cal_scrolled_win, TRUE);
 }
 
 
@@ -1883,7 +1881,7 @@ _sx_engine_event_handler (QofInstance *ent, QofEventId event_type, gpointer user
         g_signal_connect (G_OBJECT (dialog), "response",
                           G_CALLBACK (_open_editors), data);
 
-        gtk_widget_show_all (GTK_WIDGET (dialog));
+        gtk_widget_set_visible (GTK_WIDGET (dialog), TRUE);
         gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, data);
         g_object_unref (G_OBJECT (builder));
     }

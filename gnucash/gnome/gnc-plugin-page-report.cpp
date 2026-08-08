@@ -436,7 +436,7 @@ gnc_plugin_page_report_load_uri (GncPluginPage *page)
     g_free(child_name);
 
     g_object_add_weak_pointer(G_OBJECT(page), (gpointer*)(&weak_page));
-    gtk_widget_show_all( GTK_WIDGET(priv->container) );
+    gtk_widget_set_visible (GTK_WIDGET(priv->container), TRUE);
 
     priv->loaded = TRUE;
 
@@ -583,7 +583,7 @@ gnc_plugin_page_report_create_widget( GncPluginPage *page )
                           page);
     }
 
-    gtk_widget_show_all( GTK_WIDGET(priv->container) );
+    gtk_widget_set_visible (GTK_WIDGET(priv->container), TRUE);
     LEAVE("container %p", priv->container);
     return GTK_WIDGET( priv->container );
 }

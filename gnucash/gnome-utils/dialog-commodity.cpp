@@ -185,7 +185,7 @@ gnc_ui_select_commodity_modal_full(gnc_commodity * orig_sel,
     done = FALSE;
     while (!done)
     {
-        switch (value = gtk_dialog_run(GTK_DIALOG(win->dialog)))
+        switch (value = gnc_dialog_run_non_destructive(GTK_DIALOG(win->dialog)))
         {
         case GTK_RESPONSE_OK:
             DEBUG("case OK");
@@ -203,7 +203,7 @@ gnc_ui_select_commodity_modal_full(gnc_commodity * orig_sel,
             break;
         }
     }
-    gtk_widget_destroy (GTK_WIDGET (win->dialog)); /* Close and destroy */
+    gtk_window_destroy (GTK_WINDOW (win->dialog)); /* Close and destroy */
     g_free(win);
 
     return retval;
@@ -1135,7 +1135,7 @@ gnc_ui_common_commodity_modal(gnc_commodity *commodity,
     done = FALSE;
     while (!done)
     {
-        value = gtk_dialog_run(GTK_DIALOG(win->dialog));
+        value = gnc_dialog_run_non_destructive(GTK_DIALOG(win->dialog));
         switch (value)
         {
         case GTK_RESPONSE_OK:
@@ -1154,7 +1154,7 @@ gnc_ui_common_commodity_modal(gnc_commodity *commodity,
             break;
         }
     }
-    gtk_widget_destroy (GTK_WIDGET (win->dialog)); /* Close and destroy */
+    gtk_window_destroy (GTK_WINDOW (win->dialog)); /* Close and destroy */
     g_free(win);
 
     LEAVE(" ");

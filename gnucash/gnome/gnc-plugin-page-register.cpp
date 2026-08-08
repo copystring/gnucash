@@ -1185,7 +1185,7 @@ gnc_plugin_page_register_create_widget (GncPluginPage* plugin_page)
     plugin_page->summarybar = gsr_create_summary_bar (priv->gsr);
     if (plugin_page->summarybar)
     {
-        gtk_widget_show_all (plugin_page->summarybar);
+        gtk_widget_set_visible (plugin_page->summarybar, TRUE);
         gtk_box_pack_start (GTK_BOX (priv->widget), plugin_page->summarybar,
                             FALSE, FALSE, 0);
 
@@ -1665,8 +1665,7 @@ gnc_plugin_page_register_finish_pending (GncPluginPage* plugin_page)
     gnc_gtk_dialog_add_button (dialog, _ ("_Save Transaction"),
                                "document-save", GTK_RESPONSE_ACCEPT);
 
-    response = gtk_dialog_run (GTK_DIALOG (dialog));
-    gtk_widget_destroy (dialog);
+    response = gnc_dialog_run (GTK_DIALOG (dialog));
 
     switch (response)
     {
@@ -2479,7 +2478,7 @@ gnc_plugin_page_register_cmd_void_transaction (GSimpleAction *simple,
 
     gtk_window_set_transient_for (GTK_WINDOW (dialog), window);
 
-    result = gtk_dialog_run (GTK_DIALOG (dialog));
+    result = gnc_dialog_run_non_destructive (GTK_DIALOG (dialog));
     if (result == GTK_RESPONSE_OK)
     {
         reason = gtk_entry_get_text (GTK_ENTRY (entry));
@@ -2489,7 +2488,7 @@ gnc_plugin_page_register_cmd_void_transaction (GSimpleAction *simple,
     }
 
     /* All done. Get rid of it. */
-    gtk_widget_destroy (dialog);
+    gtk_window_destroy (GTK_WINDOW (dialog));
     g_object_unref (G_OBJECT (builder));
 }
 

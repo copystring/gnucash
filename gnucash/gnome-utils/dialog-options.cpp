@@ -313,7 +313,7 @@ dialog_append_page(GncOptionsDialog* dlg, GncOptionSectionPtr& section)
     g_object_set_data(G_OBJECT(reset_button), "section",
                       static_cast<void*>(section.get()));
     gtk_box_pack_end(GTK_BOX(buttonbox), reset_button, FALSE, FALSE, 0);
-    gtk_widget_show_all(GTK_WIDGET(page_content_box));
+    gtk_widget_set_visible (GTK_WIDGET(page_content_box), TRUE);
     gtk_notebook_append_page(GTK_NOTEBOOK(dlg->get_notebook()),
                              GTK_WIDGET(page_content_box), page_label);
 
@@ -704,4 +704,3 @@ gnc_options_dialog_set_new_book_option_values (GncOptionDB *odb)
                                       num_split_action);
     }
 }
-

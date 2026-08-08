@@ -427,7 +427,7 @@ treeview_popup (GtkTreeView *treeview, GdkEvent *event, GncPluginPageSxList *pag
     gtk_menu_shell_append (GTK_MENU_SHELL(menu), menuitem);
 
     gtk_menu_attach_to_widget (GTK_MENU(menu), GTK_WIDGET(priv->tree_view), nullptr);
-    gtk_widget_show_all (menu);
+    gtk_widget_set_visible (menu, TRUE);
     gtk_menu_popup_at_pointer (GTK_MENU(menu), event);
 }
 

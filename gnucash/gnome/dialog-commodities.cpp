@@ -312,7 +312,7 @@ gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer dat
     gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_OK);
 
     bool rename_ok = false;
-    while (!rename_ok && gtk_dialog_run (GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
+    while (!rename_ok && gnc_dialog_run_non_destructive (GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
     {
         const auto commodity_table = gnc_get_current_commodities ();
         const auto new_ns_name = gtk_entry_get_text (GTK_ENTRY(entry));
@@ -331,7 +331,7 @@ gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer dat
         else
             gtk_label_set_text (GTK_LABEL(label), _("No new name"));
     }
-    gtk_widget_destroy (GTK_WIDGET(dialog));
+    gtk_window_destroy (GTK_WINDOW(dialog));
 }
 
 static void

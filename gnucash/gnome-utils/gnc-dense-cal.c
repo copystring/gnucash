@@ -470,7 +470,7 @@ gnc_dense_cal_init (GncDenseCal *dcal)
     if (first_day > 0 && first_day < 8)
         dcal->day_of_week_start = first_day;
 
-    gtk_widget_show_all (GTK_WIDGET(dcal));
+    gtk_widget_set_visible (GTK_WIDGET(dcal), TRUE);
 }
 
 static void
@@ -1413,7 +1413,7 @@ gnc_dense_cal_button_press (GtkWidget *widget,
 
         populate_hover_window (dcal);
         gtk_widget_queue_resize (GTK_WIDGET(dcal->transPopup));
-        gtk_widget_show_all (GTK_WIDGET(dcal->transPopup));
+        gtk_widget_set_visible (GTK_WIDGET(dcal->transPopup), TRUE);
 
         popup_window_move (dcal, (GdkEvent*)evt);
     }
@@ -1455,7 +1455,7 @@ gnc_dense_cal_motion_notify (GtkWidget *widget,
             dcal->doc = doc;
             populate_hover_window (dcal);
             gtk_widget_queue_resize (GTK_WIDGET(dcal->transPopup));
-            gtk_widget_show_all (GTK_WIDGET(dcal->transPopup));
+            gtk_widget_set_visible (GTK_WIDGET(dcal->transPopup), TRUE);
         }
         popup_window_move (dcal, (GdkEvent*)event);
     }

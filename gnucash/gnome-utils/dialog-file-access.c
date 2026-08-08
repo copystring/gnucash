@@ -489,7 +489,7 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     g_object_unref(G_OBJECT(builder));
 
     /* Run the dialog */
-    gtk_widget_show_all( faw->dialog );
+    gtk_widget_set_visible (faw->dialog, TRUE);
 
     /* Hide the frame that's not required for the active access method so either only
      * the File or only the Database frame are presented. */

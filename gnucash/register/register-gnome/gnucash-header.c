@@ -643,7 +643,7 @@ gnc_header_init (GncHeader *header)
 
     g_signal_connect (G_OBJECT(header), "configure_event",
                       G_CALLBACK(gnc_header_reconfigure), NULL);
-    gtk_widget_show_all (GTK_WIDGET(header));
+    gtk_widget_set_visible (GTK_WIDGET(header), TRUE);
 }
 
 
@@ -693,4 +693,3 @@ gnc_header_new (GnucashSheet *sheet)
     sheet->header_item = layout;
     return layout;
 }
-
