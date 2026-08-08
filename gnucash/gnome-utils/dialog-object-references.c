@@ -34,6 +34,47 @@
 
 static QofLogModule log_module = GNC_MOD_GUI;
 
+static void
+object_reference_item_setup (GtkListItemFactory *factory, GtkListItem *item,
+                             gpointer user_data)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (item, label);
+}
+
+static void
+object_reference_item_bind (GtkListItemFactory *factory, GtkListItem *item,
+                            gpointer user_data)
+{
+    GtkStringObject *row = GTK_STRING_OBJECT (gtk_list_item_get_item (item));
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
+                        gtk_string_object_get_string (row));
+}
+
+static void
+object_references_dialog_response (GtkDialog *dialog, gint response,
+                                   gpointer user_data)
+{
+    (void)response;
+    (void)user_data;
+    gtk_window_destroy (GTK_WINDOW (dialog));
+}
+
+static void
+object_references_dialog_destroyed (GtkWidget *dialog, gpointer user_data)
+{
+    (void)user_data;
+    g_object_unref (dialog);
+}
+
 void
 gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
 {
@@ -42,10 +83,11 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
     GtkWidget* box;
     GList* node;
     GtkLabel* explanation;
-    GtkListStore* store;
-    GtkWidget* listview;
-    GtkTreeViewColumn* column;
-    GtkCellRenderer* renderer;
+    GListStore* store;
+    GtkNoSelection* selection;
+    GtkColumnView* listview;
+    GtkListItemFactory* factory;
+    GtkColumnViewColumn* column;
 
     ENTER("");
 
@@ -61,38 +103,40 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
     explanation = GTK_LABEL(gtk_builder_get_object (builder, "lbl_explanation" ));
     gtk_label_set_text( explanation, explanation_text );
 
-    /* Set up the list store */
-    store = gtk_list_store_new( 1, G_TYPE_STRING );
+    /* The model owns only the display names. The caller retains the instances. */
+    store = g_list_store_new (GTK_TYPE_STRING_OBJECT);
     for ( node = objlist; node != NULL; node = node->next )
     {
         QofInstance* inst = node->data;
-        GtkTreeIter iter;
+        GtkStringObject* row = gtk_string_object_new (qof_instance_get_display_name (inst));
 
-        gtk_list_store_append( store, &iter );
-        gtk_list_store_set( store, &iter, 0, qof_instance_get_display_name( inst ), -1 );
+        g_list_store_append (store, row);
+        g_object_unref (row);
     }
 
-    /* Set up the list view */
-    listview = gtk_tree_view_new_with_model( GTK_TREE_MODEL(store) );
-    renderer = gtk_cell_renderer_text_new();
-    column = gtk_tree_view_column_new_with_attributes( "Object", renderer, "text", 0, NULL );
-    gtk_tree_view_append_column( GTK_TREE_VIEW(listview), column );
+    /* Set up the GTK4 list view. Object references are informational, so it
+     * deliberately has no selection model. */
+    selection = gtk_no_selection_new (G_LIST_MODEL (store));
+    listview = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
+    factory = gtk_signal_list_item_factory_new ();
+    g_signal_connect (factory, "setup", G_CALLBACK (object_reference_item_setup), NULL);
+    g_signal_connect (factory, "bind", G_CALLBACK (object_reference_item_bind), NULL);
+    column = gtk_column_view_column_new (_("Object"), factory);
+    gtk_column_view_column_set_expand (column, TRUE);
+    gtk_column_view_append_column (listview, column);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder, "hbox_list" ));
     gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(listview));
 
-    /* Autoconnect signals */
-gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
-
-    /* Run the dialog */
-//FIXME gtk4    gtk_widget_show_all( dialog );
-
-//FIXME gtk4    gtk_dialog_run( GTK_DIALOG(dialog) );
-gtk_window_set_modal (GTK_WINDOW(dialog), TRUE); //FIXME gtk4
-
+    g_object_set_data_full (G_OBJECT (dialog), "object-reference-store", store,
+                            g_object_unref);
+    g_signal_connect (dialog, "response", G_CALLBACK (object_references_dialog_response), NULL);
+    g_object_ref (dialog);
+    g_signal_connect (dialog, "destroy", G_CALLBACK (object_references_dialog_destroyed), NULL);
     g_object_unref(G_OBJECT(builder));
-    g_object_unref (store);
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(dialog));
+    g_object_unref (selection);
+    gtk_window_set_modal (GTK_WINDOW(dialog), TRUE);
+    gtk_window_present (GTK_WINDOW(dialog));
 
     LEAVE("");
 }
