@@ -616,75 +616,112 @@ create_account_picker_view (GtkWidget *widget,
  * becomes the new mapping for each row.  Finally, the update_page
  * function is called.
  ********************************************************************/
+typedef struct
+{
+    QIFImportWindow *wind;
+    GWeakRef assistant_window;
+    SCM display_info;
+    SCM map_info;
+    GArray *rows;
+    void (*update_page)(QIFImportWindow *);
+} QIFRematchRequest;
+
+static void
+qif_rematch_request_free (QIFRematchRequest *request)
+{
+    g_weak_ref_clear (&request->assistant_window);
+    scm_gc_unprotect_object (request->display_info);
+    scm_gc_unprotect_object (request->map_info);
+    g_array_free (request->rows, TRUE);
+    g_free (request);
+}
+
+static void
+qif_rematch_selected (gboolean accepted, gpointer user_data)
+{
+    QIFRematchRequest *request = user_data;
+    GtkWidget *assistant_window =
+        GTK_WIDGET (g_weak_ref_get (&request->assistant_window));
+
+    if (accepted && assistant_window)
+    {
+        SCM get_qif_name = scm_c_eval_string ("qif-map-entry:qif-name");
+        SCM get_gnc_name = scm_c_eval_string ("qif-map-entry:gnc-name");
+        SCM set_gnc_name = scm_c_eval_string ("qif-map-entry:set-gnc-name!");
+        SCM gnc_name = SCM_BOOL_F;
+        guint index;
+
+        for (index = 0; index < request->rows->len; ++index)
+        {
+            gint row = g_array_index (request->rows, gint, index);
+            SCM map_entry = scm_list_ref (request->display_info,
+                                          scm_from_int (row));
+
+            if (index == 0)
+                gnc_name = scm_call_1 (get_gnc_name, map_entry);
+            else
+                scm_call_2 (set_gnc_name, map_entry, gnc_name);
+            scm_hash_set_x (request->map_info,
+                            scm_call_1 (get_qif_name, map_entry), map_entry);
+        }
+        request->update_page (request->wind);
+    }
+
+    g_clear_object (&assistant_window);
+    qif_rematch_request_free (request);
+}
+
 static void
 rematch_line (QIFImportWindow *wind, GtkTreeSelection *selection,
               SCM display_info, SCM map_info,
               void (*update_page)(QIFImportWindow *))
 {
-    SCM           get_qif_name = scm_c_eval_string ("qif-map-entry:qif-name");
-    SCM           get_gnc_name = scm_c_eval_string ("qif-map-entry:gnc-name");
-    SCM           set_gnc_name = scm_c_eval_string ("qif-map-entry:set-gnc-name!");
-    SCM           map_entry;
-    SCM           gnc_name;
-    GList        *pathlist;
-    GList        *current;
     GtkTreeModel *model;
-    GtkTreeIter   iter;
-    gint          row;
+    GList *pathlist;
+    GList *current;
+    GArray *rows;
+    GtkTreeIter iter;
+    QIFRematchRequest *request;
+    gint row;
+    SCM map_entry;
 
-    /* Get a list of selected rows. */
     pathlist = gtk_tree_selection_get_selected_rows (selection, &model);
     if (!pathlist)
         return;
 
-    /*
-     * Update the first selected row.
-     */
-
-    /* Get the row number of the first selected row. */
-    if (!gtk_tree_model_get_iter (model, &iter, (GtkTreePath *) pathlist->data))
-        return;
-    gtk_tree_model_get (model, &iter, ACCOUNT_COL_INDEX, &row, -1);
-
-    /* Save the row number. */
-    g_object_set_data (G_OBJECT(model), PREV_ROW, GINT_TO_POINTER(row));
-    if (row == -1)
-        return;
-
-    /* Find the <qif-map-entry> corresponding to the selected row. */
-    map_entry = scm_list_ref (display_info, scm_from_int (row));
-
-    /* Call the account picker to update it. */
-    if (!qif_account_picker_dialog (GTK_WINDOW(wind->window), wind, map_entry))
-        return;
-    gnc_name = scm_call_1 (get_gnc_name, map_entry);
-
-    /* Update the mapping hash table. */
-    scm_hash_set_x (map_info, scm_call_1 (get_qif_name, map_entry), map_entry);
-
-    /*
-     * Map all other selected rows to the same GnuCash account.
-     */
-    for (current = pathlist->next; current; current = current->next)
+    rows = g_array_new (FALSE, FALSE, sizeof (gint));
+    for (current = pathlist; current; current = current->next)
     {
-        /* Get the row number. */
-        gtk_tree_model_get_iter (model, &iter, (GtkTreePath *) current->data);
+        if (!gtk_tree_model_get_iter (model, &iter, current->data))
+            continue;
         gtk_tree_model_get (model, &iter, ACCOUNT_COL_INDEX, &row, -1);
+        if (row != -1)
+            g_array_append_val (rows, row);
+    }
+    g_list_free_full (pathlist, (GDestroyNotify) gtk_tree_path_free);
 
-        /* Update the <qif-map-entry> for the selected row. */
-        map_entry = scm_list_ref (display_info, scm_from_int (row));
-        scm_call_2 (set_gnc_name, map_entry, gnc_name);
-
-        /* Update the mapping hash table. */
-        scm_hash_set_x (map_info, scm_call_1 (get_qif_name, map_entry), map_entry);
+    if (rows->len == 0)
+    {
+        g_array_free (rows, TRUE);
+        return;
     }
 
-    /* Free the path list. */
-    g_list_foreach (pathlist, (GFunc) gtk_tree_path_free, NULL);
-    g_list_free (pathlist);
+    row = g_array_index (rows, gint, 0);
+    g_object_set_data (G_OBJECT (model), PREV_ROW, GINT_TO_POINTER (row));
+    map_entry = scm_list_ref (display_info, scm_from_int (row));
 
-    /* Update the display. */
-    update_page (wind);
+    request = g_new0 (QIFRematchRequest, 1);
+    request->wind = wind;
+    request->display_info = display_info;
+    request->map_info = map_info;
+    request->rows = rows;
+    request->update_page = update_page;
+    g_weak_ref_init (&request->assistant_window, wind->window);
+    scm_gc_protect_object (request->display_info);
+    scm_gc_protect_object (request->map_info);
+
+    qif_account_picker_dialog_async (GTK_WINDOW (wind->window), wind, map_entry,
+                                     qif_rematch_selected, request);
 }
 
 
