@@ -41,6 +41,60 @@ static void listen_for_account_events (QofInstance* entity,
 #define ACCOUNT_POINTER     1
 #define NUM_ACCOUNT_COLUMNS 2
 
+struct _GncAccountListItem
+{
+    GObject parent_instance;
+    Account *account;
+    gchar *name;
+};
+
+G_DEFINE_FINAL_TYPE (GncAccountListItem, gnc_account_list_item, G_TYPE_OBJECT)
+
+static void
+gnc_account_list_item_finalize (GObject *object)
+{
+    GncAccountListItem *item = GNC_ACCOUNT_LIST_ITEM (object);
+
+    g_free (item->name);
+    G_OBJECT_CLASS (gnc_account_list_item_parent_class)->finalize (object);
+}
+
+static void
+gnc_account_list_item_class_init (GncAccountListItemClass *klass)
+{
+    G_OBJECT_CLASS (klass)->finalize = gnc_account_list_item_finalize;
+}
+
+static void
+gnc_account_list_item_init (GncAccountListItem *item)
+{
+    (void)item;
+}
+
+static GncAccountListItem*
+gnc_account_list_item_new (Account *account, const gchar *name)
+{
+    GncAccountListItem *item = g_object_new (GNC_TYPE_ACCOUNT_LIST_ITEM, NULL);
+
+    item->account = account;
+    item->name = g_strdup (name);
+    return item;
+}
+
+Account*
+gnc_account_list_item_get_account (GncAccountListItem *item)
+{
+    g_return_val_if_fail (GNC_IS_ACCOUNT_LIST_ITEM (item), NULL);
+    return item->account;
+}
+
+const gchar*
+gnc_account_list_item_get_name (GncAccountListItem *item)
+{
+    g_return_val_if_fail (GNC_IS_ACCOUNT_LIST_ITEM (item), NULL);
+    return item->name;
+}
+
 /* ===================================================================== */
 /* In order to speed up register starts for registers that have a huge
  * number of accounts in them (where 'huge' is >500) we build a quickfill
@@ -56,6 +110,7 @@ typedef struct
     QuickFill* qf;
     gboolean load_list_store;
     GtkListStore* list_store;
+    GListStore* account_list;
     QofBook* book;
     Account* root;
     gint  listener;
@@ -77,6 +132,7 @@ shared_quickfill_destroy (QofBook* book, gpointer key, gpointer user_data)
                                  qfb);
     gnc_quickfill_destroy (qfb->qf);
     g_object_unref (qfb->list_store);
+    g_object_unref (qfb->account_list);
     qof_event_unregister_handler (qfb->listener);
     g_free (qfb);
 }
@@ -144,6 +200,33 @@ load_shared_qf_cb (Account* account, gpointer data)
     g_free (name);
 }
 
+static void
+load_shared_account_list_cb (Account *account, gpointer data)
+{
+    QFB *qfb = data;
+    GncAccountListItem *item;
+    char *name;
+
+    if (qfb->dont_add_cb && qfb->dont_add_cb (account, qfb->dont_add_data))
+        return;
+
+    name = gnc_get_account_name_for_register (account);
+    if (!name)
+        return;
+
+    item = gnc_account_list_item_new (account, name);
+    g_list_store_append (qfb->account_list, item);
+    g_object_unref (item);
+    g_free (name);
+}
+
+static void
+shared_account_list_reload (QFB *qfb)
+{
+    g_list_store_remove_all (qfb->account_list);
+    gnc_account_foreach_descendant (qfb->root, load_shared_account_list_cb, qfb);
+}
+
 
 static void
 shared_quickfill_pref_changed (gpointer prefs, gchar* pref, gpointer user_data)
@@ -156,6 +239,7 @@ shared_quickfill_pref_changed (gpointer prefs, gchar* pref, gpointer user_data)
     qfb->load_list_store = TRUE;
     gnc_account_foreach_descendant (qfb->root, load_shared_qf_cb, qfb);
     qfb->load_list_store = FALSE;
+    shared_account_list_reload (qfb);
 }
 
 
@@ -178,6 +262,7 @@ build_shared_quickfill (QofBook* book, Account* root, const char* key,
     qfb->load_list_store = TRUE;
     qfb->list_store      = gtk_list_store_new (NUM_ACCOUNT_COLUMNS,
                                                G_TYPE_STRING, G_TYPE_POINTER);
+    qfb->account_list = g_list_store_new (GNC_TYPE_ACCOUNT_LIST_ITEM);
 
     gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL,
                            GNC_PREF_ACCOUNT_SEPARATOR,
@@ -191,6 +276,7 @@ build_shared_quickfill (QofBook* book, Account* root, const char* key,
 
     gnc_account_foreach_descendant (root, load_shared_qf_cb, qfb);
     qfb->load_list_store = FALSE;
+    shared_account_list_reload (qfb);
 
     qfb->listener = qof_event_register_handler (listen_for_account_events, qfb);
 
@@ -231,6 +317,22 @@ gnc_get_shared_account_name_list_store (Account* root, const char* key,
 
     qfb = build_shared_quickfill (book, root, key, cb, cb_data);
     return qfb->list_store;
+}
+
+GListModel*
+gnc_get_shared_account_name_list_model (Account *root, const char *key,
+                                        AccountBoolCB cb, gpointer cb_data)
+{
+    QFB *qfb;
+    QofBook *book;
+
+    book = gnc_account_get_book (root);
+    qfb = qof_book_get_data (book, key);
+
+    if (!qfb)
+        qfb = build_shared_quickfill (book, root, key, cb, cb_data);
+
+    return G_LIST_MODEL (qfb->account_list);
 }
 
 /* Since we are maintaining a 'global' quickfill list, we need to
@@ -415,6 +517,7 @@ listen_for_account_events (QofInstance* entity, QofEventId event_type,
         g_list_free (data.accounts);
     if (data.refs)
         g_list_free (data.refs);
+    shared_account_list_reload (qfb);
     g_free (name);
     LEAVE (" ");
 }

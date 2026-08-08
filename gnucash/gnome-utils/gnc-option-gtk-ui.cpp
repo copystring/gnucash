@@ -1097,7 +1097,8 @@ create_option_widget<GncOptionUIType::ACCOUNT_SEL> (GncOption& option,
                                      acct_type_list, NULL);
     g_list_free(acct_type_list);
 
-    // gnc_account_sel doesn't emit a changed signal
+    // Connect after the initial filter and value setup, so opening the option
+    // page does not mark it as user-modified.
     option.set_ui_item(std::make_unique<GncGtkAccountSelUIItem>(widget));
     option.set_ui_item_from_option();
 

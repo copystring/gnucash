@@ -3912,7 +3912,6 @@ get_assistant_widgets (QIFImportWindow *wind, GtkBuilder *builder)
         builder, "date_format_model"));
     wind->selected_file_view = GTK_WIDGET(gtk_builder_get_object (builder, "selected_file_view"));
     wind->unload_file_btn    = GTK_WIDGET(gtk_builder_get_object (builder, "unload_file_button"));
-    wind->currency_picker    = GTK_WIDGET(gtk_builder_get_object (builder, "currency_comboboxentry"));
     wind->book_option_label  = GTK_WIDGET(gtk_builder_get_object (builder, "book_option_label"));
     wind->book_option_message = GTK_WIDGET(gtk_builder_get_object (builder, "book_option_message_label"));
     wind->commodity_notebook = GTK_WIDGET(gtk_builder_get_object (builder, "commodity_notebook"));

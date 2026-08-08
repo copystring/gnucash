@@ -47,6 +47,18 @@
 
 typedef gboolean (*AccountBoolCB) (Account*, gpointer);
 
+#define GNC_TYPE_ACCOUNT_LIST_ITEM (gnc_account_list_item_get_type ())
+G_DECLARE_FINAL_TYPE (GncAccountListItem, gnc_account_list_item, GNC,
+                      ACCOUNT_LIST_ITEM, GObject)
+
+/**
+ * A GTK4 list-model item representing one account in a shared quickfill.
+ * The item keeps account identity separate from its display name, so users
+ * of the model can retain a selection while account names change.
+ */
+Account* gnc_account_list_item_get_account (GncAccountListItem *item);
+const gchar* gnc_account_list_item_get_name (GncAccountListItem *item);
+
 /** Create/fetch a quickfill of account names.
  *
  *  The quickfill is created out of all of the subaccounts
@@ -74,6 +86,15 @@ gnc_get_shared_account_name_quickfill (Account* root, const char* key,
 GtkListStore*
 gnc_get_shared_account_name_list_store (Account* root, const char* key,
                                         AccountBoolCB cb, gpointer cb_data);
+
+/**
+ * Return the GTK4 model companion to the shared account quickfill. The
+ * model is owned by the book and changes whenever its account cache changes.
+ */
+GListModel* gnc_get_shared_account_name_list_model (Account* root,
+                                                    const char* key,
+                                                    AccountBoolCB cb,
+                                                    gpointer cb_data);
 
 #endif
 
