@@ -665,6 +665,51 @@ webview2_motion (GtkEventControllerMotion *, double x, double y, gpointer user_d
         point);
 }
 
+static COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS
+webview2_mouse_modifiers (GdkModifierType state)
+{
+    auto modifiers = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
+    if (state & GDK_SHIFT_MASK)
+        modifiers = static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS> (
+            modifiers | COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_SHIFT);
+    if (state & GDK_CONTROL_MASK)
+        modifiers = static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS> (
+            modifiers | COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_CONTROL);
+    return modifiers;
+}
+
+static gboolean
+webview2_scroll (GtkEventControllerScroll *controller, double delta_x, double delta_y,
+                 gpointer user_data)
+{
+    auto priv = priv_for (GNC_HTML_WEBVIEW2 (user_data));
+    if (!priv->composition_controller)
+        return GDK_EVENT_STOP;
+    auto event = gtk_event_controller_get_current_event (GTK_EVENT_CONTROLLER (controller));
+    if (!event)
+        return GDK_EVENT_STOP;
+    double x = 0.0, y = 0.0;
+    if (!gdk_event_get_position (event, &x, &y))
+        return GDK_EVENT_STOP;
+    const auto modifiers = webview2_mouse_modifiers (
+        gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (controller)));
+    const auto point = webview2_point_from_widget (priv->view, x, y);
+    if (delta_x != 0.0)
+    {
+        const auto delta = static_cast<LONG> (-delta_x * WHEEL_DELTA);
+        (void)priv->composition_controller->SendMouseInput (
+            COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL, modifiers,
+            static_cast<UINT32> (delta), point);
+    }
+    if (delta_y != 0.0)
+    {
+        const auto delta = static_cast<LONG> (-delta_y * WHEEL_DELTA);
+        (void)priv->composition_controller->SendMouseInput (
+            COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL, modifiers, static_cast<UINT32> (delta), point);
+    }
+    return GDK_EVENT_STOP;
+}
+
 static void
 webview2_start (GncHtmlWebView2 *self)
 {
@@ -839,6 +884,9 @@ gnc_html_webview2_init (GncHtmlWebView2 *self)
     auto motion = gtk_event_controller_motion_new ();
     g_signal_connect (motion, "motion", G_CALLBACK (webview2_motion), self);
     gtk_widget_add_controller (private_data->view, motion);
+    auto scroll = gtk_event_controller_scroll_new (GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES);
+    g_signal_connect (scroll, "scroll", G_CALLBACK (webview2_scroll), self);
+    gtk_widget_add_controller (private_data->view, scroll);
     gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL_REPORT, default_zoom_pref,
                            reinterpret_cast<gpointer> (impl_webview2_default_zoom_changed), self);
 }
