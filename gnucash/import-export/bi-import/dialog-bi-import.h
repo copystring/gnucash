@@ -61,15 +61,21 @@ struct _bi_import_stats
 };
 typedef struct _bi_import_stats bi_import_stats;
 
+/* A row is a plain GObject whose values are owned by the import model. */
+GObject *gnc_bi_import_row_new (void);
+const gchar *gnc_bi_import_row_get (GObject *row, guint column);
+gchar *gnc_bi_import_row_dup (GObject *row, guint column);
+void gnc_bi_import_row_set (GObject *row, guint column, const gchar *value);
+
 
 bi_import_result
-gnc_bi_import_read_file (const gchar *filename, const gchar *parser_regexp, GtkListStore *store, guint max_rows, bi_import_stats *stats);
+gnc_bi_import_read_file (const gchar *filename, const gchar *parser_regexp, GListStore *store, guint max_rows, bi_import_stats *stats);
 
 void
-gnc_bi_import_fix_bis (GtkListStore *store, guint *fixed, guint *deleted, GString *info, gchar *type);
+gnc_bi_import_fix_bis (GListStore *store, guint *fixed, guint *deleted, GString *info, gchar *type);
 
 void
-gnc_bi_import_create_bis (GtkListStore *store, QofBook *book, guint *n_invoices_created,
+gnc_bi_import_create_bis (GListStore *store, QofBook *book, guint *n_invoices_created,
                           guint *n_invoices_updated, guint *n_rows_ignored,	gchar *type, gchar *open_mode, GString * info,
                           GtkWindow *parent);
 

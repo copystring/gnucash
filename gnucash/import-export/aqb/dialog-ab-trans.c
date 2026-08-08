@@ -492,7 +492,7 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     g_list_foreach (templates, gnc_ab_trans_dialog_fill_templ_helper, td->template_store);
     td->template_selection = gtk_single_selection_new (G_LIST_MODEL (td->template_store));
     td->template_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL
-                                                               (td->template_selection)));
+                                                               (g_object_ref (td->template_selection))));
     template_factory = gtk_signal_list_item_factory_new ();
     g_signal_connect (template_factory, "setup",
                       G_CALLBACK (gnc_ab_trans_dialog_template_factory_setup), NULL);

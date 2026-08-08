@@ -134,7 +134,6 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
     g_object_ref (dialog);
     g_signal_connect (dialog, "destroy", G_CALLBACK (object_references_dialog_destroyed), NULL);
     g_object_unref(G_OBJECT(builder));
-    g_object_unref (selection);
     gtk_window_set_modal (GTK_WINDOW(dialog), TRUE);
     gtk_window_present (GTK_WINDOW(dialog));
 

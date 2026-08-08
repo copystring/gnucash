@@ -62,20 +62,62 @@
 #include "dialog-invoice.h"
 #include "business-gnome-utils.h"
 
-// this helper macro takes a regexp match and fills the model
+// This helper macro takes a regexp match and fills an import row.
 #define FILL_IN_HELPER(match_name,column) \
             temp = g_match_info_fetch_named (match_info, match_name); \
             if (temp) \
             { \
                 g_strstrip( temp ); \
-                gtk_list_store_set (store, &iter, column, temp, -1); \
+                gnc_bi_import_row_set (row, column, temp); \
                 g_free (temp); \
-            } else gtk_list_store_set (store, &iter, column, "", -1);
+            } else gnc_bi_import_row_set (row, column, "");
 
 static QofLogModule log_module = G_LOG_DOMAIN; //G_LOG_BUSINESS;
 static char * un_escape(char *str);
 
-/** \brief Imports a csv file with invoice data into a GtkListStore.
+#define BI_IMPORT_ROW_VALUES "bi-import-row-values"
+
+GObject *
+gnc_bi_import_row_new (void)
+{
+    GObject *row = g_object_new (G_TYPE_OBJECT, NULL);
+    gchar **values = g_new0 (gchar *, N_COLUMNS + 1);
+
+    g_object_set_data_full (row, BI_IMPORT_ROW_VALUES, values,
+                            (GDestroyNotify)g_strfreev);
+    return row;
+}
+
+const gchar *
+gnc_bi_import_row_get (GObject *row, guint column)
+{
+    gchar **values;
+
+    g_return_val_if_fail (G_IS_OBJECT (row), "");
+    g_return_val_if_fail (column < N_COLUMNS, "");
+    values = g_object_get_data (row, BI_IMPORT_ROW_VALUES);
+    return values[column] ? values[column] : "";
+}
+
+gchar *
+gnc_bi_import_row_dup (GObject *row, guint column)
+{
+    return g_strdup (gnc_bi_import_row_get (row, column));
+}
+
+void
+gnc_bi_import_row_set (GObject *row, guint column, const gchar *value)
+{
+    gchar **values;
+
+    g_return_if_fail (G_IS_OBJECT (row));
+    g_return_if_fail (column < N_COLUMNS);
+    values = g_object_get_data (row, BI_IMPORT_ROW_VALUES);
+    g_free (values[column]);
+    values[column] = g_strdup (value ? value : "");
+}
+
+/** \brief Imports a csv file with invoice data into a GListStore.
 
  Opens the csv file and attempts to match each row with the regular
  expression provided in parser_regexp. This is a regular expression
@@ -83,7 +125,7 @@ static char * un_escape(char *str);
  separators (, or ;), optionally with the fields enclosed in quotes.
 
  If the match is successful, the fields of the import row are transferred to
- a row in the GtkListStore store. If the match is not successful, the
+ a row in the GListStore store. If the match is not successful, the
  row is ignored. Maintains information about number of rows imported,
  the number of rows ignored, and the actual ignored rows.
 
@@ -97,7 +139,7 @@ static char * un_escape(char *str);
 
 bi_import_result
 gnc_bi_import_read_file (const gchar * filename, const gchar * parser_regexp,
-                         GtkListStore * store, guint max_rows,
+                         GListStore * store, guint max_rows,
                          bi_import_stats * stats)
 {
     // some statistics
@@ -111,9 +153,6 @@ gnc_bi_import_read_file (const gchar * filename, const gchar * parser_regexp,
     GMatchInfo *match_info;
     GError *err;
     GRegex *regexpat;
-
-    // model
-    GtkTreeIter iter;
 
     f = g_fopen (filename, "rt");
     if (!f)
@@ -190,7 +229,7 @@ gnc_bi_import_read_file (const gchar * filename, const gchar * parser_regexp,
             stats->n_imported++;
 
             // fill in the values
-            gtk_list_store_append (store, &iter);
+            GObject *row = gnc_bi_import_row_new ();
             FILL_IN_HELPER ("id", ID); /* FIXME: Should "id" be translated? I don't think so. */
             FILL_IN_HELPER ("date_opened", DATE_OPENED);
             FILL_IN_HELPER ("owner_id", OWNER_ID);
@@ -215,6 +254,8 @@ gnc_bi_import_read_file (const gchar * filename, const gchar * parser_regexp,
             FILL_IN_HELPER ("account_posted", ACCOUNT_POSTED);
             FILL_IN_HELPER ("memo_posted", MEMO_POSTED);
             FILL_IN_HELPER ("accu_splits", ACCU_SPLITS);
+            g_list_store_append (store, row);
+            g_object_unref (row);
         }
         else
         {
@@ -274,21 +315,19 @@ gnc_bi_import_read_file (const gchar * filename, const gchar * parser_regexp,
  */
 
 void
-gnc_bi_import_fix_bis (GtkListStore * store, guint * n_rows_fixed, guint * n_rows_ignored,
-                       GString * info, gchar *type)
+gnc_bi_import_fix_bis (GListStore *store, guint *n_rows_fixed,
+                       guint *n_rows_ignored, GString *info, gchar *type)
 {
-    GtkTreeIter iter, first_row_of_invoice;
-    gboolean valid, row_fixed, on_first_row_of_invoice, ignore_invoice;
-    gchar *id = NULL, *date_opened = NULL, *date_posted = NULL, *due_date = NULL, *account_posted = NULL,
-        *owner_id = NULL, *date = NULL, *account = NULL, *quantity = NULL, *price = NULL;
+    gboolean row_fixed, on_first_row_of_invoice, ignore_invoice;
+    gchar *invoice_date_opened = NULL;
     GString *running_id;
     Account *acc = NULL;
     guint dummy;
-    gint row = 1, fixed_for_invoice = 0, invoice_line = 0;
-    const gchar* date_format_string = qof_date_format_get_string (qof_date_format_get()); // Get the user set date format string
+    guint position = 0, first_row_of_invoice = 0;
+    gint row_number = 1, fixed_for_invoice = 0, invoice_line = 0;
+    const gchar *date_format_string = qof_date_format_get_string (qof_date_format_get ());
 
-    DEBUG("date_format_string: %s",date_format_string);
-    // allow the call to this function with only GtkListeStore* specified
+    DEBUG ("date_format_string: %s", date_format_string);
     if (!n_rows_fixed)
         n_rows_fixed = &dummy;
     if (!n_rows_ignored)
@@ -296,288 +335,229 @@ gnc_bi_import_fix_bis (GtkListStore * store, guint * n_rows_fixed, guint * n_row
 
     *n_rows_fixed = 0;
     *n_rows_ignored = 0;
-
-    // Init control variables
-    running_id = g_string_new("");
+    running_id = g_string_new ("");
     ignore_invoice = FALSE;
     on_first_row_of_invoice = TRUE;
+    g_string_append_printf (info, _("Validation…\n"));
 
-    g_string_append_printf (info, _("Validation…\n") );
-
-    // Walk through the list, reading each row.
-    valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (store), &iter);
-    while (valid)
+    while (position < g_list_model_get_n_items (G_LIST_MODEL (store)))
     {
+        GObject *current = g_list_model_get_item (G_LIST_MODEL (store), position);
+        gchar *id = gnc_bi_import_row_dup (current, ID);
+        gchar *date = gnc_bi_import_row_dup (current, DATE);
+        gchar *account = gnc_bi_import_row_dup (current, ACCOUNT);
+        gchar *quantity = gnc_bi_import_row_dup (current, QUANTITY);
+        gchar *price = gnc_bi_import_row_dup (current, PRICE);
+        gboolean has_next;
+        gchar *next_id = NULL;
+
         ++invoice_line;
         row_fixed = FALSE;
 
-        //  If this is a row for a new invoice id, validate header values.
         if (on_first_row_of_invoice)
         {
-            gtk_tree_model_get (GTK_TREE_MODEL (store), &iter,
-                                ID, &id,
-                                DATE_OPENED, &date_opened,
-                                DATE_POSTED, &date_posted,
-                                DUE_DATE, &due_date,
-                                ACCOUNT_POSTED, &account_posted,
-                                OWNER_ID, &owner_id, -1);
+            gchar *date_opened = gnc_bi_import_row_dup (current, DATE_OPENED);
+            gchar *date_posted = gnc_bi_import_row_dup (current, DATE_POSTED);
+            gchar *due_date = gnc_bi_import_row_dup (current, DUE_DATE);
+            gchar *account_posted = gnc_bi_import_row_dup (current, ACCOUNT_POSTED);
+            gchar *owner_id = gnc_bi_import_row_dup (current, OWNER_ID);
 
             g_string_assign (running_id, id);
-            first_row_of_invoice = iter;
+            first_row_of_invoice = position;
 
-            // Validate the invoice id.
-            if (strlen (id) == 0)
-            {
-                // If there was an earlier valid id, then it replaces an empty id when the next row is read at the end of the loop.
-                // So an empty id error can only happen on the first row of an import file.
-                ignore_invoice = TRUE;
-                g_string_append_printf (info,
-                                        _("Row %d: no invoice ID in first row of import file.\n"), row);
-            }
-
-            // Validate customer or vendor.
-            if (strlen (owner_id) == 0)
+            if (*id == '\0')
             {
                 ignore_invoice = TRUE;
                 g_string_append_printf (info,
-                                        _("Row %d, invoice %s/%u: owner not set.\n"),
-                                        row, id, invoice_line);
+                                        _("Row %d: no invoice ID in first row of import file.\n"),
+                                        row_number);
             }
-            // Verify that customer or vendor exists.
-            if (g_ascii_strcasecmp (type, "BILL") == 0)
+            if (*owner_id == '\0')
             {
-                if (!gnc_search_vendor_on_id
-                    (gnc_get_current_book (), owner_id))
-                {
-                    // Vendor not found.
-                    ignore_invoice = TRUE;
-                    g_string_append_printf (info,
-                                            _("Row %d, invoice %s/%u: vendor %s does not exist.\n"),
-                                            row, id, invoice_line, owner_id);
-                }
+                ignore_invoice = TRUE;
+                g_string_append_printf (info, _("Row %d, invoice %s/%u: owner not set.\n"),
+                                        row_number, id, invoice_line);
             }
-            else if (g_ascii_strcasecmp (type, "INVOICE") == 0)
+            if (g_ascii_strcasecmp (type, "BILL") == 0 &&
+                !gnc_search_vendor_on_id (gnc_get_current_book (), owner_id))
             {
-                if (!gnc_search_customer_on_id
-                    (gnc_get_current_book (), owner_id))
-                {
-                    // Customer not found.
-                    ignore_invoice = TRUE;
-                    g_string_append_printf (info,
-                                            _("Row %d, invoice %s/%u: customer %s does not exist.\n"),
-                                            row, id, invoice_line, owner_id);
-                }
+                ignore_invoice = TRUE;
+                g_string_append_printf (info,
+                                        _("Row %d, invoice %s/%u: vendor %s does not exist.\n"),
+                                        row_number, id, invoice_line, owner_id);
+            }
+            else if (g_ascii_strcasecmp (type, "INVOICE") == 0 &&
+                     !gnc_search_customer_on_id (gnc_get_current_book (), owner_id))
+            {
+                ignore_invoice = TRUE;
+                g_string_append_printf (info,
+                                        _("Row %d, invoice %s/%u: customer %s does not exist.\n"),
+                                        row_number, id, invoice_line, owner_id);
             }
 
-            if (strlen(date_posted) != 0)
+            if (*date_posted != '\0')
             {
-                // Validate the date posted and due date.
-                if (!isDateValid(date_posted))
+                if (!isDateValid (date_posted))
                 {
-                    // Invalid date posted in first row of invoice, ignore the invoice
                     ignore_invoice = TRUE;
                     g_string_append_printf (info,
                                             _("Row %d, invoice %s/%u: %s is not a valid posting date.\n"),
-                                            row, id, invoice_line, date_posted);
-
-                    // Verify the due date.
-                    if (!isDateValid(due_date))
-                    {
-                        // Invalid due date in first row of invoice, without valid posting date to substitute.
+                                            row_number, id, invoice_line, date_posted);
+                    if (!isDateValid (due_date))
                         g_string_append_printf (info,
                                                 _("Row %d, invoice %s/%u: %s is not a valid due date.\n"),
-                                                row, id, invoice_line, due_date);
-                    }
+                                                row_number, id, invoice_line, due_date);
                 }
-                else
+                else if (!isDateValid (due_date))
                 {
-                    // Verify the due date.
-                    if (!isDateValid(due_date))
-                    {
-                        // Fix this by using the date posted.
-                        gtk_list_store_set (store, &iter, DUE_DATE,
-                                            date_posted, -1);
-                        row_fixed = TRUE;
-                    }
+                    gnc_bi_import_row_set (current, DUE_DATE, date_posted);
+                    row_fixed = TRUE;
                 }
 
-            // Validate account posted.
-            // Account should exists, and should be of type A/R for invoices, A/P for bills.
-                 acc = gnc_account_lookup_for_register
-                (gnc_get_current_root_account (), account_posted);
-                if (acc == NULL)
+                acc = gnc_account_lookup_for_register (gnc_get_current_root_account (),
+                                                       account_posted);
+                if (!acc)
                 {
                     ignore_invoice = TRUE;
                     g_string_append_printf (info,
                                             _("Row %d, invoice %s/%u: account %s does not exist.\n"),
-                                            row, id, invoice_line, account_posted);
+                                            row_number, id, invoice_line, account_posted);
                 }
-                else
+                else if ((g_ascii_strcasecmp (type, "BILL") == 0 &&
+                          xaccAccountGetType (acc) != ACCT_TYPE_PAYABLE) ||
+                         (g_ascii_strcasecmp (type, "INVOICE") == 0 &&
+                          xaccAccountGetType (acc) != ACCT_TYPE_RECEIVABLE))
                 {
-                    if (g_ascii_strcasecmp (type, "BILL") == 0)
-                    {
-
-                        if (xaccAccountGetType (acc) != ACCT_TYPE_PAYABLE)
-                        {
-                            ignore_invoice = TRUE;
-                            g_string_append_printf (info,
-                                                    _("Row %d, invoice %s/%u: account %s is not of type Accounts Payable.\n"),
-                                                    row, id, invoice_line, account_posted);
-                        }
-                    }
-                    else if (g_ascii_strcasecmp (type, "INVOICE") == 0)
-                    {
-                        if (xaccAccountGetType (acc) != ACCT_TYPE_RECEIVABLE)
-                        {
-                            ignore_invoice = TRUE;
-                            g_string_append_printf (info,
-                                                    _("Row %d, invoice %s/%u: account %s is not of type Accounts Receivable.\n"),
-                                                    row, id, invoice_line, account_posted);
-                        }
-                    }
-                }
-            }
-
-            // Verify the date opened.
-            if(!isDateValid(date_opened))
-            {
-                // Fix this by using the current date.
-                gchar temp[20];
-                GDate date;
-                g_date_clear (&date, 1);
-                gnc_gdate_set_today (&date);
-                g_date_strftime (temp, 20, date_format_string, &date);    // Create a user specified date string.
-                gtk_list_store_set (store, &iter, DATE_OPENED,
-                                    temp, -1);
-                row_fixed = TRUE;
-            }
-        }
-
-        // Validate and fix item data for each row.
-
-        // Get item data.
-        gtk_tree_model_get (GTK_TREE_MODEL (store), &iter,
-                            DATE, &date,
-                            ACCOUNT, &account,
-                            QUANTITY, &quantity,
-                            PRICE, &price, -1);
-
-
-        // Validate the price.
-        if (strlen (price) == 0)
-        {
-            // No valid price, delete the row
-            ignore_invoice = TRUE;
-            g_string_append_printf (info,
-                                    _("Row %d, invoice %s/%u: price not set.\n"),
-                                    row, id, invoice_line);
-        }
-
-        // Validate the account
-        acc = gnc_account_lookup_for_register (gnc_get_current_root_account (),
-                                               account);
-        if (acc == NULL)
-        {
-            ignore_invoice = TRUE;
-            g_string_append_printf (info,
-                                    _("Row %d, invoice %s/%u: account %s does not exist.\n"),
-                                    row, id, invoice_line, account);
-        }
-
-        // Fix item data.
-        if (!ignore_invoice)
-        {
-
-            // Verify the quantity.
-            if (strlen (quantity) == 0)
-            {
-                // The quantity is not set, default to 1.
-                gtk_list_store_set (store, &iter, QUANTITY, "1", -1);
-                row_fixed = TRUE;
-            }
-
-            // Verify the item date
-            if(!isDateValid(date))
-            {
-                // Invalid item date, replace with date opened
-                gtk_list_store_set (store, &iter, DATE,
-                                    date_opened, -1);
-                row_fixed = TRUE;
-            }
-
-        }
-        if (row_fixed) ++fixed_for_invoice;
-
-        // Get the next row and its id.
-        valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (store), &iter);
-        if (valid) gtk_tree_model_get (GTK_TREE_MODEL (store), &iter, ID, &id, -1);
-
-
-        // If the id of the next row is blank, it takes the id of the previous row.
-        if (valid && strlen(id) == 0)
-        {
-            strcpy( id, running_id->str);
-            gtk_list_store_set (store, &iter, ID, id, -1);
-        }
-
-        // If this row was the last row of the invoice...
-        if (!valid || (valid && g_strcmp0 (id, running_id->str) != 0))
-        {
-            // If invoice should be ignored, remove all rows of this invoice.
-            if (ignore_invoice)
-            {
-                iter = first_row_of_invoice;
-                do
-                {
-                    (*n_rows_ignored)++;
-                    valid = gtk_list_store_remove (store, &iter);
-                    if (valid) gtk_tree_model_get (GTK_TREE_MODEL (store), &iter, ID, &id, -1);
-                }
-                while (valid && (g_strcmp0 (id, running_id->str) == 0));
-
-                if (running_id->len != 0)
-                {
+                    ignore_invoice = TRUE;
                     g_string_append_printf (info,
-                                            _("Error(s) in invoice %s, all rows of this invoice ignored.\n"),
-                                            running_id->str);
+                                            g_ascii_strcasecmp (type, "BILL") == 0 ?
+                                            _("Row %d, invoice %s/%u: account %s is not of type Accounts Payable.\n") :
+                                            _("Row %d, invoice %s/%u: account %s is not of type Accounts Receivable.\n"),
+                                            row_number, id, invoice_line, account_posted);
                 }
-                else
-                {
-                    g_string_append_printf (info,
-                                            _("Error(s) in invoice without id, all rows of this invoice ignored.\n"));
-                }
-
-                // Fixes for ignored invoices don't count in the statistics.
-                fixed_for_invoice = 0;
-
-                ignore_invoice = FALSE;
             }
 
-            on_first_row_of_invoice = TRUE;
-            (*n_rows_fixed) += fixed_for_invoice;
-            fixed_for_invoice = 0;
-            invoice_line = 0;
+            g_free (invoice_date_opened);
+            if (!isDateValid (date_opened))
+            {
+                gchar today[20];
+                GDate current_date;
 
-            g_free (id);
+                g_date_clear (&current_date, 1);
+                gnc_gdate_set_today (&current_date);
+                g_date_strftime (today, sizeof today, date_format_string, &current_date);
+                gnc_bi_import_row_set (current, DATE_OPENED, today);
+                invoice_date_opened = g_strdup (today);
+                row_fixed = TRUE;
+            }
+            else
+                invoice_date_opened = g_strdup (date_opened);
+
             g_free (date_opened);
             g_free (date_posted);
             g_free (due_date);
             g_free (account_posted);
             g_free (owner_id);
         }
-        else on_first_row_of_invoice = FALSE;
 
+        if (*price == '\0')
+        {
+            ignore_invoice = TRUE;
+            g_string_append_printf (info, _("Row %d, invoice %s/%u: price not set.\n"),
+                                    row_number, running_id->str, invoice_line);
+        }
+        acc = gnc_account_lookup_for_register (gnc_get_current_root_account (), account);
+        if (!acc)
+        {
+            ignore_invoice = TRUE;
+            g_string_append_printf (info,
+                                    _("Row %d, invoice %s/%u: account %s does not exist.\n"),
+                                    row_number, running_id->str, invoice_line, account);
+        }
+        if (!ignore_invoice)
+        {
+            if (*quantity == '\0')
+            {
+                gnc_bi_import_row_set (current, QUANTITY, "1");
+                row_fixed = TRUE;
+            }
+            if (!isDateValid (date))
+            {
+                gnc_bi_import_row_set (current, DATE, invoice_date_opened);
+                row_fixed = TRUE;
+            }
+        }
+        if (row_fixed)
+            ++fixed_for_invoice;
+
+        has_next = position + 1 < g_list_model_get_n_items (G_LIST_MODEL (store));
+        if (has_next)
+        {
+            GObject *next = g_list_model_get_item (G_LIST_MODEL (store), position + 1);
+            next_id = gnc_bi_import_row_dup (next, ID);
+            if (*next_id == '\0')
+            {
+                gnc_bi_import_row_set (next, ID, running_id->str);
+                g_free (next_id);
+                next_id = g_strdup (running_id->str);
+            }
+            g_object_unref (next);
+        }
+
+        if (!has_next || g_strcmp0 (next_id, running_id->str) != 0)
+        {
+            if (ignore_invoice)
+            {
+                while (first_row_of_invoice < g_list_model_get_n_items (G_LIST_MODEL (store)))
+                {
+                    GObject *candidate = g_list_model_get_item (G_LIST_MODEL (store),
+                                                                first_row_of_invoice);
+                    gboolean same_invoice = g_strcmp0 (gnc_bi_import_row_get (candidate, ID),
+                                                        running_id->str) == 0;
+                    g_object_unref (candidate);
+                    if (!same_invoice)
+                        break;
+                    g_list_store_remove (store, first_row_of_invoice);
+                    (*n_rows_ignored)++;
+                }
+                if (*running_id->str)
+                    g_string_append_printf (info,
+                                            _("Error(s) in invoice %s, all rows of this invoice ignored.\n"),
+                                            running_id->str);
+                else
+                    g_string_append_printf (info,
+                                            _("Error(s) in invoice without id, all rows of this invoice ignored.\n"));
+                fixed_for_invoice = 0;
+                ignore_invoice = FALSE;
+                position = first_row_of_invoice;
+            }
+            else
+                position++;
+
+            on_first_row_of_invoice = TRUE;
+            *n_rows_fixed += fixed_for_invoice;
+            fixed_for_invoice = 0;
+            invoice_line = 0;
+            g_clear_pointer (&invoice_date_opened, g_free);
+        }
+        else
+        {
+            on_first_row_of_invoice = FALSE;
+            position++;
+        }
+
+        g_free (next_id);
+        g_free (id);
         g_free (date);
         g_free (account);
         g_free (quantity);
         g_free (price);
-
-        row++;
+        g_object_unref (current);
+        row_number++;
     }
 
-    // Deallocate strings.
+    g_free (invoice_date_opened);
     g_string_free (running_id, TRUE);
-
 }
 
 
@@ -603,7 +583,7 @@ gnc_bi_import_fix_bis (GtkListStore * store, guint * n_rows_fixed, guint * n_row
  */
 
 void
-gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
+gnc_bi_import_create_bis (GListStore * store, QofBook * book,
                           guint * n_invoices_created,
                           guint * n_invoices_updated,
                           guint * n_rows_ignored,
@@ -611,7 +591,8 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
                           GtkWindow *parent)
 {
     gboolean valid, on_first_row_of_invoice, invoice_posted;
-    GtkTreeIter iter, first_row_of_invoice;
+    guint position = 0, first_row_of_invoice;
+    GObject *current;
     gchar *id = NULL, *date_opened = NULL, *owner_id = NULL, *billing_id = NULL, *notes = NULL;
     gchar *date = NULL, *desc = NULL, *action = NULL, *account = NULL, *quantity = NULL,
           *price = NULL, *disc_type = NULL, *disc_how = NULL, *discount = NULL, *taxable = NULL,
@@ -652,38 +633,38 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
 
     g_string_append_printf (info, "\n%s\n", _("Processing…") );
 
-    valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (store), &iter);
+    valid = g_list_model_get_n_items (G_LIST_MODEL (store)) > 0;
     while (valid)
     {
         // Walk through the list, reading each row
-        gtk_tree_model_get (GTK_TREE_MODEL (store), &iter,
-                            ID, &id,
-                            DATE_OPENED, &date_opened,
-                            DATE_POSTED, &date_posted,       // if autoposting requested
-                            DUE_DATE, &due_date,             // if autoposting requested
-                            ACCOUNT_POSTED, &account_posted, // if autoposting requested
-                            MEMO_POSTED, &memo_posted,       // if autoposting requested
-                            ACCU_SPLITS, &accumulatesplits,  // if autoposting requested
-                            OWNER_ID, &owner_id,
-                            BILLING_ID, &billing_id,
-                            NOTES, &notes,
-                            DATE, &date,
-                            DESC, &desc,
-                            ACTION, &action,
-                            ACCOUNT, &account,
-                            QUANTITY, &quantity,
-                            PRICE, &price,
-                            DISC_TYPE, &disc_type,
-                            DISC_HOW, &disc_how,
-                            DISCOUNT, &discount,
-                            TAXABLE, &taxable,
-                            TAXINCLUDED, &taxincluded,
-                            TAX_TABLE, &tax_table, -1);
+        current = g_list_model_get_item (G_LIST_MODEL (store), position);
+        id = gnc_bi_import_row_dup (current, ID);
+        date_opened = gnc_bi_import_row_dup (current, DATE_OPENED);
+        date_posted = gnc_bi_import_row_dup (current, DATE_POSTED);
+        due_date = gnc_bi_import_row_dup (current, DUE_DATE);
+        account_posted = gnc_bi_import_row_dup (current, ACCOUNT_POSTED);
+        memo_posted = gnc_bi_import_row_dup (current, MEMO_POSTED);
+        accumulatesplits = gnc_bi_import_row_dup (current, ACCU_SPLITS);
+        owner_id = gnc_bi_import_row_dup (current, OWNER_ID);
+        billing_id = gnc_bi_import_row_dup (current, BILLING_ID);
+        notes = gnc_bi_import_row_dup (current, NOTES);
+        date = gnc_bi_import_row_dup (current, DATE);
+        desc = gnc_bi_import_row_dup (current, DESC);
+        action = gnc_bi_import_row_dup (current, ACTION);
+        account = gnc_bi_import_row_dup (current, ACCOUNT);
+        quantity = gnc_bi_import_row_dup (current, QUANTITY);
+        price = gnc_bi_import_row_dup (current, PRICE);
+        disc_type = gnc_bi_import_row_dup (current, DISC_TYPE);
+        disc_how = gnc_bi_import_row_dup (current, DISC_HOW);
+        discount = gnc_bi_import_row_dup (current, DISCOUNT);
+        taxable = gnc_bi_import_row_dup (current, TAXABLE);
+        taxincluded = gnc_bi_import_row_dup (current, TAXINCLUDED);
+        tax_table = gnc_bi_import_row_dup (current, TAX_TABLE);
 
         if (on_first_row_of_invoice)
         {
             g_string_assign(running_id, id);
-            first_row_of_invoice = iter;
+            first_row_of_invoice = position;
 
             if (g_ascii_strcasecmp (type, "BILL") == 0)
                 invoice = gnc_search_bill_on_id (book, id);
@@ -745,12 +726,19 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
                     while (valid && g_strcmp0 (id, running_id->str) == 0)
                     {
                         (*n_rows_ignored)++;
-                        valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (store), &iter);
+                        position++;
+                        valid = position < g_list_model_get_n_items (G_LIST_MODEL (store));
+                        g_free (id);
+                        id = NULL;
                         if (valid)
-                            gtk_tree_model_get (GTK_TREE_MODEL (store), &iter, ID, &id, -1);
+                        {
+                            GObject *next = g_list_model_get_item (G_LIST_MODEL (store), position);
+                            id = gnc_bi_import_row_dup (next, ID);
+                            g_object_unref (next);
+                        }
                     }
                     on_first_row_of_invoice = TRUE;
-                    continue;
+                    goto next_row;
                 }
 
                 if (gncInvoiceIsPosted (invoice))
@@ -760,12 +748,19 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
                     while (valid && g_strcmp0 (id, running_id->str) == 0)
                     {
                         (*n_rows_ignored)++;
-                        valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (store), &iter);
+                        position++;
+                        valid = position < g_list_model_get_n_items (G_LIST_MODEL (store));
+                        g_free (id);
+                        id = NULL;
                         if (valid)
-                            gtk_tree_model_get (GTK_TREE_MODEL (store), &iter, ID, &id, -1);
+                        {
+                            GObject *next = g_list_model_get_item (G_LIST_MODEL (store), position);
+                            id = gnc_bi_import_row_dup (next, ID);
+                            g_object_unref (next);
+                        }
                     }
                     on_first_row_of_invoice = TRUE;
-                    continue;
+                    goto next_row;
                 }
 
                 (*n_invoices_updated)++;
@@ -824,13 +819,18 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
             gncInvoiceAddEntry (invoice, entry);
         }
         gncEntryCommitEdit(entry);
-        valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (store), &iter);
+        g_free (id);
+        id = NULL;
+        position++;
+        valid = position < g_list_model_get_n_items (G_LIST_MODEL (store));
         // handle auto posting of invoices
 
         if (valid)
-            gtk_tree_model_get (GTK_TREE_MODEL (store), &iter, ID, &id, -1);
-        else
-            id = NULL;
+        {
+            GObject *next = g_list_model_get_item (G_LIST_MODEL (store), position);
+            id = gnc_bi_import_row_dup (next, ID);
+            g_object_unref (next);
+        }
 
         if (g_strcmp0 (id, running_id->str) == 0) // The next row is for the same invoice.
         {
@@ -839,13 +839,21 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
         else // The next row is for a new invoice; try to post the invoice.
         {
             // Use posting values from the first row of this invoice.
-            gtk_tree_model_get (GTK_TREE_MODEL (store), &first_row_of_invoice,
-                                ID, &id,
-                                DATE_POSTED, &date_posted,
-                                DUE_DATE, &due_date,
-                                ACCOUNT_POSTED, &account_posted,
-                                MEMO_POSTED, &memo_posted,
-                                ACCU_SPLITS, &accumulatesplits, -1);
+            GObject *first = g_list_model_get_item (G_LIST_MODEL (store),
+                                                     first_row_of_invoice);
+            g_free (id);
+            g_free (date_posted);
+            g_free (due_date);
+            g_free (account_posted);
+            g_free (memo_posted);
+            g_free (accumulatesplits);
+            id = gnc_bi_import_row_dup (first, ID);
+            date_posted = gnc_bi_import_row_dup (first, DATE_POSTED);
+            due_date = gnc_bi_import_row_dup (first, DUE_DATE);
+            account_posted = gnc_bi_import_row_dup (first, ACCOUNT_POSTED);
+            memo_posted = gnc_bi_import_row_dup (first, MEMO_POSTED);
+            accumulatesplits = gnc_bi_import_row_dup (first, ACCU_SPLITS);
+            g_object_unref (first);
             invoice_posted = FALSE;
 
             if (strlen(date_posted) != 0)
@@ -917,34 +925,35 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
             // The next row will be for a new invoice.
             on_first_row_of_invoice = TRUE;
         }
+
+next_row:
+        g_free (id);
+        g_free (date_opened);
+        g_free (owner_id);
+        g_free (billing_id);
+        g_free (notes);
+        g_free (date);
+        g_free (desc);
+        g_free (action);
+        g_free (account);
+        g_free (quantity);
+        g_free (price);
+        g_free (disc_type);
+        g_free (disc_how);
+        g_free (discount);
+        g_free (taxable);
+        g_free (taxincluded);
+        g_free (tax_table);
+        g_free (date_posted);
+        g_free (due_date);
+        g_free (account_posted);
+        g_free (memo_posted);
+        g_free (accumulatesplits);
+        g_object_unref (current);
     }
 
     if (*n_invoices_updated + *n_invoices_created == 0)
         g_string_append_printf (info, _("Nothing to process.\n"));
-
-    // cleanup
-    g_free (id);
-    g_free (date_opened);
-    g_free (owner_id);
-    g_free (billing_id);
-    g_free (notes);
-    g_free (date);
-    g_free (desc);
-    g_free (action);
-    g_free (account);
-    g_free (quantity);
-    g_free (price);
-    g_free (disc_type);
-    g_free (disc_how);
-    g_free (discount);
-    g_free (taxable);
-    g_free (taxincluded);
-    g_free (tax_table);
-    g_free (date_posted);
-    g_free (due_date);
-    g_free (account_posted);
-    g_free (memo_posted);
-    g_free (accumulatesplits);
 
     g_string_free (running_id, TRUE);
 }

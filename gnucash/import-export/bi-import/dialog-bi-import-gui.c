@@ -47,9 +47,9 @@ struct _bi_import_gui
 {
     GtkWindow    *parent;
     GtkWidget    *dialog;
-    GtkWidget    *tree_view;
+    GtkColumnView *preview_view;
     GtkWidget    *entryFilename;
-    GtkListStore *store;
+    GListStore   *store;
     gint          component_id;
     GString      *regexp;
     QofBook      *book;
@@ -78,14 +78,54 @@ void gnc_import_gui_type_cb (GtkWidget *widget, gpointer data);
 
 static QofLogModule UNUSED_VAR log_module = G_LOG_DOMAIN; //G_LOG_BUSINESS;
 
+static void
+bi_import_preview_item_setup (GtkListItemFactory *factory, GtkListItem *item,
+                              gpointer user_data)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (item, label);
+}
+
+static void
+bi_import_preview_item_bind (GtkListItemFactory *factory, GtkListItem *item,
+                             gpointer user_data)
+{
+    GObject *row = gtk_list_item_get_item (item);
+    guint column = GPOINTER_TO_UINT (user_data);
+
+    (void)factory;
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
+                        gnc_bi_import_row_get (row, column));
+}
+
+static void
+bi_import_preview_add_column (GtkColumnView *view, const gchar *title, guint column)
+{
+    GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
+    GtkColumnViewColumn *view_column;
+
+    g_signal_connect (factory, "setup", G_CALLBACK (bi_import_preview_item_setup),
+                      GUINT_TO_POINTER (column));
+    g_signal_connect (factory, "bind", G_CALLBACK (bi_import_preview_item_bind),
+                      GUINT_TO_POINTER (column));
+    view_column = gtk_column_view_column_new (title, factory);
+    gtk_column_view_column_set_resizable (view_column, TRUE);
+    gtk_column_view_append_column (view, view_column);
+}
+
 BillImportGui *
 gnc_plugin_bi_import_showGUI (GtkWindow *parent)
 {
     BillImportGui *gui;
     GtkBuilder *builder;
     GList *glist;
-    GtkCellRenderer *renderer;
-    GtkTreeViewColumn *column;
+    GtkNoSelection *selection;
+    GtkScrolledWindow *preview_scrolledwindow;
 
     // if window exists already, activate it
     glist = gnc_find_gui_components ("dialog-bi-import-gui", NULL, NULL);
@@ -112,8 +152,9 @@ gnc_plugin_bi_import_showGUI (GtkWindow *parent)
     gui->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "bi_import_dialog"));
     gtk_window_set_transient_for(GTK_WINDOW(gui->dialog), GTK_WINDOW(parent));
     gui->parent = parent;
-    gui->tree_view = GTK_WIDGET(gtk_builder_get_object (builder, "treeview1"));
     gui->entryFilename = GTK_WIDGET(gtk_builder_get_object (builder, "entryFilename"));
+    preview_scrolledwindow = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder,
+                                                   "scrolledwindow2"));
 
     // Set the name for this dialog so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(gui->dialog), "gnc-id-bill-import");
@@ -125,41 +166,33 @@ gnc_plugin_bi_import_showGUI (GtkWindow *parent)
 
     gui->regexp = g_string_new ( "^(\\x{FEFF})?(?<id>[^;]*);(?<date_opened>[^;]*);(?<owner_id>[^;]*);(?<billing_id>[^;]*);(?<notes>[^;]*);(?<date>[^;]*);(?<desc>[^;]*);(?<action>[^;]*);(?<account>[^;]*);(?<quantity>[^;]*);(?<price>[^;]*);(?<disc_type>[^;]*);(?<disc_how>[^;]*);(?<discount>[^;]*);(?<taxable>[^;]*);(?<taxincluded>[^;]*);(?<tax_table>[^;]*);(?<date_posted>[^;]*);(?<due_date>[^;]*);(?<account_posted>[^;]*);(?<memo_posted>[^;]*);(?<accu_splits>[^;]*)$");
 
-    // create model and bind to view
-    gui->store = gtk_list_store_new (N_COLUMNS,
-                                     G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, // invoice settings
-                                     G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, // entry settings
-                                     G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING); // autopost settings
-    gtk_tree_view_set_model( GTK_TREE_VIEW(gui->tree_view), GTK_TREE_MODEL(gui->store) );
-#define CREATE_COLUMN(description,column_id) \
-  renderer = gtk_cell_renderer_text_new (); \
-  column = gtk_tree_view_column_new_with_attributes (description, renderer, "text", column_id, NULL); \
-  gtk_tree_view_column_set_resizable (column, TRUE); \
-  gtk_tree_view_append_column (GTK_TREE_VIEW (gui->tree_view), column);
-    CREATE_COLUMN (_("ID"), ID);
-    CREATE_COLUMN (_("Date Opened"), DATE_OPENED);
-    CREATE_COLUMN (_("Owner-ID"), OWNER_ID);
-    CREATE_COLUMN (_("Billing-ID"), BILLING_ID);
-    CREATE_COLUMN (_("Notes"), NOTES);
-
-    CREATE_COLUMN (_("Date"), DATE);
-    CREATE_COLUMN (_("Description"), DESC);
-    CREATE_COLUMN (_("Action"), ACTION);
-    CREATE_COLUMN (_("Account"), ACCOUNT);
-    CREATE_COLUMN (_("Quantity"), QUANTITY);
-    CREATE_COLUMN (_("Price"), PRICE);
-    CREATE_COLUMN (_("Disc-type"), DISC_TYPE);
-    CREATE_COLUMN (_("Disc-how"), DISC_HOW);
-    CREATE_COLUMN (_("Discount"), DISCOUNT);
-    CREATE_COLUMN (_("Taxable"), TAXABLE);
-    CREATE_COLUMN (_("Taxincluded"), TAXINCLUDED);
-    CREATE_COLUMN (_("Tax-table"), TAX_TABLE);
-
-    CREATE_COLUMN (_("Date Posted"), DATE_POSTED);
-    CREATE_COLUMN (_("Due Date"), DUE_DATE);
-    CREATE_COLUMN (_("Account-posted"), ACCOUNT_POSTED);
-    CREATE_COLUMN (_("Memo-posted"), MEMO_POSTED);
-    CREATE_COLUMN (_("Accu-splits"), ACCU_SPLITS);
+    /* The preview and import logic share one GTK4 list model. */
+    gui->store = g_list_store_new (G_TYPE_OBJECT);
+    selection = gtk_no_selection_new (G_LIST_MODEL (gui->store));
+    gui->preview_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
+    bi_import_preview_add_column (gui->preview_view, _("ID"), ID);
+    bi_import_preview_add_column (gui->preview_view, _("Date Opened"), DATE_OPENED);
+    bi_import_preview_add_column (gui->preview_view, _("Owner-ID"), OWNER_ID);
+    bi_import_preview_add_column (gui->preview_view, _("Billing-ID"), BILLING_ID);
+    bi_import_preview_add_column (gui->preview_view, _("Notes"), NOTES);
+    bi_import_preview_add_column (gui->preview_view, _("Date"), DATE);
+    bi_import_preview_add_column (gui->preview_view, _("Description"), DESC);
+    bi_import_preview_add_column (gui->preview_view, _("Action"), ACTION);
+    bi_import_preview_add_column (gui->preview_view, _("Account"), ACCOUNT);
+    bi_import_preview_add_column (gui->preview_view, _("Quantity"), QUANTITY);
+    bi_import_preview_add_column (gui->preview_view, _("Price"), PRICE);
+    bi_import_preview_add_column (gui->preview_view, _("Disc-type"), DISC_TYPE);
+    bi_import_preview_add_column (gui->preview_view, _("Disc-how"), DISC_HOW);
+    bi_import_preview_add_column (gui->preview_view, _("Discount"), DISCOUNT);
+    bi_import_preview_add_column (gui->preview_view, _("Taxable"), TAXABLE);
+    bi_import_preview_add_column (gui->preview_view, _("Taxincluded"), TAXINCLUDED);
+    bi_import_preview_add_column (gui->preview_view, _("Tax-table"), TAX_TABLE);
+    bi_import_preview_add_column (gui->preview_view, _("Date Posted"), DATE_POSTED);
+    bi_import_preview_add_column (gui->preview_view, _("Due Date"), DUE_DATE);
+    bi_import_preview_add_column (gui->preview_view, _("Account-posted"), ACCOUNT_POSTED);
+    bi_import_preview_add_column (gui->preview_view, _("Memo-posted"), MEMO_POSTED);
+    bi_import_preview_add_column (gui->preview_view, _("Accu-splits"), ACCU_SPLITS);
+    gtk_scrolled_window_set_child (preview_scrolledwindow, GTK_WIDGET (gui->preview_view));
 
     gui->component_id = gnc_register_gui_component ("dialog-bi-import-gui",
                         NULL,
@@ -169,9 +202,8 @@ gnc_plugin_bi_import_showGUI (GtkWindow *parent)
     /* Setup signals */
 gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
 
-//FIXME gtk4    gtk_widget_show_all ( gui->dialog );
-
     g_object_unref(G_OBJECT(builder));
+    gtk_window_present (GTK_WINDOW (gui->dialog));
 
     return gui;
 }
@@ -210,7 +242,7 @@ gnc_bi_import_gui_ok_cb (GtkWidget *widget, gpointer data)
     // import
     info = g_string_new("");
 
-    gtk_list_store_clear (gui->store);
+    g_list_store_remove_all (gui->store);
     res = gnc_bi_import_read_file (filename, gui->regexp->str, gui->store, 0, &stats);
     if (res == RESULT_OK)
     {
@@ -258,9 +290,7 @@ gnc_bi_import_gui_close_handler (gpointer user_data)
 {
     BillImportGui *gui = user_data;
 
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(gui->dialog));
-    // gui has already been freed by this point.
-    // gui->dialog = NULL;
+    gtk_window_destroy (GTK_WINDOW(gui->dialog));
 }
 
 void
@@ -298,7 +328,7 @@ void gnc_bi_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer data)
     gchar *filename = g_strdup( gnc_entry_get_text( GTK_ENTRY(gui->entryFilename) ) );
 
     // generate preview
-    gtk_list_store_clear (gui->store);
+    g_list_store_remove_all (gui->store);
     gnc_bi_import_read_file (filename, gui->regexp->str, gui->store, 100, NULL);
 
     g_free( filename );
@@ -388,4 +418,3 @@ void gnc_import_gui_type_cb (GtkWidget *widget, gpointer data)
     //printf ("TYPE set to, %s\n",gui->type);
 
 }
-
