@@ -747,7 +747,12 @@ gnc_gui_shutdown (void)
 //        gtk_accel_map_save(map);
 //        g_free(map);
         gnc_component_manager_shutdown ();
-        g_application_quit (g_application_get_default ());
+        GApplication *application = g_application_get_default ();
+        if (application)
+        {
+            g_application_release (application);
+            g_application_quit (application);
+        }
     }
 }
 

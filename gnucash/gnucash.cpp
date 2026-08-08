@@ -55,6 +55,7 @@
 #include <gnc-prefs-utils.h>
 #include <gnc-session.h>
 #include <gnc-splash.h>
+#include <gnc-ui.h>
 #include <gnucash-register.h>
 #include <search-core-type.h>
 #include <top-level.h>
@@ -228,6 +229,7 @@ namespace Gnucash {
         int start (int argc, char **argv);
         int run (int argc, char **argv);
         void activate (void);
+        int command_line (GApplicationCommandLine *command_line);
 
     private:
         void configure_program_options (void);
@@ -297,8 +299,11 @@ Gnucash::Gnucash::activate (void)
 
     m_started = true;
     m_exit_status = start (m_argc, m_argv);
-    if (m_exit_status != 0)
-        g_application_quit (g_application_get_default ());
+    auto application = g_application_get_default ();
+    if (m_exit_status == 0)
+        g_application_hold (application);
+    else
+        g_application_quit (application);
 }
 
 static void
@@ -307,19 +312,54 @@ on_application_activate ([[maybe_unused]] GtkApplication *application, gpointer 
     static_cast<Gnucash::Gnucash*>(user_data)->activate ();
 }
 
+static int
+on_application_command_line ([[maybe_unused]] GApplication *application,
+                             GApplicationCommandLine *command_line,
+                             gpointer user_data)
+{
+    return static_cast<Gnucash::Gnucash*>(user_data)->command_line (command_line);
+}
+
+int
+Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
+{
+    gint argc = 0;
+    auto argv = g_application_command_line_get_arguments (command_line, &argc);
+
+    if (!m_started)
+    {
+        parse_command_line (argc, argv);
+        m_argc = argc;
+        m_argv = argv;
+        activate ();
+        m_argc = 0;
+        m_argv = nullptr;
+        g_strfreev (argv);
+        return m_exit_status;
+    }
+
+    /* GApplication forwards later invocations to this process. GnuCash has a
+     * single active book, so forward exactly one positional file argument to
+     * the existing file-opening path and otherwise just present its windows. */
+    if (argc == 2 && argv[1][0] != '-')
+        gnc_file_open_file (gnc_ui_get_main_window (nullptr), argv[1], FALSE);
+    else
+        activate ();
+
+    g_strfreev (argv);
+    return 0;
+}
+
 int
 Gnucash::Gnucash::run (int argc, char **argv)
 {
-    m_argc = argc;
-    m_argv = argv;
-
     auto gtk_application = gtk_application_new ("org.gnucash.GnuCash",
-                                                G_APPLICATION_DEFAULT_FLAGS);
+                                                G_APPLICATION_HANDLES_COMMAND_LINE);
     g_signal_connect (gtk_application, "activate", G_CALLBACK (on_application_activate), this);
-    g_application_hold (G_APPLICATION (gtk_application));
+    g_signal_connect (gtk_application, "command-line",
+                      G_CALLBACK (on_application_command_line), this);
 
-    char *application_argv[] = { argv[0], nullptr };
-    auto status = g_application_run (G_APPLICATION (gtk_application), 1, application_argv);
+    auto status = g_application_run (G_APPLICATION (gtk_application), argc, argv);
 
     if (m_started)
     {
@@ -341,6 +381,5 @@ main(int argc, char ** argv)
 #ifdef __MINGW32__
     boost::nowide::args a(argc, argv); // Fix arguments - make them UTF-8
 #endif
-    application.parse_command_line (argc, argv);
     return application.run (argc, argv);
 }
