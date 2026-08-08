@@ -100,15 +100,20 @@
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="format_picker_dialog">
+  <object class="GtkWindow" id="format_picker_dialog">
     <property name="title" translatable="1">Choose a format</property>
     <property name="resizable">0</property>
     <property name="modal">1</property>
     <property name="default-width">600</property>
     <property name="default-height">400</property>
-<child internal-child="content_area">
+    <property name="child">
       <object class="GtkBox" id="dialog-vbox16">
         <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkFrame" id="frame2">
             <property name="vexpand">1</property>
@@ -153,34 +158,36 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area16">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="okbutton1">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
+          <object class="GtkBox" id="dialog-action_area16">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <child>
+              <object class="GtkButton" id="okbutton1">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
         </child>
       </object>
-    </child>
+    </property>
   </object>
-  <object class="GtkDialog" id="match_picker_dialog">
+  <object class="GtkWindow" id="match_picker_dialog">
     <property name="title" translatable="1">Select matching existing transaction</property>
     <property name="default-width">600</property>
     <property name="default-height">400</property>
-<child internal-child="content_area">
+    <property name="child">
       <object class="GtkBox" id="dialog-vbox14">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkBox" id="vbox7">
             <property name="vexpand">1</property>
@@ -194,17 +201,9 @@
               </object>
             </child>
             <child>
-              <object class="GtkScrolledWindow" id="scrolledwindow30">
+              <object class="GtkScrolledWindow" id="download_view">
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
-<property name="child">
-                  <object class="GtkTreeView" id="download_view">
-                    <property name="focusable">1</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection1" />
-                    </child>
-                  </object>
-                </property>
               </object>
             </child>
             <child>
@@ -215,58 +214,45 @@
               </object>
             </child>
             <child>
-              <object class="GtkScrolledWindow" id="scrolledwindow29">
+              <object class="GtkScrolledWindow" id="matched_view">
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
-<property name="child">
-                  <object class="GtkTreeView" id="matched_view">
-                    <property name="focusable">1</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection2" />
-                    </child>
-                  </object>
-                </property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="dialog-action_area14">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkCheckButton" id="hide_reconciled_check1">
+                <property name="label" translatable="1" comments="Dialog Select matching transactions">Show Reconciled</property>
+                <property name="focusable">1</property>
+                <property name="active">1</property>
+                <property name="hexpand">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="cancel_button1">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="ok_button1">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
               </object>
             </child>
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button1</action-widget>
-      <action-widget response="-5">ok_button1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area14">
-        <property name="visible">True</property>
-        <child>
-          <object class="GtkCheckButton" id="hide_reconciled_check1">
-            <property name="label" translatable="1" comments="Dialog Select matching transactions">Show Reconciled</property>
-            <property name="focusable">1</property>
-            <property name="active">1</property>
-          <property name="hexpand">1</property></object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="cancel_button1">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="ok_button1">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
-        </child>
-      </object>
-    </child>
+    </property>
   </object>
   <object class="GtkTextBuffer" id="textbuffer1">
     <property name="text" translatable="1">Multiple transaction rows may be selected and a transfer account assigned to all selected rows. Use Ctrl Left Click or Shift-Click to select multiple rows and then Right Click to select a transfer account. Only rows with "A" checked can be added to a selection.</property>

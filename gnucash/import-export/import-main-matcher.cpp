@@ -677,11 +677,34 @@ on_matcher_help_clicked (GtkButton *button, gpointer user_data)
 }
 
 static void
+refresh_matched_transaction_cb (GNCImportTransInfo *trans_info, gpointer user_data)
+{
+    auto info = static_cast<GNCImportMainMatcher*> (user_data);
+    auto model = gtk_tree_view_get_model (info->view);
+    GtkTreeIter iter;
+
+    if (!gtk_tree_model_get_iter_first (model, &iter))
+        return;
+
+    do
+    {
+        GNCImportTransInfo *row_trans_info = nullptr;
+        gtk_tree_model_get (model, &iter, DOWNLOADED_COL_DATA, &row_trans_info, -1);
+        if (row_trans_info == trans_info)
+        {
+            refresh_model_row (info, model, &iter, trans_info);
+            return;
+        }
+    }
+    while (gtk_tree_model_iter_next (model, &iter));
+}
+
+static void
 run_match_dialog (GNCImportMainMatcher *info,
                   GNCImportTransInfo *trans_info)
 {
-    gnc_import_match_picker_run_and_close (info->main_widget,
-                                           trans_info, info->pending_matches);
+    gnc_import_match_picker_run (info->main_widget, trans_info, info->pending_matches,
+                                 refresh_matched_transaction_cb, info);
 }
 
 static void
