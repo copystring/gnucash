@@ -405,7 +405,7 @@ gnc_doclink_pref_path_head_changed (GtkWindow *parent, const gchar *old_path_hea
 
     /* Create the dialog box */
     builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-doclink.glade", "link_path_head_changed_dialog");
+    gnc_builder_add_from_file (builder, "dialog-doclink.ui", "link_path_head_changed_dialog");
     dialog = GTK_WIDGET(gtk_builder_get_object (builder, "link_path_head_changed_dialog"));
 
     if (parent != NULL)

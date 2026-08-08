@@ -959,9 +959,9 @@ gnc_imap_dialog_create (GtkWidget *parent, ImapDialog *imap_dialog)
 
     ENTER(" ");
     builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-imap-editor.glade", "tree-store");
-    gnc_builder_add_from_file (builder, "dialog-imap-editor.glade", "treemodelfilter");
-    gnc_builder_add_from_file (builder, "dialog-imap-editor.glade", "import_map_dialog");
+    gnc_builder_add_from_file (builder, "dialog-imap-editor.ui", "tree-store");
+    gnc_builder_add_from_file (builder, "dialog-imap-editor.ui", "treemodelfilter");
+    gnc_builder_add_from_file (builder, "dialog-imap-editor.ui", "import_map_dialog");
 
     dialog = GTK_WIDGET(gtk_builder_get_object (builder, "import_map_dialog"));
     imap_dialog->dialog = dialog;

@@ -287,7 +287,7 @@ gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer dat
     const auto ns_name = gnc_commodity_namespace_get_name (ns);
 
     GtkBuilder *builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-commodities.glade", "rename_namespace_dialog");
+    gnc_builder_add_from_file (builder, "dialog-commodities.ui", "rename_namespace_dialog");
 
     GtkDialog *dialog = GTK_DIALOG(gtk_builder_get_object (builder, "rename_namespace_dialog"));
     GtkWidget *entry = GTK_WIDGET(gtk_builder_get_object (builder, "rename_entry"));
@@ -412,7 +412,7 @@ gnc_commodities_dialog_create (GtkWidget * parent, CommoditiesDialog *cd)
     GtkTreeSelection *selection;
 
     builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-commodities.glade", "securities_window");
+    gnc_builder_add_from_file (builder, "dialog-commodities.ui", "securities_window");
 
     cd->window = GTK_WIDGET(gtk_builder_get_object (builder, "securities_window"));
     cd->session = gnc_get_current_session();

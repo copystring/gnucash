@@ -479,10 +479,10 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
     gchar     *name_space;
 
     builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-price.glade", "liststore1");
-    gnc_builder_add_from_file (builder, "dialog-price.glade", "liststore2");
-    gnc_builder_add_from_file (builder, "dialog-price.glade", "liststore3");
-    gnc_builder_add_from_file (builder, "dialog-price.glade", "price_dialog");
+    gnc_builder_add_from_file (builder, "dialog-price.ui", "liststore1");
+    gnc_builder_add_from_file (builder, "dialog-price.ui", "liststore2");
+    gnc_builder_add_from_file (builder, "dialog-price.ui", "liststore3");
+    gnc_builder_add_from_file (builder, "dialog-price.ui", "price_dialog");
 
     pedit_dialog->session = session;
     pedit_dialog->book = qof_session_get_book(pedit_dialog->session);

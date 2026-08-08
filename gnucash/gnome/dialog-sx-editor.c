@@ -1227,11 +1227,11 @@ gnc_ui_scheduled_xaction_editor_dialog_create (GtkWindow *parent,
 
     /* Load up Glade file */
     builder = gtk_builder_new ();
-    gnc_builder_add_from_file (builder, "dialog-sx.glade", "advance_days_adj");
-    gnc_builder_add_from_file (builder, "dialog-sx.glade", "remind_days_adj");
-    gnc_builder_add_from_file (builder, "dialog-sx.glade", "end_spin_adj");
-    gnc_builder_add_from_file (builder, "dialog-sx.glade", "remain_spin_adj");
-    gnc_builder_add_from_file (builder, "dialog-sx.glade", "scheduled_transaction_editor_dialog");
+    gnc_builder_add_from_file (builder, "dialog-sx.ui", "advance_days_adj");
+    gnc_builder_add_from_file (builder, "dialog-sx.ui", "remind_days_adj");
+    gnc_builder_add_from_file (builder, "dialog-sx.ui", "end_spin_adj");
+    gnc_builder_add_from_file (builder, "dialog-sx.ui", "remain_spin_adj");
+    gnc_builder_add_from_file (builder, "dialog-sx.ui", "scheduled_transaction_editor_dialog");
 
     sxed->builder = builder;
 
@@ -1843,7 +1843,7 @@ _sx_engine_event_handler (QofInstance *ent, QofEventId event_type, gpointer user
         GtkCellRenderer *renderer;
 
         builder = gtk_builder_new ();
-        gnc_builder_add_from_file (builder, "dialog-sx.glade", "account_deletion_dialog");
+        gnc_builder_add_from_file (builder, "dialog-sx.ui", "account_deletion_dialog");
 
         dialog = GTK_WIDGET (gtk_builder_get_object (builder, "account_deletion_dialog"));
         parent = gnc_ui_get_main_window (NULL);
@@ -1900,7 +1900,7 @@ gnc_ui_sx_initialize (void)
 
     /* Add page to preferences page for Scheduled Transactions */
     /* The parameters are; glade file, items to add from glade file - last being the dialog, preference tab name */
-    gnc_preferences_add_page ("dialog-sx.glade",
+    gnc_preferences_add_page ("dialog-sx.ui",
                               "create_days_adj,remind_days_adj,sx_prefs",
                               _("Scheduled Transactions"));
 }
