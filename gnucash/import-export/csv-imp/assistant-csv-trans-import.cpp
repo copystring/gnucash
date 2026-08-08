@@ -198,6 +198,7 @@ public:
     void acct_match_via_button ();
     void acct_match_select (GObject *row);
     void acct_match_select_at (guint position);
+    void acct_match_apply_selection (GObject *row, Account *account);
     void acct_match_set_accounts ();
 
 private:
@@ -522,6 +523,7 @@ CsvImpTransAssist::CsvImpTransAssist ()
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "end_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "csv_transaction_assistant");
     csv_imp_asst = GTK_ASSISTANT(gtk_builder_get_object (builder, "csv_transaction_assistant"));
+    g_object_set_data (G_OBJECT (csv_imp_asst), "gnc-csv-import-assistant-owner", this);
 
     // Set the name for this assistant so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(csv_imp_asst), "gnc-id-assistant-csv-transaction-import");
@@ -752,6 +754,7 @@ gnc_builder_connect_signals (builder, this);
  *******************************************************/
 CsvImpTransAssist::~CsvImpTransAssist ()
 {
+    g_object_set_data (G_OBJECT (csv_imp_asst), "gnc-csv-import-assistant-owner", nullptr);
     /* This function is safe to call on a null pointer */
     gnc_gen_trans_list_delete (gnc_csv_importer_gui);
     /* The call above frees gnc_csv_importer_gui but can't nullify it.
@@ -1642,17 +1645,34 @@ csv_tximp_acct_match_text_parse (std::string acct_name)
     }
 }
 
+struct CsvAccountSelection
+{
+    CsvImpTransAssist *info;
+    GWeakRef assistant;
+    GObject *row;
+};
+
+static void
+csv_account_selected_cb (Account *account, gboolean accepted, gpointer user_data)
+{
+    auto selection = static_cast<CsvAccountSelection*> (user_data);
+    auto assistant = G_OBJECT (g_weak_ref_get (&selection->assistant));
+    if (assistant && accepted &&
+        g_object_get_data (assistant, "gnc-csv-import-assistant-owner") == selection->info)
+        selection->info->acct_match_apply_selection (selection->row, account);
+    g_clear_object (&assistant);
+    g_weak_ref_clear (&selection->assistant);
+    g_clear_object (&selection->row);
+    delete selection;
+}
+
 void
-CsvImpTransAssist::acct_match_select (GObject *item)
+CsvImpTransAssist::acct_match_apply_selection (GObject *item, Account *gnc_acc)
 {
     auto row = csv_tximp_account_match_row_get (item);
     auto account = row->account;
 
-    auto acct_name = csv_tximp_acct_match_text_parse (row->mapping);
-    auto gnc_acc = gnc_import_select_account (GTK_WIDGET(csv_imp_asst), nullptr, true,
-            acct_name.c_str(), nullptr, ACCT_TYPE_NONE, account, nullptr);
-
-    if (gnc_acc) // We may have canceled
+    if (gnc_acc)
     {
         auto fullpath = gnc_account_get_full_name (gnc_acc);
         row->account = gnc_acc;
@@ -1690,6 +1710,31 @@ CsvImpTransAssist::acct_match_select (GObject *item)
     m_req_mapped_accts = all_checked;
     auto errs = tx_imp->verify(m_req_mapped_accts);
     gtk_label_set_text (GTK_LABEL(account_match_label), errs.c_str());
+
+    auto count = g_list_model_get_n_items (G_LIST_MODEL (account_match_store));
+    for (guint position = 0; position < count; ++position)
+    {
+        auto current = G_OBJECT (g_list_model_get_item (G_LIST_MODEL (account_match_store), position));
+        auto matches = current == item;
+        g_object_unref (current);
+        if (matches)
+        {
+            g_list_model_items_changed (G_LIST_MODEL (account_match_store), position, 1, 1);
+            break;
+        }
+    }
+}
+
+void
+CsvImpTransAssist::acct_match_select (GObject *item)
+{
+    auto row = csv_tximp_account_match_row_get (item);
+    auto selection = new CsvAccountSelection { this, {}, G_OBJECT (g_object_ref (item)) };
+    auto acct_name = csv_tximp_acct_match_text_parse (row->mapping);
+    g_weak_ref_init (&selection->assistant, csv_imp_asst);
+    gnc_import_select_account_async (GTK_WIDGET (csv_imp_asst), nullptr, true,
+        acct_name.c_str(), nullptr, ACCT_TYPE_NONE, row->account,
+        csv_account_selected_cb, selection);
 }
 
 void
@@ -1699,7 +1744,6 @@ CsvImpTransAssist::acct_match_select_at (guint position)
     if (!item)
         return;
     acct_match_select (item);
-    g_list_model_items_changed (G_LIST_MODEL (account_match_store), position, 1, 1);
     g_object_unref (item);
 }
 
