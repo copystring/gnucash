@@ -123,37 +123,27 @@ gnc_html_webkit_webview_new (void)
      GtkWidget *view = webkit_web_view_new ();
      WebKitSettings *webkit_settings = nullptr;
      const char *default_font_family = nullptr;
-     GtkStyleContext *style = gtk_widget_get_style_context (view);
-     GValue val = G_VALUE_INIT;
-     GtkStateFlags state = gtk_style_context_get_state (style);
-     gtk_style_context_get_property (style, GTK_STYLE_PROPERTY_FONT,
-                     state, &val);
+     const PangoFontDescription *font = pango_context_get_font_description
+          (gtk_widget_get_pango_context (view));
 
-     if (G_VALUE_HOLDS_BOXED (&val))
-     {
-      const PangoFontDescription *font =
-           (const PangoFontDescription*)g_value_get_boxed (&val);
-      default_font_family = pango_font_description_get_family (font);
-     }
+     if (font != nullptr)
+          default_font_family = pango_font_description_get_family (font);
 /* Set default webkit settings */
      webkit_settings = webkit_web_view_get_settings (WEBKIT_WEB_VIEW (view));
      g_object_set (G_OBJECT(webkit_settings),
                    "default-charset", "utf-8",
                    "allow-file-access-from-file-urls", TRUE,
-                   "allow-universal-access-from-file-urls", TRUE,
+                   "allow-universal-access-from-file-urls", FALSE,
                    "enable-java", FALSE,
                    "enable-page-cache", FALSE,
-                   "enable-plugins", FALSE,
                    "enable-site-specific-quirks", FALSE,
-                   "enable-xss-auditor", FALSE,
-                   "enable-developer-extras", TRUE,
+                   "enable-developer-extras", FALSE,
                    nullptr);
      if (default_font_family != nullptr)
      {
           g_object_set (G_OBJECT (webkit_settings),
               "default-font-family", default_font_family, nullptr);
      }
-     g_value_unset (&val);
      return view;
 }
 
@@ -175,8 +165,8 @@ gnc_html_webkit_init( GncHtmlWebkit* self )
      webkit_web_view_set_zoom_level (priv->web_view, zoom);
 
 
-     gtk_container_add( GTK_CONTAINER(priv->base.container),
-                        GTK_WIDGET(priv->web_view) );
+     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (priv->base.container),
+                                    GTK_WIDGET (priv->web_view));
 
      g_object_ref_sink( priv->base.container );
 
@@ -234,8 +224,8 @@ gnc_html_webkit_dispose( GObject* obj )
 
      if ( priv->web_view != nullptr )
      {
-          gtk_container_remove (GTK_CONTAINER(priv->base.container),
-                                GTK_WIDGET(priv->web_view));
+          gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (priv->base.container),
+                                         nullptr);
 
           priv->web_view = nullptr;
      }
@@ -650,14 +640,14 @@ webkit_notification_cb (WebKitWebView* web_view, WebKitNotification *note,
      g_return_val_if_fail (self != nullptr, FALSE);
      g_return_val_if_fail (note != nullptr, FALSE);
 
-     auto top = GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (web_view)));
-     auto dialog = gtk_message_dialog_new (top, GTK_DIALOG_MODAL,
-                                      GTK_MESSAGE_WARNING, GTK_BUTTONS_CLOSE,
-                                      "%s\n%s",
-                                      webkit_notification_get_title (note),
-                                      webkit_notification_get_body (note));
-     gtk_dialog_run (GTK_DIALOG (dialog));
-     gtk_widget_destroy (dialog);
+     auto root = gtk_widget_get_root (GTK_WIDGET (web_view));
+     auto top = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : nullptr;
+     auto dialog = gtk_alert_dialog_new ("%s\n%s",
+                                         webkit_notification_get_title (note),
+                                         webkit_notification_get_body (note));
+     gtk_alert_dialog_set_modal (dialog, TRUE);
+     gtk_alert_dialog_show (dialog, top);
+     g_object_unref (dialog);
      return TRUE;
 }
 
@@ -1072,7 +1062,8 @@ impl_webkit_print (GncHtml* self,const gchar* jobname)
                     export_filename);
      webkit_print_operation_set_print_settings(op, print_settings);
      // Open a print dialog
-     auto top = GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (priv->web_view)));
+     auto root = gtk_widget_get_root (GTK_WIDGET (priv->web_view));
+     auto top = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : nullptr;
      auto print_response = webkit_print_operation_run_dialog (op, top);
      if (print_response == WEBKIT_PRINT_OPERATION_RESPONSE_PRINT)
      {
