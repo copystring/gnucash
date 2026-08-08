@@ -283,8 +283,8 @@ typedef struct LoanAssistantData_
     GtkLabel         *payAcctFromLabel;
     GtkLabel         *payEscToLabel;
     GtkLabel         *payEscFromLabel;
-    GtkRadioButton   *payTxnFreqPartRb;
-    GtkRadioButton   *payTxnFreqUniqRb;
+    GtkCheckButton   *payTxnFreqPartRb;
+    GtkCheckButton   *payTxnFreqUniqRb;
     GtkBox           *payFreqHBox;
     GncFrequency     *payGncFreq;
 
@@ -527,8 +527,8 @@ gnc_loan_assistant_create( LoanAssistantData *ldd )
         ldd->payAcctFromLabel = GTK_LABEL(gtk_builder_get_object(builder, "pay_from_account_label"));
         ldd->payEscToLabel = GTK_LABEL(gtk_builder_get_object(builder, "pay_escrow_to_label"));
         ldd->payEscFromLabel = GTK_LABEL(gtk_builder_get_object(builder, "pay_escrow_from_label"));
-        ldd->payTxnFreqPartRb = GTK_RADIO_BUTTON(gtk_builder_get_object(builder, "pay_txn_part_rb"));
-        ldd->payTxnFreqUniqRb = GTK_RADIO_BUTTON(gtk_builder_get_object(builder, "pay_uniq_freq_rb"));
+        ldd->payTxnFreqPartRb = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "pay_txn_part_rb"));
+        ldd->payTxnFreqUniqRb = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "pay_uniq_freq_rb"));
         ldd->payFreqHBox = GTK_BOX(gtk_builder_get_object(builder, "pay_freq_hbox"));
     }
     /* Review Page */

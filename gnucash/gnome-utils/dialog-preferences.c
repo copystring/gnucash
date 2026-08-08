@@ -995,32 +995,9 @@ file_chooser_clear_cb (GtkButton *button, gpointer user_data)
 
 /****************************************************************************/
 
-/** Connect a GtkRadioButton widget to its stored value in the preferences database.
- *
- *  @internal
- *
- *  @param button A pointer to the radio button that should be
- *  connected.
- */
-static void
-gnc_prefs_connect_radio_button (GtkRadioButton *button)
-{
-    gchar *group, *pref, *value;
-
-    g_return_if_fail (GTK_IS_RADIO_BUTTON(button));
-
-    gnc_prefs_split_widget_name (gtk_buildable_get_name (GTK_BUILDABLE(button)), &group, &pref, &value);
-
-    gnc_prefs_bind (group, pref, value, G_OBJECT(button), "active");
-
-    g_free (group);
-    g_free (pref);
-    g_free (value);
-}
-
-/****************************************************************************/
-
 /** Connect a GtkCheckButton widget to its stored value in the preferences database.
+ *  This covers both independent boolean check buttons and grouped check
+ *  buttons, which replace GtkRadioButton in GTK4.
  *
  *  @internal
  *
@@ -1036,7 +1013,7 @@ gnc_prefs_connect_check_button (GtkCheckButton *button)
 
     gnc_prefs_split_widget_name (gtk_buildable_get_name (GTK_BUILDABLE(button)), &group, &pref, &value);
 
-    gnc_prefs_bind (group, pref, NULL, G_OBJECT(button), "active");
+    gnc_prefs_bind (group, pref, value, G_OBJECT(button), "active");
 
     g_free (group);
     g_free (pref);
@@ -1271,11 +1248,6 @@ gnc_prefs_connect_one (const gchar *name,
     {
         DEBUG("  %s - file chooser button", name);
         gnc_prefs_connect_file_chooser_button (GTK_FILE_CHOOSER_BUTTON(widget), NULL);
-    }
-    else if (GTK_IS_RADIO_BUTTON(widget))
-    {
-        DEBUG("  %s - radio button", name);
-        gnc_prefs_connect_radio_button (GTK_RADIO_BUTTON(widget));
     }
     else if (GTK_IS_CHECK_BUTTON(widget))
     {

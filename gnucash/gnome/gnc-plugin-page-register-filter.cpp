@@ -109,7 +109,7 @@ extern "C"
 // These functions are the dialog callbacks. They're connected to their
 // signals in gnc-plugin-page-register.glade so they mustn't be name-mangled.
 void
-gnc_ppr_filter_select_range_cb (GtkRadioButton* button,
+gnc_ppr_filter_select_range_cb (GtkCheckButton* button,
                                 RegisterFilterDialog* rfd);
 void
 gnc_ppr_filter_start_cb (GtkWidget* radio,
@@ -1007,10 +1007,10 @@ get_filter_times (RegisterFilterDialog* rfd)
  *  @param rfd A pointer to the filter dialog structure.
  */
 void
-gnc_ppr_filter_select_range_cb (GtkRadioButton* button,
+gnc_ppr_filter_select_range_cb (GtkCheckButton* button,
                                 RegisterFilterDialog* rfd)
 {
-    g_return_if_fail (GTK_IS_RADIO_BUTTON(button));
+    g_return_if_fail (GTK_IS_CHECK_BUTTON(button));
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER(rfd->plugin_page));
 
     ENTER("(button %p, page %p)", button, rfd->plugin_page);
@@ -1105,7 +1105,7 @@ void
 gnc_ppr_filter_start_cb (GtkWidget* radio,
                          RegisterFilterDialog* rfd)
 {
-    g_return_if_fail (GTK_IS_RADIO_BUTTON(radio));
+    g_return_if_fail (GTK_IS_CHECK_BUTTON(radio));
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER(rfd->plugin_page));
 
     ENTER("(radio %s(%p), page %p)",
@@ -1148,7 +1148,7 @@ void
 gnc_ppr_filter_end_cb (GtkWidget* radio,
                        RegisterFilterDialog* rfd)
 {
-    g_return_if_fail (GTK_IS_RADIO_BUTTON(radio));
+    g_return_if_fail (GTK_IS_CHECK_BUTTON(radio));
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER(rfd->plugin_page));
 
     ENTER("(radio %s(%p), page %p)",
