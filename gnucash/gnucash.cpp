@@ -24,6 +24,7 @@
 
 #include <libguile.h>
 #include <guile-mappings.h>
+#include <gtk/gtk.h>
 #ifdef __MINGW32__
 #include <Windows.h>
 #include <fcntl.h>
@@ -214,9 +215,6 @@ scm_run_gnucash (void *data, [[maybe_unused]] int argc, [[maybe_unused]] char **
 
     gnc_hook_run(HOOK_UI_POST_STARTUP, NULL);
     gnc_ui_start_event_loop();
-    gnc_hook_remove_dangler(HOOK_UI_SHUTDOWN, (GFunc)gnc_file_quit);
-
-    gnc_shutdown(0);
     return;
 }
 
@@ -228,11 +226,17 @@ namespace Gnucash {
         Gnucash (const char* app_name);
         void parse_command_line (int argc, char **argv);
         int start (int argc, char **argv);
+        int run (int argc, char **argv);
+        void activate (void);
 
     private:
         void configure_program_options (void);
 
         bool m_nofile = false;
+        bool m_started = false;
+        int m_exit_status = 0;
+        int m_argc = 0;
+        char **m_argv = nullptr;
     };
 
 }
@@ -282,6 +286,54 @@ Gnucash::Gnucash::start ([[maybe_unused]] int argc, [[maybe_unused]] char **argv
     return 0;
 }
 
+void
+Gnucash::Gnucash::activate (void)
+{
+    if (m_started)
+    {
+        gnc_main_window_show_all_windows ();
+        return;
+    }
+
+    m_started = true;
+    m_exit_status = start (m_argc, m_argv);
+    if (m_exit_status != 0)
+        g_application_quit (g_application_get_default ());
+}
+
+static void
+on_application_activate ([[maybe_unused]] GtkApplication *application, gpointer user_data)
+{
+    static_cast<Gnucash::Gnucash*>(user_data)->activate ();
+}
+
+int
+Gnucash::Gnucash::run (int argc, char **argv)
+{
+    m_argc = argc;
+    m_argv = argv;
+
+    auto gtk_application = gtk_application_new ("org.gnucash.GnuCash",
+                                                G_APPLICATION_DEFAULT_FLAGS);
+    g_signal_connect (gtk_application, "activate", G_CALLBACK (on_application_activate), this);
+    g_application_hold (G_APPLICATION (gtk_application));
+
+    char *application_argv[] = { argv[0], nullptr };
+    auto status = g_application_run (G_APPLICATION (gtk_application), 1, application_argv);
+
+    if (m_started)
+    {
+        gnc_ui_stop_event_loop ();
+        gnc_hook_remove_dangler (HOOK_UI_SHUTDOWN, (GFunc)gnc_file_quit);
+    }
+    g_object_unref (gtk_application);
+
+    if (m_started)
+        gnc_shutdown (status == 0 ? m_exit_status : status);
+
+    return status == 0 ? m_exit_status : status;
+}
+
 int
 main(int argc, char ** argv)
 {
@@ -289,18 +341,6 @@ main(int argc, char ** argv)
 #ifdef __MINGW32__
     boost::nowide::args a(argc, argv); // Fix arguments - make them UTF-8
 #endif
-    /* We need to initialize gtk before looking up all modules */
-    if(!gtk_init_check (&argc, &argv))
-    {
-        std::cerr << bl::format (std::string{("Run '{1} --help' to see a full list of available command line options.")}) % *argv[0]
-        << "\n"
-        // Translators: Do not translate $DISPLAY! It is an environment variable for X11
-        << _("Error: could not initialize graphical user interface and option add-price-quotes was not set.\n"
-        "Perhaps you need to set the $DISPLAY environment variable?")
-        << "\n";
-        return 1;
-    }
-
     application.parse_command_line (argc, argv);
-    return application.start (argc, argv);
+    return application.run (argc, argv);
 }

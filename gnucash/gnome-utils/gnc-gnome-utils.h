@@ -103,6 +103,7 @@ void gnc_shutdown (int exit_status);
 /** Initialize the gnucash gui */
 GncMainWindow *gnc_gui_init (void);
 int gnc_ui_start_event_loop (void);
+void gnc_ui_stop_event_loop (void);
 gboolean gnucash_ui_is_running (void);
 
 #ifdef __cplusplus

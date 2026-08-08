@@ -61,6 +61,7 @@ static QofLogModule log_module = GNC_MOD_GUI;
 static int gnome_is_running = FALSE;
 static int gnome_is_terminating = FALSE;
 static int gnome_is_initialized = FALSE;
+static guint ui_event_source_id = 0;
 
 
 #define ACCEL_MAP_NAME "accelerator-map"
@@ -544,9 +545,6 @@ gnc_ui_check_events (gpointer not_used)
     QofSession *session;
     gboolean force;
 
-    if (gtk_main_level() != 1)
-        return TRUE;
-
     if (!gnc_current_session_exist())
         return TRUE;
     session = gnc_get_current_session ();
@@ -573,19 +571,32 @@ gnc_ui_check_events (gpointer not_used)
 int
 gnc_ui_start_event_loop (void)
 {
-    guint id;
+    if (gnome_is_running)
+        return 0;
 
     gnome_is_running = TRUE;
 
-    id = g_timeout_add_full (G_PRIORITY_DEFAULT_IDLE, 10000, /* 10 secs */
-                             gnc_ui_check_events, NULL, NULL);
+    ui_event_source_id = g_timeout_add_full (G_PRIORITY_DEFAULT_IDLE, 10000, /* 10 secs */
+                                             gnc_ui_check_events, NULL, NULL);
 
     scm_call_1(scm_c_eval_string("gnc:set-ui-status"), SCM_BOOL_T);
 
-    /* Enter gnome event loop */
-    gtk_main ();
+    return 0;
+}
 
-    g_source_remove (id);
+void
+gnc_ui_stop_event_loop (void)
+{
+    /* GtkApplication owns the main loop. This function only tears down the
+     * GnuCash-specific sources that were registered for it. */
+    if (!gnome_is_running)
+        return;
+
+    if (ui_event_source_id != 0)
+    {
+        g_source_remove (ui_event_source_id);
+        ui_event_source_id = 0;
+    }
 
     scm_call_1(scm_c_eval_string("gnc:set-ui-status"), SCM_BOOL_F);
 
@@ -736,7 +747,7 @@ gnc_gui_shutdown (void)
 //        gtk_accel_map_save(map);
 //        g_free(map);
         gnc_component_manager_shutdown ();
-        gtk_main_quit();
+        g_application_quit (g_application_get_default ());
     }
 }
 
@@ -765,4 +776,3 @@ gnc_shutdown (int exit_status)
         exit(exit_status);
     }
 }
-
