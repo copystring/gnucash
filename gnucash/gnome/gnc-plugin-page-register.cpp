@@ -1269,13 +1269,13 @@ gnc_plugin_page_register_destroy_widget (GncPluginPage* plugin_page)
 
     if (priv->sd.dialog)
     {
-        gtk_widget_destroy (priv->sd.dialog);
+        gtk_window_destroy (GTK_WINDOW(priv->sd.dialog));
         memset (&priv->sd, 0, sizeof (priv->sd));
     }
 
     if (priv->fd.dialog)
     {
-        gtk_widget_destroy (priv->fd.dialog);
+        gtk_window_destroy (GTK_WINDOW(priv->fd.dialog));
         memset (&priv->fd, 0, sizeof (priv->fd));
     }
 
@@ -2179,7 +2179,7 @@ gnc_plugin_page_register_cmd_print_check (GSimpleAction *simple,
                                            GTK_RESPONSE_YES);
                     response = gnc_warning_dialog_run (GTK_DIALOG (dialog),
                                                GNC_PREF_WARN_CHECKPRINTING_MULTI_ACCT);
-                    gtk_widget_destroy (dialog);
+                    gtk_window_destroy (GTK_WINDOW(dialog));
                     if (response != GTK_RESPONSE_YES)
                     {
                         LEAVE ("Multiple accounts");
@@ -3444,7 +3444,7 @@ gnc_plugin_page_register_cmd_jump (GSimpleAction *simple,
                     "%s", _("This transaction involves more than one other account. Select a specific split to jump to that account."));
             gtk_dialog_add_button (GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_OK);
             gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_TRANS_JUMP_MULTIPLE_SPLITS);
-            gtk_widget_destroy (dialog);
+            gtk_window_destroy (GTK_WINDOW(dialog));
 
             LEAVE ("no split (2)");
             return;
@@ -3473,7 +3473,7 @@ gnc_plugin_page_register_cmd_jump (GSimpleAction *simple,
                     "%s", _("This transaction only involves the current account so there is no other account to jump to."));
             gtk_dialog_add_button (GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_OK);
             gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_TRANS_JUMP_SINGLE_ACCOUNT);
-            gtk_widget_destroy (dialog);
+            gtk_window_destroy (GTK_WINDOW(dialog));
 
             LEAVE ("register open for account");
             return;

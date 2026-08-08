@@ -1389,7 +1389,7 @@ gnc_main_window_quit(GncMainWindow *window)
 
             // if there are no pages destroy window
             if (priv->installed_pages == NULL)
-                gtk_widget_destroy (GTK_WIDGET(window));
+                gtk_window_destroy (GTK_WINDOW(window));
         }
         /* remove the preference callbacks from the main window */
         gnc_main_window_remove_prefs (window);
@@ -1436,7 +1436,7 @@ gnc_main_window_delete_event (GtkWidget *window,
                                (gchar *)NULL);
         gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_YES);
         response = gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_CLOSING_WINDOW_QUESTION);
-        gtk_widget_destroy (dialog);
+        gtk_window_destroy (GTK_WINDOW(dialog));
 
         if (response == GTK_RESPONSE_CANCEL)
             return TRUE;
@@ -1510,7 +1510,7 @@ gnc_main_window_event_handler (QofInstance *entity,  QofEventId event_type,
     }
 
     if (GTK_IS_WIDGET(window) && window->window_quitting)
-        gtk_widget_destroy (GTK_WIDGET(window));
+        gtk_window_destroy (GTK_WINDOW(window));
 
     LEAVE(" ");
 }
@@ -3492,7 +3492,7 @@ gnc_main_window_close_page (GncPluginPage *page)
             gnc_main_window_remove_prefs (window);
         }
         if (window && (gnc_list_length_cmp (active_windows, 1) > 0))
-            gtk_widget_destroy (GTK_WIDGET(window));
+            gtk_window_destroy (GTK_WINDOW(window));
     }
 }
 

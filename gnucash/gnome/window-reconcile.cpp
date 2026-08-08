@@ -883,7 +883,7 @@ startRecnWindow(GtkWidget *parent, Account *account,
             gtk_button_set_label(GTK_BUTTON(interest), _("Enter _Interest Charge…") );
         else
         {
-            gtk_widget_destroy(interest);
+            gtk_widget_unparent (interest);
             interest = NULL;
         }
 
@@ -1795,7 +1795,7 @@ close_handler (gpointer user_data)
     auto recnData = static_cast<RecnWindow*>(user_data);
 
     gnc_save_window_size(GNC_PREFS_GROUP_RECONCILE, GTK_WINDOW(recnData->window));
-    gtk_widget_destroy (recnData->window);
+    gtk_window_destroy (GTK_WINDOW(recnData->window));
 }
 
 

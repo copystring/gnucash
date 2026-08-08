@@ -287,7 +287,7 @@ gnc_ui_select_commodity_create(const gnc_commodity * orig_sel,
         title = _("Select currency");
         text = _("Cu_rrency");
         button = GTK_WIDGET(gtk_builder_get_object (builder, "ss_new_button"));
-        gtk_widget_destroy(button);
+        gtk_widget_unparent (button);
         break;
     }
     gtk_window_set_title (GTK_WINDOW(retval->dialog), title);
@@ -971,10 +971,10 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
         gtk_grid_set_row_spacing(GTK_GRID(retval->table), 0);
 
         widget = GTK_WIDGET(gtk_builder_get_object (builder, "unknown_source_alignment"));
-        gtk_widget_destroy(widget);
+        gtk_widget_unparent (widget);
 
         widget = GTK_WIDGET(gtk_builder_get_object (builder, "unknown_source_box"));
-        gtk_widget_destroy(widget);
+        gtk_widget_unparent (widget);
     }
 
     box = GTK_WIDGET(gtk_builder_get_object (builder, "quote_tz_box"));
@@ -1003,7 +1003,7 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
     /* Are price quotes supported */
     if (gnc_quote_source_fq_installed())
     {
-        gtk_widget_destroy(GTK_WIDGET(gtk_builder_get_object (builder, "finance_quote_warning")));
+        gtk_widget_unparent (GTK_WIDGET(gtk_builder_get_object (builder, "finance_quote_warning")));
     }
     else
     {

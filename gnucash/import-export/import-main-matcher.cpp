@@ -231,7 +231,7 @@ gnc_gen_trans_list_delete (GNCImportMainMatcher *info)
         gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(info->main_widget));
         gnc_import_Settings_delete (info->user_settings);
         gnc_unregister_gui_component (info->id);
-        gtk_widget_destroy (GTK_WIDGET(info->main_widget));
+        gtk_window_destroy (GTK_WINDOW(info->main_widget));
     }
     else
         gnc_import_Settings_delete (info->user_settings);
@@ -624,7 +624,7 @@ on_matcher_help_close_clicked (GtkButton *button, gpointer user_data)
 {
     auto help_dialog = static_cast<GtkWidget *>(user_data);
 
-    gtk_widget_destroy (help_dialog);
+    gtk_window_destroy (GTK_WINDOW(help_dialog));
 }
 
 void
@@ -1882,7 +1882,7 @@ get_required_color (StrStrMap& cache, const gchar *class_name)
         gchar* col_str = gdk_rgba_to_string (&color);
         rv = col_str;
         g_free (col_str);
-        gtk_widget_destroy (label);
+        g_object_unref (label);
     }
     return rv.c_str();
 }

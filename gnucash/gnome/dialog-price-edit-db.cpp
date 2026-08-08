@@ -105,7 +105,7 @@ gnc_prices_dialog_destroy_cb (GtkWidget *object, gpointer data)
 
     if (pdb_dialog->window)
     {
-        gtk_widget_destroy (pdb_dialog->window);
+        gtk_window_destroy (GTK_WINDOW(pdb_dialog->window));
         pdb_dialog->window = NULL;
     }
 
@@ -220,7 +220,7 @@ gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
                                (gchar *)NULL);
         gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
         response = gnc_warning_dialog_run(GTK_DIALOG(dialog), GNC_PREF_WARN_PRICE_QUOTES_DEL);
-        gtk_widget_destroy(dialog);
+        gtk_window_destroy (GTK_WINDOW(dialog));
     }
     else
     {
@@ -895,7 +895,7 @@ close_handler (gpointer user_data)
 
     ENTER(" ");
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(pdb_dialog->window));
-    gtk_widget_destroy (GTK_WIDGET (pdb_dialog->window));
+    gtk_window_destroy (GTK_WINDOW(pdb_dialog->window));
     LEAVE(" ");
 }
 

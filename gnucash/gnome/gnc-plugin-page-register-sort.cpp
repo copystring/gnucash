@@ -357,7 +357,7 @@ gnc_ppr_sort_response_cb (GtkDialog* dialog,
     rsd->act_radio = nullptr;
     sd->dialog = nullptr;
     g_free (rsd);
-    gtk_widget_destroy (GTK_WIDGET(dialog));
+    gtk_window_destroy (GTK_WINDOW(dialog));
     LEAVE (" ");
 }
 

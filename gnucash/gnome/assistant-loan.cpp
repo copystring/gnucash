@@ -390,7 +390,7 @@ void
 loan_assistant_close_handler( gpointer user_data )
 {
     LoanAssistantData *ldd = static_cast<LoanAssistantData*> (user_data);
-    gtk_widget_destroy( ldd->window );
+    gtk_window_destroy (GTK_WINDOW(ldd->window));
 }
 
 
@@ -1838,7 +1838,7 @@ loan_rev_prep( GtkAssistant *assistant, gpointer user_data )
     /* Cleanup old view */
     if ( ldd->revView != NULL )
     {
-        gtk_widget_destroy( GTK_WIDGET(ldd->revView) );
+        gtk_scrolled_window_set_child (ldd->revScrollWin, NULL);
         ldd->revView = NULL;
     }
 

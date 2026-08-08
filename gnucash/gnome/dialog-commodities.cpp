@@ -94,7 +94,7 @@ gnc_commodities_window_destroy_cb (GtkWidget *object,   CommoditiesDialog *cd)
 
     if (cd->window)
     {
-        gtk_widget_destroy (cd->window);
+        gtk_window_destroy (GTK_WINDOW(cd->window));
         cd->window = NULL;
     }
     g_free (cd);
@@ -227,7 +227,7 @@ gnc_commodities_dialog_remove_clicked (GtkWidget *widget, gpointer data)
                             _("_Delete"), GTK_RESPONSE_OK,
                             (gchar *)NULL);
     response = gnc_warning_dialog_run (GTK_DIALOG(dialog), warning);
-    gtk_widget_destroy (dialog);
+    gtk_window_destroy (GTK_WINDOW(dialog));
 
     if (response == GTK_RESPONSE_OK)
     {
@@ -484,7 +484,7 @@ close_handler (gpointer user_data)
 
     gnc_prefs_set_bool (GNC_PREFS_GROUP, GNC_PREF_INCL_ISO, cd->show_currencies);
 
-    gtk_widget_destroy (cd->window);
+    gtk_window_destroy (GTK_WINDOW(cd->window));
 }
 
 static void

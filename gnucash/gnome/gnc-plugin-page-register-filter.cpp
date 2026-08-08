@@ -1425,7 +1425,7 @@ gnc_ppr_filter_response_cb (GtkDialog* dialog,
     rfd->dialog = nullptr;
     fd->dialog = nullptr;
     g_free (rfd);
-    gtk_widget_destroy (GTK_WIDGET(dialog));
+    gtk_window_destroy (GTK_WINDOW(dialog));
     LEAVE(" ");
 }
 

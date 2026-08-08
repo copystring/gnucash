@@ -514,7 +514,7 @@ gnc_split_register_duplicate_current (SplitRegister* reg)
         gtk_dialog_add_button (GTK_DIALOG (dialog),
                                _ ("_Record"), GTK_RESPONSE_ACCEPT);
         response = gnc_warning_dialog_run (GTK_DIALOG (dialog), GNC_PREF_WARN_REG_TRANS_DUP);
-        gtk_widget_destroy (dialog);
+        gtk_window_destroy (GTK_WINDOW(dialog));
 
         if (response != GTK_RESPONSE_ACCEPT)
         {

@@ -187,7 +187,7 @@ gnc_ui_file_access_response_cb(GtkDialog *dialog, gint response, GtkDialog *unus
 
     if ( response != GTK_RESPONSE_HELP )
     {
-        gtk_widget_destroy( GTK_WIDGET(dialog) );
+        gtk_window_destroy (GTK_WINDOW(dialog));
     }
 }
 
@@ -354,7 +354,7 @@ gnc_ui_file_access (GtkWindow *parent, int type)
         button_label = _("_Save As");
         fileChooserAction = GTK_FILE_CHOOSER_ACTION_SAVE;
         settings_section = GNC_PREFS_GROUP_OPEN_SAVE;
-        gtk_widget_destroy(faw->readonly_checkbutton);
+        gtk_widget_unparent (faw->readonly_checkbutton);
         faw->readonly_checkbutton = NULL;
         break;
 
@@ -363,7 +363,7 @@ gnc_ui_file_access (GtkWindow *parent, int type)
         button_label = _("_Save As");
         fileChooserAction = GTK_FILE_CHOOSER_ACTION_SAVE;
         settings_section = GNC_PREFS_GROUP_EXPORT;
-        gtk_widget_destroy(faw->readonly_checkbutton);
+        gtk_widget_unparent (faw->readonly_checkbutton);
         faw->readonly_checkbutton = NULL;
         break;
     }

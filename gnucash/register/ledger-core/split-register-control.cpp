@@ -1595,7 +1595,7 @@ transaction_changed_confirm (VirtualLocation *p_new_virt_loc,
                             _("_Record Changes"), GTK_RESPONSE_ACCEPT,
                             NULL);
     response = gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_TRANS_MOD);
-    gtk_widget_destroy (dialog);
+    gtk_window_destroy (GTK_WINDOW(dialog));
 
     switch (response)
     {
@@ -1902,6 +1902,6 @@ gnc_split_register_recn_cell_confirm (char old_flag, gpointer data)
                            _("_Unreconcile"),
                            GTK_RESPONSE_YES);
     response = gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_RECD_SPLIT_UNREC);
-    gtk_widget_destroy (dialog);
+    gtk_window_destroy (GTK_WINDOW(dialog));
     return (response == GTK_RESPONSE_YES);
 }

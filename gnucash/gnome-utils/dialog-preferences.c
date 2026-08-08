@@ -960,7 +960,7 @@ file_chooser_clear_cb (GtkButton *button, gpointer user_data)
             GTK_WINDOW(gtk_widget_get_toplevel (GTK_WIDGET(fcb))),
             old_path_head_uri);
 
-    gtk_widget_destroy (GTK_WIDGET(fcb));
+    gtk_widget_unparent (GTK_WIDGET(fcb));
 
     fcb_new = gtk_file_chooser_button_new (_("Select a folder"),
                                            GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER);
@@ -1221,7 +1221,7 @@ gnc_preferences_response_cb (GtkDialog *dialog, gint response, GtkDialog *unused
             gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(dialog));
             gnc_unregister_gui_component_by_data (DIALOG_PREFERENCES_CM_CLASS,
                                                   dialog);
-            gtk_widget_destroy (GTK_WIDGET(dialog));
+            gtk_window_destroy (GTK_WINDOW(dialog));
         }
         else
             gnc_preferences_select_account_page (dialog);
@@ -1553,7 +1553,7 @@ close_handler (gpointer user_data)
     ENTER(" ");
     dialog = GTK_WIDGET(user_data);
     gnc_unregister_gui_component_by_data (DIALOG_PREFERENCES_CM_CLASS, dialog);
-    gtk_widget_destroy (dialog);
+    gtk_window_destroy (GTK_WINDOW(dialog));
     LEAVE(" ");
 }
 
