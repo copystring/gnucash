@@ -71,12 +71,15 @@ using StrStrMap = std::unordered_map<std::string,std::string>;
 struct _main_matcher_info
 {
     GtkWidget *main_widget;
+    bool owns_main_window;
     GtkTreeView *view;
     GNCImportSettings *user_settings;
     int selected_row;
     bool dark_theme;
     GNCTransactionProcessedCB transaction_processed_cb;
     gpointer user_data;
+    GNCImportMainMatcherDoneCB done_cb;
+    gpointer done_user_data;
     GNCImportPendingMatches *pending_matches;
     GtkTreeViewColumn       *account_column;
     GtkTreeViewColumn       *memo_column;
@@ -199,8 +202,8 @@ defer_bal_computation (GNCImportMainMatcher *info, Account* acc)
     }
 }
 
-void
-gnc_gen_trans_list_delete (GNCImportMainMatcher *info)
+static void
+gnc_gen_trans_list_destroy (GNCImportMainMatcher *info)
 {
 
     if (info == NULL)
@@ -226,12 +229,13 @@ gnc_gen_trans_list_delete (GNCImportMainMatcher *info)
         while (gtk_tree_model_iter_next (model, &iter));
     }
 
-    if (GTK_IS_DIALOG(info->main_widget))
+    if (info->owns_main_window)
     {
         gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(info->main_widget));
         gnc_import_Settings_delete (info->user_settings);
         gnc_unregister_gui_component (info->id);
         gtk_window_destroy (GTK_WINDOW(info->main_widget));
+        g_object_unref (info->main_widget);
     }
     else
         gnc_import_Settings_delete (info->user_settings);
@@ -255,6 +259,27 @@ gnc_gen_trans_list_delete (GNCImportMainMatcher *info)
 
     if (!gnc_gui_refresh_suspended ())
         gnc_gui_refresh_all ();
+}
+
+static void
+gnc_gen_trans_list_finish (GNCImportMainMatcher *info, gboolean accepted)
+{
+    if (!info)
+        return;
+
+    auto done_cb = info->done_cb;
+    auto done_user_data = info->done_user_data;
+    info->done_cb = nullptr;
+    info->done_user_data = nullptr;
+    gnc_gen_trans_list_destroy (info);
+    if (done_cb)
+        done_cb (accepted, done_user_data);
+}
+
+void
+gnc_gen_trans_list_delete (GNCImportMainMatcher *info)
+{
+    gnc_gen_trans_list_finish (info, FALSE);
 }
 
 bool
@@ -543,7 +568,7 @@ on_matcher_ok_clicked (GtkButton *button, GNCImportMainMatcher *info)
     if (!gtk_tree_model_get_iter_first (model, &iter))
     {
         // No transaction, we can just close the dialog.
-        gnc_gen_trans_list_delete (info);
+        gnc_gen_trans_list_finish (info, TRUE);
         return;
     }
 
@@ -594,13 +619,12 @@ on_matcher_ok_clicked (GtkButton *button, GNCImportMainMatcher *info)
     }
     while (gtk_tree_model_iter_next (model, &iter));
 
-    gnc_gen_trans_list_delete (info);
-
     DEBUG ("End");
     g_list_free_full (accounts_modified, (GDestroyNotify)xaccAccountCommitEdit);
 
     /* Allow GUI refresh again upon commit completion. */
     gnc_resume_gui_refresh ();
+    gnc_gen_trans_list_finish (info, TRUE);
 }
 
 void
@@ -616,7 +640,7 @@ on_matcher_delete_event (GtkWidget *widget, gpointer data)
     auto info = static_cast<GNCImportMainMatcher *>(data);
     (void) widget;
     gnc_gen_trans_list_delete (info);
-    return false;
+    return true;
 }
 
 void
@@ -1785,17 +1809,20 @@ gnc_gen_trans_list_new (GtkWidget *parent,
 {
     GNCImportMainMatcher *info = g_new0 (GNCImportMainMatcher, 1);
 
-    /* Initialize the GtkDialog. */
+    /* Initialize the top-level GTK4 window. */
     GtkBuilder *builder = gtk_builder_new ();
     gnc_builder_add_from_file (builder, "dialog-import.glade", "transaction_matcher_dialog");
     gnc_builder_add_from_file (builder, "dialog-import.glade", "transaction_matcher_content");
 
     info->main_widget = GTK_WIDGET(gtk_builder_get_object (builder, "transaction_matcher_dialog"));
     g_assert (info->main_widget != NULL);
+    g_object_ref (info->main_widget);
+    info->owns_main_window = true;
 
     /* Pack the content into the dialog vbox */
     GtkWidget *pbox = GTK_WIDGET(gtk_builder_get_object (builder, "transaction_matcher_vbox"));
     GtkWidget *box = GTK_WIDGET(gtk_builder_get_object (builder, "transaction_matcher_content"));
+    GtkWidget *ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "matcher_ok"));
     gnc_box_append_full (GTK_BOX(pbox), box, true, true, 0);
 
     // Set the name for this dialog so it can be easily manipulated with css
@@ -1811,6 +1838,8 @@ gnc_gen_trans_list_new (GtkWidget *parent,
         gtk_window_set_transient_for (GTK_WINDOW(info->main_widget), GTK_WINDOW(parent));
 
     gnc_restore_window_size (GNC_PREFS_GROUP, GTK_WINDOW(info->main_widget), GTK_WINDOW(parent));
+
+    gtk_window_set_default_widget (GTK_WINDOW (info->main_widget), ok_button);
 
     if (show_all)
         gtk_widget_set_visible (GTK_WIDGET(info->main_widget), TRUE);
@@ -1878,17 +1907,16 @@ gnc_gen_trans_list_add_tp_cb (GNCImportMainMatcher *info,
     info->transaction_processed_cb = trans_processed_cb;
 }
 
-bool
-gnc_gen_trans_list_run (GNCImportMainMatcher *info)
+void
+gnc_gen_trans_list_present (GNCImportMainMatcher *info,
+                            GNCImportMainMatcherDoneCB done_cb,
+                            gpointer user_data)
 {
-    /* DEBUG("Begin"); */
-    bool result = gnc_dialog_run_non_destructive (GTK_DIALOG (info->main_widget));
-    /* DEBUG("Result was %d", result); */
-
-    /* No destroying here since the dialog was already destroyed through
-       the ok_clicked handlers. */
-
-    return result;
+    g_return_if_fail (info && info->owns_main_window);
+    g_return_if_fail (info->done_cb == nullptr);
+    info->done_cb = done_cb;
+    info->done_user_data = user_data;
+    gtk_window_present (GTK_WINDOW (info->main_widget));
 }
 
 static const gchar*

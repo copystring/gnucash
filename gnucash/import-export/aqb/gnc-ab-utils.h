@@ -254,13 +254,15 @@ guint gnc_ab_ieci_get_found (GncABImExContextImport *ieci);
  */
 GNC_AB_JOB_LIST2 *gnc_ab_ieci_get_job_list (GncABImExContextImport *ieci);
 
-/**
- * Run the generic transaction matcher dialog.
- *
- * @param ieci The return value of gnc_ab_import_context()
- * @return The return value of gnc_gen_trans_list_run().
- */
-gboolean gnc_ab_ieci_run_matcher (GncABImExContextImport *ieci);
+typedef void (*GncABMatcherDoneCB) (GncABImExContextImport *ieci,
+                                    gboolean accepted,
+                                    gpointer user_data);
+
+/** Present the generic transaction matcher without blocking the application.
+ * @a done_cb is called when the user accepts or cancels the matcher. */
+void gnc_ab_ieci_run_matcher_async (GncABImExContextImport *ieci,
+                                    GncABMatcherDoneCB done_cb,
+                                    gpointer user_data);
 
 
 /**

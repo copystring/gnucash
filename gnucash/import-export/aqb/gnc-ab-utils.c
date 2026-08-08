@@ -1150,12 +1150,42 @@ gnc_ab_ieci_get_job_list (GncABImExContextImport *ieci)
     return ieci->job_list;
 }
 
-gboolean
-gnc_ab_ieci_run_matcher (GncABImExContextImport *ieci)
+typedef struct
 {
-    g_return_val_if_fail (ieci, FALSE);
+    GncABImExContextImport *ieci;
+    GncABMatcherDoneCB done_cb;
+    gpointer user_data;
+} GncABMatcherRun;
 
-    return gnc_gen_trans_list_run (ieci->generic_importer);
+static void
+gnc_ab_matcher_finished_cb (gboolean accepted, gpointer user_data)
+{
+    GncABMatcherRun *run = user_data;
+    run->ieci->generic_importer = NULL;
+    if (run->done_cb)
+        run->done_cb (run->ieci, accepted, run->user_data);
+    g_free (run);
+}
+
+void
+gnc_ab_ieci_run_matcher_async (GncABImExContextImport *ieci,
+                               GncABMatcherDoneCB done_cb,
+                               gpointer user_data)
+{
+    g_return_if_fail (ieci);
+
+    if (!ieci->generic_importer)
+    {
+        if (done_cb)
+            done_cb (ieci, FALSE, user_data);
+        return;
+    }
+
+    GncABMatcherRun *run = g_new0 (GncABMatcherRun, 1);
+    run->ieci = ieci;
+    run->done_cb = done_cb;
+    run->user_data = user_data;
+    gnc_gen_trans_list_present (ieci->generic_importer, gnc_ab_matcher_finished_cb, run);
 }
 
 GWEN_DB_NODE *

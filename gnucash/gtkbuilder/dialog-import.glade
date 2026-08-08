@@ -817,56 +817,60 @@
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="transaction_matcher_dialog">
+  <object class="GtkWindow" id="transaction_matcher_dialog">
     <property name="title" translatable="1">Generic import transaction matcher</property>
     <property name="default-width">600</property>
     <property name="default-height">400</property>
-<signal name="close" handler="on_matcher_cancel_clicked" swapped="no" />
     <signal name="close-request" handler="on_matcher_delete_event" swapped="no" />
-    <child internal-child="content_area">
-      <object class="GtkBox" id="transaction_matcher_vbox">
+    <property name="child">
+      <object class="GtkBox" id="transaction_matcher_root">
         <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <child>
+          <object class="GtkBox" id="transaction_matcher_vbox">
+            <property name="orientation">vertical</property>
+            <property name="vexpand">1</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="dialog-action_area10">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <child>
+              <object class="GtkButton" id="matcher__help">
+                <property name="label" translatable="1">_Help</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="on_matcher_help_clicked" swapped="no" />
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="matcher_cancel">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="on_matcher_cancel_clicked" swapped="no" />
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="matcher_ok">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="on_matcher_ok_clicked" swapped="no" />
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-11">matcher__help</action-widget>
-      <action-widget response="-6">matcher_cancel</action-widget>
-      <action-widget response="-5">matcher_ok</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area10">
-        <property name="visible">True</property>
-        <child>
-          <object class="GtkButton" id="matcher__help">
-            <property name="label" translatable="1">_Help</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="on_matcher_help_clicked" swapped="no" />
-          </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="matcher_cancel">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="on_matcher_cancel_clicked" swapped="no" />
-          </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="matcher_ok">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="on_matcher_ok_clicked" swapped="no" />
-          </object>
-
-        </child>
-      </object>
-    </child>
+    </property>
   </object>
 </interface>
