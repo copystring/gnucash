@@ -35,7 +35,6 @@
 #include "gnc-component-manager.h"
 #include "gnc-date-edit.h"
 #include "gnc-prefs.h"
-#include "gnc-tree-view-account.h"
 #include "dialog-utils.h"
 #include "Query.h"
 #include "Transaction.h"
@@ -318,161 +317,232 @@ load_settings (CsvExportInfo *info)
 
 /* =============================================================== */
 
-/*******************************************************
- * csv_export_cursor_changed_cb
- *
- * call back for cursor selection in account tree
- *******************************************************/
-static void
-csv_export_cursor_changed_cb (GtkWidget *widget, gpointer user_data)
+typedef struct
 {
-    CsvExportInfo *info = user_data;
-    GncTreeViewAccount *account_tree;
+    GObject parent_instance;
     Account *account;
-    gint num_children;
+    gchar *full_name;
+} CsvExportAccountRow;
 
-    account_tree = GNC_TREE_VIEW_ACCOUNT (info->csva.account_treeview);
-    account = gnc_tree_view_account_get_cursor_account (account_tree);
-    if (!account)
-    {
-        gtk_widget_set_sensitive (info->csva.select_button, FALSE);
-        return;
-    }
-    num_children = gnc_tree_view_account_count_children (account_tree, account);
-    gtk_widget_set_sensitive (info->csva.select_button, num_children > 0);
+typedef struct
+{
+    GObjectClass parent_class;
+} CsvExportAccountRowClass;
+
+G_DEFINE_TYPE (CsvExportAccountRow, csv_export_account_row, G_TYPE_OBJECT)
+
+static void
+csv_export_account_row_finalize (GObject *object)
+{
+    CsvExportAccountRow *row = (CsvExportAccountRow *)object;
+
+    g_free (row->full_name);
+    G_OBJECT_CLASS (csv_export_account_row_parent_class)->finalize (object);
 }
 
+static void
+csv_export_account_row_class_init (CsvExportAccountRowClass *klass)
+{
+    G_OBJECT_CLASS (klass)->finalize = csv_export_account_row_finalize;
+}
 
-/*******************************************************
- * show_acct_type_accounts
- *
- * show required accounts in account tree
- *******************************************************/
+static void
+csv_export_account_row_init (CsvExportAccountRow *row)
+{
+    (void)row;
+}
+
+static CsvExportAccountRow *
+csv_export_account_row_new (Account *account)
+{
+    CsvExportAccountRow *row =
+        (CsvExportAccountRow *)g_object_new (csv_export_account_row_get_type (), NULL);
+
+    row->account = account;
+    row->full_name = gnc_account_get_full_name (account);
+    return row;
+}
+
+static void
+csv_export_account_factory_setup (GtkSignalListItemFactory *factory,
+                                  GtkListItem *list_item,
+                                  gpointer user_data)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (list_item, label);
+    (void)factory;
+    (void)user_data;
+}
+
+static void
+csv_export_account_factory_bind (GtkSignalListItemFactory *factory,
+                                 GtkListItem *list_item,
+                                 gpointer user_data)
+{
+    CsvExportAccountRow *row =
+        (CsvExportAccountRow *)gtk_list_item_get_item (list_item);
+
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (list_item)),
+                        row ? row->full_name : "");
+    (void)factory;
+    (void)user_data;
+}
+
+static gboolean
+csv_export_account_type_visible (GNCAccountType type)
+{
+    return type == ACCT_TYPE_BANK || type == ACCT_TYPE_CASH ||
+           type == ACCT_TYPE_CREDIT || type == ACCT_TYPE_ASSET ||
+           type == ACCT_TYPE_LIABILITY || type == ACCT_TYPE_STOCK ||
+           type == ACCT_TYPE_MUTUAL || type == ACCT_TYPE_INCOME ||
+           type == ACCT_TYPE_EXPENSE || type == ACCT_TYPE_EQUITY ||
+           type == ACCT_TYPE_RECEIVABLE || type == ACCT_TYPE_PAYABLE ||
+           type == ACCT_TYPE_TRADING;
+}
+
+static void
+csv_export_add_account (Account *account, gpointer user_data)
+{
+    CsvExportInfo *info = user_data;
+    CsvExportAccountRow *row;
+
+    if (!csv_export_account_type_visible (xaccAccountGetType (account)))
+        return;
+    row = csv_export_account_row_new (account);
+    g_list_store_append (info->csva.account_store, row);
+    g_object_unref (row);
+}
+
+static Account *
+csv_export_cursor_account (CsvExportInfo *info)
+{
+    GListModel *model = G_LIST_MODEL (info->csva.account_store);
+    guint n_items = g_list_model_get_n_items (model);
+    guint position = info->csva.cursor_position;
+    CsvExportAccountRow *row;
+
+    if (position >= n_items || !gtk_selection_model_is_selected (
+            GTK_SELECTION_MODEL (info->csva.account_selection), position))
+    {
+        for (position = 0; position < n_items; ++position)
+            if (gtk_selection_model_is_selected (
+                    GTK_SELECTION_MODEL (info->csva.account_selection), position))
+                break;
+    }
+    if (position >= n_items)
+        return NULL;
+
+    row = (CsvExportAccountRow *)g_list_model_get_item (model, position);
+    if (!row)
+        return NULL;
+    Account *account = row->account;
+    g_object_unref (row);
+    return account;
+}
+
 static void
 show_acct_type_accounts (CsvExportInfo *info)
 {
-    GncTreeViewAccount *tree;
-    AccountViewInfo Viewinfo;
-    GNCAccountType type;
-
-    tree = GNC_TREE_VIEW_ACCOUNT (info->csva.account_treeview);
-
-    gnc_tree_view_account_get_view_info (tree, &Viewinfo);
-
-    for (type = 0; type < NUM_ACCOUNT_TYPES; type++) /* from Account.h */
-    {
-        Viewinfo.include_type[type] = ((type == ACCT_TYPE_BANK)      ||
-                                       (type == ACCT_TYPE_CASH)      ||
-                                       (type == ACCT_TYPE_CREDIT)    ||
-                                       (type == ACCT_TYPE_ASSET)     ||
-                                       (type == ACCT_TYPE_LIABILITY) ||
-                                       (type == ACCT_TYPE_STOCK)     ||
-                                       (type == ACCT_TYPE_MUTUAL)    ||
-                                       (type == ACCT_TYPE_INCOME)    ||
-                                       (type == ACCT_TYPE_EXPENSE)   ||
-                                       (type == ACCT_TYPE_EQUITY)    ||
-                                       (type == ACCT_TYPE_RECEIVABLE)||
-                                       (type == ACCT_TYPE_PAYABLE)   ||
-                                       (type == ACCT_TYPE_ROOT)      ||
-                                       (type == ACCT_TYPE_TRADING));
-    }
-    gnc_tree_view_account_set_view_info (tree, &Viewinfo);
-    csv_export_cursor_changed_cb (GTK_WIDGET(tree), info);
+    g_list_store_remove_all (info->csva.account_store);
+    info->csva.cursor_position = GTK_INVALID_LIST_POSITION;
+    gnc_account_foreach_descendant (gnc_get_current_root_account (),
+                                    (AccountCb)csv_export_add_account, info);
 }
 
-
-/*******************************************************
- * update_accounts_tree
- *
- * update the account tree
- *******************************************************/
 static void
 update_accounts_tree (CsvExportInfo *info)
 {
-    GncTreeViewAccount *tree;
-    GtkTreeSelection* selection;
-    GtkWidget *label;
-    int num_accounts;
-    char *string;
+    GListModel *model = G_LIST_MODEL (info->csva.account_store);
+    guint position;
+    guint num_accounts = 0;
+    gchar *string;
 
-    tree = GNC_TREE_VIEW_ACCOUNT(info->csva.account_treeview);
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(tree));
-    num_accounts = gtk_tree_selection_count_selected_rows (selection);
+    for (position = 0; position < g_list_model_get_n_items (model); ++position)
+        if (gtk_selection_model_is_selected (GTK_SELECTION_MODEL (
+                info->csva.account_selection), position))
+            ++num_accounts;
 
-    label = info->csva.num_acct_label;
-    string = g_strdup_printf (_("Accounts Selected: %d"), num_accounts);
-    gtk_label_set_text (GTK_LABEL (label), string);
+    string = g_strdup_printf (_("Accounts Selected: %u"), num_accounts);
+    gtk_label_set_text (GTK_LABEL (info->csva.num_acct_label), string);
     g_free (string);
 }
 
-
-/*******************************************************
- * csv_export_account_changed_cb
- *
- * update account list after selection changed
- *******************************************************/
 static void
-csv_export_account_changed_cb (GtkTreeSelection *selection,
+csv_export_account_changed_cb (GtkSelectionModel *selection,
+                               guint position, guint n_items,
                                gpointer user_data)
 {
-
-    g_return_if_fail(GTK_IS_TREE_SELECTION(selection));
-
     CsvExportInfo *info = user_data;
+    GListModel *model = G_LIST_MODEL (info->csva.account_store);
+    guint index;
+    Account *cursor;
 
-    GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT(info->csva.account_treeview);
-    info->csva.account_list = gnc_tree_view_account_get_selected_accounts (view);
+    g_list_free (info->csva.account_list);
+    info->csva.account_list = NULL;
+    for (index = 0; index < g_list_model_get_n_items (model); ++index)
+    {
+        CsvExportAccountRow *row;
 
-    /* Enable the "Next" Assistant Button if we have accounts */
-    GtkAssistant *assistant = GTK_ASSISTANT(info->assistant);
-    if (g_list_length (info->csva.account_list) > 0)
-        gtk_assistant_set_page_complete (assistant, info->account_page, TRUE);
-    else
-        gtk_assistant_set_page_complete (assistant, info->account_page, FALSE);
+        if (!gtk_selection_model_is_selected (selection, index))
+            continue;
+        row = (CsvExportAccountRow *)g_list_model_get_item (model, index);
+        info->csva.account_list = g_list_prepend (info->csva.account_list,
+                                                  row->account);
+        g_object_unref (row);
+    }
+    info->csva.account_list = g_list_reverse (info->csva.account_list);
+    info->csva.cursor_position = position;
+    cursor = csv_export_cursor_account (info);
+    gtk_widget_set_sensitive (info->csva.select_subaccounts_button,
+                              cursor && gnc_account_n_descendants (cursor) > 0);
 
+    gtk_assistant_set_page_complete (GTK_ASSISTANT (info->assistant),
+                                     info->account_page,
+                                     info->csva.account_list != NULL);
     update_accounts_tree (info);
+    (void)n_items;
 }
 
-
-/*******************************************************
- * csv_export_select_all_clicked_cb
- *
- * select all the accounts
- *******************************************************/
 static void
 csv_export_select_all_clicked_cb (GtkWidget *widget, gpointer user_data)
 {
     CsvExportInfo *info = user_data;
-    GtkTreeSelection *selection = gtk_tree_view_get_selection
-                                    (GTK_TREE_VIEW (info->csva.account_treeview));
 
-    gtk_tree_view_expand_all (GTK_TREE_VIEW (info->csva.account_treeview));
-    gtk_tree_selection_select_all (selection);
-
+    gtk_selection_model_select_all (GTK_SELECTION_MODEL (info->csva.account_selection));
     gtk_widget_grab_focus (info->csva.account_treeview);
+    (void)widget;
 }
 
-
-/*******************************************************
- * csv_export_select_subaccounts_clicked_cb
- *
- * select all the sub accounts
- *******************************************************/
 static void
 csv_export_select_subaccounts_clicked_cb (GtkWidget *widget, gpointer user_data)
 {
     CsvExportInfo *info = user_data;
-    GncTreeViewAccount *account_tree;
-    Account *account;
+    Account *account = csv_export_cursor_account (info);
+    GListModel *model = G_LIST_MODEL (info->csva.account_store);
+    guint position;
 
-    account_tree = GNC_TREE_VIEW_ACCOUNT (info->csva.account_treeview);
-    account = gnc_tree_view_account_get_cursor_account (account_tree);
     if (!account)
         return;
 
-    gnc_tree_view_account_select_subaccounts (account_tree, account);
+    for (position = 0; position < g_list_model_get_n_items (model); ++position)
+    {
+        CsvExportAccountRow *row =
+            (CsvExportAccountRow *)g_list_model_get_item (model, position);
+        Account *parent = gnc_account_get_parent (row->account);
+
+        while (parent && parent != account)
+            parent = gnc_account_get_parent (parent);
+        if (parent == account)
+            gtk_selection_model_select_item (GTK_SELECTION_MODEL (
+                info->csva.account_selection), position, FALSE);
+        g_object_unref (row);
+    }
 
     gtk_widget_grab_focus (info->csva.account_treeview);
+    (void)widget;
 }
 
 /* =============================================================== */
@@ -806,6 +876,8 @@ csv_export_assistant_destroy_cb (GtkWidget *object, gpointer user_data)
     CsvExportInfo *info = user_data;
     gnc_unregister_gui_component_by_data (ASSISTANT_CSV_EXPORT_CM_CLASS, info);
     g_list_free (info->csva.account_list);
+    g_clear_object (&info->csva.account_selection);
+    g_clear_object (&info->csva.account_store);
     g_free (info);
 }
 
@@ -891,41 +963,50 @@ csv_export_assistant_create (CsvExportInfo *info)
     }
     else
     {
-        GtkTreeView *tree_view;
-        GtkTreeSelection *selection;
+        GtkColumnView *account_view;
+        GtkListItemFactory *factory;
+        GtkColumnViewColumn *column;
         GtkWidget *box, *label;
 
         info->csva.acct_info = GTK_WIDGET(gtk_builder_get_object (builder, "acct_info_vbox"));
         info->csva.num_acct_label = GTK_WIDGET(gtk_builder_get_object (builder, "num_accounts_label"));
 
-        tree_view = gnc_tree_view_account_new (FALSE);
-        info->csva.account_treeview = GTK_WIDGET(tree_view);
+        info->csva.account_store = g_list_store_new (csv_export_account_row_get_type ());
+        info->csva.account_selection = gtk_multi_selection_new (G_LIST_MODEL (
+            g_object_ref (info->csva.account_store)));
+        account_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (
+            g_object_ref (info->csva.account_selection))));
+        info->csva.account_treeview = GTK_WIDGET (account_view);
+        factory = GTK_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
+        g_signal_connect (factory, "setup",
+                          G_CALLBACK (csv_export_account_factory_setup), NULL);
+        g_signal_connect (factory, "bind",
+                          G_CALLBACK (csv_export_account_factory_bind), NULL);
+        column = gtk_column_view_column_new (_("Account"), factory);
+        gtk_column_view_column_set_expand (column, TRUE);
+        gtk_column_view_column_set_resizable (column, TRUE);
+        gtk_column_view_append_column (account_view, column);
+        g_object_unref (factory);
+        g_signal_connect (info->csva.account_selection, "selection-changed",
+                          G_CALLBACK (csv_export_account_changed_cb), info);
 
-        selection = gtk_tree_view_get_selection (tree_view);
-        gtk_tree_selection_set_mode (selection, GTK_SELECTION_MULTIPLE);
-        g_signal_connect (G_OBJECT(selection), "changed",
-                          G_CALLBACK(csv_export_account_changed_cb), info);
-
-        gtk_widget_set_visible (GTK_WIDGET(info->csva.account_treeview), TRUE);
         box = GTK_WIDGET(gtk_builder_get_object (builder, "account_scroll"));
-        gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(info->csva.account_treeview));
+        gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (box),
+                                       info->csva.account_treeview);
 
         label = GTK_WIDGET(gtk_builder_get_object (builder, "accounts_label"));
-        gtk_label_set_mnemonic_widget (GTK_LABEL(label), GTK_WIDGET(tree_view));
+        gtk_label_set_mnemonic_widget (GTK_LABEL(label), info->csva.account_treeview);
 
         /* select subaccounts button */
         button = GTK_WIDGET(gtk_builder_get_object (builder, "select_subaccounts_button"));
-        info->csva.select_button = button;
+        info->csva.select_subaccounts_button = button;
+        gtk_widget_set_sensitive (button, FALSE);
         g_signal_connect (G_OBJECT(button), "clicked",
                           G_CALLBACK(csv_export_select_subaccounts_clicked_cb), info);
 
         button = GTK_WIDGET(gtk_builder_get_object (builder, "select_all_button"));
-        info->csva.select_button = button;
         g_signal_connect (G_OBJECT(button), "clicked",
                           G_CALLBACK(csv_export_select_all_clicked_cb), info);
-
-        g_signal_connect (G_OBJECT(info->csva.account_treeview), "cursor_changed",
-                          G_CALLBACK(csv_export_cursor_changed_cb), info);
 
         /* Set the date info */
         button = GTK_WIDGET(gtk_builder_get_object (builder, "show_range"));

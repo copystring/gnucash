@@ -59,9 +59,12 @@ typedef struct
 {
     GtkWidget        *acct_info;
     GtkWidget        *account_treeview;
-    GtkWidget        *select_button;
+    GtkWidget        *select_subaccounts_button;
     GtkWidget        *num_acct_label;
+    GListStore       *account_store;
+    GtkMultiSelection *account_selection;
     GList            *account_list;
+    guint             cursor_position;
     GNCAccountType    account_type;
 } CsvExportAcc;
 
