@@ -198,8 +198,8 @@ public:
     void preview_validate_settings ();
 
     void acct_match_via_button ();
-    void acct_match_via_view_dblclick (gint n_press, gdouble x, gdouble y);
-    void acct_match_select(GtkTreeModel *model, GtkTreeIter* iter);
+    void acct_match_select (GObject *row);
+    void acct_match_select_at (guint position);
     void acct_match_set_accounts ();
 
     friend gboolean
@@ -257,7 +257,9 @@ private:
                                                        * the user has clicked */
 
     GtkWidget            *account_match_page;       /**< Assistant account matcher page widget */
-    GtkWidget            *account_match_view;       /**< Assistant account matcher view widget */
+    GtkColumnView        *account_match_view;       /**< Assistant account matcher view */
+    GListStore           *account_match_store;      /**< The account matching rows */
+    GtkSingleSelection   *account_match_selection;  /**< The selected mapping */
     GtkWidget            *account_match_label;      /**< Assistant account matcher label widget */
     GtkWidget            *account_match_btn;        /**< Assistant account matcher button widget */
 
@@ -307,9 +309,6 @@ void csv_tximp_preview_acct_sel_cb (GtkWidget* widget, CsvImpTransAssist* info);
 void csv_tximp_preview_enc_sel_cb (GOCharmapSel* selector, const char* encoding,
                               CsvImpTransAssist* info);
 void csv_tximp_acct_match_button_clicked_cb (GtkWidget *widget, CsvImpTransAssist* info);
-void csv_tximp_acct_match_view_clicked_cb (GtkGestureClick *gesture, gint n_press,
-                                           gdouble x, gdouble y,
-                                           CsvImpTransAssist* info);
 }
 
 void
@@ -458,14 +457,76 @@ void csv_tximp_acct_match_button_clicked_cb (GtkWidget *widget, CsvImpTransAssis
     info->acct_match_via_button();
 }
 
-void
-csv_tximp_acct_match_view_clicked_cb (GtkGestureClick *gesture, gint n_press,
-                                      gdouble x, gdouble y,
-                                      CsvImpTransAssist* info)
+static constexpr auto ACCOUNT_MATCH_ROW_DATA = "csv-transaction-account-match-row";
+
+struct CsvTransactionAccountMatchRow
 {
-    if (gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture)) ==
-        GDK_BUTTON_PRIMARY)
-        info->acct_match_via_view_dblclick (n_press, x, y);
+    std::string mapping;
+    std::string fullpath;
+    Account *account;
+};
+
+static GObject*
+csv_tximp_account_match_row_new (const std::string& mapping)
+{
+    auto row = G_OBJECT (g_object_new (G_TYPE_OBJECT, nullptr));
+    auto values = new CsvTransactionAccountMatchRow { mapping, _("No Linked Account"), nullptr };
+    g_object_set_data_full (row, ACCOUNT_MATCH_ROW_DATA, values,
+                            [] (gpointer data) { delete static_cast<CsvTransactionAccountMatchRow*> (data); });
+    return row;
+}
+
+static CsvTransactionAccountMatchRow*
+csv_tximp_account_match_row_get (GObject *row)
+{
+    return static_cast<CsvTransactionAccountMatchRow*> (g_object_get_data (row, ACCOUNT_MATCH_ROW_DATA));
+}
+
+static void
+csv_tximp_account_match_item_setup (GtkListItemFactory *factory, GtkListItem *item,
+                                    gpointer user_data)
+{
+    auto label = gtk_label_new (nullptr);
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (item, label);
+}
+
+static void
+csv_tximp_account_match_item_bind (GtkListItemFactory *factory, GtkListItem *item,
+                                   gpointer user_data)
+{
+    auto row = csv_tximp_account_match_row_get (gtk_list_item_get_item (item));
+
+    (void)factory;
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
+                        GPOINTER_TO_UINT (user_data) == MAPPING_STRING
+                        ? row->mapping.c_str () : row->fullpath.c_str ());
+}
+
+static void
+csv_tximp_account_match_add_column (GtkColumnView *view, const gchar *title, guint column)
+{
+    auto factory = gtk_signal_list_item_factory_new ();
+    auto view_column = gtk_column_view_column_new (title, factory);
+
+    g_signal_connect (factory, "setup", G_CALLBACK (csv_tximp_account_match_item_setup),
+                      GUINT_TO_POINTER (column));
+    g_signal_connect (factory, "bind", G_CALLBACK (csv_tximp_account_match_item_bind),
+                      GUINT_TO_POINTER (column));
+    gtk_column_view_column_set_resizable (view_column, TRUE);
+    gtk_column_view_append_column (view, view_column);
+}
+
+static void
+csv_tximp_account_match_view_activated_cb (GtkColumnView *view, guint position,
+                                           CsvImpTransAssist *info)
+{
+    (void)view;
+    info->acct_match_select_at (position);
 }
 
 
@@ -478,7 +539,6 @@ CsvImpTransAssist::CsvImpTransAssist ()
     gtk_builder_set_current_object (builder, G_OBJECT(this));
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "start_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "end_row_adj");
-    gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "account_match_store");
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "csv_transaction_assistant");
     csv_imp_asst = GTK_ASSISTANT(gtk_builder_get_object (builder, "csv_transaction_assistant"));
 
@@ -658,14 +718,19 @@ CsvImpTransAssist::CsvImpTransAssist ()
 
     /* Account Match Page */
     account_match_page  = GTK_WIDGET(gtk_builder_get_object (builder, "account_match_page"));
-    account_match_view  = GTK_WIDGET(gtk_builder_get_object (builder, "account_match_view"));
     account_match_label = GTK_WIDGET(gtk_builder_get_object (builder, "account_match_label"));
     account_match_btn = GTK_WIDGET(gtk_builder_get_object (builder, "account_match_change"));
-    auto account_match_click = gtk_gesture_click_new ();
-    g_signal_connect (account_match_click, "pressed",
-                      G_CALLBACK (csv_tximp_acct_match_view_clicked_cb), this);
-    gtk_widget_add_controller (account_match_view,
-                               GTK_EVENT_CONTROLLER (account_match_click));
+    account_match_store = g_list_store_new (G_TYPE_OBJECT);
+    account_match_selection = gtk_single_selection_new (G_LIST_MODEL (g_object_ref (account_match_store)));
+    account_match_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (
+        g_object_ref (account_match_selection))));
+    csv_tximp_account_match_add_column (account_match_view, _("Account ID"), MAPPING_STRING);
+    csv_tximp_account_match_add_column (account_match_view, _("Account Name"), MAPPING_FULLPATH);
+    auto account_match_scrolled = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder,
+                                                         "account_match_swindow"));
+    gtk_scrolled_window_set_child (account_match_scrolled, GTK_WIDGET (account_match_view));
+    g_signal_connect (account_match_view, "activate",
+                      G_CALLBACK (csv_tximp_account_match_view_activated_cb), this);
 
     /* Doc Page */
     doc_page = GTK_WIDGET(gtk_builder_get_object (builder, "doc_page"));
@@ -710,6 +775,8 @@ CsvImpTransAssist::~CsvImpTransAssist ()
     /* The call above frees gnc_csv_importer_gui but can't nullify it.
      * Do it here so no one accidentally can access it still */
     gnc_csv_importer_gui = nullptr;
+    g_clear_object (&account_match_selection);
+    g_clear_object (&account_match_store);
 //FIXME gtk4    gtk_window_destroy (GTK_WINDOW(csv_imp_asst));
 }
 
@@ -1801,69 +1868,53 @@ void CsvImpTransAssist::preview_validate_settings ()
  */
 void CsvImpTransAssist::acct_match_set_accounts ()
 {
-    auto store = gtk_tree_view_get_model (GTK_TREE_VIEW(account_match_view));
-    gtk_list_store_clear (GTK_LIST_STORE(store));
+    g_list_store_remove_all (account_match_store);
 
     auto accts = tx_imp->accounts();
-    for (auto acct : accts)
+    for (const auto& acct : accts)
     {
-        GtkTreeIter acct_iter;
-        gtk_list_store_append (GTK_LIST_STORE(store), &acct_iter);
-        gtk_list_store_set (GTK_LIST_STORE(store), &acct_iter, MAPPING_STRING, acct.c_str(),
-                            MAPPING_FULLPATH, _("No Linked Account"), MAPPING_ACCOUNT, nullptr, -1);
+        auto row = csv_tximp_account_match_row_new (acct);
+        g_list_store_append (account_match_store, row);
+        g_object_unref (row);
     }
 }
 
 static void
-csv_tximp_acct_match_load_mappings (GtkTreeModel *mappings_store)
+csv_tximp_acct_match_load_mappings (GListModel *mappings_model)
 {
-    // Set iter to first entry of store
-    GtkTreeIter iter;
-    auto valid = gtk_tree_model_get_iter_first (mappings_store, &iter);
-
-    // Walk through the store trying to match to a map
-    while (valid)
+    for (guint position = 0; position < g_list_model_get_n_items (mappings_model); position++)
     {
-        // Walk through the list, reading each row
-        Account *account = nullptr;
-        gchar   *map_string;
-        gtk_tree_model_get (GTK_TREE_MODEL(mappings_store), &iter, MAPPING_STRING, &map_string, MAPPING_ACCOUNT, &account, -1);
+        auto item = G_OBJECT (g_list_model_get_item (mappings_model, position));
+        auto row = csv_tximp_account_match_row_get (item);
+        auto account = row->account;
 
-        // Look for an account matching the map_string
-        // It may already be set in the tree model. If not we try to match the map_string with
+        // Look for an account matching the imported mapping string.
+        // It may already be set in the row. If not we try to match it with
         // - an entry in our saved account maps
         // - a full name of any of our existing accounts
         if (account ||
-            (account = gnc_account_imap_find_any (gnc_get_current_book(), IMAP_CAT_CSV, map_string)) ||
-            (account = gnc_account_lookup_by_full_name (gnc_get_current_root_account(), map_string)))
+            (account = gnc_account_imap_find_any (gnc_get_current_book(), IMAP_CAT_CSV, row->mapping.c_str ())) ||
+            (account = gnc_account_lookup_by_full_name (gnc_get_current_root_account(), row->mapping.c_str ())))
         {
             auto fullpath = gnc_account_get_full_name (account);
-            gtk_list_store_set (GTK_LIST_STORE(mappings_store), &iter, MAPPING_FULLPATH, fullpath, -1);
-            gtk_list_store_set (GTK_LIST_STORE(mappings_store), &iter, MAPPING_ACCOUNT, account, -1);
+            row->fullpath = fullpath;
+            row->account = account;
             g_free (fullpath);
         }
-
-        g_free (map_string);
-        valid = gtk_tree_model_iter_next (mappings_store, &iter);
+        g_object_unref (item);
     }
 }
 
 static bool
-csv_tximp_acct_match_check_all (GtkTreeModel *model)
+csv_tximp_acct_match_check_all (GListModel *model)
 {
-    // Set iter to first entry of store
-    GtkTreeIter iter;
-    auto valid = gtk_tree_model_get_iter_first (model, &iter);
-
-    // Walk through the store looking for nullptr accounts
-    while (valid)
+    for (guint position = 0; position < g_list_model_get_n_items (model); position++)
     {
-        Account *account;
-        gtk_tree_model_get (model, &iter, MAPPING_ACCOUNT, &account, -1);
+        auto item = G_OBJECT (g_list_model_get_item (model, position));
+        auto account = csv_tximp_account_match_row_get (item)->account;
+        g_object_unref (item);
         if (!account)
             return false;
-
-        valid = gtk_tree_model_iter_next (model, &iter);
     }
     return true;
 }
@@ -1908,30 +1959,26 @@ csv_tximp_acct_match_text_parse (std::string acct_name)
 }
 
 void
-CsvImpTransAssist::acct_match_select(GtkTreeModel *model, GtkTreeIter* iter)
+CsvImpTransAssist::acct_match_select (GObject *item)
 {
-    // Get the stored string and account (if any)
-    gchar *text = nullptr;
-    Account *account = nullptr;
-    gtk_tree_model_get (model, iter, MAPPING_STRING, &text,
-                                     MAPPING_ACCOUNT, &account, -1);
+    auto row = csv_tximp_account_match_row_get (item);
+    auto account = row->account;
 
-    auto acct_name = csv_tximp_acct_match_text_parse (text);
+    auto acct_name = csv_tximp_acct_match_text_parse (row->mapping);
     auto gnc_acc = gnc_import_select_account (GTK_WIDGET(csv_imp_asst), nullptr, true,
             acct_name.c_str(), nullptr, ACCT_TYPE_NONE, account, nullptr);
 
     if (gnc_acc) // We may have canceled
     {
         auto fullpath = gnc_account_get_full_name (gnc_acc);
-        gtk_list_store_set (GTK_LIST_STORE(model), iter,
-                MAPPING_ACCOUNT, gnc_acc,
-                MAPPING_FULLPATH, fullpath, -1);
+        row->account = gnc_acc;
+        row->fullpath = fullpath;
 
         // Update the account kvp mappings
-        if (text && *text)
+        if (!row->mapping.empty ())
         {
-            gnc_account_imap_delete_account (account, IMAP_CAT_CSV, text);
-            gnc_account_imap_add_account (gnc_acc, IMAP_CAT_CSV, text, gnc_acc);
+            gnc_account_imap_delete_account (account, IMAP_CAT_CSV, row->mapping.c_str ());
+            gnc_account_imap_add_account (gnc_acc, IMAP_CAT_CSV, row->mapping.c_str (), gnc_acc);
         }
 
         // Force reparsing of account columns - may impact multi-currency mode
@@ -1949,11 +1996,9 @@ CsvImpTransAssist::acct_match_select(GtkTreeModel *model, GtkTreeIter* iter)
 
         g_free (fullpath);
     }
-    g_free (text);
-
 
     /* Enable the "Next" Assistant Button */
-    auto all_checked = csv_tximp_acct_match_check_all (model);
+    auto all_checked = csv_tximp_acct_match_check_all (G_LIST_MODEL (account_match_store));
     gtk_assistant_set_page_complete (csv_imp_asst, account_match_page,
                                      all_checked);
 
@@ -1964,35 +2009,22 @@ CsvImpTransAssist::acct_match_select(GtkTreeModel *model, GtkTreeIter* iter)
 }
 
 void
-CsvImpTransAssist::acct_match_via_button ()
+CsvImpTransAssist::acct_match_select_at (guint position)
 {
-    auto model = gtk_tree_view_get_model (GTK_TREE_VIEW(account_match_view));
-    auto selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(account_match_view));
-
-    GtkTreeIter iter;
-    if (gtk_tree_selection_get_selected (selection, &model, &iter))
-        acct_match_select (model, &iter);
+    auto item = G_OBJECT (g_list_model_get_item (G_LIST_MODEL (account_match_store), position));
+    if (!item)
+        return;
+    acct_match_select (item);
+    g_list_model_items_changed (G_LIST_MODEL (account_match_store), position, 1, 1);
+    g_object_unref (item);
 }
 
-
-/* This is the callback for the mouse click. */
 void
-CsvImpTransAssist::acct_match_via_view_dblclick (gint n_press, gdouble x, gdouble y)
+CsvImpTransAssist::acct_match_via_button ()
 {
-    if (n_press != 2)
-        return;
-
-    GtkTreePath *path = nullptr;
-    if (!gtk_tree_view_get_path_at_pos (GTK_TREE_VIEW (account_match_view),
-                                        (gint)x, (gint)y, &path, nullptr,
-                                        nullptr, nullptr))
-        return;
-
-    auto model = gtk_tree_view_get_model (GTK_TREE_VIEW (account_match_view));
-    GtkTreeIter iter;
-    if (gtk_tree_model_get_iter (model, &iter, path))
-        acct_match_select (model, &iter);
-    gtk_tree_path_free (path);
+    auto position = gtk_single_selection_get_selected (account_match_selection);
+    if (position != GTK_INVALID_LIST_POSITION)
+        acct_match_select_at (position);
 }
 
 
@@ -2084,15 +2116,17 @@ CsvImpTransAssist::assist_account_match_page_prepare ()
     acct_match_set_accounts ();
 
     // Match the account strings to account maps from previous imports
-    auto store = gtk_tree_view_get_model (GTK_TREE_VIEW(account_match_view));
-    csv_tximp_acct_match_load_mappings (store);
+    csv_tximp_acct_match_load_mappings (G_LIST_MODEL (account_match_store));
+    auto row_count = g_list_model_get_n_items (G_LIST_MODEL (account_match_store));
+    if (row_count)
+        g_list_model_items_changed (G_LIST_MODEL (account_match_store), 0, row_count, row_count);
 
     // Enable the view, possibly after an error
     gtk_widget_set_sensitive (account_match_view, true);
     gtk_widget_set_sensitive (account_match_btn, true);
 
     /* Enable the "Next" Assistant Button */
-    auto all_checked = csv_tximp_acct_match_check_all (store);
+    auto all_checked = csv_tximp_acct_match_check_all (G_LIST_MODEL (account_match_store));
     gtk_assistant_set_page_complete (csv_imp_asst, account_match_page,
                                      all_checked);
 
