@@ -241,8 +241,8 @@ calculate_autoclear (RecnWindow *recnData)
 
     gtk_widget_set_sensitive (recnData->autoclear_button, error == nullptr);
 
-    gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (recnData->autoclear_button),
-                                   get_autoclear_icon (error));
+    gtk_button_set_icon_name (GTK_BUTTON (recnData->autoclear_button),
+                              get_autoclear_icon (error));
 
     recnData->autoclear_splits = recnData->initially_cleared_splits;
     for (auto n = splits_to_clear; n; n = n->next)

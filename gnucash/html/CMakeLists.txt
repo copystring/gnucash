@@ -5,8 +5,6 @@ set (html_HEADERS
   gnc-html-p.h
   gnc-html-factory.hpp
   gnc-html-extras.h
-  gnc-html-webkit-p.hpp
-  gnc-html-webkit.hpp
 )
 
 # Command to generate the swig-gnc-html.cpp wrapper file
@@ -66,7 +64,13 @@ target_link_libraries(gnc-html
         ${WEBKIT_FRAMEWORK}
         ${GUILE_LDFLAGS})
 
-target_compile_definitions(gnc-html PRIVATE -DG_LOG_DOMAIN=\"gnc.html\")
+target_compile_definitions(gnc-html PRIVATE -DG_LOG_DOMAIN=\"gnc.html\"
+    $<$<BOOL:${GNC_REPORT_WEBVIEW2}>:GNC_REPORT_WEBVIEW2>
+    $<$<BOOL:${GNC_REPORT_WKWEBVIEW}>:GNC_REPORT_WKWEBVIEW>)
+
+if (GNC_REPORT_WEBVIEW2)
+  target_link_libraries(gnc-html PRIVATE dcomp ole32)
+endif()
 
 
 target_include_directories (gnc-html
@@ -90,5 +94,9 @@ install(TARGETS gnc-html
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/gnucash
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/gnucash
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+if (GNC_REPORT_WEBVIEW2)
+  install(FILES "${WEBVIEW2_LOADER_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 install(FILES ${html_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/gnucash)

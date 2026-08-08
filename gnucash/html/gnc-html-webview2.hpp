@@ -1,0 +1,45 @@
+/********************************************************************
+ * gnc-html-webview2.hpp -- display reports with Microsoft WebView2 *
+ *                                                                  *
+ * Copyright (C) 2026 The GnuCash Project                           *
+ *                                                                  *
+ * This program is free software; you can redistribute it and/or    *
+ * modify it under the terms of the GNU General Public License as   *
+ * published by the Free Software Foundation; either version 2 of   *
+ * the License, or (at your option) any later version.              *
+ ********************************************************************/
+
+#ifndef GNC_HTML_WEBVIEW2_HPP
+#define GNC_HTML_WEBVIEW2_HPP
+
+#include <glib-object.h>
+
+#include "gnc-html.h"
+
+G_BEGIN_DECLS
+
+#define GNC_TYPE_HTML_WEBVIEW2       (gnc_html_webview2_get_type ())
+#define GNC_HTML_WEBVIEW2(o)         (G_TYPE_CHECK_INSTANCE_CAST ((o), GNC_TYPE_HTML_WEBVIEW2, GncHtmlWebView2))
+#define GNC_IS_HTML_WEBVIEW2(o)      (G_TYPE_CHECK_INSTANCE_TYPE ((o), GNC_TYPE_HTML_WEBVIEW2))
+
+struct GncHtmlWebView2Private;
+
+struct GncHtmlWebView2
+{
+    GncHtml parent_instance;
+
+    /*< private >*/
+    GncHtmlWebView2Private *priv;
+};
+
+struct GncHtmlWebView2Class
+{
+    GncHtmlClass parent_class;
+};
+
+GType gnc_html_webview2_get_type (void);
+GncHtml *gnc_html_webview2_new (void) NOEXCEPT;
+
+G_END_DECLS
+
+#endif /* GNC_HTML_WEBVIEW2_HPP */
