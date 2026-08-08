@@ -887,7 +887,7 @@ gnc_loan_assistant_create( LoanAssistantData *ldd )
                       G_CALLBACK(loan_assistant_window_destroy_cb),
                       ldd );
 
-    gtk_builder_connect_signals(builder, ldd);
+    gnc_builder_connect_signals(builder, ldd);
     g_object_unref(G_OBJECT(builder));
 
     gtk_widget_show_all( ldd->window );

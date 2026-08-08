@@ -1164,7 +1164,7 @@ owner_filter_dialog_create(OwnerFilterDialog *fd, GncPluginPage *page)
                                   fd->show_zero_total);
 
     /* Wire up the rest of the callbacks */
-//FIXME gtk4    gtk_builder_connect_signals (builder, fd);
+gnc_builder_connect_signals (builder, fd);
     g_object_unref(G_OBJECT(builder));
 
     /* Show it */

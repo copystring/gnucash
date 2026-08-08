@@ -122,6 +122,19 @@ gboolean gnc_handle_date_accelerator (GdkEvent *event,
 
 gboolean gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char *root);
 
+typedef void (*GncBuilderConnectFunc) (GtkBuilder *builder,
+                                       GObject *signal_object,
+                                       const gchar *signal_name,
+                                       const gchar *handler_name,
+                                       GObject *connect_object,
+                                       GConnectFlags flags,
+                                       gpointer user_data);
+
+void gnc_builder_connect_signals (GtkBuilder *builder, gpointer user_data);
+void gnc_builder_connect_signals_full (GtkBuilder *builder,
+                                       GncBuilderConnectFunc connect_func,
+                                       gpointer user_data);
+
 void gnc_builder_connect_full_func (GtkBuilder *builder,
                                     GObject *signal_object,
                                     const gchar *signal_name,

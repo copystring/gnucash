@@ -620,7 +620,7 @@ ap_assistant_create (AcctPeriodInfo *info)
     g_signal_connect (G_OBJECT(window), "destroy",
                       G_CALLBACK (ap_assistant_destroy_cb), info);
 
-//FIXME gtk4    gtk_builder_connect_signals(builder, info);
+gnc_builder_connect_signals(builder, info);
     g_object_unref(G_OBJECT(builder));
     return window;
 }

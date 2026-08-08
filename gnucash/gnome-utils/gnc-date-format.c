@@ -127,7 +127,7 @@ gnc_date_format_init (GNCDateFormat *gdf)
     gnc_builder_add_from_file (builder, "gnc-date-format.glade", "format-liststore");
     gnc_builder_add_from_file (builder, "gnc-date-format.glade", "gnc_date_format_window");
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gdf);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gdf);
 
     /* pull in all the child widgets */
     gdf->label = GTK_WIDGET(gtk_builder_get_object (builder, "widget_label"));

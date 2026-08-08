@@ -847,7 +847,7 @@ startRecnWindow(GtkWidget *parent, Account *account,
         label = GTK_WIDGET(gtk_builder_get_object (builder, "end_label"));
         gnc_amount_edit_make_mnemonic_target (GNC_AMOUNT_EDIT(end_value), label);
 
-        gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, &data);
+        gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, &data);
 
         gnc_date_activates_default(GNC_DATE_EDIT(date_value), TRUE);
 
@@ -915,7 +915,7 @@ startRecnWindow(GtkWidget *parent, Account *account,
     {
         if (gnc_date_edit_get_date_end(GNC_DATE_EDIT(date_value)) != *statement_date)
             recn_date_changed_cb(date_value, &data);
-        
+
         /* If response is OK but end_value not valid, try again */
         if (gnc_amount_edit_evaluate (GNC_AMOUNT_EDIT(end_value), NULL))
         {

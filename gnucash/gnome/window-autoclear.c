@@ -262,7 +262,7 @@ autoClearWindow (GtkWidget *parent, Account *account)
     if (parent != NULL)
         gtk_window_set_transient_for (GTK_WINDOW (data->window), GTK_WINDOW (parent));
 
-//FIXME gtk4    gtk_builder_connect_signals(builder, data);
+gnc_builder_connect_signals(builder, data);
     g_object_unref(G_OBJECT(builder));
 
     return data;

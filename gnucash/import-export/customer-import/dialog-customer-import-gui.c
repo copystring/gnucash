@@ -147,7 +147,7 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
                         gui);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
 //FIXME gtk4    gtk_widget_show_all ( gui->dialog );
     g_object_unref (G_OBJECT (builder));
     return gui;

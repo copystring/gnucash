@@ -218,7 +218,7 @@ create_options_box(GtkBox* content_box)
     gtk_grid_set_row_spacing (GTK_GRID(options_box), 6);
     gtk_grid_set_column_spacing (GTK_GRID(options_box), 6);
     gtk_widget_set_halign (GTK_WIDGET(options_box), GTK_ALIGN_START);
-    
+
     gtk_container_set_border_width(GTK_CONTAINER(options_box), 0);
     gtk_container_add (GTK_CONTAINER(options_scrolled_win),
                        GTK_WIDGET(options_box));
@@ -583,7 +583,7 @@ GncOptionsDialog::GncOptionsDialog(bool modal, const char* title,
     g_signal_connect(m_ok_button, "clicked",
                      G_CALLBACK(dialog_ok_button_cb), this);
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
                                       this);
 
     // when added to a page of the hierarchy assistant there will be no parent

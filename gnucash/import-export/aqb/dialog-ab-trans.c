@@ -471,7 +471,7 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     gtk_tree_view_append_column(td->template_gtktreeview, column);
 
     /* Connect the Signals */
-    gtk_builder_connect_signals_full(builder, gnc_builder_connect_full_func, td);
+    gnc_builder_connect_signals_full(builder, gnc_builder_connect_full_func, td);
 
     g_object_unref(G_OBJECT(builder));
 

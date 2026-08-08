@@ -86,7 +86,8 @@ void custom_report_help_cb(GtkWidget* widget, gpointer data);
 void close_custom_report_clicked_cb(GtkWidget* widget, gpointer data);
 void custom_report_list_view_row_activated_cb(GtkTreeView *view, GtkTreePath *path,
         GtkTreeViewColumn *column, gpointer data);
-gboolean custom_report_list_view_clicked_cb(GtkTreeView *view, const GdkEvent *event, gpointer data);
+void custom_report_list_view_clicked_cb(GtkGestureClick *gesture, gint n_press,
+                                        gdouble x, gdouble y, gpointer data);
 void custom_report_name_edited_cb(GtkCellRendererText *renderer, gchar *path, gchar *new_text, gpointer data);
 gboolean custom_report_query_tooltip_cb (GtkTreeView  *view,
                                          gint        x,
@@ -416,21 +417,22 @@ custom_report_list_view_row_activated_cb(GtkTreeView *view, GtkTreePath *path,
  * pictogram, the corresponding action will be executed on the
  * selected row.
  **************************************************************/
-gboolean
-custom_report_list_view_clicked_cb(GtkTreeView *view, const GdkEvent *event, gpointer data)
+void
+custom_report_list_view_clicked_cb (GtkGestureClick *gesture, gint n_press,
+                                    gdouble x, gdouble y, gpointer data)
 {
     CustomReportDialog *crd = data;
+    GtkTreeView *view = GTK_TREE_VIEW
+        (gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture)));
     GtkTreePath *path = NULL;
     GtkTreeViewColumn *column = NULL;
     gint cellx, celly;
-    gdouble x_win, y_win;
 
-    g_return_val_if_fail ( view != NULL, FALSE );
+    g_return_if_fail (view != NULL);
+    if (n_press != 1)
+        return;
 
-    if (!gdk_event_get_position ((GdkEvent*)event, &x_win, &y_win))
-        return FALSE;
-
-    if (gtk_tree_view_get_path_at_pos (view, x_win, y_win,
+    if (gtk_tree_view_get_path_at_pos (view, x, y,
                                        &path, &column,
                                        &cellx, &celly))
     {
@@ -439,7 +441,7 @@ custom_report_list_view_clicked_cb(GtkTreeView *view, const GdkEvent *event, gpo
             SCM guid = get_custom_report_selection(crd, _("You must select a report configuration to load."));
             custom_report_run_report (guid, crd);
             gtk_tree_path_free (path);
-            return TRUE;
+            return;
         }
         else if (column == crd->editcol)
         {
@@ -447,18 +449,17 @@ custom_report_list_view_clicked_cb(GtkTreeView *view, const GdkEvent *event, gpo
             gtk_tree_view_set_cursor_on_cell (view, path, crd->namecol,
                                               crd->namerenderer, TRUE);
             gtk_tree_path_free (path);
-            return TRUE;
+            return;
         }
         else if (column == crd->delcol)
         {
             SCM guid = get_custom_report_selection(crd, _("You must select a report configuration to delete."));
             custom_report_delete (guid, crd);
             gtk_tree_path_free (path);
-            return TRUE;
+            return;
         }
         gtk_tree_path_free (path);
     }
-    return FALSE;
 }
 
 void
@@ -573,6 +574,13 @@ gnc_ui_custom_report_internal(GncMainWindow * window)
 
     crd->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "custom_report_dialog"));
     crd->reportview = GTK_WIDGET(gtk_builder_get_object (builder, "custom_report_list_view"));
+    GtkGestureClick *report_click = GTK_GESTURE_CLICK (gtk_gesture_click_new ());
+    gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (report_click),
+                                   GDK_BUTTON_PRIMARY);
+    g_signal_connect (report_click, "released",
+                      G_CALLBACK (custom_report_list_view_clicked_cb), crd);
+    gtk_widget_add_controller (crd->reportview,
+                               GTK_EVENT_CONTROLLER (report_click));
     scroll_window = GTK_WIDGET(gtk_builder_get_object (builder, "custom_report_sw"));
     no_report_notification = GTK_WIDGET(gtk_builder_get_object (builder, "label2"));
     set_reports_view_and_model(crd);
@@ -594,7 +602,7 @@ gnc_ui_custom_report_internal(GncMainWindow * window)
                              GTK_WINDOW(crd->dialog), GTK_WINDOW(window));
 
     /* connect the signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, crd);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, crd);
 
 //FIXME gtk4    gtk_widget_show_all(crd->dialog);
 

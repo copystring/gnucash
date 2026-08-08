@@ -352,7 +352,7 @@ new_tax_table_dialog (TaxTableWindow *ttw, gboolean new_table,
     gtk_window_set_transient_for (GTK_WINDOW(ntt->dialog), GTK_WINDOW(ttw->dialog));
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ntt);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ntt);
 
     /* Show what we should */
 //FIXME gtk4    gtk_widget_show_all (ntt->dialog);
@@ -986,7 +986,7 @@ gnc_ui_tax_table_window_new (GtkWindow *parent, QofBook *book)
                       G_CALLBACK(tax_table_entry_row_activated), ttw);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ttw);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ttw);
 
     /* register with component manager */
     ttw->component_id =

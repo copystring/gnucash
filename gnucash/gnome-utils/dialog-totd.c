@@ -355,7 +355,7 @@ gnc_totd_dialog (GtkWindow *parent, gboolean startup)
 
     ENTER("totd_dialog %p, dialog %p", totd_dialog, dialog);
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, totd_dialog);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, totd_dialog);
 
     button = GTK_WIDGET(gtk_builder_get_object (builder, "show_checkbutton"));
     totd_dialog->showcheck_button = button;

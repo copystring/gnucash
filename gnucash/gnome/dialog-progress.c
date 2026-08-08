@@ -259,7 +259,7 @@ gnc_progress_dialog_create(GtkWidget * parent, GNCProgressDialog *progress)
     progress->destroyed = FALSE;
     progress->title_set = FALSE;
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, progress);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, progress);
     g_object_unref(G_OBJECT(builder));
 }
 

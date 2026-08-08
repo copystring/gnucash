@@ -1735,7 +1735,7 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
 
     gtk_widget_grab_focus (GTK_WIDGET(aw->name_entry));
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, aw);
+gnc_builder_connect_signals (builder, aw);
     g_object_unref (G_OBJECT(builder));
 
     LEAVE(" ");
@@ -2378,7 +2378,7 @@ gnc_account_renumber_create_dialog (GtkWidget *window, Account *account)
     gnc_entry_set_text (GTK_ENTRY(data->prefix), xaccAccountGetCode (account));
     gnc_account_renumber_update_examples (data);
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, data);
+gnc_builder_connect_signals (builder, data);
 
 //FIXME gtk4    gtk_widget_show_all (data->dialog);
 }
@@ -2521,7 +2521,7 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
     /* default to cancel */
     gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, dialog);
+gnc_builder_connect_signals (builder, dialog);
     g_object_unref (G_OBJECT(builder));
 
 //FIXME gtk4    gtk_widget_show_all (dialog);

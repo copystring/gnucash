@@ -784,6 +784,6 @@ gnc_sx_create_from_trans( GtkWindow *parent, Transaction *trans )
 
 //FIXME gtk4    gtk_widget_show_all(GTK_WIDGET(sxfti->dialog));
 
-//FIXME gtk4    gtk_builder_connect_signals(builder, sxfti);
+gnc_builder_connect_signals(builder, sxfti);
     g_object_unref(G_OBJECT(builder));
 }

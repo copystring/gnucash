@@ -616,9 +616,199 @@ gnc_handle_date_accelerator (GdkEventKey *event,
 
 GModule *allsymbols = NULL;
 
+typedef struct
+{
+    gchar *object_id;
+    gchar *signal_name;
+    gchar *handler_name;
+    gchar *connect_object_id;
+    GConnectFlags flags;
+} GncBuilderSignal;
+
+typedef struct
+{
+    GPtrArray *signals;
+    GHashTable *seen;
+} GncBuilderSignalRegistry;
+
+typedef struct
+{
+    GncBuilderSignalRegistry *registry;
+    GPtrArray *object_stack;
+} GncBuilderSignalCollector;
+
+static GQuark builder_signal_registry_quark;
+
+static void
+gnc_builder_signal_free (GncBuilderSignal *signal)
+{
+    g_free (signal->object_id);
+    g_free (signal->signal_name);
+    g_free (signal->handler_name);
+    g_free (signal->connect_object_id);
+    g_free (signal);
+}
+
+static void
+gnc_builder_signal_registry_free (GncBuilderSignalRegistry *registry)
+{
+    g_ptr_array_unref (registry->signals);
+    g_hash_table_unref (registry->seen);
+    g_free (registry);
+}
+
+static GncBuilderSignalRegistry *
+gnc_builder_get_signal_registry (GtkBuilder *builder)
+{
+    GncBuilderSignalRegistry *registry;
+
+    if (G_UNLIKELY (builder_signal_registry_quark == 0))
+        builder_signal_registry_quark =
+            g_quark_from_static_string ("gnc-builder-signal-registry");
+
+    registry = g_object_get_qdata (G_OBJECT (builder),
+                                   builder_signal_registry_quark);
+    if (registry)
+        return registry;
+
+    registry = g_new0 (GncBuilderSignalRegistry, 1);
+    registry->signals = g_ptr_array_new_with_free_func
+        ((GDestroyNotify)gnc_builder_signal_free);
+    registry->seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+    g_object_set_qdata_full (G_OBJECT (builder), builder_signal_registry_quark,
+                             registry,
+                             (GDestroyNotify)gnc_builder_signal_registry_free);
+    return registry;
+}
+
+static const gchar *
+gnc_builder_attribute (const gchar **attribute_names,
+                       const gchar **attribute_values,
+                       const gchar *name)
+{
+    for (guint i = 0; attribute_names[i] != NULL; i++)
+        if (g_str_equal (attribute_names[i], name))
+            return attribute_values[i];
+    return NULL;
+}
+
+static void
+gnc_builder_collect_start_element (GMarkupParseContext *context,
+                                   const gchar *element_name,
+                                   const gchar **attribute_names,
+                                   const gchar **attribute_values,
+                                   gpointer user_data,
+                                   GError **error)
+{
+    GncBuilderSignalCollector *collector = user_data;
+
+    if (g_str_equal (element_name, "object"))
+    {
+        const gchar *id = gnc_builder_attribute (attribute_names,
+                                                 attribute_values, "id");
+        g_ptr_array_add (collector->object_stack, g_strdup (id ? id : ""));
+        return;
+    }
+
+    if (!g_str_equal (element_name, "signal") ||
+        collector->object_stack->len == 0)
+        return;
+
+    const gchar *signal_name = gnc_builder_attribute (attribute_names,
+                                                      attribute_values, "name");
+    const gchar *handler_name = gnc_builder_attribute (attribute_names,
+                                                       attribute_values, "handler");
+    if (!signal_name || !handler_name)
+        return;
+
+    const gchar *object_id = g_ptr_array_index
+        (collector->object_stack, collector->object_stack->len - 1);
+    const gchar *connect_object_id = gnc_builder_attribute (attribute_names,
+                                                             attribute_values,
+                                                             "object");
+    const gchar *swapped = gnc_builder_attribute (attribute_names,
+                                                  attribute_values, "swapped");
+    const gchar *after = gnc_builder_attribute (attribute_names,
+                                                attribute_values, "after");
+    GConnectFlags flags = 0;
+    if (g_strcmp0 (swapped, "yes") == 0 || g_strcmp0 (swapped, "true") == 0)
+        flags |= G_CONNECT_SWAPPED;
+    if (g_strcmp0 (after, "yes") == 0 || g_strcmp0 (after, "true") == 0)
+        flags |= G_CONNECT_AFTER;
+
+    gchar *key = g_strdup_printf ("%s\x1f%s\x1f%s\x1f%s\x1f%u", object_id,
+                                  signal_name, handler_name,
+                                  connect_object_id ? connect_object_id : "", flags);
+    if (g_hash_table_contains (collector->registry->seen, key))
+    {
+        g_free (key);
+        return;
+    }
+
+    GncBuilderSignal *signal = g_new0 (GncBuilderSignal, 1);
+    signal->object_id = g_strdup (object_id);
+    signal->signal_name = g_strdup (signal_name);
+    signal->handler_name = g_strdup (handler_name);
+    signal->connect_object_id = g_strdup (connect_object_id);
+    signal->flags = flags;
+    g_hash_table_add (collector->registry->seen, key);
+    g_ptr_array_add (collector->registry->signals, signal);
+}
+
+static void
+gnc_builder_collect_end_element (GMarkupParseContext *context,
+                                 const gchar *element_name,
+                                 gpointer user_data,
+                                 GError **error)
+{
+    GncBuilderSignalCollector *collector = user_data;
+
+    if (g_str_equal (element_name, "object") && collector->object_stack->len)
+        g_ptr_array_remove_index (collector->object_stack,
+                                  collector->object_stack->len - 1);
+}
+
+static gboolean
+gnc_builder_collect_signals (GtkBuilder *builder, const gchar *contents,
+                             gssize length, GError **error)
+{
+    GncBuilderSignalCollector collector =
+    {
+        .registry = gnc_builder_get_signal_registry (builder),
+        .object_stack = g_ptr_array_new_with_free_func (g_free),
+    };
+    GMarkupParser parser =
+    {
+        .start_element = gnc_builder_collect_start_element,
+        .end_element = gnc_builder_collect_end_element,
+    };
+    GMarkupParseContext *context = g_markup_parse_context_new
+        (&parser, G_MARKUP_TREAT_CDATA_AS_TEXT, &collector, NULL);
+    gboolean result = g_markup_parse_context_parse (context, contents, length, error) &&
+        g_markup_parse_context_end_parse (context, error);
+
+    g_markup_parse_context_free (context);
+    g_ptr_array_unref (collector.object_stack);
+    return result;
+}
+
+static gchar *
+gnc_builder_without_signals (const gchar *contents, GError **error)
+{
+    GRegex *signal_pattern = g_regex_new
+        ("(?s)<signal\\b[^>]*(?:/>|>.*?</signal>)", 0, 0, error);
+    if (!signal_pattern)
+        return NULL;
+
+    gchar *without_signals = g_regex_replace_literal (signal_pattern, contents,
+                                                      -1, 0, "", 0, error);
+    g_regex_unref (signal_pattern);
+    return without_signals;
+}
+
 /* gnc_builder_add_from_file:
  *
- *   a convenience wrapper for gtk_builder_add_objects_from_file.
+ *   a convenience wrapper for gtk_builder_add_objects_from_string.
  *   It takes care of finding the directory for glade files and prints a
  *   warning message in case of an error.
  */
@@ -628,6 +818,9 @@ gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char
     GError* error = NULL;
     char *fname;
     gchar *gnc_builder_dir;
+    gchar *contents = NULL;
+    gchar *without_signals = NULL;
+    gsize contents_length = 0;
     gboolean result;
 
     g_return_val_if_fail (builder != NULL, FALSE);
@@ -638,10 +831,38 @@ gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char
     fname = g_build_filename(gnc_builder_dir, filename, (char *)NULL);
     g_free (gnc_builder_dir);
 
+    if (!g_file_get_contents (fname, &contents, &contents_length, &error))
+    {
+        PWARN ("Couldn't load builder file: %s", error->message);
+        g_error_free (error);
+        g_free (fname);
+        return FALSE;
+    }
+
+    if (!gnc_builder_collect_signals (builder, contents, contents_length, &error))
+    {
+        PWARN ("Couldn't parse builder signals: %s", error->message);
+        g_error_free (error);
+        g_free (contents);
+        g_free (fname);
+        return FALSE;
+    }
+
+    without_signals = gnc_builder_without_signals (contents, &error);
+    g_free (contents);
+    if (!without_signals)
+    {
+        PWARN ("Couldn't prepare builder file: %s", error->message);
+        g_error_free (error);
+        g_free (fname);
+        return FALSE;
+    }
+
     {
         gchar *localroot = g_strdup(root);
         gchar *objects[] = { localroot, NULL };
-        result = gtk_builder_add_objects_from_file (builder, fname, objects, &error);
+        result = gtk_builder_add_objects_from_string (builder, without_signals,
+                                                      -1, objects, &error);
         if (!result)
         {
             PWARN ("Couldn't load builder file: %s", error->message);
@@ -650,9 +871,51 @@ gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char
         g_free (localroot);
     }
 
+    g_free (without_signals);
     g_free (fname);
 
     return result;
+}
+
+void
+gnc_builder_connect_signals_full (GtkBuilder *builder,
+                                  GncBuilderConnectFunc connect_func,
+                                  gpointer user_data)
+{
+    GncBuilderSignalRegistry *registry = gnc_builder_get_signal_registry (builder);
+
+    g_return_if_fail (connect_func != NULL);
+    for (guint i = 0; i < registry->signals->len; i++)
+    {
+        GncBuilderSignal *signal = g_ptr_array_index (registry->signals, i);
+        GObject *signal_object = gtk_builder_get_object (builder, signal->object_id);
+        if (!signal_object)
+            continue;
+
+        GObject *connect_object = NULL;
+        if (signal->connect_object_id)
+        {
+            connect_object = gtk_builder_get_object (builder,
+                                                     signal->connect_object_id);
+            if (!connect_object)
+            {
+                PWARN ("Couldn't find signal object '%s' for handler '%s'.",
+                       signal->connect_object_id, signal->handler_name);
+                continue;
+            }
+        }
+
+        connect_func (builder, signal_object, signal->signal_name,
+                      signal->handler_name, connect_object,
+                      signal->flags, user_data);
+    }
+}
+
+void
+gnc_builder_connect_signals (GtkBuilder *builder, gpointer user_data)
+{
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
+                                      user_data);
 }
 
 

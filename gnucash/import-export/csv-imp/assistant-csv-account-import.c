@@ -663,7 +663,7 @@ csv_import_assistant_create (CsvImportInfo *info)
     gnc_restore_window_size (GNC_PREFS_GROUP,
                              GTK_WINDOW(info->assistant), gnc_ui_get_main_window(NULL));
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, info);
+gnc_builder_connect_signals (builder, info);
     g_object_unref (G_OBJECT(builder));
     return info->assistant;
 }

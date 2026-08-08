@@ -1634,7 +1634,7 @@ ppr_filter_dialog_create (RegisterFilterDialog* rfd, FilterData *fd, Query *quer
     }
 
     /* Wire it up */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, rfd);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, rfd);
 
     /* Show it */
     gtk_widget_show (dialog);

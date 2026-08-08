@@ -237,7 +237,7 @@ gnc_dup_trans_dialog_create (GtkWidget * parent, DupTransDialog *dt_dialog,
         dt_dialog->link_edit = GTK_WIDGET(gtk_builder_get_object (builder, "link_check_button"));
     }
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dt_dialog);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dt_dialog);
 
     g_object_unref (G_OBJECT(builder));
 }

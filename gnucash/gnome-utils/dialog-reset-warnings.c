@@ -384,7 +384,7 @@ gnc_reset_warnings_dialog (GtkWindow *parent)
     PINFO("rw_dialog %p, dialog %p", rw_dialog, dialog);
 
     /* Connect the signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, rw_dialog);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, rw_dialog);
 
     DEBUG("permanent");
     rw_dialog->perm_vbox_label = GTK_WIDGET(gtk_builder_get_object (builder, "perm_vbox_and_label"));

@@ -446,7 +446,7 @@ gnc_ppr_sort_order_reverse_cb (GtkToggleButton* button,
 /** This function is called to create the sort dialog.
  *
  *  @param rsd A pointer to the sort dialog structure.
- * 
+ *
  *  @param sd The sort data structure for remembering state.
  */
 static void
@@ -506,7 +506,7 @@ gnc_ppr_sort_dialog_create (RegisterSortDialog *rsd, SortData *sd)
                                  (gpointer)rsd);
 
     /* Wire it up */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
                                       rsd);
 
     /* Show it */
@@ -519,9 +519,9 @@ gnc_ppr_sort_dialog_create (RegisterSortDialog *rsd, SortData *sd)
  *
  *  @param plugin_page  A pointer to the GncPluginPageRegister that is
  *  associated with this sort dialog.
- * 
+ *
  *  @param reg A pointer to the SplitRegister of the current register.
- * 
+ *
  *  @param fd A pointer to the sort data structure for remembering state.
  *
  *  @param show_save_button Set to True to show save button.

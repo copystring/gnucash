@@ -654,7 +654,7 @@ gnc_order_new_window (GtkWindow *parent, QofBook *bookp, OrderDialogType type,
     gtk_box_set_spacing (GTK_BOX(vbox), 2);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ow);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ow);
 
     /* Setup initial values */
     ow->order_guid = *gncOrderGetGUID (order);
@@ -728,7 +728,7 @@ gnc_order_window_new_order (GtkWindow *parent, QofBook *bookp, GncOwner *owner)
     ow->opened_date = date;
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ow);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ow);
 
     /* Setup initial values */
     ow->order_guid = *gncOrderGetGUID (order);

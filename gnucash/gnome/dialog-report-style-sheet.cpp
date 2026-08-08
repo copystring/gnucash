@@ -533,7 +533,7 @@ gnc_style_sheet_select_dialog_create (GtkWindow *parent)
 
     gnc_style_sheet_select_dialog_fill (ss);
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ss);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ss);
     g_object_unref (G_OBJECT(builder));
     return ss;
 }

@@ -1143,7 +1143,7 @@ lv_create (GNCLotViewer *lv, GtkWindow *parent)
                       G_CALLBACK(window_realize_set_split_paned_position_cb), lv);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals(builder, lv);
+gnc_builder_connect_signals(builder, lv);
     g_object_unref(G_OBJECT(builder));
 
     lv_update_split_buttons(lv);

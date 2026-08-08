@@ -1411,7 +1411,7 @@ since_last_run_dialog (GtkWindow *parent, GncSxInstanceModel *sx_instances, GLis
 
     gtk_widget_set_visible (GTK_WIDGET(dialog->dialog), TRUE);
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
 
     g_object_unref (G_OBJECT(builder));
 }

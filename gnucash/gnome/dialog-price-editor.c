@@ -572,7 +572,7 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
 
     gnc_prices_set_changed (pedit_dialog, FALSE);
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pedit_dialog);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pedit_dialog);
 
     g_object_unref(G_OBJECT(builder));
 }

@@ -3976,7 +3976,7 @@ gnc_ui_qif_import_assistant_make (QIFImportWindow *qif_win)
     g_signal_connect (qif_win->window, "destroy",
                       G_CALLBACK(gnc_ui_qif_import_assistant_destroy), qif_win);
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, qif_win);
+gnc_builder_connect_signals (builder, qif_win);
 
     g_object_unref (G_OBJECT(builder));
 

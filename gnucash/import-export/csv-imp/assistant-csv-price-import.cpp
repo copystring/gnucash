@@ -710,7 +710,7 @@ CsvImpPriceAssist::CsvImpPriceAssist ()
     gnc_restore_window_size (GNC_PREFS_GROUP,
                              GTK_WINDOW(csv_imp_asst), gnc_ui_get_main_window(nullptr));
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, this);
+gnc_builder_connect_signals (builder, this);
     g_object_unref (G_OBJECT(builder));
 
 //FIXME gtk4    gtk_widget_show_all (GTK_WIDGET(csv_imp_asst));

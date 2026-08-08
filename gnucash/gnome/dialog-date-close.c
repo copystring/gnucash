@@ -159,7 +159,7 @@ gnc_dialog_date_close_parented (GtkWidget *parent, const char *message,
     gtk_label_set_text (label, label_message);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ddc);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ddc);
 
 //FIXME gtk4    gtk_widget_show_all (ddc->dialog);
 
@@ -301,7 +301,7 @@ gnc_dialog_dates_acct_question_parented (GtkWidget *parent, const char *message,
     fill_in_acct_info (ddc, set_default_acct);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ddc);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ddc);
 
 //FIXME gtk4    gtk_widget_show_all (ddc->dialog);
 
@@ -395,7 +395,7 @@ gnc_dialog_date_acct_parented (GtkWidget *parent, const char *message,
     fill_in_acct_info (ddc, FALSE);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ddc);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ddc);
 
 //FIXME gtk4    gtk_widget_show_all (ddc->dialog);
 

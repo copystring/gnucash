@@ -1023,7 +1023,7 @@ gnc_imap_dialog_create (GtkWidget *parent, ImapDialog *imap_dialog)
                                             imap_dialog,
                                             NULL);
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, imap_dialog);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, imap_dialog);
 
     g_object_unref (G_OBJECT(builder));
 

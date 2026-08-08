@@ -198,7 +198,7 @@ public:
     void preview_validate_settings ();
 
     void acct_match_via_button ();
-    bool acct_match_via_view_dblclick (const GdkEvent *event);
+    void acct_match_via_view_dblclick (gint n_press, gdouble x, gdouble y);
     void acct_match_select(GtkTreeModel *model, GtkTreeIter* iter);
     void acct_match_set_accounts ();
 
@@ -307,7 +307,9 @@ void csv_tximp_preview_acct_sel_cb (GtkWidget* widget, CsvImpTransAssist* info);
 void csv_tximp_preview_enc_sel_cb (GOCharmapSel* selector, const char* encoding,
                               CsvImpTransAssist* info);
 void csv_tximp_acct_match_button_clicked_cb (GtkWidget *widget, CsvImpTransAssist* info);
-bool csv_tximp_acct_match_view_clicked_cb (GtkWidget *widget, const GdkEvent *event, CsvImpTransAssist* info);
+void csv_tximp_acct_match_view_clicked_cb (GtkGestureClick *gesture, gint n_press,
+                                           gdouble x, gdouble y,
+                                           CsvImpTransAssist* info);
 }
 
 void
@@ -456,9 +458,14 @@ void csv_tximp_acct_match_button_clicked_cb (GtkWidget *widget, CsvImpTransAssis
     info->acct_match_via_button();
 }
 
-bool csv_tximp_acct_match_view_clicked_cb (GtkWidget *widget, const GdkEvent *event, CsvImpTransAssist* info)
+void
+csv_tximp_acct_match_view_clicked_cb (GtkGestureClick *gesture, gint n_press,
+                                      gdouble x, gdouble y,
+                                      CsvImpTransAssist* info)
 {
-    return info->acct_match_via_view_dblclick(event);
+    if (gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture)) ==
+        GDK_BUTTON_PRIMARY)
+        info->acct_match_via_view_dblclick (n_press, x, y);
 }
 
 
@@ -654,6 +661,11 @@ CsvImpTransAssist::CsvImpTransAssist ()
     account_match_view  = GTK_WIDGET(gtk_builder_get_object (builder, "account_match_view"));
     account_match_label = GTK_WIDGET(gtk_builder_get_object (builder, "account_match_label"));
     account_match_btn = GTK_WIDGET(gtk_builder_get_object (builder, "account_match_change"));
+    auto account_match_click = gtk_gesture_click_new ();
+    g_signal_connect (account_match_click, "pressed",
+                      G_CALLBACK (csv_tximp_acct_match_view_clicked_cb), this);
+    gtk_widget_add_controller (account_match_view,
+                               GTK_EVENT_CONTROLLER (account_match_click));
 
     /* Doc Page */
     doc_page = GTK_WIDGET(gtk_builder_get_object (builder, "doc_page"));
@@ -676,7 +688,7 @@ CsvImpTransAssist::CsvImpTransAssist ()
     gnc_restore_window_size (GNC_PREFS_GROUP,
                              GTK_WINDOW(csv_imp_asst), gnc_ui_get_main_window(nullptr));
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, this);
+gnc_builder_connect_signals (builder, this);
     g_object_unref (G_OBJECT(builder));
 
 //FIXME gtk4    gtk_widget_show_all (GTK_WIDGET(csv_imp_asst));
@@ -1963,45 +1975,24 @@ CsvImpTransAssist::acct_match_via_button ()
 }
 
 
-/* This is the callback for the mouse click */
-bool
-CsvImpTransAssist::acct_match_via_view_dblclick (const GdkEvent *event)
+/* This is the callback for the mouse click. */
+void
+CsvImpTransAssist::acct_match_via_view_dblclick (gint n_press, gdouble x, gdouble y)
 {
-//FIXME
-#ifdef skip
-    guint button;
+    if (n_press != 2)
+        return;
 
-    if (!gdk_event_get_button (event, &button))
-        return false;
+    GtkTreePath *path = nullptr;
+    if (!gtk_tree_view_get_path_at_pos (GTK_TREE_VIEW (account_match_view),
+                                        (gint)x, (gint)y, &path, nullptr,
+                                        nullptr, nullptr))
+        return;
 
-    /* This is for a double click */
-    if (button == 1 && (gdk_event_get_event_type (event) == GDK_2BUTTON_PRESS))
-    {
-        auto window = gtk_tree_view_get_bin_window (GTK_TREE_VIEW (account_match_view));
-        if (gdk_event_get_window (event) != window)
-            return false;
-
-        gdouble x_win, y_win;
-        if (!gdk_event_get_position ((GdkEvent*)event, &x_win, &y_win))
-            return false;
-
-        /* Get tree path for row that was clicked, true if row exists */
-        GtkTreePath *path;
-
-        if (gtk_tree_view_get_path_at_pos (GTK_TREE_VIEW(account_match_view), (gint)x_win, (gint)y_win,
-                                           &path, nullptr, nullptr, nullptr))
-        {
-            DEBUG("event x_win is %d and y_win is %d", (gint)x_win, (gint)y_win);
-            auto model = gtk_tree_view_get_model (GTK_TREE_VIEW(account_match_view));
-            GtkTreeIter iter;
-            if (gtk_tree_model_get_iter (model, &iter, path))
-                acct_match_select (model, &iter);
-            gtk_tree_path_free (path);
-        }
-        return true;
-    }
-#endif
-    return false;
+    auto model = gtk_tree_view_get_model (GTK_TREE_VIEW (account_match_view));
+    GtkTreeIter iter;
+    if (gtk_tree_model_get_iter (model, &iter, path))
+        acct_match_select (model, &iter);
+    gtk_tree_path_free (path);
 }
 
 

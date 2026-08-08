@@ -469,7 +469,7 @@ new_billterm_dialog (BillTermsWindow *btw, GncBillTerm *term,
     show_notebook (&nbt->notebook);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, nbt);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, nbt);
 
     gtk_window_set_transient_for (GTK_WINDOW(nbt->dialog),
                                   GTK_WINDOW(btw->window));
@@ -865,7 +865,7 @@ gnc_ui_billterms_window_new (GtkWindow *parent, QofBook *book)
     g_object_unref (btw->notebook.notebook);
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, btw);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, btw);
 
     /* register with component manager */
     btw->component_id =

@@ -1002,7 +1002,7 @@ csv_export_assistant_create (CsvExportInfo *info)
         gnc_prefs_bind (GNC_PREFS_GROUP, GNC_PREF_PANED_POS, NULL, object, "position");
     }
 
-//FIXME gtk4    gtk_builder_connect_signals (builder, info);
+gnc_builder_connect_signals (builder, info);
     g_object_unref (G_OBJECT(builder));
     return info->assistant;
 }

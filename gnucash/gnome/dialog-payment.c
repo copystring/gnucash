@@ -1412,9 +1412,8 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     gnc_payment_set_owner_type (pw, gncOwnerGetType (&pw->tx_info->owner));
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full( builder,
-//                                      gnc_builder_connect_full_func,
-//                                      pw);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
+                                      pw);
 
     g_signal_connect (G_OBJECT (pw->acct_tree), "row-activated",
                       G_CALLBACK (gnc_payment_acct_tree_row_activated_cb), pw);

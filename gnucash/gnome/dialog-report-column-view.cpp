@@ -411,7 +411,7 @@ gnc_column_view_edit_options(GncOptionDB* odb, SCM view)
 
         gtk_widget_set_visible (GTK_WIDGET(r->optwin->get_widget()), true);
 
-//FIXME gtk4        gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, r);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, r);
 
         g_object_unref(G_OBJECT(builder));
 

@@ -1332,7 +1332,7 @@ gnc_ui_scheduled_xaction_editor_dialog_create (GtkWindow *parent,
     /* Move keyboard focus to the name entry */
     gtk_widget_grab_focus (GTK_WIDGET (sxed->nameEntry));
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, sxed);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, sxed);
     g_object_unref (G_OBJECT (builder));
 
     return sxed;
@@ -1884,7 +1884,7 @@ _sx_engine_event_handler (QofInstance *ent, QofEventId event_type, gpointer user
                           G_CALLBACK (_open_editors), data);
 
         gtk_widget_show_all (GTK_WIDGET (dialog));
-        gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, data);
+        gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, data);
         g_object_unref (G_OBJECT (builder));
     }
 }

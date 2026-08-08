@@ -82,7 +82,7 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
     gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(listview));
 
     /* Autoconnect signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
 
     /* Run the dialog */
 //FIXME gtk4    gtk_widget_show_all( dialog );

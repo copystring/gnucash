@@ -111,6 +111,15 @@ gnc_customer_shipaddr4_key_press_cb (GtkEventControllerKey *key, guint keyval,
                                      guint keycode, GdkModifierType state,
                                      gpointer user_data);
 
+static void
+connect_customer_key_controller (GtkWidget *entry, GCallback callback,
+                                 CustomerWindow *window)
+{
+    auto controller = gtk_event_controller_key_new ();
+    g_signal_connect (controller, "key-pressed", callback, window);
+    gtk_widget_add_controller (entry, controller);
+}
+
 #define ADDR_QUICKFILL "GncAddress-Quickfill"
 
 typedef enum
@@ -575,6 +584,19 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
     cw->shipfax_entry = GTK_WIDGET (gtk_builder_get_object (builder, "shipfax_entry"));
     cw->shipemail_entry = GTK_WIDGET (gtk_builder_get_object (builder, "shipemail_entry"));
 
+    connect_customer_key_controller (cw->addr2_entry,
+                                     G_CALLBACK (gnc_customer_addr2_key_press_cb), cw);
+    connect_customer_key_controller (cw->addr3_entry,
+                                     G_CALLBACK (gnc_customer_addr3_key_press_cb), cw);
+    connect_customer_key_controller (cw->addr4_entry,
+                                     G_CALLBACK (gnc_customer_addr4_key_press_cb), cw);
+    connect_customer_key_controller (cw->shipaddr2_entry,
+                                     G_CALLBACK (gnc_customer_shipaddr2_key_press_cb), cw);
+    connect_customer_key_controller (cw->shipaddr3_entry,
+                                     G_CALLBACK (gnc_customer_shipaddr3_key_press_cb), cw);
+    connect_customer_key_controller (cw->shipaddr4_entry,
+                                     G_CALLBACK (gnc_customer_shipaddr4_key_press_cb), cw);
+
     cw->active_check = GTK_WIDGET (gtk_builder_get_object (builder, "active_check"));
     cw->taxincluded_menu = GTK_WIDGET (gtk_builder_get_object (builder, "tax_included_menu"));
     cw->notes_text = GTK_WIDGET (gtk_builder_get_object (builder, "notes_text"));
@@ -619,9 +641,8 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
     gtk_box_append (GTK_BOX(hbox), GTK_WIDGET(edit));
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full( builder,
-//                                      gnc_builder_connect_full_func,
-//                                      cw);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
+                                      cw);
 
     /* Setup initial values */
     if (cust != NULL)

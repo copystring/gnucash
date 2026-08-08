@@ -1637,7 +1637,7 @@ gnc_create_hierarchy_assistant (gboolean use_defaults, GncHierarchyAssistantFini
     g_signal_connect (G_OBJECT(dialog), "destroy",
                       G_CALLBACK (gnc_hierarchy_destroy_cb), data);
 
-//FIXME gtk4    gtk_builder_connect_signals(builder, data);
+gnc_builder_connect_signals(builder, data);
     g_object_unref(G_OBJECT(builder));
 
     data->when_completed = when_completed;

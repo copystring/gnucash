@@ -353,7 +353,7 @@ gnc_xml_convert_single_file (const gchar *filename)
         widget = GTK_WIDGET(gtk_builder_get_object(builder, "end_page"));
         gtk_label_set_text (GTK_LABEL(widget), gettext (finish_convert_string));
 
-//FIXME gtk4        gtk_builder_connect_signals(builder, data);
+gnc_builder_connect_signals(builder, data);
 
 //FIXME gtk4        gtk_widget_show_all (data->assistant);
 
@@ -1193,7 +1193,7 @@ gxi_edit_encodings_clicked_cb (GtkButton *button, GncXmlImportData *data)
     // Set the name for this assistant so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(dialog), "gnc-id-assistant-xml-encoding");
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, data);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, data);
 
     gtk_window_set_transient_for (GTK_WINDOW (dialog), GTK_WINDOW (data->assistant));
 

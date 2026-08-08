@@ -525,7 +525,7 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
 
     g_signal_connect (selection, "changed", G_CALLBACK(selection_changed_cb), pdb_dialog);
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pdb_dialog);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pdb_dialog);
 
     gtk_window_set_transient_for (GTK_WINDOW (pdb_dialog->remove_dialog), GTK_WINDOW (pdb_dialog->window));
 
@@ -879,7 +879,7 @@ gnc_prices_dialog_create (GtkWidget * parent, PricesDialog *pdb_dialog)
     g_signal_connect (pdb_dialog->window, "destroy",
                       G_CALLBACK(gnc_prices_dialog_destroy_cb), pdb_dialog);
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pdb_dialog);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pdb_dialog);
     g_object_unref(G_OBJECT(builder));
 
     gnc_restore_window_size (GNC_PREFS_GROUP, GTK_WINDOW(pdb_dialog->window), GTK_WINDOW (parent));

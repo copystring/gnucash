@@ -219,8 +219,8 @@ struct _invoice_window
 
 /* Forward definitions for CB functions */
 void gnc_invoice_window_active_toggled_cb (GtkWidget *widget, gpointer data);
-gboolean gnc_invoice_window_leave_notes_cb (GtkEventControllerFocus *controller,
-                                            gpointer user_data);
+static void gnc_invoice_window_leave_notes_cb (GtkEventControllerFocus *controller,
+                                               gpointer user_data);
 DialogQueryView *gnc_invoice_show_docs_due (GtkWindow *parent, QofBook *book, double days_in_advance, GncWhichDueType duetype);
 
 #define INV_WIDTH_PREFIX "invoice_reg"
@@ -1520,7 +1520,7 @@ gnc_invoice_window_active_toggled_cb (GtkWidget *widget, gpointer data)
                          gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)));
 }
 
-gboolean
+static void
 gnc_invoice_window_leave_notes_cb (GtkEventControllerFocus *controller,
                                    gpointer user_data)
 {
@@ -1530,14 +1530,16 @@ gnc_invoice_window_leave_notes_cb (GtkEventControllerFocus *controller,
     GtkTextIter start, end;
     gchar *text;
 
-    if (!invoice) return FALSE;
+    (void) controller;
+
+    if (!invoice)
+        return;
 
     text_buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW(iw->notes_text));
     gtk_text_buffer_get_bounds (text_buffer, &start, &end);
     text = gtk_text_buffer_get_text (text_buffer, &start, &end, FALSE);
     gncInvoiceSetNotes (invoice, text);
     g_free (text);
-    return FALSE;
 }
 
 static gboolean
@@ -2668,7 +2670,7 @@ gnc_invoice_create_page (InvoiceWindow *iw, gpointer page)
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "invoice_entry_vbox"));
 
     /* Autoconnect all the signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, iw);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, iw);
 
     /* Grab the widgets */
     iw->id_label = GTK_WIDGET (gtk_builder_get_object (builder, "label3"));
@@ -2678,6 +2680,10 @@ gnc_invoice_create_page (InvoiceWindow *iw, gpointer page)
     iw->billing_id_entry = GTK_WIDGET (gtk_builder_get_object (builder, "page_billing_id_entry"));
     iw->terms_menu = GTK_WIDGET (gtk_builder_get_object (builder, "page_terms_menu"));
     iw->notes_text = GTK_WIDGET (gtk_builder_get_object (builder, "page_notes_text"));
+    GtkEventController *notes_focus_controller = gtk_event_controller_focus_new ();
+    gtk_widget_add_controller (iw->notes_text, notes_focus_controller);
+    g_signal_connect (notes_focus_controller, "leave",
+                      G_CALLBACK (gnc_invoice_window_leave_notes_cb), iw);
     iw->active_check = GTK_WIDGET (gtk_builder_get_object (builder, "active_check"));
     iw->owner_box = GTK_WIDGET (gtk_builder_get_object (builder, "page_owner_hbox"));
     iw->owner_label = GTK_WIDGET (gtk_builder_get_object (builder, "page_owner_label"));
@@ -3082,6 +3088,10 @@ gnc_invoice_window_new_invoice (GtkWindow *parent, InvoiceDialogType dialog_type
     iw->billing_id_entry = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_billing_id_entry"));
     iw->terms_menu = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_terms_menu"));
     iw->notes_text = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_notes_text"));
+    GtkEventController *notes_focus_controller = gtk_event_controller_focus_new ();
+    gtk_widget_add_controller (iw->notes_text, notes_focus_controller);
+    g_signal_connect (notes_focus_controller, "leave",
+                      G_CALLBACK (gnc_invoice_window_leave_notes_cb), iw);
     iw->owner_box = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_owner_hbox"));
     iw->owner_label = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_owner_label"));
     iw->job_label = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_job_label"));
@@ -3103,9 +3113,8 @@ gnc_invoice_window_new_invoice (GtkWindow *parent, InvoiceDialogType dialog_type
                               (iw->dialog_type == DUP_INVOICE));
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full( builder,
-//                                      gnc_builder_connect_full_func,
-//                                      iw);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
+                                      iw);
 
     /* Setup initial values */
     iw->reportPage = NULL;

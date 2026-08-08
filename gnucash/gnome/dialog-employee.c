@@ -467,7 +467,7 @@ gnc_employee_new_window (GtkWindow *parent,
     gtk_box_append (GTK_BOX(hbox), GTK_WIDGET(edit));
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ew);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ew);
 
     /* Setup initial values */
     if (employee != NULL)

@@ -795,7 +795,7 @@ gnc_ab_initial_assistant_new(void)
     g_signal_connect (G_OBJECT(info->window), "destroy",
                       G_CALLBACK (aai_destroy_cb), info);
 
-    gtk_builder_connect_signals(builder, info);
+    gnc_builder_connect_signals(builder, info);
     g_object_unref(G_OBJECT(builder));
 
     component_id = gnc_register_gui_component(ASSISTANT_AB_INITIAL_CM_CLASS,

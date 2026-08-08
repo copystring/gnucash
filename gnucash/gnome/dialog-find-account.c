@@ -479,7 +479,7 @@ gnc_find_account_dialog_create (GtkWidget *parent, FindAccountDialog *facc_dialo
                       "key-pressed",
                       G_CALLBACK(gnc_find_account_dialog_window_key_press_cb), facc_dialog);
 
-//FIXME gtk4    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, facc_dialog);
+gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, facc_dialog);
 
     g_object_unref (G_OBJECT(builder));
 

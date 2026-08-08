@@ -2360,7 +2360,7 @@ account_filter_dialog_create(AccountFilterDialog *fd, GncPluginPage *page)
             "text", GNC_TREE_MODEL_ACCOUNT_TYPES_COL_NAME, NULL);
 
     /* Wire up the rest of the callbacks */
-//FIXME gtk4    gtk_builder_connect_signals(builder, fd);
+gnc_builder_connect_signals(builder, fd);
     g_object_unref(G_OBJECT(builder));
 
     /* Show it */

@@ -408,7 +408,7 @@ gnc_ui_file_access (GtkWindow *parent, int type)
                       NULL );
 
     /* Autoconnect signals */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, faw);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, faw);
 
     /* See what qof backends are available and add appropriate ones to the combo box */
     list = qof_backend_get_registered_access_method_list();

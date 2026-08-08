@@ -409,7 +409,7 @@ qif_account_picker_dialog(GtkWindow *parent, QIFImportWindow * qif_wind, SCM map
     gnc_builder_add_from_file (builder, "dialog-account-picker.glade", "qif_import_account_picker_dialog");
 
     /* Connect all the signals */
-//FIXME gtk4    gtk_builder_connect_signals (builder, wind);
+gnc_builder_connect_signals (builder, wind);
 
     wind->dialog     = GTK_WIDGET(gtk_builder_get_object (builder, "qif_import_account_picker_dialog"));
     wind->treeview   = GTK_TREE_VIEW(gtk_builder_get_object (builder, "account_tree"));

@@ -471,7 +471,7 @@ setup_dialog(GncGWENGui *gui)
     gui->showbox_id = 1;
 
     /* Connect the Signals */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
 
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(gui->close_checkbutton),

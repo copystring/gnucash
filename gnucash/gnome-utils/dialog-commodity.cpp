@@ -246,7 +246,7 @@ gnc_ui_select_commodity_create(const gnc_commodity * orig_sel,
     gnc_builder_add_from_file (builder, "dialog-commodity.ui", "liststore2");
     gnc_builder_add_from_file (builder, "dialog-commodity.ui", "security_selector_dialog");
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, retval);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, retval);
 
     retval->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "security_selector_dialog"));
     retval->namespace_combo = GTK_WIDGET(gtk_builder_get_object (builder, "ss_namespace_cbwe"));
@@ -898,7 +898,7 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
     gnc_builder_add_from_file (builder, "dialog-commodity.ui", "adjustment1");
     gnc_builder_add_from_file (builder, "dialog-commodity.ui", "security_dialog");
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, retval);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, retval);
 
     retval->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "security_dialog"));
 

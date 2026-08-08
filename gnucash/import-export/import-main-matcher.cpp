@@ -142,7 +142,7 @@ static const gpointer one = GINT_TO_POINTER (1);
 extern "C" {
 void on_matcher_ok_clicked (GtkButton *button, GNCImportMainMatcher *info);
 void on_matcher_cancel_clicked (GtkButton *button, gpointer user_data);
-bool on_matcher_delete_event (GtkWidget *widget, GdkEvent *event, gpointer data);
+bool on_matcher_delete_event (GtkWidget *widget, gpointer data);
 void on_matcher_help_clicked (GtkButton *button, gpointer user_data);
 void on_matcher_help_close_clicked (GtkButton *button, gpointer user_data);
 }
@@ -611,9 +611,10 @@ on_matcher_cancel_clicked (GtkButton *button, gpointer user_data)
 }
 
 bool
-on_matcher_delete_event (GtkWidget *widget, GdkEvent *event, gpointer data)
+on_matcher_delete_event (GtkWidget *widget, gpointer data)
 {
     auto info = static_cast<GNCImportMainMatcher *>(data);
+    (void) widget;
     gnc_gen_trans_list_delete (info);
     return false;
 }
@@ -664,7 +665,7 @@ on_matcher_help_clicked (GtkButton *button, gpointer user_data)
     gnc_widget_style_context_add_class (GTK_WIDGET(help_dialog), "gnc-class-imports");
 
     /* Connect the signals */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, help_dialog);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, help_dialog);
 
     g_object_unref (G_OBJECT(builder));
 
@@ -1746,7 +1747,7 @@ gnc_gen_trans_common_setup (GNCImportMainMatcher *info,
     new (&info->colormap) StrStrMap();
 
     /* Connect the signals */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, info);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, info);
 
     g_object_unref (G_OBJECT(builder));
 }

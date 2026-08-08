@@ -94,7 +94,6 @@ void gnc_preferences_response_cb (GtkDialog *dialog, gint response, GtkDialog *u
 void gnc_account_separator_pref_changed_cb (GtkEntry *entry, GtkWidget *dialog);
 void gnc_save_on_close_expires_cb (GtkToggleButton *button, GtkWidget *dialog);
 gboolean gnc_preferences_delete_event_cb (GtkWidget *widget,
-                                          GdkEvent  *event,
                                           gpointer   user_data);
 
 /** This data structure holds the information for a single addition to
@@ -673,7 +672,7 @@ gnc_preferences_build_page (gpointer data,
     /* Connect the signals in this glade file. The dialog is passed in
      * so the callback can find "interesting" widgets from other
      * glade files if necessary (via the GPREFS_WIDGET_HASH hash table). */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
 
     /* Prepare for recursion */
     notebook = g_object_get_data (G_OBJECT(dialog), NOTEBOOK);
@@ -1183,10 +1182,11 @@ gnc_prefs_connect_date_edit (GNCDateEdit *gde , const gchar *boxname )
 
 gboolean
 gnc_preferences_delete_event_cb (GtkWidget *widget,
-                                 GdkEvent  *event,
                                  gpointer   user_data)
 {
     /* need to block this for the account separator test */
+    (void) widget;
+    (void) user_data;
     return TRUE;
 }
 
@@ -1394,7 +1394,7 @@ gnc_preferences_dialog_create (GtkWindow *parent)
     g_object_set_data (G_OBJECT(dialog), "save_on_close_wait_time", spinner);
 
     DEBUG("autoconnect");
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
 
     DEBUG("done");
 

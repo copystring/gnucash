@@ -440,9 +440,8 @@ gnc_vendor_new_window (GtkWindow *parent, QofBook *bookp, GncVendor *vendor)
     gtk_box_append (GTK_BOX(hbox), GTK_WIDGET(edit));
 
     /* Setup signals */
-//FIXME gtk4    gtk_builder_connect_signals_full( builder,
-//                                      gnc_builder_connect_full_func,
-//                                      vw);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
+                                      vw);
 
     /* Setup initial values */
     if (vendor != NULL)

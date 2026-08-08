@@ -306,7 +306,7 @@ gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer dat
     gtk_window_set_transient_for (GTK_WINDOW(dialog),
                                   GTK_WINDOW(gtk_widget_get_toplevel(widget)));
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, nullptr);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, nullptr);
     g_object_unref (G_OBJECT(builder));
 
     gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_OK);
@@ -468,7 +468,7 @@ gnc_commodities_dialog_create (GtkWidget * parent, CommoditiesDialog *cd)
     g_signal_connect (cd->window, "key_press_event",
                       G_CALLBACK (gnc_commodities_window_key_press_cb), cd);
 
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, cd);
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, cd);
     g_object_unref (G_OBJECT(builder));
 
     gnc_restore_window_size (GNC_PREFS_GROUP, GTK_WINDOW(cd->window), GTK_WINDOW(parent));
