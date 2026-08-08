@@ -214,7 +214,7 @@ Gnucash::CoreApp::CoreApp (const char* app_name) : m_app_name {app_name}
  * We can't let gtk_init_with_args do it because it fails
  * before parsing any arguments if the GUI can't be initialized.
  */
-void
+Gnucash::CommandLineResult
 Gnucash::CoreApp::parse_command_line (int argc, char **argv)
 {
     try
@@ -228,7 +228,7 @@ Gnucash::CoreApp::parse_command_line (int argc, char **argv)
         std::cerr << e.what() << "\n\n";
         std::cerr << *m_opt_desc_display.get() << std::endl;
 
-        exit(1);
+        return CommandLineResult::ExitFailure;
     }
 
     if (m_show_paths)
@@ -241,7 +241,7 @@ Gnucash::CoreApp::parse_command_line (int argc, char **argv)
                 std::cout << ' ' << _("(user modifiable)");
             std::cout << '\n';
         }
-        exit (0);
+        return CommandLineResult::ExitSuccess;
     }
 
     if (m_show_version)
@@ -255,17 +255,18 @@ Gnucash::CoreApp::parse_command_line (int argc, char **argv)
             std::cout << rel_fmt % gnc_version () << "\n";
 
         std::cout << _("Build ID") << ": " << gnc_build_id () << "\n";
-        exit(0);
+        return CommandLineResult::ExitSuccess;
     }
 
     if (m_show_help)
     {
         std::cout << *m_opt_desc_display.get() << std::endl;
-        exit(0);
+        return CommandLineResult::ExitSuccess;
     }
 
     gnc_prefs_set_debugging (m_debug);
     gnc_prefs_set_extra (m_extra);
+    return CommandLineResult::Run;
 }
 
 /* Define command line options common to all gnucash binaries. */

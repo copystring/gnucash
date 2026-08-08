@@ -225,7 +225,7 @@ namespace Gnucash {
     {
     public:
         Gnucash (const char* app_name);
-        void parse_command_line (int argc, char **argv);
+        CommandLineResult parse_command_line (int argc, char **argv);
         int start (int argc, char **argv);
         int run (int argc, char **argv);
         void activate (void);
@@ -249,10 +249,10 @@ Gnucash::Gnucash::Gnucash (const char *app_name) : Gnucash::CoreApp (app_name)
 }
 
 
-void
+Gnucash::CommandLineResult
 Gnucash::Gnucash::parse_command_line (int argc, char **argv)
 {
-    Gnucash::CoreApp::parse_command_line (argc, argv);
+    return Gnucash::CoreApp::parse_command_line (argc, argv);
 }
 
 // Define command line options specific to gnucash.
@@ -328,7 +328,12 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
 
     if (!m_started)
     {
-        parse_command_line (argc, argv);
+        auto parse_result = parse_command_line (argc, argv);
+        if (parse_result != CommandLineResult::Run)
+        {
+            g_strfreev (argv);
+            return parse_result == CommandLineResult::ExitSuccess ? 0 : 1;
+        }
         m_argc = argc;
         m_argv = argv;
         activate ();
