@@ -953,8 +953,6 @@ csv_export_assistant_create (CsvExportInfo *info)
 
     if ((info->export_type == XML_EXPORT_TREE) || (info->export_type == XML_EXPORT_REGISTER))
     {
-        GtkWidget *chkbox = GTK_WIDGET(gtk_builder_get_object(builder, "simple_layout"));
-
         // Don't provide simple export layout for search registers and General Journal
 //FIXME gtk4        if ((info->export_type == XML_EXPORT_TREE) ||
 //            (g_list_length (info->csva.account_list) == 0))

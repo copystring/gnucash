@@ -90,6 +90,21 @@ protected:
     Account* m_root;
 };
 
+struct AccountSelectionResult
+{
+    Account *account {nullptr};
+    gboolean accepted {FALSE};
+};
+
+static void
+account_selected (Account *account, gboolean accepted, gpointer user_data)
+{
+    auto result = static_cast<AccountSelectionResult*> (user_data);
+
+    result->account = account;
+    result->accepted = accepted;
+}
+
 TEST_F(ImportMatcherTest, test_simple_match)
 {
     auto found = gnc_import_select_account(nullptr, "Bank", FALSE, nullptr,
@@ -97,6 +112,29 @@ TEST_F(ImportMatcherTest, test_simple_match)
                                            nullptr);
     ASSERT_NE(nullptr, found);
     EXPECT_STREQ("Bank", xaccAccountGetName(found));
+}
+
+TEST_F(ImportMatcherTest, test_async_match)
+{
+    AccountSelectionResult result;
+
+    gnc_import_select_account_async(nullptr, "Bank", FALSE, nullptr,
+                                    nullptr, ACCT_TYPE_NONE, nullptr,
+                                    account_selected, &result);
+    ASSERT_TRUE(result.accepted);
+    ASSERT_NE(nullptr, result.account);
+    EXPECT_STREQ("Bank", xaccAccountGetName(result.account));
+}
+
+TEST_F(ImportMatcherTest, test_async_unmatched_without_prompt)
+{
+    AccountSelectionResult result;
+
+    gnc_import_select_account_async(nullptr, "Missing", FALSE, nullptr,
+                                    nullptr, ACCT_TYPE_NONE, nullptr,
+                                    account_selected, &result);
+    EXPECT_FALSE(result.accepted);
+    EXPECT_EQ(nullptr, result.account);
 }
 
 TEST_F(ImportMatcherTest, test_noisy_match)
