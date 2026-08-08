@@ -505,23 +505,40 @@ static void
 gnc_set_commodity_section_sensitivity (GtkWidget *widget, gpointer user_data)
 {
     auto cw = static_cast<CommodityWindow*>(user_data);
-    guint offset = 0;
+    gint offset = 0;
 
-    gtk_container_child_get(GTK_CONTAINER(cw->table), widget,
-                            "top-attach", &offset,
-                            nullptr);
+    gtk_grid_query_child (GTK_GRID (cw->table), widget,
+                          nullptr, &offset, nullptr, nullptr);
 
-    if ((offset < cw->comm_section_top) || (offset >= cw->comm_section_bottom))
+    if ((offset < (gint)cw->comm_section_top) || (offset >= (gint)cw->comm_section_bottom))
         return;
     if (cw->is_currency)
-        gtk_widget_set_sensitive(widget, offset == cw->comm_symbol_line);
+        gtk_widget_set_sensitive(widget, offset == (gint)cw->comm_symbol_line);
+}
+
+static void
+gnc_commodity_foreach_grid_child (GtkGrid *grid,
+                                  void (*callback) (GtkWidget *, gpointer),
+                                  gpointer user_data)
+{
+    for (GtkWidget *child = gtk_widget_get_first_child (GTK_WIDGET (grid)); child;
+         child = gtk_widget_get_next_sibling (child))
+        callback (child, user_data);
+}
+
+static guint
+gnc_grid_get_row (GtkGrid *grid, GtkWidget *child)
+{
+    gint row = 0;
+    gtk_grid_query_child (grid, child, nullptr, &row, nullptr, nullptr);
+    return row;
 }
 
 static void
 gnc_ui_update_commodity_info (CommodityWindow *cw)
 {
-    gtk_container_foreach(GTK_CONTAINER(cw->table),
-                          gnc_set_commodity_section_sensitivity, cw);
+    gnc_commodity_foreach_grid_child (GTK_GRID (cw->table),
+                                      gnc_set_commodity_section_sensitivity, cw);
 }
 
 
@@ -529,13 +546,12 @@ static void
 gnc_set_fq_sensitivity (GtkWidget *widget, gpointer user_data)
 {
     auto cw = static_cast<CommodityWindow*>(user_data);
-    guint offset = 0;
+    gint offset = 0;
 
-    gtk_container_child_get(GTK_CONTAINER(cw->table), widget,
-                            "top-attach", &offset,
-                            nullptr);
+    gtk_grid_query_child (GTK_GRID (cw->table), widget,
+                          nullptr, &offset, nullptr, nullptr);
 
-    if ((offset < cw->fq_section_top) || (offset >= cw->fq_section_bottom))
+    if ((offset < (gint)cw->fq_section_top) || (offset >= (gint)cw->fq_section_bottom))
         return;
     g_object_set(widget, "sensitive", FALSE, nullptr);
 }
@@ -544,8 +560,8 @@ gnc_set_fq_sensitivity (GtkWidget *widget, gpointer user_data)
 static void
 gnc_ui_update_fq_info (CommodityWindow *cw)
 {
-    gtk_container_foreach(GTK_CONTAINER(cw->table),
-                          gnc_set_fq_sensitivity, cw);
+    gnc_commodity_foreach_grid_child (GTK_GRID (cw->table),
+                                      gnc_set_fq_sensitivity, cw);
 }
 
 
@@ -928,16 +944,13 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
     /* Determine the commodity section of the dialog */
     retval->table = GTK_WIDGET(gtk_builder_get_object (builder, "edit_table"));
     sec_label = GTK_WIDGET(gtk_builder_get_object (builder, "security_label"));
-    gtk_container_child_get(GTK_CONTAINER(retval->table), sec_label,
-                            "top-attach", &retval->comm_section_top, nullptr);
+    retval->comm_section_top = gnc_grid_get_row (GTK_GRID (retval->table), sec_label);
 
     widget = GTK_WIDGET(gtk_builder_get_object (builder, "quote_label"));
-    gtk_container_child_get(GTK_CONTAINER(retval->table), widget,
-                            "top-attach", &retval->comm_section_bottom, nullptr);
+    retval->comm_section_bottom = gnc_grid_get_row (GTK_GRID (retval->table), widget);
 
-    gtk_container_child_get(GTK_CONTAINER(retval->table),
-                            retval->user_symbol_entry, "top-attach",
-                            &retval->comm_symbol_line, nullptr);
+    retval->comm_symbol_line = gnc_grid_get_row (GTK_GRID (retval->table),
+                                                 retval->user_symbol_entry);
 
     /* Build custom widgets */
     box = GTK_WIDGET(gtk_builder_get_object (builder, "single_source_box"));
@@ -1009,12 +1022,10 @@ gnc_ui_build_commodity_dialog(const char * selected_namespace,
     {
         /* Determine the price quote of the dialog */
         widget = GTK_WIDGET(gtk_builder_get_object (builder, "fq_warning_alignment"));
-        gtk_container_child_get(GTK_CONTAINER(retval->table), widget,
-                                "top-attach", &retval->fq_section_top, nullptr);
+        retval->fq_section_top = gnc_grid_get_row (GTK_GRID (retval->table), widget);
 
         widget = GTK_WIDGET(gtk_builder_get_object (builder, "bottom_alignment"));
-        gtk_container_child_get(GTK_CONTAINER(retval->table), widget,
-                                "top-attach", &retval->fq_section_bottom, nullptr);
+        retval->fq_section_bottom = gnc_grid_get_row (GTK_GRID (retval->table), widget);
 
         gnc_ui_update_fq_info (retval);
     }
