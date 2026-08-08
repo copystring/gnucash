@@ -43,6 +43,7 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include <cstring>
 
 #include "import-main-matcher.h"
 
@@ -983,155 +984,170 @@ private:
     char *m_orig_desc, *m_orig_notes, *m_orig_memo;
 };
 
-enum
+struct EntrySuggestion
 {
-    COMPLETION_LIST_ORIGINAL,
-    COMPLETION_LIST_NORMALIZED_FOLDED,
-    NUM_COMPLETION_COLS
+    GtkEntry *entry;
+    GtkPopover *popover;
+    GListStore *matches;
+    std::vector<std::string> candidates;
 };
 
-static void populate_list (gpointer key, gpointer value, GtkListStore *list)
+struct EntryInfo
 {
-    GtkTreeIter iter;
-    auto original = static_cast<const char*>(key);
-    char *normalized = g_utf8_normalize (original, -1, G_NORMALIZE_NFC);
-    char *normalized_folded = normalized ? g_utf8_casefold (normalized, -1) : NULL;
-    gtk_list_store_append (list, &iter);
-    gtk_list_store_set (list, &iter,
-                        COMPLETION_LIST_ORIGINAL, original,
-                        COMPLETION_LIST_NORMALIZED_FOLDED, normalized_folded,
-                        -1);
-    g_free (normalized_folded);
-    g_free (normalized);
-}
-
-static bool
-match_func (GtkEntryCompletion *completion, const char *entry_str,
-            GtkTreeIter *iter, gpointer user_data)
-{
-    auto model = static_cast<GtkTreeModel*>(user_data);
-    gchar *existing_str = NULL;
-    bool ret = false;
-    gtk_tree_model_get (model, iter,
-                        COMPLETION_LIST_NORMALIZED_FOLDED, &existing_str,
-                        -1);
-    if (existing_str && *existing_str && strstr (existing_str, entry_str))
-        ret = true;
-    g_free (existing_str);
-    return ret;
-}
-
-typedef struct
-{
-    GtkWidget *entry;
-    GObject *override_widget;
-    bool& can_edit;
+    GtkEntry *entry;
+    GtkWidget *override_widget;
+    bool *can_edit;
     GHashTable *hash;
     const char *initial;
-} EntryInfo;
+    EntrySuggestion suggestion;
+};
 
-static void override_widget_clicked (GtkWidget *widget, EntryInfo *entryinfo)
+struct EditFieldsDialog
 {
-    gtk_widget_set_visible (GTK_WIDGET (entryinfo->override_widget), false);
-    gtk_widget_set_sensitive (entryinfo->entry, true);
-    gtk_entry_set_text (GTK_ENTRY (entryinfo->entry), "");
-    gtk_widget_grab_focus (entryinfo->entry);
-    entryinfo->can_edit = true;
+    GNCImportMainMatcher *info;
+    GtkWindow *window;
+    GtkEntry *desc_entry;
+    GtkEntry *notes_entry;
+    GtkEntry *memo_entry;
+    std::vector<TreeRowReferencePtr> selected_refs;
+    std::vector<EntryInfo> entries;
+    gboolean finished;
+};
+
+static void
+collect_entry_candidate (gpointer key, gpointer value, gpointer user_data)
+{
+    auto candidates = static_cast<std::vector<std::string>*> (user_data);
+    auto candidate = static_cast<const char*> (key);
+    (void)value;
+    if (candidate && *candidate)
+        candidates->emplace_back (candidate);
+}
+
+static void
+suggestion_item_setup (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
+{
+    auto label = gtk_label_new (nullptr);
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (item, label);
+}
+
+static void
+suggestion_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
+{
+    auto string = GTK_STRING_OBJECT (gtk_list_item_get_item (item));
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
+                        gtk_string_object_get_string (string));
+}
+
+static void
+suggestion_activate_cb (GtkListView *view, guint position, EntrySuggestion *suggestion)
+{
+    auto item = GTK_STRING_OBJECT (g_list_model_get_item (G_LIST_MODEL (suggestion->matches), position));
+    (void)view;
+    gtk_entry_set_text (suggestion->entry, gtk_string_object_get_string (item));
+    gtk_popover_popdown (suggestion->popover);
+    g_object_unref (item);
+}
+
+static void
+suggestion_update_matches (EntrySuggestion *suggestion)
+{
+    auto query = gtk_editable_get_text (GTK_EDITABLE (suggestion->entry));
+    auto normalized = g_utf8_normalize (query, -1, G_NORMALIZE_NFC);
+    auto folded_query = normalized ? g_utf8_casefold (normalized, -1) : nullptr;
+    g_list_store_remove_all (suggestion->matches);
+
+    if (folded_query && *folded_query)
+    {
+        for (const auto& candidate : suggestion->candidates)
+        {
+            auto normalized_candidate = g_utf8_normalize (candidate.c_str (), -1, G_NORMALIZE_NFC);
+            auto folded_candidate = normalized_candidate ? g_utf8_casefold (normalized_candidate, -1) : nullptr;
+            if (folded_candidate && strstr (folded_candidate, folded_query))
+            {
+                auto item = gtk_string_object_new (candidate.c_str ());
+                g_list_store_append (suggestion->matches, item);
+                g_object_unref (item);
+            }
+            g_free (folded_candidate);
+            g_free (normalized_candidate);
+        }
+    }
+
+    g_free (folded_query);
+    g_free (normalized);
+    if (g_list_model_get_n_items (G_LIST_MODEL (suggestion->matches)) > 0)
+        gtk_popover_popup (suggestion->popover);
+    else
+        gtk_popover_popdown (suggestion->popover);
+}
+
+static void
+suggestion_entry_changed_cb (GtkEditable *editable, EntrySuggestion *suggestion)
+{
+    (void)editable;
+    suggestion_update_matches (suggestion);
+}
+
+static void
+setup_entry_suggestion (EntryInfo& entryinfo)
+{
+    auto& suggestion = entryinfo.suggestion;
+    suggestion.entry = entryinfo.entry;
+    suggestion.matches = g_list_store_new (GTK_TYPE_STRING_OBJECT);
+    g_hash_table_foreach (entryinfo.hash, collect_entry_candidate, &suggestion.candidates);
+    if (entryinfo.initial && *entryinfo.initial &&
+        !g_hash_table_lookup (entryinfo.hash, (gpointer)entryinfo.initial))
+        suggestion.candidates.emplace_back (entryinfo.initial);
+    std::sort (suggestion.candidates.begin (), suggestion.candidates.end (),
+               [] (const auto& left, const auto& right) { return g_utf8_collate (left.c_str (), right.c_str ()) < 0; });
+
+    auto factory = gtk_signal_list_item_factory_new ();
+    g_signal_connect (factory, "setup", G_CALLBACK (suggestion_item_setup), nullptr);
+    g_signal_connect (factory, "bind", G_CALLBACK (suggestion_item_bind), nullptr);
+    auto selection = gtk_single_selection_new (G_LIST_MODEL (suggestion.matches));
+    auto list = GTK_LIST_VIEW (gtk_list_view_new (GTK_SELECTION_MODEL (selection), factory));
+    suggestion.popover = GTK_POPOVER (gtk_popover_new ());
+    gtk_popover_set_autohide (suggestion.popover, TRUE);
+    gtk_popover_set_has_arrow (suggestion.popover, FALSE);
+    gtk_popover_set_child (suggestion.popover, GTK_WIDGET (list));
+    gtk_widget_set_size_request (GTK_WIDGET (list), 280, -1);
+    gtk_widget_set_parent (GTK_WIDGET (suggestion.popover), GTK_WIDGET (entryinfo.entry));
+    g_signal_connect (list, "activate", G_CALLBACK (suggestion_activate_cb), &suggestion);
+    g_signal_connect (entryinfo.entry, "changed", G_CALLBACK (suggestion_entry_changed_cb), &suggestion);
+}
+
+static void
+override_widget_clicked (GtkWidget *widget, EntryInfo *entryinfo)
+{
+    (void)widget;
+    gtk_widget_set_visible (entryinfo->override_widget, false);
+    gtk_widget_set_sensitive (GTK_WIDGET (entryinfo->entry), true);
+    gtk_entry_set_text (entryinfo->entry, "");
+    gtk_widget_grab_focus (GTK_WIDGET (entryinfo->entry));
+    *entryinfo->can_edit = true;
 }
 
 static void
 setup_entry (EntryInfo& entryinfo)
 {
-    auto sensitive = entryinfo.can_edit;
-    auto entry = entryinfo.entry;
-    auto override_widget = GTK_WIDGET (entryinfo.override_widget);
-    auto hash = entryinfo.hash;
-    auto initial = entryinfo.initial;
-
-    gtk_widget_set_sensitive (entry, sensitive);
-    gtk_widget_set_visible (override_widget, !sensitive);
-
-    if (sensitive && initial && *initial)
-        gtk_entry_set_text (GTK_ENTRY (entry), initial);
+    auto sensitive = *entryinfo.can_edit;
+    gtk_widget_set_sensitive (GTK_WIDGET (entryinfo.entry), sensitive);
+    gtk_widget_set_visible (entryinfo.override_widget, !sensitive);
+    if (sensitive && entryinfo.initial && *entryinfo.initial)
+        gtk_entry_set_text (entryinfo.entry, entryinfo.initial);
     else if (!sensitive)
     {
-        gtk_entry_set_text (GTK_ENTRY (entry), _("Click Edit to modify"));
-        g_signal_connect (override_widget, "clicked", G_CALLBACK (override_widget_clicked),
-                          &entryinfo);
+        gtk_entry_set_text (entryinfo.entry, _("Click Edit to modify"));
+        g_signal_connect (entryinfo.override_widget, "clicked", G_CALLBACK (override_widget_clicked), &entryinfo);
     }
-
-    GtkListStore *list = gtk_list_store_new (NUM_COMPLETION_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
-    g_hash_table_foreach (hash, (GHFunc)populate_list, list);
-    if (initial && *initial && !g_hash_table_lookup (hash, (gpointer)initial))
-        populate_list ((gpointer)initial, NULL, list);
-    gtk_tree_sortable_set_sort_column_id (GTK_TREE_SORTABLE (list),
-                                          COMPLETION_LIST_ORIGINAL,
-                                          GTK_SORT_ASCENDING);
-
-    GtkEntryCompletion *completion = gtk_entry_completion_new ();
-    gtk_entry_completion_set_model (completion, GTK_TREE_MODEL(list));
-    gtk_entry_completion_set_text_column (completion, COMPLETION_LIST_ORIGINAL);
-    gtk_entry_completion_set_match_func (completion,
-                                         (GtkEntryCompletionMatchFunc)match_func,
-                                         GTK_TREE_MODEL(list), NULL);
-    gtk_entry_set_completion (GTK_ENTRY (entry), completion);
-}
-
-static bool
-input_new_fields (GNCImportMainMatcher *info, RowInfo& rowinfo,
-                  char **new_desc, char **new_notes, char **new_memo)
-{
-    GtkBuilder *builder = gtk_builder_new ();
-    gnc_builder_add_from_file (builder, "dialog-import.glade", "transaction_edit_dialog");
-
-    GtkWidget *dialog = GTK_WIDGET(gtk_builder_get_object (builder, "transaction_edit_dialog"));
-
-    // Set the name for this dialog so it can be easily manipulated with css
-    gtk_widget_set_name (GTK_WIDGET(dialog), "gnc-id-import-matcher-edits");
-    gnc_widget_style_context_add_class (GTK_WIDGET(dialog), "gnc-class-imports");
-
-    GtkWidget *desc_entry = GTK_WIDGET(gtk_builder_get_object (builder, "desc_entry"));
-    GtkWidget *memo_entry = GTK_WIDGET(gtk_builder_get_object (builder, "memo_entry"));
-    GtkWidget *notes_entry = GTK_WIDGET(gtk_builder_get_object (builder, "notes_entry"));
-
-    auto trans = gnc_import_TransInfo_get_trans (rowinfo.get_trans_info ());
-    auto split = gnc_import_TransInfo_get_fsplit (rowinfo.get_trans_info ());
-
-    std::vector<EntryInfo> entries = {
-        { desc_entry, gtk_builder_get_object (builder, "desc_override"), info->can_edit_desc, info->desc_hash, xaccTransGetDescription (trans) },
-        { notes_entry, gtk_builder_get_object (builder, "notes_override"), info->can_edit_notes, info->notes_hash, xaccTransGetNotes (trans) },
-        { memo_entry, gtk_builder_get_object (builder, "memo_override"), info->can_edit_memo, info->memo_hash, xaccSplitGetMemo (split) },
-    };
-
-    std::for_each (entries.begin(), entries.end(), setup_entry);
-
-    /* ensure that an override button doesn't have focus. find the
-       first available entry and give it focus. */
-    auto it = std::find_if (entries.begin(), entries.end(), [](auto info){ return info.can_edit; });
-    if (it != entries.end())
-        gtk_widget_grab_focus (it->entry);
-
-    gtk_window_set_transient_for (GTK_WINDOW (dialog), GTK_WINDOW (info->main_widget));
-
-    // run the dialog
-    gtk_widget_show (dialog);
-
-    bool  retval = false;
-    switch (gnc_dialog_run_non_destructive (GTK_DIALOG(dialog)))
-    {
-    case GTK_RESPONSE_OK:
-        *new_desc = g_strdup (gtk_entry_get_text (GTK_ENTRY (desc_entry)));
-        *new_notes = g_strdup (gtk_entry_get_text (GTK_ENTRY (notes_entry)));
-        *new_memo = g_strdup (gtk_entry_get_text (GTK_ENTRY (memo_entry)));
-        retval = true;
-        break;
-    default:
-        break;
-    }
-
-    gtk_window_destroy (GTK_WINDOW (dialog));
-    g_object_unref (G_OBJECT(builder));
-    return retval;
+    setup_entry_suggestion (entryinfo);
 }
 
 static inline void
@@ -1142,6 +1158,128 @@ maybe_add_string (GNCImportMainMatcher *info, GHashTable *hash, const char *str)
     char *new_string = g_strdup (str);
     info->new_strings = g_list_prepend (info->new_strings, new_string);
     g_hash_table_insert (hash, new_string, one);
+}
+
+static void
+edit_fields_dialog_finish (EditFieldsDialog *dialog, gboolean accepted)
+{
+    if (!dialog || dialog->finished)
+        return;
+    dialog->finished = TRUE;
+
+    if (accepted)
+    {
+        auto new_desc = g_strdup (gtk_entry_get_text (dialog->desc_entry));
+        auto new_notes = g_strdup (gtk_entry_get_text (dialog->notes_entry));
+        auto new_memo = g_strdup (gtk_entry_get_text (dialog->memo_entry));
+        auto model = gtk_tree_view_get_model (dialog->info->view);
+        auto store = GTK_TREE_STORE (model);
+
+        for (const auto& ref : dialog->selected_refs)
+        {
+            RowInfo row { ref, dialog->info };
+            auto trans = gnc_import_TransInfo_get_trans (row.get_trans_info ());
+            auto split = gnc_import_TransInfo_get_fsplit (row.get_trans_info ());
+            if (*dialog->entries[0].can_edit)
+            {
+                auto style = g_strcmp0 (new_desc, row.get_orig_desc ()) ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL;
+                gtk_tree_store_set (store, row.get_iter (), DOWNLOADED_COL_DESCRIPTION, new_desc,
+                                    DOWNLOADED_COL_DESCRIPTION_STYLE, style, -1);
+                xaccTransSetDescription (trans, new_desc);
+                maybe_add_string (dialog->info, dialog->info->desc_hash, new_desc);
+            }
+            if (*dialog->entries[1].can_edit)
+            {
+                xaccTransSetNotes (trans, new_notes);
+                maybe_add_string (dialog->info, dialog->info->notes_hash, new_notes);
+            }
+            if (*dialog->entries[2].can_edit)
+            {
+                auto style = g_strcmp0 (new_memo, row.get_orig_memo ()) ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL;
+                gtk_tree_store_set (store, row.get_iter (), DOWNLOADED_COL_MEMO, new_memo,
+                                    DOWNLOADED_COL_MEMO_STYLE, style, -1);
+                xaccSplitSetMemo (split, new_memo);
+                maybe_add_string (dialog->info, dialog->info->memo_hash, new_memo);
+            }
+        }
+        g_free (new_desc);
+        g_free (new_notes);
+        g_free (new_memo);
+    }
+
+    for (auto& entry : dialog->entries)
+    {
+        gtk_popover_popdown (entry.suggestion.popover);
+        g_clear_object (&entry.suggestion.matches);
+    }
+    auto window = dialog->window;
+    gtk_window_destroy (window);
+    g_object_unref (window);
+    delete dialog;
+}
+
+static void
+edit_fields_button_clicked_cb (GtkButton *button, EditFieldsDialog *dialog)
+{
+    edit_fields_dialog_finish (dialog,
+                               GPOINTER_TO_INT (g_object_get_data (G_OBJECT (button), "accepted")));
+}
+
+static gboolean
+edit_fields_close_request_cb (GtkWindow *window, EditFieldsDialog *dialog)
+{
+    (void)window;
+    edit_fields_dialog_finish (dialog, FALSE);
+    return TRUE;
+}
+
+static void
+input_new_fields_async (GNCImportMainMatcher *info,
+                        std::vector<TreeRowReferencePtr> selected_refs)
+{
+    auto dialog = new EditFieldsDialog { info, nullptr, nullptr, nullptr, nullptr,
+                                         std::move (selected_refs), {}, FALSE };
+    auto first_row = RowInfo { dialog->selected_refs[0], info };
+    auto builder = gtk_builder_new ();
+    gnc_builder_add_from_file (builder, "dialog-import.glade", "transaction_edit_dialog");
+
+    dialog->window = GTK_WINDOW (gtk_builder_get_object (builder, "transaction_edit_dialog"));
+    dialog->desc_entry = GTK_ENTRY (gtk_builder_get_object (builder, "desc_entry"));
+    dialog->notes_entry = GTK_ENTRY (gtk_builder_get_object (builder, "notes_entry"));
+    dialog->memo_entry = GTK_ENTRY (gtk_builder_get_object (builder, "memo_entry"));
+    auto cancel_button = GTK_BUTTON (gtk_builder_get_object (builder, "button1"));
+    auto ok_button = GTK_BUTTON (gtk_builder_get_object (builder, "button2"));
+    g_return_if_fail (dialog->window && dialog->desc_entry && dialog->notes_entry && dialog->memo_entry &&
+                      cancel_button && ok_button);
+    g_object_ref (dialog->window);
+
+    gtk_widget_set_name (GTK_WIDGET (dialog->window), "gnc-id-import-matcher-edits");
+    gnc_widget_style_context_add_class (GTK_WIDGET (dialog->window), "gnc-class-imports");
+    auto trans = gnc_import_TransInfo_get_trans (first_row.get_trans_info ());
+    auto split = gnc_import_TransInfo_get_fsplit (first_row.get_trans_info ());
+    dialog->entries.reserve (3);
+    dialog->entries.push_back ({ dialog->desc_entry, GTK_WIDGET (gtk_builder_get_object (builder, "desc_override")),
+                                 &info->can_edit_desc, info->desc_hash, xaccTransGetDescription (trans), {} });
+    dialog->entries.push_back ({ dialog->notes_entry, GTK_WIDGET (gtk_builder_get_object (builder, "notes_override")),
+                                 &info->can_edit_notes, info->notes_hash, xaccTransGetNotes (trans), {} });
+    dialog->entries.push_back ({ dialog->memo_entry, GTK_WIDGET (gtk_builder_get_object (builder, "memo_override")),
+                                 &info->can_edit_memo, info->memo_hash, xaccSplitGetMemo (split), {} });
+    std::for_each (dialog->entries.begin (), dialog->entries.end (), setup_entry);
+
+    auto focus_entry = std::find_if (dialog->entries.begin (), dialog->entries.end (),
+                                     [] (const auto& entry) { return *entry.can_edit; });
+    if (focus_entry != dialog->entries.end ())
+        gtk_widget_grab_focus (GTK_WIDGET (focus_entry->entry));
+    gtk_window_set_transient_for (dialog->window, GTK_WINDOW (info->main_widget));
+    gtk_window_set_modal (dialog->window, TRUE);
+    gtk_window_set_default_widget (dialog->window, GTK_WIDGET (ok_button));
+    g_object_set_data (G_OBJECT (cancel_button), "accepted", GINT_TO_POINTER (FALSE));
+    g_object_set_data (G_OBJECT (ok_button), "accepted", GINT_TO_POINTER (TRUE));
+    g_signal_connect (cancel_button, "clicked", G_CALLBACK (edit_fields_button_clicked_cb), dialog);
+    g_signal_connect (ok_button, "clicked", G_CALLBACK (edit_fields_button_clicked_cb), dialog);
+    g_signal_connect (dialog->window, "close-request", G_CALLBACK (edit_fields_close_request_cb), dialog);
+    g_object_unref (builder);
+    gtk_window_present (dialog->window);
 }
 
 static void
@@ -1214,7 +1352,6 @@ gnc_gen_trans_edit_fields (GtkMenuItem *menuitem, GNCImportMainMatcher *info)
 
     GtkTreeView *treeview = GTK_TREE_VIEW(info->view);
     GtkTreeModel *model = gtk_tree_view_get_model (treeview);
-    GtkTreeStore *store  = GTK_TREE_STORE (model);
     auto selected_refs = get_treeview_selection_refs (treeview, model);
 
     if (selected_refs.empty())
@@ -1223,49 +1360,7 @@ gnc_gen_trans_edit_fields (GtkMenuItem *menuitem, GNCImportMainMatcher *info)
         return;
     }
 
-    char *new_desc = NULL, *new_notes = NULL, *new_memo = NULL;
-    RowInfo first_row{selected_refs[0], info};
-    if (input_new_fields (info, first_row, &new_desc, &new_notes, &new_memo))
-    {
-        for (const auto& ref : selected_refs)
-        {
-            RowInfo row{ref, info};
-            auto trans = gnc_import_TransInfo_get_trans (row.get_trans_info ());
-            auto split = gnc_import_TransInfo_get_fsplit (row.get_trans_info ());
-            if (info->can_edit_desc)
-            {
-                gint style = g_strcmp0 (new_desc, row.get_orig_desc()) ?
-                    PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL;
-                gtk_tree_store_set (store, row.get_iter(),
-                                    DOWNLOADED_COL_DESCRIPTION, new_desc,
-                                    DOWNLOADED_COL_DESCRIPTION_STYLE, style,
-                                    -1);
-                xaccTransSetDescription (trans, new_desc);
-                maybe_add_string (info, info->desc_hash, new_desc);
-            }
-
-            if (info->can_edit_notes)
-            {
-                xaccTransSetNotes (trans, new_notes);
-                maybe_add_string (info, info->notes_hash, new_notes);
-            }
-
-            if (info->can_edit_memo)
-            {
-                gint style = g_strcmp0 (new_memo, row.get_orig_memo()) ?
-                    PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL;
-                gtk_tree_store_set (store, row.get_iter(),
-                                    DOWNLOADED_COL_MEMO, new_memo,
-                                    DOWNLOADED_COL_MEMO_STYLE, style,
-                                    -1);
-                xaccSplitSetMemo (split, new_memo);
-                maybe_add_string (info, info->memo_hash, new_memo);
-            }
-        }
-        g_free (new_desc);
-        g_free (new_memo);
-        g_free (new_notes);
-    }
+    input_new_fields_async (info, std::move (selected_refs));
     LEAVE("");
 }
 

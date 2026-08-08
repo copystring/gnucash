@@ -602,14 +602,18 @@
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="transaction_edit_dialog">
+  <object class="GtkWindow" id="transaction_edit_dialog">
     <property name="title" translatable="1">Edit imported transaction details</property>
     <property name="default-width">320</property>
-<child internal-child="content_area">
-      <object class="GtkBox">
-        <property name="visible">0</property>
+    <property name="modal">1</property>
+    <property name="child">
+      <object class="GtkBox" id="transaction_edit_root">
         <property name="orientation">vertical</property>
-        <property name="spacing">2</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkGrid">
             <property name="row-spacing">3</property>
@@ -715,34 +719,31 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">button1</action-widget>
-      <action-widget response="-5">button2</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox">
         <child>
-          <object class="GtkButton" id="button1">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-            <property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          <property name="hexpand">1</property></object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="button2">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          <property name="hexpand">1</property></object>
-
+          <object class="GtkBox" id="transaction_edit_actions">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <child>
+              <object class="GtkButton" id="button1">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="button2">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+          </object>
         </child>
       </object>
-    </child>
+    </property>
   </object>
   <object class="GtkBox" id="transaction_matcher_content">
     <property name="orientation">vertical</property>
