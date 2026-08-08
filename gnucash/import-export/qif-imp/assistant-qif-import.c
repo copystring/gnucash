@@ -4033,7 +4033,7 @@ gnc_ui_qif_import_assistant_close_handler (gpointer user_data)
     QIFImportWindow *qif_win = user_data;
 
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(qif_win->window));
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(qif_win->window));
+    gtk_window_destroy (GTK_WINDOW(qif_win->window));
 }
 
 

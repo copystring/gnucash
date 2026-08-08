@@ -740,8 +740,8 @@ CsvImpTransAssist::CsvImpTransAssist ()
 gnc_builder_connect_signals (builder, this);
     g_object_unref (G_OBJECT(builder));
 
-//FIXME gtk4    gtk_widget_show_all (GTK_WIDGET(csv_imp_asst));
     gnc_window_adjust_for_screen (GTK_WINDOW(csv_imp_asst));
+    gtk_window_present (GTK_WINDOW(csv_imp_asst));
 
     /* In order to trigger a book options display on the creation of a new book,
      * we need to detect when we are dealing with a new book. */
@@ -762,7 +762,7 @@ CsvImpTransAssist::~CsvImpTransAssist ()
     gnc_csv_importer_gui = nullptr;
     g_clear_object (&account_match_selection);
     g_clear_object (&account_match_store);
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(csv_imp_asst));
+    gtk_window_destroy (GTK_WINDOW(csv_imp_asst));
 }
 
 

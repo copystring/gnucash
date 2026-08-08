@@ -672,8 +672,8 @@ CsvImpPriceAssist::CsvImpPriceAssist ()
 gnc_builder_connect_signals (builder, this);
     g_object_unref (G_OBJECT(builder));
 
-//FIXME gtk4    gtk_widget_show_all (GTK_WIDGET(csv_imp_asst));
     gnc_window_adjust_for_screen (GTK_WINDOW(csv_imp_asst));
+    gtk_window_present (GTK_WINDOW(csv_imp_asst));
 }
 
 /*******************************************************
@@ -681,7 +681,7 @@ gnc_builder_connect_signals (builder, this);
  *******************************************************/
 CsvImpPriceAssist::~CsvImpPriceAssist ()
 {
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(csv_imp_asst));
+    gtk_window_destroy (GTK_WINDOW(csv_imp_asst));
 }
 
 /**************************************************
