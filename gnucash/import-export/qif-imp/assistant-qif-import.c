@@ -3342,8 +3342,9 @@ gnc_ui_qif_import_convert_progress_start_cb (GtkButton * button,
                                        0);
 
     /* The default currency. */
-    const gchar *currname = gnc_entry_get_text (GTK_ENTRY(gtk_combo_box_get_child (GTK_COMBO_BOX
-                                                          (GTK_COMBO_BOX(wind->currency_picker)))));
+    gnc_commodity *currency = gnc_currency_edit_get_currency (
+        GNC_CURRENCY_EDIT (wind->currency_picker));
+    const gchar *currname = gnc_commodity_get_printname (currency);
 
     /* Raise the busy flag so the assistant can't be canceled unexpectedly. */
     wind->busy = TRUE;

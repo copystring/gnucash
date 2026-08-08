@@ -519,7 +519,7 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
     pedit_dialog->currency_edit = w;
     gnc_box_append_full (GTK_BOX (box), w, TRUE, TRUE, 0);
     gtk_widget_show (w);
-    g_signal_connect (G_OBJECT (GTK_COMBO_BOX(w)), "changed",
+    g_signal_connect (G_OBJECT (w), "changed",
                       G_CALLBACK (pedit_data_changed_cb), pedit_dialog);
     label = GTK_WIDGET(gtk_builder_get_object (builder, "currency_label"));
     gtk_label_set_mnemonic_widget (GTK_LABEL(label), w);
