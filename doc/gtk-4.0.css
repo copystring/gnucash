@@ -109,22 +109,15 @@ gnc-id-sheet calendar {
 }
 
 
-/* Toolbar Button size and spacing */
-toolbar {
-  background-color: darkgrey;
-}
-
-/* Toolbar font size, 0 to remove text */
-toolbar toolbutton label {
-  font-size: 0px;
-}
-
-toolbar toolbutton button {
+/* Toolbar buttons are regular GTK4 widgets. Apply these selectors to the
+ * toolbar container's application CSS class when customising it. */
+.gnc-class-toolbar button {
   padding-left: 4px;
   padding-right: 4px;
 }
 
-toolbar toolbutton label {
+.gnc-class-toolbar button label {
+  font-size: 0px;
   padding-left: 4px;
   padding-right: 4px;
 }

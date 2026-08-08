@@ -140,19 +140,29 @@ gnc_add_css_file (void)
 {
     GtkCssProvider *provider_user, *provider_app, *provider_fallback;
     GdkDisplay *display;
-    GdkScreen *screen;
     const gchar *var;
-    GError *error = 0;
 
     provider_user = gtk_css_provider_new ();
     provider_app = gtk_css_provider_new ();
     provider_fallback = gtk_css_provider_new ();
     display = gdk_display_get_default ();
-    screen = gdk_display_get_default_screen (display);
+    if (!display)
+    {
+        g_object_unref (provider_user);
+        g_object_unref (provider_app);
+        g_object_unref (provider_fallback);
+        return;
+    }
 
-    gtk_style_context_add_provider_for_screen (screen, GTK_STYLE_PROVIDER (provider_fallback), GTK_STYLE_PROVIDER_PRIORITY_FALLBACK);
-    gtk_style_context_add_provider_for_screen (screen, GTK_STYLE_PROVIDER (provider_app), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    gtk_style_context_add_provider_for_screen (screen, GTK_STYLE_PROVIDER (provider_user), GTK_STYLE_PROVIDER_PRIORITY_USER);
+    gtk_style_context_add_provider_for_display (display,
+                                                GTK_STYLE_PROVIDER (provider_fallback),
+                                                GTK_STYLE_PROVIDER_PRIORITY_FALLBACK);
+    gtk_style_context_add_provider_for_display (display,
+                                                GTK_STYLE_PROVIDER (provider_app),
+                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    gtk_style_context_add_provider_for_display (display,
+                                                GTK_STYLE_PROVIDER (provider_user),
+                                                GTK_STYLE_PROVIDER_PRIORITY_USER);
 
     gtk_css_provider_load_from_resource (provider_app, GNUCASH_RESOURCE_PREFIX "/gnucash.css");
     gtk_css_provider_load_from_resource (provider_fallback,  GNUCASH_RESOURCE_PREFIX "/gnucash-fallback.css");
@@ -161,8 +171,8 @@ gnc_add_css_file (void)
     if (var)
     {
         gchar *str;
-        str = g_build_filename (var, "gtk-3.0.css", (char *)NULL);
-        gtk_css_provider_load_from_path (provider_user, str, &error);
+        str = g_build_filename (var, "gtk-4.0.css", (char *)NULL);
+        gtk_css_provider_load_from_path (provider_user, str);
         g_free (str);
     }
     g_object_unref (provider_user);
