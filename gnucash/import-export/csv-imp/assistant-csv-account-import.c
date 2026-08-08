@@ -730,7 +730,6 @@ gnc_file_csv_account_import(void)
                                 NULL, csv_import_close_handler,
                                 info);
 
-//FIXME gtk4    gtk_widget_show_all (info->assistant);
-
     gnc_window_adjust_for_screen (GTK_WINDOW(info->assistant));
+    gtk_window_present (GTK_WINDOW (info->assistant));
 }
