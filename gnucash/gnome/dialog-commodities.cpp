@@ -226,7 +226,7 @@ gnc_commodities_dialog_remove_clicked (GtkWidget *widget, gpointer data)
                             _("_Cancel"), GTK_RESPONSE_CANCEL,
                             _("_Delete"), GTK_RESPONSE_OK,
                             (gchar *)NULL);
-    response = gnc_dialog_run (GTK_DIALOG(dialog), warning);
+    response = gnc_warning_dialog_run (GTK_DIALOG(dialog), warning);
     gtk_widget_destroy (dialog);
 
     if (response == GTK_RESPONSE_OK)

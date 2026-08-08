@@ -1435,7 +1435,7 @@ gnc_main_window_delete_event (GtkWidget *window,
                               _("_OK"), GTK_RESPONSE_YES,
                                (gchar *)NULL);
         gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_YES);
-        response = gnc_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_CLOSING_WINDOW_QUESTION);
+        response = gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_CLOSING_WINDOW_QUESTION);
         gtk_widget_destroy (dialog);
 
         if (response == GTK_RESPONSE_CANCEL)

@@ -81,7 +81,9 @@ void aai_on_finish (GtkAssistant *gtkassistant, gpointer user_data);
 void aai_on_cancel (GtkAssistant *assistant, gpointer user_data);
 void aai_destroy_cb(GtkWidget *object, gpointer user_data);
 
-gboolean aai_key_press_event_cb(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
+static gboolean aai_key_pressed_cb(GtkEventControllerKey *controller,
+                                   guint keyval, guint keycode,
+                                   GdkModifierType state, gpointer user_data);
 
 void aai_page_prepare (GtkAssistant *assistant, gpointer user_data);
 void aai_button_clicked_cb(GtkButton *button, gpointer user_data);
@@ -159,12 +161,18 @@ enum account_list_cols
     NUM_ACCOUNT_LIST_COLS
 };
 
-gboolean
-aai_key_press_event_cb(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
+static gboolean
+aai_key_pressed_cb(GtkEventControllerKey *controller, guint keyval,
+                   guint keycode, GdkModifierType state, gpointer user_data)
 {
-    if (event->keyval == GDK_KEY_Escape)
+    GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+
+    (void)keycode;
+    (void)state;
+    (void)user_data;
+    if (keyval == GDK_KEY_Escape)
     {
-        gtk_widget_destroy(widget);
+        gtk_window_destroy (GTK_WINDOW(widget));
         return TRUE;
     }
     else
@@ -178,7 +186,7 @@ aai_on_cancel (GtkAssistant *gtkassistant, gpointer user_data)
 {
     ABInitialInfo *info = user_data;
 
-    gtk_widget_destroy(info->window);
+    gtk_window_destroy (GTK_WINDOW(info->window));
 }
 
 void
@@ -216,7 +224,6 @@ aai_destroy_cb(GtkWidget *object, gpointer user_data)
         info->api = NULL;
     }
 
-    gtk_widget_destroy(info->window);
     info->window = NULL;
 
     g_free(info);
@@ -432,7 +439,7 @@ aai_on_finish (GtkAssistant *assistant, gpointer user_data)
     g_hash_table_foreach(info->gnc_revhash, (GHFunc) clear_kvp_acc_cb, NULL);
     g_hash_table_foreach(info->gnc_hash, (GHFunc) save_kvp_acc_cb, NULL);
 
-    gtk_widget_destroy(info->window);
+    gtk_window_destroy (GTK_WINDOW(info->window));
 }
 
 static gboolean
@@ -718,7 +725,7 @@ aai_close_handler(gpointer user_data)
     ABInitialInfo *info = user_data;
 
     gnc_save_window_size(GNC_PREFS_GROUP, GTK_WINDOW(info->window));
-    gtk_widget_destroy(info->window);
+    gtk_window_destroy (GTK_WINDOW(info->window));
 }
 
 void aai_on_prepare (GtkAssistant  *assistant, GtkWidget *page,
@@ -747,6 +754,7 @@ gnc_ab_initial_assistant_new(void)
 
     ABInitialInfo *info = g_new0(ABInitialInfo, 1);
     builder = gtk_builder_new();
+    gtk_builder_set_current_object (builder, G_OBJECT(info));
     gnc_builder_add_from_file (builder, "assistant-ab-initial.glade", "aqbanking_init_assistant");
 
     info->window = GTK_WIDGET(gtk_builder_get_object (builder, "aqbanking_init_assistant"));
@@ -792,6 +800,13 @@ gnc_ab_initial_assistant_new(void)
     g_signal_connect(info->account_view, "row-activated",
                      G_CALLBACK(account_list_clicked_cb), info);
 
+    {
+        GtkEventController *key_controller = gtk_event_controller_key_new();
+        g_signal_connect(key_controller, "key-pressed",
+                         G_CALLBACK(aai_key_pressed_cb), info);
+        gtk_widget_add_controller(info->window, key_controller);
+    }
+
     g_signal_connect (G_OBJECT(info->window), "destroy",
                       G_CALLBACK (aai_destroy_cb), info);
 
@@ -810,6 +825,5 @@ gnc_ab_initial_assistant(void)
 {
     if (!single_info)
         single_info = gnc_ab_initial_assistant_new();
-    gtk_widget_show(single_info->window);
+    gtk_widget_set_visible (GTK_WIDGET(single_info->window), TRUE);
 }
-

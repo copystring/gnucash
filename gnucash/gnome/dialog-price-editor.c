@@ -239,7 +239,7 @@ pedit_dialog_replace_found_price (PriceEditDialog *pedit_dialog,
                               _("_Replace"), GTK_RESPONSE_YES,
                                (gchar *)NULL);
         gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_YES);
-        response = gnc_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_PRICE_QUOTES_REPLACE);
+        response = gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_PRICE_QUOTES_REPLACE);
         gtk_widget_destroy (dialog);
 
         if (response == GTK_RESPONSE_CANCEL)

@@ -219,7 +219,7 @@ gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
                                _("_Delete"), GTK_RESPONSE_YES,
                                (gchar *)NULL);
         gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
-        response = gnc_dialog_run(GTK_DIALOG(dialog), GNC_PREF_WARN_PRICE_QUOTES_DEL);
+        response = gnc_warning_dialog_run(GTK_DIALOG(dialog), GNC_PREF_WARN_PRICE_QUOTES_DEL);
         gtk_widget_destroy(dialog);
     }
     else

@@ -69,6 +69,7 @@ gnc_ab_enter_daterange(GtkWidget *parent,
     ENTER("");
 
     builder = gtk_builder_new();
+    gtk_builder_set_current_object (builder, G_OBJECT(&info));
     gnc_builder_add_from_file (builder, "dialog-ab.glade", "aqbanking_date_range_dialog");
 
     dialog = GTK_WIDGET(gtk_builder_get_object (builder, "aqbanking_date_range_dialog"));
@@ -87,15 +88,12 @@ gnc_ab_enter_daterange(GtkWidget *parent,
     info.enter_to_button  = GTK_WIDGET(gtk_builder_get_object (builder, "enter_to_button"));
 
     info.from_dateedit = gnc_date_edit_new (*from_date, FALSE, FALSE);
-    gtk_container_add(GTK_CONTAINER(gtk_builder_get_object (builder, "enter_from_box")),
-                      info.from_dateedit);
-    gtk_widget_show(info.from_dateedit);
+    gtk_box_prepend (GTK_BOX(gtk_builder_get_object (builder, "enter_from_box")), GTK_WIDGET(info.from_dateedit));
+    gtk_widget_set_visible (GTK_WIDGET(info.from_dateedit), TRUE);
 
     info.to_dateedit = gnc_date_edit_new (*to_date, FALSE, FALSE);
-    gtk_container_add(GTK_CONTAINER(gtk_builder_get_object (builder, "enter_to_box")),
-                      info.to_dateedit);
-    gtk_widget_show(info.to_dateedit);
-
+    gtk_box_prepend (GTK_BOX(gtk_builder_get_object (builder, "enter_to_box")), GTK_WIDGET(info.to_dateedit));
+    gtk_widget_set_visible (GTK_WIDGET(info.to_dateedit), TRUE);
     if (*last_retv_date)
     {
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(last_retrieval_button),
@@ -115,10 +113,7 @@ gnc_ab_enter_daterange(GtkWidget *parent,
     if (heading)
         gtk_label_set_text(GTK_LABEL(heading_label), heading);
 
-    gtk_widget_show(dialog);
-
-    result = gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_hide(dialog);
+    result = gnc_dialog_run_non_destructive (GTK_DIALOG(dialog));
 
     if (result == GTK_RESPONSE_OK)
     {
@@ -134,7 +129,7 @@ gnc_ab_enter_daterange(GtkWidget *parent,
 
     g_object_unref(G_OBJECT(builder));
 
-    gtk_widget_destroy(dialog);
+    gtk_window_destroy (GTK_WINDOW(dialog));
 
     LEAVE("");
     return result == GTK_RESPONSE_OK;

@@ -2265,7 +2265,7 @@ gnc_split_register_confirm (VirtualLocation virt_loc, gpointer user_data)
         else
             gtk_dialog_add_button (GTK_DIALOG (dialog), _ ("Chan_ge Transaction"),
                                    GTK_RESPONSE_YES);
-        response = gnc_dialog_run (GTK_DIALOG (dialog),
+        response = gnc_warning_dialog_run (GTK_DIALOG (dialog),
                                    GNC_PREF_WARN_REG_RECD_SPLIT_MOD);
         gtk_widget_destroy (dialog);
         if (response != GTK_RESPONSE_YES)

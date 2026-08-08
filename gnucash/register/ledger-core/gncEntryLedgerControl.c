@@ -896,7 +896,7 @@ static gboolean gnc_entry_ledger_traverse (VirtualLocation *p_new_virt_loc,
                                        _("_Cancel"), GTK_RESPONSE_CANCEL,
                                        _("_Record"), GTK_RESPONSE_ACCEPT,
                                        NULL);
-                response = gnc_dialog_run(GTK_DIALOG(dialog), GNC_PREF_WARN_INV_ENTRY_MOD);
+                response = gnc_warning_dialog_run(GTK_DIALOG(dialog), GNC_PREF_WARN_INV_ENTRY_MOD);
                 gtk_widget_destroy(dialog);
                 break;
             }

@@ -2178,7 +2178,7 @@ gnc_plugin_page_register_cmd_print_check (GSimpleAction *simple,
                                                               "%s", message);
                     gtk_dialog_add_button (GTK_DIALOG (dialog), _ ("_Print checks"),
                                            GTK_RESPONSE_YES);
-                    response = gnc_dialog_run (GTK_DIALOG (dialog),
+                    response = gnc_warning_dialog_run (GTK_DIALOG (dialog),
                                                GNC_PREF_WARN_CHECKPRINTING_MULTI_ACCT);
                     gtk_widget_destroy (dialog);
                     if (response != GTK_RESPONSE_YES)
@@ -3444,7 +3444,7 @@ gnc_plugin_page_register_cmd_jump (GSimpleAction *simple,
             gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
                     "%s", _("This transaction involves more than one other account. Select a specific split to jump to that account."));
             gtk_dialog_add_button (GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_OK);
-            gnc_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_TRANS_JUMP_MULTIPLE_SPLITS);
+            gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_TRANS_JUMP_MULTIPLE_SPLITS);
             gtk_widget_destroy (dialog);
 
             LEAVE ("no split (2)");
@@ -3473,7 +3473,7 @@ gnc_plugin_page_register_cmd_jump (GSimpleAction *simple,
             gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
                     "%s", _("This transaction only involves the current account so there is no other account to jump to."));
             gtk_dialog_add_button (GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_OK);
-            gnc_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_TRANS_JUMP_SINGLE_ACCOUNT);
+            gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_REG_TRANS_JUMP_SINGLE_ACCOUNT);
             gtk_widget_destroy (dialog);
 
             LEAVE ("register open for account");

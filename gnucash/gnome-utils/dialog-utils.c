@@ -442,8 +442,7 @@ gnc_gdate_in_valid_range (GDate *test_date, gboolean warn)
                                "%s", dialog_title);
         gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
                              "%s", dialog_msg);
-        gtk_dialog_run (GTK_DIALOG(dialog));
-        gtk_widget_destroy (dialog);
+        gnc_dialog_run (GTK_DIALOG(dialog));
     }
     g_date_free (max_date);
     g_date_free (min_date);
@@ -981,12 +980,11 @@ gnc_gtk_dialog_add_button (GtkWidget *dialog, const gchar *label, const gchar *i
     {
         GtkWidget *image;
 
-        image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_BUTTON);
-        gtk_button_set_image (GTK_BUTTON(button), image);
-        g_object_set (button, "always-show-image", TRUE, NULL);
+        image = gtk_image_new_from_icon_name (icon_name);
+        gtk_button_set_child (GTK_BUTTON(button), image);
     }
     g_object_set (button, "can-default", TRUE, NULL);
-    gtk_widget_show_all(button);
+    gtk_widget_set_visible(button, TRUE);
     gtk_dialog_add_action_widget(GTK_DIALOG(dialog), button, response);
 }
 
@@ -999,8 +997,90 @@ gnc_perm_button_cb (GtkButton *perm, gpointer user_data)
     gtk_widget_set_sensitive(user_data, !perm_active);
 }
 
+typedef struct
+{
+    GMainLoop *loop;
+    gint response;
+    gboolean answered;
+    gboolean destroyed;
+} GncDialogResponseState;
+
+static void
+gnc_dialog_response_cb (GtkDialog *dialog, gint response, gpointer user_data)
+{
+    GncDialogResponseState *state = user_data;
+
+    (void)dialog;
+    state->response = response;
+    state->answered = TRUE;
+    if (g_main_loop_is_running(state->loop))
+        g_main_loop_quit(state->loop);
+}
+
+static gboolean
+gnc_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    (void)user_data;
+    gtk_dialog_response (GTK_DIALOG(window), GTK_RESPONSE_DELETE_EVENT);
+    return TRUE;
+}
+
+static void
+gnc_dialog_destroy_cb (GtkWidget *widget, gpointer user_data)
+{
+    GncDialogResponseState *state = user_data;
+
+    (void)widget;
+    state->destroyed = TRUE;
+    if (!state->answered)
+    {
+        state->response = GTK_RESPONSE_DELETE_EVENT;
+        state->answered = TRUE;
+    }
+    if (g_main_loop_is_running(state->loop))
+        g_main_loop_quit(state->loop);
+}
+
+static gint
+gnc_dialog_wait_for_response (GtkDialog *dialog)
+{
+    GncDialogResponseState state = { 0 };
+    gulong response_handler;
+    gulong close_handler;
+    gulong destroy_handler;
+
+    g_object_ref (dialog);
+    state.loop = g_main_loop_new (NULL, FALSE);
+    response_handler = g_signal_connect (dialog, "response",
+                                         G_CALLBACK(gnc_dialog_response_cb), &state);
+    close_handler = g_signal_connect (dialog, "close-request",
+                                      G_CALLBACK(gnc_dialog_close_request_cb), &state);
+    destroy_handler = g_signal_connect (dialog, "destroy",
+                                        G_CALLBACK(gnc_dialog_destroy_cb), &state);
+    gtk_window_set_modal (GTK_WINDOW(dialog), TRUE);
+    gtk_widget_set_visible (GTK_WIDGET(dialog), TRUE);
+    g_main_loop_run (state.loop);
+
+    if (!state.destroyed)
+    {
+        g_signal_handler_disconnect (dialog, response_handler);
+        g_signal_handler_disconnect (dialog, close_handler);
+        g_signal_handler_disconnect (dialog, destroy_handler);
+    }
+    g_main_loop_unref (state.loop);
+    g_object_unref (dialog);
+
+    return state.answered ? state.response : GTK_RESPONSE_DELETE_EVENT;
+}
+
 gint
-gnc_dialog_run (GtkDialog *dialog, const gchar *pref_name)
+gnc_dialog_run_non_destructive (GtkDialog *dialog)
+{
+    return gnc_dialog_wait_for_response (dialog);
+}
+
+gint
+gnc_warning_dialog_run (GtkDialog *dialog, const gchar *pref_name)
 {
     GtkWidget *perm, *temp;
     gboolean ask = TRUE;
@@ -1030,16 +1110,16 @@ gnc_dialog_run (GtkDialog *dialog, const gchar *pref_name)
            (ask
             ? _("Remember and don't ask me again this _session.")
             : _("Don't tell me again this _session."));
-    gtk_widget_show(perm);
-    gtk_widget_show(temp);
-    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (dialog)), perm, TRUE, TRUE, 0);
-    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (dialog)), temp, TRUE, TRUE, 0);
+    gtk_widget_set_visible (perm, TRUE);
+    gtk_widget_set_visible (temp, TRUE);
+    gtk_box_append (GTK_BOX (gtk_dialog_get_content_area (dialog)), perm);
+    gtk_box_append (GTK_BOX (gtk_dialog_get_content_area (dialog)), temp);
     g_signal_connect(perm, "clicked", G_CALLBACK(gnc_perm_button_cb), temp);
 
     /* OK. Present the dialog. */
     GtkWidget *button_cancel = gtk_dialog_get_widget_for_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
     gtk_widget_grab_focus(button_cancel);
-    response = gtk_dialog_run(dialog);
+    response = gnc_dialog_run_non_destructive (dialog);
     if ((response == GTK_RESPONSE_NONE) || (response == GTK_RESPONSE_DELETE_EVENT))
     {
         return GTK_RESPONSE_CANCEL;
@@ -1060,6 +1140,17 @@ gnc_dialog_run (GtkDialog *dialog, const gchar *pref_name)
     return response;
 }
 
+gint
+gnc_dialog_run (GtkDialog *dialog)
+{
+    gint response = gnc_dialog_run_non_destructive (dialog);
+
+    if (response == GTK_RESPONSE_NONE || response == GTK_RESPONSE_DELETE_EVENT)
+        response = GTK_RESPONSE_CANCEL;
+    gtk_window_destroy (GTK_WINDOW(dialog));
+    return response;
+}
+
 /* If this is a new book, this function can be used to display book options
  * dialog so user can specify options, before any transactions can be
  * imported/entered, since the book options can affect how transactions are
@@ -1077,8 +1168,9 @@ gnc_new_book_option_display (GtkWidget *parent)
         /* close dialog and proceed unless help button selected */
         while (result == GTK_RESPONSE_HELP)
         {
-            result = gtk_dialog_run(GTK_DIALOG(window));
+            result = gnc_dialog_run_non_destructive(GTK_DIALOG(window));
         }
+        gtk_window_destroy(GTK_WINDOW(window));
         return FALSE;
     }
     return TRUE;

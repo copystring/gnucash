@@ -171,6 +171,15 @@ gnc_warning_dialog_run (GtkDialog *dialog, const gchar *pref_key);
 gint
 gnc_dialog_run (GtkDialog *dialog);
 
+/** Run a dialog with GTK4 response callbacks while preserving the widget.
+ *
+ * This is for dialogs that must remain available for validation retries or
+ * whose controls are read after the user responds. The caller owns and must
+ * destroy the dialog when its interaction is complete.
+ */
+gint
+gnc_dialog_run_non_destructive (GtkDialog *dialog);
+
 /** Note: This dialog is modal!
  *  Ask OK to close window
  */

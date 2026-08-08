@@ -124,6 +124,7 @@ static gint GNC_GWENHYWFAR_CB inputbox_cb(GWEN_GUI *gwen_gui, guint32 flags, con
 static guint32 GNC_GWENHYWFAR_CB showbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
                           const gchar *text, guint32 guiid);
 static void GWENHYWFAR_CB hidebox_cb(GWEN_GUI *gwen_gui, guint32 id);
+static void showbox_response_cb(GtkDialog *dialog, gint response, gpointer user_data);
 static guint32 GNC_GWENHYWFAR_CB progress_start_cb(GWEN_GUI *gwen_gui, uint32_t progressFlags,
                                  const char *title, const char *text,
                                  uint64_t total, uint32_t guiid);
@@ -149,8 +150,7 @@ typedef GWEN_SYNCIO GWEN_IO_LAYER;
 static gint GNC_GWENHYWFAR_CB checkcert_cb(GWEN_GUI *gwen_gui, const GWEN_SSLCERTDESCR *cert,
         GWEN_IO_LAYER *io, guint32 guiid);
 
-gboolean ggg_delete_event_cb(GtkWidget *widget, GdkEvent *event,
-                             gpointer user_data);
+gboolean ggg_delete_event_cb(GtkWindow *window, gpointer user_data);
 void ggg_abort_clicked_cb(GtkButton *button, gpointer user_data);
 void ggg_close_clicked_cb(GtkButton *button, gpointer user_data);
 void ggg_close_toggled_cb(GtkToggleButton *button, gpointer user_data);
@@ -207,6 +207,7 @@ struct _GncGWENGui
 
     /* Dialogs */
     guint32 showbox_id;
+    guint32 showbox_last_id;
     GHashTable *showbox_hash;
     GtkWidget *showbox_last;
 
@@ -313,7 +314,8 @@ gnc_GWEN_Gui_shutdown(void)
         GWEN_DB_Group_free(gui->permanently_accepted_certs);
     if (gui->accepted_certs)
         g_hash_table_destroy(gui->accepted_certs);
-    gtk_widget_destroy(gui->dialog);
+    if (gui->dialog)
+        gtk_window_destroy (GTK_WINDOW(gui->dialog));
     g_free(gui);
 
     full_gui = NULL;
@@ -451,6 +453,7 @@ setup_dialog(GncGWENGui *gui)
     ENTER("gui=%p", gui);
 
     builder = gtk_builder_new();
+    gtk_builder_set_current_object (builder, G_OBJECT(gui));
     gnc_builder_add_from_file (builder, "dialog-ab.glade", "aqbanking_connection_dialog");
 
     gui->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "aqbanking_connection_dialog"));
@@ -520,8 +523,8 @@ reset_dialog(GncGWENGui *gui)
 
     ENTER("gui=%p", gui);
 
-    gtk_entry_set_text(GTK_ENTRY(gui->top_entry), "");
-    gtk_entry_set_text(GTK_ENTRY(gui->second_entry), "");
+    gnc_entry_set_text(GTK_ENTRY(gui->top_entry), "");
+    gnc_entry_set_text(GTK_ENTRY(gui->second_entry), "");
     g_list_foreach(gui->progresses, (GFunc) free_progress, NULL);
     g_list_free(gui->progresses);
     gui->progresses = NULL;
@@ -530,14 +533,14 @@ reset_dialog(GncGWENGui *gui)
     {
         gtk_grid_remove_row (GTK_GRID(gui->entries_grid),
                              OTHER_ENTRIES_ROW_OFFSET);
-        gtk_widget_destroy(gui->other_entries_box);
         gui->other_entries_box = NULL;
     }
     if (gui->showbox_hash)
         g_hash_table_destroy(gui->showbox_hash);
     gui->showbox_last = NULL;
-    gui->showbox_hash = g_hash_table_new_full(
-                            NULL, NULL, NULL, (GDestroyNotify) gtk_widget_destroy);
+    gui->showbox_last_id = 0;
+    gui->showbox_hash = g_hash_table_new_full(g_direct_hash, g_direct_equal,
+                                              NULL, (GDestroyNotify)gtk_window_destroy);
 
     if (gui->parent)
         gtk_window_set_transient_for(GTK_WINDOW(gui->dialog),
@@ -621,7 +624,7 @@ show_dialog(GncGWENGui *gui, gboolean clear_log)
 
     ENTER("gui=%p, clear_log=%d", gui, clear_log);
 
-    gtk_widget_show(gui->dialog);
+    gtk_widget_set_visible (GTK_WIDGET(gui->dialog), TRUE);
 
     gnc_plugin_aqbanking_set_logwindow_visible(TRUE);
 
@@ -643,7 +646,7 @@ hide_dialog(GncGWENGui *gui)
     ENTER("gui=%p", gui);
 
     /* Hide the dialog */
-    gtk_widget_hide(gui->dialog);
+    gtk_widget_set_visible (GTK_WIDGET(gui->dialog), FALSE);
 
     gnc_plugin_aqbanking_set_logwindow_visible(FALSE);
 
@@ -704,12 +707,12 @@ show_progress(GncGWENGui *gui, Progress *progress)
         {
             /* Top-level progress */
             show_dialog(gui, TRUE);
-            gtk_entry_set_text(GTK_ENTRY(gui->top_entry), current->title);
+            gnc_entry_set_text(GTK_ENTRY(gui->top_entry), current->title);
         }
         else if (!item->next->next)
         {
             /* Second-level progress */
-            gtk_entry_set_text(GTK_ENTRY(gui->second_entry), current->title);
+            gnc_entry_set_text(GTK_ENTRY(gui->second_entry), current->title);
         }
         else
         {
@@ -718,7 +721,7 @@ show_progress(GncGWENGui *gui, Progress *progress)
             GtkWidget *box = gui->other_entries_box;
             gboolean new_box = box == NULL;
 
-            gtk_entry_set_text(GTK_ENTRY(entry), current->title);
+            gnc_entry_set_text(GTK_ENTRY(entry), current->title);
             if (new_box)
             {
                 gui->other_entries_box = box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
@@ -726,13 +729,13 @@ show_progress(GncGWENGui *gui, Progress *progress)
                 gtk_box_set_homogeneous (GTK_BOX (box), TRUE);
             }
 
-            gtk_box_pack_start(GTK_BOX(box), entry, TRUE, TRUE, 0);
-            gtk_widget_show(entry);
+            gtk_box_append (GTK_BOX(box), GTK_WIDGET(entry));
+            gtk_widget_set_visible (GTK_WIDGET(entry), TRUE);
             if (new_box)
             {
                 gtk_grid_attach (GTK_GRID(gui->entries_grid), box,
                                  1, OTHER_ENTRIES_ROW_OFFSET, 1, 1);
-                gtk_widget_show(box);
+                gtk_widget_set_visible (GTK_WIDGET(box), TRUE);
             }
         }
 
@@ -782,28 +785,26 @@ hide_progress(GncGWENGui *gui, Progress *progress)
         if (!item->next)
         {
             /* Top-level progress */
-            gtk_entry_set_text(GTK_ENTRY(gui->second_entry), "");
+            gnc_entry_set_text(GTK_ENTRY(gui->second_entry), "");
         }
         else if (!item->next->next)
         {
             /* Second-level progress */
-            gtk_entry_set_text(GTK_ENTRY(gui->second_entry), "");
+            gnc_entry_set_text(GTK_ENTRY(gui->second_entry), "");
         }
         else
         {
             /* Other progress */
             GtkWidget *box = gui->other_entries_box;
-            GList *entries;
-
             g_return_if_fail(box);
-            entries = gtk_container_get_children(GTK_CONTAINER(box));
-            g_return_if_fail(entries);
-            if (entries->next)
+            GtkWidget *child = gtk_widget_get_last_child (box);
+
+            if (child)
             {
                 /* Another progress is still to be showed */
-                gtk_widget_destroy(GTK_WIDGET(g_list_last(entries)->data));
+                gtk_box_remove (GTK_BOX(box), child);
             }
-            else
+            if (!gtk_widget_get_first_child (box))
             {
                 /* Last other progress to be hidden */
                 gtk_grid_remove_row (GTK_GRID(gui->entries_grid),
@@ -811,7 +812,6 @@ hide_progress(GncGWENGui *gui, Progress *progress)
                 /* Box destroyed, Null the reference. */
                 gui->other_entries_box = NULL;
             }
-            g_list_free(entries);
         }
 
         if (current == progress)
@@ -968,7 +968,7 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
     }
     if (is_tan)
     {
-        gtk_widget_hide(remember_pin_checkbutton);
+        gtk_widget_set_visible (GTK_WIDGET(remember_pin_checkbutton), FALSE);
     }
     else
     {
@@ -1046,7 +1046,7 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
 
     if (*input)
     {
-        gtk_entry_set_text(GTK_ENTRY(input_entry), *input);
+        gnc_entry_set_text(GTK_ENTRY(input_entry), *input);
         erase_password(*input);
         *input = NULL;
     }
@@ -1062,8 +1062,8 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
     {
         gtk_entry_set_activates_default(GTK_ENTRY(input_entry), TRUE);
         gtk_entry_set_max_length(GTK_ENTRY(input_entry), max_len);
-        gtk_widget_hide(confirm_entry);
-        gtk_widget_hide(confirm_label);
+        gtk_widget_set_visible (GTK_WIDGET(confirm_entry), FALSE);
+        gtk_widget_set_visible (GTK_WIDGET(confirm_label), FALSE);
     }
     gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
 
@@ -1072,7 +1072,7 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
     {
         gboolean remember_pin;
 
-        if (gtk_dialog_run(GTK_DIALOG(dialog)) != GTK_RESPONSE_OK)
+        if (gnc_dialog_run_non_destructive (GTK_DIALOG(dialog)) != GTK_RESPONSE_OK)
             break;
 
         if (!is_tan)
@@ -1085,7 +1085,7 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
                                remember_pin);
         }
 
-        internal_input = gtk_entry_get_text(GTK_ENTRY(input_entry));
+        internal_input = gnc_entry_get_text(GTK_ENTRY(input_entry));
         if (strlen(internal_input) < min_len)
         {
             gboolean retval;
@@ -1105,7 +1105,7 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
             break;
         }
 
-        internal_confirmed = gtk_entry_get_text(GTK_ENTRY(confirm_entry));
+        internal_confirmed = gnc_entry_get_text(GTK_ENTRY(confirm_entry));
         if (strcmp(internal_input, internal_confirmed) == 0)
         {
             *input = g_strdup(internal_input);
@@ -1116,7 +1116,7 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
     g_object_unref(G_OBJECT(builder));
 
     /* This trashes passwords in the entries' memory as well */
-    gtk_widget_destroy(dialog);
+    gtk_window_destroy (GTK_WINDOW(dialog));
 
     LEAVE("input %s", *input ? "non-NULL" : "NULL");
 }
@@ -1148,14 +1148,11 @@ messagebox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
     gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
     vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (vbox), TRUE);
-    gtk_container_set_border_width(GTK_CONTAINER(vbox), 5);
-    gtk_container_add(GTK_CONTAINER(vbox), label);
-    gtk_container_set_border_width(GTK_CONTAINER(dialog), 5);
-    gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area (GTK_DIALOG(dialog))), vbox);
-    gtk_widget_show_all(dialog);
-
-    result = gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+    gnc_box_set_all_margins (GTK_BOX(vbox), 5);
+    gtk_box_prepend (GTK_BOX(vbox), GTK_WIDGET(label));
+    gnc_box_set_all_margins (GTK_BOX(dialog), 5);
+    gtk_box_prepend (GTK_BOX(gtk_dialog_get_content_area (GTK_DIALOG(dialog))), GTK_WIDGET(vbox));
+    result = gnc_dialog_run (GTK_DIALOG(dialog));
 
     if (result < 1 || result > 3)
     {
@@ -1192,6 +1189,25 @@ inputbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
     return input ? 0 : -1;
 }
 
+static void
+showbox_response_cb(GtkDialog *dialog, gint response, gpointer user_data)
+{
+    GncGWENGui *gui = user_data;
+    guint32 showbox_id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(dialog),
+                                                             "gnc-gwen-showbox-id"));
+
+    (void)response;
+    if (gui && gui->showbox_hash)
+        g_hash_table_remove(gui->showbox_hash, GUINT_TO_POINTER(showbox_id));
+    else
+        gtk_window_destroy(GTK_WINDOW(dialog));
+    if (gui && gui->showbox_last_id == showbox_id)
+    {
+        gui->showbox_last = NULL;
+        gui->showbox_last_id = 0;
+    }
+}
+
 static guint32 GNC_GWENHYWFAR_CB
 showbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
            const gchar *text, guint32 guiid)
@@ -1211,13 +1227,15 @@ showbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
     if (title)
         gtk_window_set_title(GTK_WINDOW(dialog), title);
 
-    g_signal_connect(dialog, "response", G_CALLBACK(gtk_widget_hide), NULL);
-    gtk_widget_show_all(dialog);
-
     showbox_id = gui->showbox_id++;
     g_hash_table_insert(gui->showbox_hash, GUINT_TO_POINTER(showbox_id),
                         dialog);
     gui->showbox_last = dialog;
+    gui->showbox_last_id = showbox_id;
+    g_object_set_data(G_OBJECT(dialog), "gnc-gwen-showbox-id",
+                      GUINT_TO_POINTER(showbox_id));
+    g_signal_connect(dialog, "response", G_CALLBACK(showbox_response_cb), gui);
+    gtk_widget_set_visible(dialog, TRUE);
 
     /* Give it a change to be showed */
     if (!keep_alive(gui))
@@ -1241,8 +1259,9 @@ hidebox_cb(GWEN_GUI *gwen_gui, guint32 id)
         if (gui->showbox_last)
         {
             g_hash_table_remove(gui->showbox_hash,
-                                GUINT_TO_POINTER(gui->showbox_id));
+                                GUINT_TO_POINTER(gui->showbox_last_id));
             gui->showbox_last = NULL;
+            gui->showbox_last_id = 0;
         }
         else
         {
@@ -1257,7 +1276,10 @@ hidebox_cb(GWEN_GUI *gwen_gui, guint32 id)
         {
             g_hash_table_remove(gui->showbox_hash, GUINT_TO_POINTER(id));
             if (p_var == gui->showbox_last)
+            {
                 gui->showbox_last = NULL;
+                gui->showbox_last_id = 0;
+            }
         }
         else
         {
@@ -1624,10 +1646,11 @@ checkcert_cb(GWEN_GUI *gwen_gui, const GWEN_SSLCERTDESCR *cert,
 }
 
 gboolean
-ggg_delete_event_cb(GtkWidget *widget, GdkEvent *event, gpointer user_data)
+ggg_delete_event_cb(GtkWindow *window, gpointer user_data)
 {
     GncGWENGui *gui = user_data;
 
+    (void)window;
     g_return_val_if_fail(gui, FALSE);
 
     ENTER("gui=%p, state=%d", gui, gui->state);
@@ -1638,7 +1661,7 @@ ggg_delete_event_cb(GtkWidget *widget, GdkEvent *event, gpointer user_data)
             _("The Online Banking job is still running; are you "
               "sure you want to cancel?");
         if (!gnc_verify_dialog (GTK_WINDOW (gui->dialog), FALSE, "%s", still_running_msg))
-            return FALSE;
+            return TRUE;
 
         set_aborted(gui);
     }
