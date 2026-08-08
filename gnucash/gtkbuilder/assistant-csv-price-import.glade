@@ -6,20 +6,6 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkListStore" id="liststore1">
-    <columns>
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
-  <object class="GtkListStore" id="liststore2">
-    <columns>
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
   <object class="GtkAdjustment" id="start_row_adj">
     <property name="upper">1000</property>
     <property name="step-increment">1</property>
@@ -615,18 +601,6 @@ For example
                     <property name="halign">center</property>
 <property name="child">
                       <object class="GtkBox" id="commodity_hbox">
-                        <child>
-                          <object class="GtkComboBox" id="commodity_cbox">
-                            <property name="halign">center</property>
-                            <property name="model">liststore1</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="cellrenderertext1" />
-                              <attributes>
-                                <attribute name="text">0</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
                       </object>
                     </property>
                     <child type="label">
@@ -645,18 +619,6 @@ For example
                     <property name="halign">center</property>
 <property name="child">
                       <object class="GtkBox" id="currency_hbox">
-                        <child>
-                          <object class="GtkComboBox" id="currency_cbox">
-                            <property name="halign">center</property>
-                            <property name="model">liststore1</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="cellrenderertext3" />
-                              <attributes>
-                                <attribute name="text">0</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
                       </object>
                     </property>
                     <child type="label">
@@ -672,17 +634,18 @@ For example
               </object>
             </child>
             <child>
+              <object class="GtkBox" id="preview_column_selectors">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">6</property>
+                <property name="hexpand">1</property>
+              </object>
+            </child>
+            <child>
               <object class="GtkScrolledWindow" id="scrolledwindow2">
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
                 <property name="child">
-                  <object class="GtkTreeView" id="treeview">
-                    <property name="focusable">1</property>
-<property name="enable-grid-lines">both</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" />
-                    </child>
-                  </object>
+                  <object class="GtkBox" id="preview_placeholder" />
                 </property>
               </object>
             </child>
