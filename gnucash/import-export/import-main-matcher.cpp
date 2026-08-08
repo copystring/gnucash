@@ -808,6 +808,55 @@ run_match_dialog (GNCImportMainMatcher *info,
                                  refresh_matched_transaction_cb, info);
 }
 
+struct TransferAccountSelection
+{
+    GNCImportMainMatcher *info;
+    GWeakRef matcher_window;
+    std::vector<GObjectPtr> rows;
+};
+
+static void
+transfer_account_selected_cb (Account *account, gboolean accepted, gpointer user_data)
+{
+    auto selection = static_cast<TransferAccountSelection*> (user_data);
+    auto window = G_OBJECT (g_weak_ref_get (&selection->matcher_window));
+    if (window && accepted && account)
+    {
+        for (const auto& object : selection->rows)
+        {
+            auto row = matcher_row_get (object.get ());
+            if (!row || row->detail || gnc_import_TransInfo_is_balanced (row->trans_info))
+                continue;
+            gnc_import_TransInfo_set_destacc (row->trans_info, account, true);
+            defer_bal_computation (selection->info, account);
+            refresh_model_row (selection->info, object.get (), row->trans_info);
+        }
+    }
+    g_clear_object (&window);
+    g_weak_ref_clear (&selection->matcher_window);
+    delete selection;
+}
+
+static void
+request_transfer_account (GNCImportMainMatcher *info, std::vector<GObjectPtr> rows)
+{
+    auto first = std::find_if (rows.begin (), rows.end (), [] (const auto& object)
+    {
+        auto row = matcher_row_get (object.get ());
+        return row && !row->detail && !gnc_import_TransInfo_is_balanced (row->trans_info);
+    });
+    if (first == rows.end ())
+        return;
+    auto row = matcher_row_get (first->get ());
+    auto selection = new TransferAccountSelection { info, {}, std::move (rows) };
+    g_weak_ref_init (&selection->matcher_window, info->main_widget);
+    gnc_import_select_account_async (info->main_widget, nullptr, TRUE,
+        _("Destination account for the auto-balance split."),
+        xaccTransGetCurrency (gnc_import_TransInfo_get_trans (row->trans_info)),
+        ACCT_TYPE_NONE, gnc_import_TransInfo_get_destacc (row->trans_info),
+        transfer_account_selected_cb, selection);
+}
+
 static void
 gnc_gen_trans_assign_transfer_account (GObject *row_object,
                                        bool *first,
@@ -815,13 +864,9 @@ gnc_gen_trans_assign_transfer_account (GObject *row_object,
                                        Account **new_acc,
                                        GNCImportMainMatcher *info)
 {
-    gchar *acct_str = gnc_get_account_name_for_register (*new_acc);
-
     ENTER("");
-    DEBUG("first = %s", *first ? "true" : "false");
-    DEBUG("is_selection = %s", is_selection ? "true" : "false");
-    DEBUG("account passed in = %s", acct_str);
-    g_free (acct_str);
+    (void)first;
+    (void)new_acc;
 
     auto row = matcher_row_get (row_object);
     if (!row || row->detail)
@@ -833,25 +878,15 @@ gnc_gen_trans_assign_transfer_account (GObject *row_object,
     case GNCImport_ADD:
         if (!gnc_import_TransInfo_is_balanced (trans_info))
         {
-            Account *old_acc  = gnc_import_TransInfo_get_destacc (trans_info);
-            if (*first)
-            {
-                *new_acc = gnc_import_select_account (info->main_widget, NULL, true,
-                    _("Destination account for the auto-balance split."),
-                    xaccTransGetCurrency (gnc_import_TransInfo_get_trans (trans_info)),
-                    ACCT_TYPE_NONE, old_acc, NULL);
-                *first = false;
-            }
-            if (*new_acc)
-            {
-                gnc_import_TransInfo_set_destacc (trans_info, *new_acc, true);
-                defer_bal_computation (info, *new_acc);
-            }
+            std::vector<GObjectPtr> rows;
+            rows.emplace_back (G_OBJECT (g_object_ref (row_object)));
+            request_transfer_account (info, std::move (rows));
+            return;
         }
         break;
     case GNCImport_CLEAR:
     case GNCImport_UPDATE:
-        if (*first && !is_selection)
+        if (!is_selection)
             run_match_dialog (info, trans_info);
         break;
     case GNCImport_SKIP:
@@ -871,20 +906,11 @@ gnc_gen_trans_assign_transfer_account_to_selection_cb (GtkButton *button,
     ENTER("");
 
     auto selected_rows = matcher_selected_rows (info);
-    Account *assigned_account = NULL;
-    bool first = true;
-    bool is_selection = true;
     (void)button;
 
     DEBUG("Rows in selection = %zu", selected_rows.size());
 
-    for (const auto& object : selected_rows)
-    {
-        gnc_gen_trans_assign_transfer_account (object.get (), &first, is_selection,
-                                                &assigned_account, info);
-        if (!assigned_account)
-            break;
-    }
+    request_transfer_account (info, std::move (selected_rows));
 
     LEAVE("");
 }

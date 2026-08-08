@@ -4,12 +4,19 @@
   <object class="GtkImage" id="account_new_icon">
     <property name="icon-name">gnc-account-new</property>
   </object>
-  <object class="GtkDialog" id="account_picker_dialog">
+  <object class="GtkWindow" id="account_picker_dialog">
     <property name="title" translatable="1">Select Account</property>
     <property name="default-width">800</property>
     <property name="default-height">600</property>
-<signal name="map" handler="gnc_ui_generic_account_picker_map_cb" swapped="no" />
-    <child internal-child="content_area">
+    <property name="child">
+      <object class="GtkBox" id="account_picker_root">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <child>
       <object class="GtkBox" id="account_picker_vbox">
         <property name="orientation">vertical</property>
         <child>
@@ -59,15 +66,12 @@
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="1">newbutton</action-widget>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+        </child>
+        <child>
       <object class="GtkBox" id="dialog-action_area8">
-        <property name="visible">True</property>
+        <property name="orientation">horizontal</property>
+        <property name="spacing">6</property>
+        <property name="halign">end</property>
         <child>
           <object class="GtkButton" id="newbutton">
             <property name="label" translatable="1">New _Account…</property>
@@ -98,7 +102,9 @@
 
         </child>
       </object>
-    </child>
+        </child>
+      </object>
+    </property>
   </object>
   <object class="GtkWindow" id="format_picker_dialog">
     <property name="title" translatable="1">Choose a format</property>

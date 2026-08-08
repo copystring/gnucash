@@ -33,24 +33,13 @@
 #include "Account.h"
 #include <gtk/gtk.h>
 
-#include "gnc-tree-view-account.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct
-{
-    GtkWidget           *dialog;                         /* Dialog Widget */
-    GtkWidget           *ok_button;                      /* ok button Widget */
-    GncTreeViewAccount  *account_tree;                   /* Account tree */
-    GtkWidget           *account_tree_sw;                /* Scroll Window for Account tree */
-    const gchar         *account_human_description;      /* description for on line id, incoming */
-    const gnc_commodity *new_account_default_commodity;  /* new account default commodity, incoming */
-    GNCAccountType       new_account_default_type;       /* new account default type, incoming */
-    GtkWidget           *whbox;                          /* Warning HBox */
-    GtkWidget           *warning;                        /* Warning Label */
-} AccountPickerDialog;
+typedef void (*GncImportAccountSelectedCB) (Account *account,
+                                            gboolean accepted,
+                                            gpointer user_data);
 
 /**  Must be called with a string containing a unique identifier for the
   account.  If an account with a matching online_id is
@@ -121,6 +110,20 @@ Account * gnc_import_select_account(GtkWidget *parent,
                                     Account * default_selection,
                                     gboolean * ok_pressed
                                    );
+
+/** Present the account picker without entering a nested event loop.
+ * The callback receives the chosen account and whether the user accepted it.
+ * A previously mapped online ID completes immediately through the callback.
+ */
+void gnc_import_select_account_async (GtkWidget *parent,
+                                      const gchar *account_online_id_value,
+                                      gboolean prompt_on_no_match,
+                                      const gchar *account_human_description,
+                                      const gnc_commodity *new_account_default_commodity,
+                                      GNCAccountType new_account_default_type,
+                                      Account *default_selection,
+                                      GncImportAccountSelectedCB callback,
+                                      gpointer user_data);
 
 #ifdef __cplusplus
 }
