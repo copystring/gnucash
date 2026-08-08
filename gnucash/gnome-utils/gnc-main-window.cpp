@@ -262,8 +262,8 @@ typedef struct
     const gchar   *previous_plugin_page_name;
     const gchar   *previous_menu_qualifier;
 
-    /** The accelerator group for the window */
-    GtkAccelGroup *accel_group;
+    /** The shortcut controller for the window. */
+    GtkEventController *shortcut_controller;
 
     GHashTable    *display_item_hash;
 
@@ -719,8 +719,9 @@ gnc_main_window_restore_window (GncMainWindow *window, GncMainWindowSaveData *da
 
     priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
 
-    // need to add the accelerator keys
-    gnc_add_accelerator_keys_for_menu (GTK_WIDGET(priv->menubar), priv->menubar_model, priv->accel_group);
+    // Rebuild shortcuts after the menu model changes.
+    gnc_add_accelerator_keys_for_menu (GTK_WIDGET(priv->menubar), priv->menubar_model,
+                                       priv->shortcut_controller);
 
     /* Common view menu items */
     action = gnc_main_window_find_action (window, "ViewToolbarAction");
@@ -2835,8 +2836,10 @@ gnc_main_window_init (GncMainWindow *window)
     priv->previous_plugin_page_name = nullptr;
     priv->previous_menu_qualifier = nullptr;
 
-    priv->accel_group = gtk_accel_group_new ();
-    gtk_window_add_accel_group (GTK_WINDOW(window), priv->accel_group);
+    priv->shortcut_controller = gtk_shortcut_controller_new ();
+    gtk_shortcut_controller_set_scope (GTK_SHORTCUT_CONTROLLER (priv->shortcut_controller),
+                                       GTK_SHORTCUT_SCOPE_GLOBAL);
+    gtk_widget_add_controller (GTK_WIDGET (window), priv->shortcut_controller);
 
     /* Get the show_color_tabs value preference */
     priv->show_color_tabs = gnc_prefs_get_bool(GNC_PREFS_GROUP_GENERAL, GNC_PREF_TAB_COLOR);
@@ -3743,7 +3746,8 @@ gnc_main_window_menu_add_accelerator_keys (GncMainWindow *window)
 
     priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
 
-    gnc_add_accelerator_keys_for_menu (priv->menubar, priv->menubar_model, priv->accel_group);
+    gnc_add_accelerator_keys_for_menu (priv->menubar, priv->menubar_model,
+                                       priv->shortcut_controller);
 }
 
 
@@ -3959,7 +3963,8 @@ gnc_main_window_update_menu_and_toolbar (GncMainWindow *window,
     gnc_plugin_add_menu_tooltip_callbacks (priv->menubar, priv->menubar_model, priv->statusbar);
 
     // need to add the accelerator keys
-    gnc_add_accelerator_keys_for_menu (priv->menubar, priv->menubar_model, priv->accel_group);
+    gnc_add_accelerator_keys_for_menu (priv->menubar, priv->menubar_model,
+                                       priv->shortcut_controller);
 #ifdef MAC_INTEGRATION
     gtkosx_application_sync_menubar (theApp);
     g_object_unref (theApp);
@@ -4093,48 +4098,18 @@ gnc_main_window_update_edit_actions_sensitivity (GncMainWindow *window, gboolean
 }
 
 static void
-gnc_main_window_enable_edit_actions_sensitivity (GncMainWindow *window)
+gnc_main_window_init_menu_updaters (GncMainWindow *window)
 {
-    GAction *action;
-
-    action = gnc_main_window_find_action (window, "EditCopyAction");
-    g_simple_action_set_enabled (G_SIMPLE_ACTION(action), true);
-
-    action = gnc_main_window_find_action (window, "EditCutAction");
-    g_simple_action_set_enabled (G_SIMPLE_ACTION(action), true);
-
-    action = gnc_main_window_find_action (window, "EditPasteAction");
-    g_simple_action_set_enabled (G_SIMPLE_ACTION(action), true);
-
-}
-
-static void
-gnc_main_window_edit_menu_show_cb (GtkWidget *menu,
-                                   GncMainWindow *window)
-{
+    /* GtkPopoverMenuBar derives item sensitivity directly from actions. Keep
+     * those actions synchronized with the focused editor instead of depending
+     * on GtkMenuItem show/hide signals that do not exist in GTK4. */
     gnc_main_window_update_edit_actions_sensitivity (window, FALSE);
 }
 
 static void
-gnc_main_window_edit_menu_hide_cb (GtkWidget *menu,
-                                   GncMainWindow *window)
+gnc_main_window_focus_changed (GObject *, GParamSpec *, GncMainWindow *window)
 {
-    gnc_main_window_enable_edit_actions_sensitivity (window);
-}
-
-static void
-gnc_main_window_init_menu_updaters (GncMainWindow *window)
-{
-    GtkWidget *edit_menu_item, *edit_menu;
-
-    edit_menu_item = gnc_main_window_menu_find_menu_item (window, "EditAction");
-
-    edit_menu = gtk_menu_item_get_submenu (GTK_MENU_ITEM(edit_menu_item));
-
-    g_signal_connect (edit_menu, "show",
-                      G_CALLBACK(gnc_main_window_edit_menu_show_cb), window);
-    g_signal_connect (edit_menu, "hide",
-                      G_CALLBACK(gnc_main_window_edit_menu_hide_cb), window);
+    gnc_main_window_update_edit_actions_sensitivity (window, FALSE);
 }
 
 /* This is used to prevent the tab having focus */
@@ -4183,7 +4158,8 @@ main_window_realize_cb (GtkWidget *widget, gpointer user_data)
     GncMainWindow *window = (GncMainWindow*)user_data;
     GncMainWindowPrivate *priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
 
-    gnc_add_accelerator_keys_for_menu (GTK_WIDGET(priv->menubar), priv->menubar_model, priv->accel_group);
+    gnc_add_accelerator_keys_for_menu (GTK_WIDGET(priv->menubar), priv->menubar_model,
+                                       priv->shortcut_controller);
 
     /* need to signal menu has been changed, this will call the
        business function 'bind_extra_toolbuttons_visibility' */
@@ -4268,7 +4244,7 @@ gnc_main_window_setup_window (GncMainWindow *window)
                                      window);
 
     priv->menubar_model = (GMenuModel *)gtk_builder_get_object (builder, "mainwin-menu");
-    priv->menubar = gtk_menu_bar_new_from_model (priv->menubar_model);
+    priv->menubar = gtk_popover_menu_bar_new_from_model (priv->menubar_model);
     gtk_box_append (GTK_BOX(priv->menu_dock), priv->menubar);
     gtk_widget_show (GTK_WIDGET(priv->menubar));
 
@@ -4311,6 +4287,8 @@ gnc_main_window_setup_window (GncMainWindow *window)
     gnc_main_window_update_tab_position (nullptr, nullptr, window);
 
     gnc_main_window_init_menu_updaters (window);
+    g_signal_connect (window, "notify::focus-widget",
+                      G_CALLBACK (gnc_main_window_focus_changed), window);
 
     /* Disable the Transaction menu */
     action = gnc_main_window_find_action (window, "TransactionAction");
@@ -4370,68 +4348,21 @@ gnc_quartz_should_quit (GtkosxApplication *theApp, GncMainWindow *window)
         gnc_main_window_quit (window);
     return TRUE;
 }
-/* Enable GtkMenuItem accelerators */
-static gboolean
-can_activate_cb(GtkWidget *widget, guint signal_id, gpointer data)
-{
-    //return gtk_widget_is_sensitive (widget);
-    return TRUE;
-}
-
 static void
 gnc_quartz_set_menu (GncMainWindow* window)
 {
-    GncMainWindowPrivate *priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
     auto theApp{static_cast<GtkosxApplication *>(g_object_new(GTKOSX_TYPE_APPLICATION, nullptr))};
-    GtkWidget       *item = nullptr;
-    GClosure *quit_closure;
+    const char *quit_accels[] = { "<Meta>q", nullptr };
+    auto application = GTK_APPLICATION (g_application_get_default ());
 
-    gtk_widget_hide (priv->menubar);
-    gtk_widget_set_no_show_all (priv->menubar, true);
-
-    gtkosx_application_set_menu_bar (theApp, GTK_MENU_SHELL(priv->menubar));
-
-    // File Quit
-    item = gnc_main_window_menu_find_menu_item (window, "FileQuitAction");
-    if (item)
-        gtk_widget_hide (GTK_WIDGET(item));
-
-    quit_closure = g_cclosure_new (G_CALLBACK (gnc_quartz_should_quit),
-                                   window, NULL);
-    gtk_accel_group_connect (priv->accel_group, 'q', GDK_META_MASK,
-                             GTK_ACCEL_MASK, quit_closure);
-
-
-    // Help About
-    item = gnc_main_window_menu_find_menu_item (window, "HelpAboutAction");
-    if (item)
-    {
-        gtk_widget_hide (item);
-        gtkosx_application_insert_app_menu_item (theApp, GTK_WIDGET(item), 0);
-    }
-
-    // Edit Preferences
-    item = gnc_main_window_menu_find_menu_item (window, "EditPreferencesAction");
-    if (item)
-    {
-        gtk_widget_hide (GTK_WIDGET(item));
-        gtkosx_application_insert_app_menu_item (theApp, GTK_WIDGET(item), 2);
-    }
-
-    // Help Menu
-    item = gnc_main_window_menu_find_menu_item (window, "HelpAction");
-    if (item)
-        gtkosx_application_set_help_menu (theApp, GTK_MENU_ITEM(item));
-    // Windows Menu
-    item = gnc_main_window_menu_find_menu_item (window, "WindowsAction");
-    if (item)
-        gtkosx_application_set_window_menu (theApp, GTK_MENU_ITEM(item));
+    /* GtkPopoverMenuBar is not a GtkMenuShell. Keep it rendered by GTK4 and
+     * bind the native Quit accelerator through the application action map. */
+    if (application)
+        gtk_application_set_accels_for_action (application, "mainwin.FileQuitAction",
+                                                quit_accels);
 
     g_signal_connect (theApp, "NSApplicationBlockTermination",
                       G_CALLBACK(gnc_quartz_should_quit), window);
-
-    g_signal_connect (priv->menubar, "can-activate-accel",
-                      G_CALLBACK (can_activate_cb), nullptr);
 
     gtkosx_application_set_use_quartz_accelerators (theApp, FALSE);
     g_object_unref (theApp);
@@ -5776,7 +5707,7 @@ gnc_main_window_get_menubar_model (GncWindow *window)
  *  interface.
  *
  *  @param window_in A pointer to a generic window. */
-static GtkAccelGroup *
+static GtkEventController *
 gnc_main_window_get_accel_group (GncWindow *window)
 {
     GncMainWindowPrivate *priv;
@@ -5785,7 +5716,7 @@ gnc_main_window_get_accel_group (GncWindow *window)
 
     priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
 
-    return priv->accel_group;
+    return priv->shortcut_controller;
 }
 
 /** Initialize the generic window interface for a main window.

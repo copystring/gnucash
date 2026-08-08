@@ -427,66 +427,60 @@ gnc_disable_all_actions_in_group (GSimpleActionGroup *action_group)
 }
 
 
+/* The controller owns registered shortcuts. Keep a second reference in this
+ * array so that a menu-model update can remove all previous bindings before
+ * recreating them. */
+#define GNC_MENU_SHORTCUTS "gnc-menu-shortcuts"
+
 static void
-accel_map_foreach_func (gpointer user_data, const gchar* accel_path, guint accel_key,
-                        GdkModifierType accel_mods, gboolean changed)
+clear_menu_shortcuts (GtkShortcutController *shortcut_controller,
+                      GPtrArray *shortcuts)
 {
-    GMenuModel *menu_model = user_data;
-    gchar **accel_path_parts = NULL;
-    guint  accel_size = 0;
-    gchar *target = NULL;
-    gchar *accel_name_tmp = gtk_accelerator_name (accel_key, accel_mods);
-    gchar *accel_name = g_strescape (accel_name_tmp, NULL);
-
-    accel_path_parts = g_strsplit (accel_path, "/", -1);
-    accel_size = g_strv_length (accel_path_parts);
-
-    if (accel_size == 4)
-        target = g_strdup (accel_path_parts[3]);
-
-    if (accel_size >=3)
-        gnc_menubar_model_update_item (menu_model, accel_path_parts[2],
-                                       target, NULL, accel_name, NULL);
-
-    g_strfreev (accel_path_parts);
-    g_free (target);
-    g_free (accel_name_tmp);
-    g_free (accel_name);
+    for (guint index = 0; index < shortcuts->len; index++)
+        gtk_shortcut_controller_remove_shortcut (shortcut_controller,
+                                                 GTK_SHORTCUT (g_ptr_array_index (shortcuts, index)));
+    g_ptr_array_set_size (shortcuts, 0);
 }
 
 static void
-add_accel_for_menu_lookup (GtkWidget *widget, gpointer user_data)
+add_menu_shortcuts (GMenuModel *model,
+                    GtkShortcutController *shortcut_controller,
+                    GPtrArray *shortcuts)
 {
-//FIXME gtk4
-#ifdef skip
-    if (GTK_IS_MENU_ITEM(widget))
+    for (gint index = 0; index < g_menu_model_get_n_items (model); index++)
     {
-        GtkMenuItem* menuItem = GTK_MENU_ITEM(widget);
-        GtkWidget* subMenu = gtk_menu_item_get_submenu (menuItem);
-        GtkWidget *accel_label = gtk_widget_get_first_child (GTK_WIDGET(widget));
+        const gchar *accelerator = NULL;
+        const gchar *action_name = NULL;
 
-        if (accel_label)
+        if (g_menu_model_get_item_attribute (model, index, GNC_MENU_ATTRIBUTE_ACCELERATOR,
+                                              "&s", &accelerator) &&
+            g_menu_model_get_item_attribute (model, index, G_MENU_ATTRIBUTE_ACTION,
+                                              "&s", &action_name))
         {
-            gboolean added = GPOINTER_TO_INT(g_object_get_data (G_OBJECT(menuItem),
-                                                                "accel-added"));
-            guint key;
-            GdkModifierType mods;
-
-            gtk_accel_label_get_accel (GTK_ACCEL_LABEL(accel_label), &key, &mods);
-
-            if (key > 0 && !added)
+            GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (accelerator);
+            if (trigger)
             {
-                g_object_set_data (G_OBJECT(menuItem), "accel-added", GINT_TO_POINTER(1));
-                gtk_widget_add_accelerator (GTK_WIDGET(widget), "activate",
-                                            GTK_ACCEL_GROUP(user_data),
-                                            key, mods, GTK_ACCEL_VISIBLE);
+                GtkShortcutAction *action = gtk_named_action_new (action_name);
+                GtkShortcut *shortcut = gtk_shortcut_new (trigger, action);
+                g_ptr_array_add (shortcuts, g_object_ref (shortcut));
+                gtk_shortcut_controller_add_shortcut (shortcut_controller, shortcut);
+            }
+            else
+                PWARN ("Ignoring invalid accelerator '%s' for action '%s'", accelerator, action_name);
+        }
+
+        const gchar *link_names[] = { G_MENU_LINK_SECTION, G_MENU_LINK_SUBMENU };
+        for (guint link_index = 0; link_index < G_N_ELEMENTS (link_names); link_index++)
+        {
+            GMenuModel *linked_model = g_menu_model_get_item_link (model, index,
+                                                                    link_names[link_index]);
+            if (linked_model)
+            {
+                add_menu_shortcuts (linked_model, shortcut_controller, shortcuts);
+                g_object_unref (linked_model);
             }
         }
-//FIXME gtk4        if (GTK_IS_CONTAINER(subMenu))
-//            gtk_container_foreach (GTK_CONTAINER(subMenu),
-//                                   add_accel_for_menu_lookup, user_data);
     }
-#endif
 }
 
 /** Add accelerator keys for menu item widgets
@@ -495,19 +489,27 @@ add_accel_for_menu_lookup (GtkWidget *widget, gpointer user_data)
  *
  *  @param model The menu bar model.
  *
- *  @param accel_group The accelerator group to use.
+ *  @param shortcut_controller The window shortcut controller to update.
  */
 void
 gnc_add_accelerator_keys_for_menu (GtkWidget *menu, GMenuModel *model, GtkEventController *shortcut_controller)
 {
+    GPtrArray *shortcuts;
+
     g_return_if_fail (GTK_IS_WIDGET(menu));
     g_return_if_fail (model != NULL);
-    g_return_if_fail (shortcut_controller != NULL);
+    g_return_if_fail (GTK_IS_SHORTCUT_CONTROLLER (shortcut_controller));
 
-    // this updates the menu accelerators based on accelerator-map
-//FIXME gtk4    gtk_accel_map_foreach (model, (GtkAccelMapForeach)accel_map_foreach_func);
+    shortcuts = g_object_get_data (G_OBJECT (shortcut_controller), GNC_MENU_SHORTCUTS);
+    if (!shortcuts)
+    {
+        shortcuts = g_ptr_array_new_with_free_func (g_object_unref);
+        g_object_set_data_full (G_OBJECT (shortcut_controller), GNC_MENU_SHORTCUTS,
+                                shortcuts, (GDestroyNotify)g_ptr_array_unref);
+    }
 
-//FIXME gtk4    gtk_container_foreach (GTK_CONTAINER(menu), add_accel_for_menu_lookup, accel_group);
+    clear_menu_shortcuts (GTK_SHORTCUT_CONTROLLER (shortcut_controller), shortcuts);
+    add_menu_shortcuts (model, GTK_SHORTCUT_CONTROLLER (shortcut_controller), shortcuts);
 }
 
 
