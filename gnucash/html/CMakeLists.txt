@@ -23,14 +23,17 @@ set (html_SOURCES
   gnc-html-factory.cpp
 )
 
-if (WEBKIT1)
-  list(APPEND html_HEADERS gnc-html-webkit1.hpp)
-  list(APPEND html_SOURCES gnc-html-webkit1.cpp)
-  set(html_EXTRA_DIST gnc-html-webkit2.hpp gnc-html-webkit2.cpp)
-else ()
+if (GNC_REPORT_WEBKITGTK6)
   list(APPEND html_HEADERS gnc-html-webkit2.hpp)
   list(APPEND html_SOURCES gnc-html-webkit2.cpp)
-  set(html_EXTRA_DIST gnc-html-webkit1.hpp gnc-html-webkit1.cpp)
+elseif (GNC_REPORT_WEBVIEW2)
+  list(APPEND html_HEADERS gnc-html-webview2.hpp)
+  list(APPEND html_SOURCES gnc-html-webview2.cpp)
+elseif (GNC_REPORT_WKWEBVIEW)
+  list(APPEND html_HEADERS gnc-html-wkwebview.hpp)
+  list(APPEND html_SOURCES gnc-html-wkwebview.mm)
+else ()
+  message(FATAL_ERROR "No report backend selected")
 endif()
 
 
@@ -58,8 +61,9 @@ target_link_libraries(gnc-html
     PRIVATE
         gnc-engine
         gnc-gnome-utils
-        PkgConfig::GTK3
-        PkgConfig::WEBKIT
+        PkgConfig::GTK4
+        $<$<BOOL:${GNC_REPORT_WEBKITGTK6}>:PkgConfig::WEBKIT>
+        ${WEBKIT_FRAMEWORK}
         ${GUILE_LDFLAGS})
 
 target_compile_definitions(gnc-html PRIVATE -DG_LOG_DOMAIN=\"gnc.html\")
@@ -68,6 +72,8 @@ target_compile_definitions(gnc-html PRIVATE -DG_LOG_DOMAIN=\"gnc.html\")
 target_include_directories (gnc-html
 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+PRIVATE
+    ${WEBVIEW2_INCLUDE_DIR}
 )
 
 if (APPLE)

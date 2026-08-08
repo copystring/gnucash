@@ -232,7 +232,7 @@ if (NOT PKG_CONFIG_FOUND)
 
 # glib et al.
 set(GLIB_MIN_VERSION 2.88.0)
-set(GTK_MIN_VERSION 3.24.52)
+set(GTK_MIN_VERSION 4.14.0)
 
 pkg_check_modules (GLIB2 REQUIRED IMPORTED_TARGET glib-2.0>=${GLIB_MIN_VERSION})
 pkg_check_modules (GIO REQUIRED gio-2.0)
@@ -244,18 +244,23 @@ pkg_check_modules (LIBXML2 REQUIRED libxml-2.0>=2.15.0)
 pkg_check_modules (LIBXSLT REQUIRED libxslt)
 if (WITH_GNUCASH)
   if (WIN32)
-    pkg_check_modules (WEBKIT REQUIRED IMPORTED_TARGET webkitgtk-3.0)
-    set(WEBKIT1 1 CACHE INTERNAL "WebKitGtk")
+    find_path (WEBVIEW2_INCLUDE_DIR NAMES WebView2.h
+      HINTS "${CMAKE_PREFIX_PATH}/include" REQUIRED)
+    # The loader is loaded explicitly so that the packaged runtime can be
+    # selected at startup. MinGW's WebView2 package intentionally ships only
+    # this DLL, not an import library.
+    find_file (WEBVIEW2_LOADER_DLL NAMES WebView2Loader.dll
+      HINTS "${CMAKE_PREFIX_PATH}/bin" REQUIRED)
+    set(GNC_REPORT_WEBVIEW2 1 CACHE INTERNAL "WebView2 report backend")
+  elseif (APPLE)
+    find_library (WEBKIT_FRAMEWORK WebKit REQUIRED)
+    set(GNC_REPORT_WKWEBVIEW 1 CACHE INTERNAL "WKWebView report backend")
   else()
-    # Hold at 2.32, the latest version successfully built on macOS.
-    pkg_check_modules (WEBKIT IMPORTED_TARGET webkit2gtk-4.0>=2.32.0)
-    if (NOT WEBKIT_FOUND)
-      pkg_check_modules (WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
-    endif()
-    set(WEBKIT2 1 CACHE INTERNAL "WebKit2Gtk4")
+    pkg_check_modules (WEBKIT REQUIRED IMPORTED_TARGET webkitgtk-6.0)
+    set(GNC_REPORT_WEBKITGTK6 1 CACHE INTERNAL "WebKitGTK 6 report backend")
   endif()
 
-  pkg_check_modules (GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0>=${GTK_MIN_VERSION})
+  pkg_check_modules (GTK4 REQUIRED IMPORTED_TARGET gtk4>=${GTK_MIN_VERSION})
 endif()
 
 pkg_check_modules (ZLIB REQUIRED zlib)
@@ -416,7 +421,7 @@ if (WITH_AQBANKING)
   set(CMAKE_REQUIRED_INCLUDES)
   set(CMAKE_REQUIRED_LIBRARIES)
   if(WITH_GNUCASH)
-    pkg_check_modules (GWEN_GTK3 REQUIRED gwengui-gtk3)
+    pkg_check_modules (GWEN_GTK4 REQUIRED gwengui-gtk4)
   endif()
 endif()
 
@@ -461,24 +466,12 @@ endif()
 # ############################################################
 
 if(APPLE)
-  execute_process(
-      COMMAND ${PKG_CONFIG_EXECUTABLE} --variable=targets gdk-3.0
-      OUTPUT_VARIABLE TARGET_RESULT
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
-  if(TARGET_RESULT STREQUAL "quartz")
-    set(GNC_PLATFORM_COCOA 1)
-    set(GDK_QUARTZ 1)
-    pkg_check_modules(GTK_MAC IMPORTED_TARGET gtk-mac-integration-gtk3)
-    if (GTK_MAC_FOUND)
-      set(MAC_INTEGRATION 1)
-      find_library(COCOA_LIBRARY Cocoa)
-      find_library(SECURITY_LIBRARY Security)
-      find_library(CARBON_LIBRARY Carbon)
-      set(OSX_EXTRA_COMPILE_FLAGS $<$<COMPILE_LANGUAGE:C>:-xobjective-c> $<$<COMPILE_LANGUAGE:CXX>:-xobjective-c++>)
-      set(OSX_EXTRA_LIBRARIES objc ${COCOA_LIBRARY} ${SECURITY_LIBRARY} ${CARBON_LIBRARY})
-    endif()
-  endif()
+  set(GNC_PLATFORM_COCOA 1)
+  find_library(COCOA_LIBRARY Cocoa REQUIRED)
+  find_library(SECURITY_LIBRARY Security REQUIRED)
+  find_library(CARBON_LIBRARY Carbon REQUIRED)
+  set(OSX_EXTRA_COMPILE_FLAGS $<$<COMPILE_LANGUAGE:C>:-xobjective-c> $<$<COMPILE_LANGUAGE:CXX>:-xobjective-c++>)
+  set(OSX_EXTRA_LIBRARIES objc ${COCOA_LIBRARY} ${SECURITY_LIBRARY} ${CARBON_LIBRARY} ${WEBKIT_FRAMEWORK})
 endif()
 
 # find_package(LibXslt) eats PKG_CONFIG_EXECUTABLE, so preserve it.
@@ -880,9 +873,13 @@ set_property(TARGET PkgConfig::GLIB2 PROPERTY INTERFACE_COMPILE_DEFINITIONS
 if (WITH_GNUCASH)
 string(REGEX MATCH "^([0-9]+)\.([0-9]+)" GTK_MIN_MATCH ${GTK_MIN_VERSION})
 set(GTK_API ${CMAKE_MATCH_1}_${CMAKE_MATCH_2})
-set_property(TARGET PkgConfig::GTK3 PROPERTY INTERFACE_COMPILE_DEFINITIONS
+set_property(TARGET PkgConfig::GTK4 PROPERTY INTERFACE_COMPILE_DEFINITIONS
+  GTK_VERSION_MIN_REQUIRED=GTK_VERSION_${GTK_API}
+  GTK_VERSION_MAX_ALLOWED=GTK_VERSION_${GTK_API}
   GDK_VERSION_MIN_REQUIRED=GDK_VERSION_${GTK_API}
-  GDK_VERSION_MAX_ALLOWED=GDK_VERSION_${GTK_API})
+  GDK_VERSION_MAX_ALLOWED=GDK_VERSION_${GTK_API}
+  GTK_DISABLE_DEPRECATED
+  GDK_DISABLE_DEPRECATED)
 endif()
 
 add_definitions (-DHAVE_CONFIG_H)
