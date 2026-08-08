@@ -115,7 +115,7 @@ static void
 connect_customer_key_controller (GtkWidget *entry, GCallback callback,
                                  CustomerWindow *window)
 {
-    auto controller = gtk_event_controller_key_new ();
+    GtkEventController *controller = gtk_event_controller_key_new ();
     g_signal_connect (controller, "key-pressed", callback, window);
     gtk_widget_add_controller (entry, controller);
 }

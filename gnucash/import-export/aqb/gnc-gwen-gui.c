@@ -56,7 +56,7 @@
 #define GNC_PREF_CLOSE_ON_FINISH   "close-on-finish"
 #define GNC_PREF_REMEMBER_PIN      "remember-pin"
 
-# include <gwen-gui-gtk3/gtk3_gui.h>
+# include <gwen-gui-gtk4/gtk4_gui.h>
 
 /* This static indicates the debugging module that this .o belongs to.  */
 static QofLogModule log_module = G_LOG_DOMAIN;
@@ -230,7 +230,7 @@ gnc_GWEN_Gui_log_init(void)
 {
     if (!log_gwen_gui)
     {
-        log_gwen_gui = Gtk3_Gui_new();
+        log_gwen_gui = Gtk4_Gui_new();
 
         /* Always use our own logging */
         GWEN_Gui_SetLogHookFn(log_gwen_gui, loghook_cb);
@@ -397,7 +397,7 @@ register_callbacks(GncGWENGui *gui)
 
     ENTER("gui=%p", gui);
 
-    gwen_gui = Gtk3_Gui_new();
+    gwen_gui = Gtk4_Gui_new();
     gui->gwen_gui = gwen_gui;
 
     GWEN_Gui_SetMessageBoxFn(gwen_gui, messagebox_cb);

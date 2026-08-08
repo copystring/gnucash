@@ -700,6 +700,8 @@ gnc_builder_collect_start_element (GMarkupParseContext *context,
                                    gpointer user_data,
                                    GError **error)
 {
+    (void)context;
+    (void)error;
     GncBuilderSignalCollector *collector = user_data;
 
     if (g_str_equal (element_name, "object"))
@@ -761,6 +763,8 @@ gnc_builder_collect_end_element (GMarkupParseContext *context,
                                  gpointer user_data,
                                  GError **error)
 {
+    (void)context;
+    (void)error;
     GncBuilderSignalCollector *collector = user_data;
 
     if (g_str_equal (element_name, "object") && collector->object_stack->len)
