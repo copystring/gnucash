@@ -44,9 +44,9 @@
 struct _customer_import_gui
 {
     GtkWidget    *dialog;
-    GtkWidget    *tree_view;
+    GtkColumnView *preview_view;
     GtkWidget    *entryFilename;
-    GtkListStore *store;
+    GListStore   *store;
     gint          component_id;
     GString      *regexp;
     gchar       *type;
@@ -68,6 +68,45 @@ void gnc_customer_import_gui_option4_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_import_gui_option5_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_import_gui_type_cb (GtkWidget *widget, gpointer data);
 
+static void
+customer_import_preview_item_setup (GtkListItemFactory *factory, GtkListItem *item,
+                                    gpointer user_data)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (item, label);
+}
+
+static void
+customer_import_preview_item_bind (GtkListItemFactory *factory, GtkListItem *item,
+                                   gpointer user_data)
+{
+    GObject *row = gtk_list_item_get_item (item);
+
+    (void)factory;
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
+                        gnc_customer_import_row_get (row, GPOINTER_TO_UINT (user_data)));
+}
+
+static void
+customer_import_preview_add_column (GtkColumnView *view, const gchar *title, guint column)
+{
+    GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
+    GtkColumnViewColumn *view_column;
+
+    g_signal_connect (factory, "setup", G_CALLBACK (customer_import_preview_item_setup),
+                      GUINT_TO_POINTER (column));
+    g_signal_connect (factory, "bind", G_CALLBACK (customer_import_preview_item_bind),
+                      GUINT_TO_POINTER (column));
+    view_column = gtk_column_view_column_new (title, factory);
+    gtk_column_view_column_set_resizable (view_column, TRUE);
+    gtk_column_view_append_column (view, view_column);
+}
+
 CustomerImportGui *
 gnc_plugin_customer_import_showGUI(GtkWindow *parent)
 {
@@ -75,8 +114,8 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
     //gktbuilderXML *xml;
     GtkBuilder *builder;
     GList *glist;
-    GtkCellRenderer *renderer;
-    GtkTreeViewColumn *column;
+    GtkNoSelection *selection;
+    GtkScrolledWindow *preview_scrolledwindow;
 
     // if window exists already, activate it
     glist = gnc_find_gui_components ("dialog-customer-import-gui", NULL, NULL);
@@ -96,8 +135,9 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
     gtk_builder_set_current_object (builder, G_OBJECT(gui));
     gnc_builder_add_from_file (builder, "dialog-customer-import-gui.glade", "customer_import_dialog");
     gui->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "customer_import_dialog"));
-    gui->tree_view = GTK_WIDGET(gtk_builder_get_object (builder, "treeview1"));
     gui->entryFilename = GTK_WIDGET(gtk_builder_get_object (builder, "entryFilename"));
+    preview_scrolledwindow = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder,
+                                                   "scrolledwindow2"));
     gui->type = "CUSTOMER"; // Set a default type to import
 
     // Set the name for this dialog so it can be easily manipulated with css
@@ -109,37 +149,30 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
     gui->regexp = g_string_new ( "^(\\x{FEFF})?(?<id>[^;]*);(?<company>[^;]*);(?<name>[^;]*);(?<addr1>[^;]*);(?<addr2>[^;]*);(?<addr3>[^;]*);(?<addr4>[^;]*);(?<phone>[^;]*);(?<fax>[^;]*);(?<email>[^;]*);(?<notes>[^;]*);(?<shipname>[^;]*);(?<shipaddr1>[^;]*);(?<shipaddr2>[^;]*);(?<shipaddr3>[^;]*);(?<shipaddr4>[^;]*);(?<shipphone>[^;]*);(?<shipfax>[^;]*);(?<shipemail>[^;]*)$");
     gui->book = gnc_get_current_book();
 
-    // create model and bind to view
-    gui->store = gtk_list_store_new (CI_N_COLUMNS,
-                                     G_TYPE_STRING, G_TYPE_STRING,
-                                     G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
-                                     G_TYPE_STRING,
-                                     G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
-    gtk_tree_view_set_model( GTK_TREE_VIEW(gui->tree_view), GTK_TREE_MODEL(gui->store) );
-#define CREATE_COLUMN(description,column_id) \
-  renderer = gtk_cell_renderer_text_new (); \
-  column = gtk_tree_view_column_new_with_attributes (description, renderer, "text", column_id, NULL); \
-  gtk_tree_view_column_set_resizable (column, TRUE); \
-  gtk_tree_view_append_column (GTK_TREE_VIEW (gui->tree_view), column);
-    CREATE_COLUMN (_("ID"), CI_ID);
-    CREATE_COLUMN (_("Company"), CI_COMPANY);
-    CREATE_COLUMN (_("Name"), CI_NAME);
-    CREATE_COLUMN (_("Address 1"), CI_ADDR1);
-    CREATE_COLUMN (_("Address 2"), CI_ADDR2);
-    CREATE_COLUMN (_("Address 3"), CI_ADDR3);
-    CREATE_COLUMN (_("Address 4"), CI_ADDR4);
-    CREATE_COLUMN (_("Phone"), CI_PHONE);
-    CREATE_COLUMN (_("Fax"), CI_FAX);
-    CREATE_COLUMN (_("Email"), CI_EMAIL);
-    CREATE_COLUMN (_("Notes"), CI_NOTES);
-    CREATE_COLUMN (_("Shipping Name"), CI_SHIPNAME);
-    CREATE_COLUMN (_("Shipping Address 1"), CI_SHIPADDR1);
-    CREATE_COLUMN (_("Shipping Address 2"), CI_SHIPADDR2);
-    CREATE_COLUMN (_("Shipping Address 3"), CI_SHIPADDR3);
-    CREATE_COLUMN (_("Shipping Address 4"), CI_SHIPADDR4);
-    CREATE_COLUMN (_("Shipping Phone"), CI_SHIPPHONE);
-    CREATE_COLUMN (_("Shipping Fax"), CI_SHIPFAX);
-    CREATE_COLUMN (_("Shipping Email"), CI_SHIPEMAIL);
+    /* The GTK4 preview uses the same row model as parsing and importing. */
+    gui->store = g_list_store_new (G_TYPE_OBJECT);
+    selection = gtk_no_selection_new (G_LIST_MODEL (gui->store));
+    gui->preview_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
+    customer_import_preview_add_column (gui->preview_view, _("ID"), CI_ID);
+    customer_import_preview_add_column (gui->preview_view, _("Company"), CI_COMPANY);
+    customer_import_preview_add_column (gui->preview_view, _("Name"), CI_NAME);
+    customer_import_preview_add_column (gui->preview_view, _("Address 1"), CI_ADDR1);
+    customer_import_preview_add_column (gui->preview_view, _("Address 2"), CI_ADDR2);
+    customer_import_preview_add_column (gui->preview_view, _("Address 3"), CI_ADDR3);
+    customer_import_preview_add_column (gui->preview_view, _("Address 4"), CI_ADDR4);
+    customer_import_preview_add_column (gui->preview_view, _("Phone"), CI_PHONE);
+    customer_import_preview_add_column (gui->preview_view, _("Fax"), CI_FAX);
+    customer_import_preview_add_column (gui->preview_view, _("Email"), CI_EMAIL);
+    customer_import_preview_add_column (gui->preview_view, _("Notes"), CI_NOTES);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Name"), CI_SHIPNAME);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Address 1"), CI_SHIPADDR1);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Address 2"), CI_SHIPADDR2);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Address 3"), CI_SHIPADDR3);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Address 4"), CI_SHIPADDR4);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Phone"), CI_SHIPPHONE);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Fax"), CI_SHIPFAX);
+    customer_import_preview_add_column (gui->preview_view, _("Shipping Email"), CI_SHIPEMAIL);
+    gtk_scrolled_window_set_child (preview_scrolledwindow, GTK_WIDGET (gui->preview_view));
 
     gui->component_id = gnc_register_gui_component ("dialog-customer-import-gui",
                         NULL,
@@ -148,8 +181,8 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
 
     /* Setup signals */
 gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
-//FIXME gtk4    gtk_widget_show_all ( gui->dialog );
     g_object_unref (G_OBJECT (builder));
+    gtk_window_present (GTK_WINDOW (gui->dialog));
     return gui;
 }
 
@@ -189,7 +222,7 @@ gnc_customer_import_gui_ok_cb (GtkWidget *widget, gpointer data)
     if (g_ascii_strcasecmp (gui->type, "CUSTOMER") == 0) cv_type_text = _("customers");
     else cv_type_text = _("vendors");
 
-    gtk_list_store_clear (gui->store);
+    g_list_store_remove_all (gui->store);
     res = gnc_customer_import_read_file (filename, gui->regexp->str, gui->store, 0, &stats);
     if (res == CI_RESULT_OK)
     {
@@ -234,9 +267,7 @@ gnc_customer_import_gui_close_handler (gpointer user_data)
 {
     CustomerImportGui *gui = user_data;
 
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(gui->dialog));
-    // gui has already been freed by this point.
-    // gui->dialog = NULL;
+    gtk_window_destroy (GTK_WINDOW(gui->dialog));
 }
 
 void
@@ -272,7 +303,7 @@ void gnc_customer_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer dat
     gchar *filename = g_strdup( gnc_entry_get_text( GTK_ENTRY(gui->entryFilename) ) );
 
     // generate preview
-    gtk_list_store_clear (gui->store);
+    g_list_store_remove_all (gui->store);
     gnc_customer_import_read_file (filename, gui->regexp->str, gui->store, 10, NULL);
 
     g_free( filename );

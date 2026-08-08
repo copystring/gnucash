@@ -56,17 +56,62 @@
 
 // perl regular expressions are available
 
-// this helper macro takes a regexp match and fills the model
+// This helper macro takes a regexp match and fills an import row.
 #define FILL_IN_HELPER(match_name,column) \
             temp = g_match_info_fetch_named (match_info, match_name); \
             if (temp) \
             { \
 				g_strstrip( temp ); \
-                gtk_list_store_set (store, &iter, column, temp, -1); \
+                gnc_customer_import_row_set (row, column, temp); \
                 g_free (temp); \
-            }
+            } else gnc_customer_import_row_set (row, column, "");
+
+#define CUSTOMER_IMPORT_ROW_VALUES "customer-import-row-values"
+
+GObject *
+gnc_customer_import_row_new (void)
+{
+    GObject *row = g_object_new (G_TYPE_OBJECT, NULL);
+    gchar **values = g_new0 (gchar *, CI_N_COLUMNS + 1);
+
+    g_object_set_data_full (row, CUSTOMER_IMPORT_ROW_VALUES, values,
+                            (GDestroyNotify)g_strfreev);
+    return row;
+}
+
+const gchar *
+gnc_customer_import_row_get (GObject *row, guint column)
+{
+    gchar **values;
+
+    g_return_val_if_fail (G_IS_OBJECT (row), "");
+    g_return_val_if_fail (column < CI_N_COLUMNS, "");
+    values = g_object_get_data (row, CUSTOMER_IMPORT_ROW_VALUES);
+    return values[column] ? values[column] : "";
+}
+
+gchar *
+gnc_customer_import_row_dup (GObject *row, guint column)
+{
+    return g_strdup (gnc_customer_import_row_get (row, column));
+}
+
+void
+gnc_customer_import_row_set (GObject *row, guint column, const gchar *value)
+{
+    gchar **values;
+
+    g_return_if_fail (G_IS_OBJECT (row));
+    g_return_if_fail (column < CI_N_COLUMNS);
+    values = g_object_get_data (row, CUSTOMER_IMPORT_ROW_VALUES);
+    g_free (values[column]);
+    values[column] = g_strdup (value ? value : "");
+}
+
 customer_import_result
-gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp, GtkListStore *store, guint max_rows, customer_import_stats *stats)
+gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp,
+                               GListStore *store, guint max_rows,
+                               customer_import_stats *stats)
 {
     // some statistics
     customer_import_stats stats_fallback;
@@ -78,9 +123,6 @@ gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp
     GMatchInfo *match_info;
     GError *err;
     GRegex *regexpat;
-
-    // model
-    GtkTreeIter iter;
 
     f = g_fopen( filename, "rt" );
     if (!f)
@@ -155,7 +197,7 @@ gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp
             stats->n_imported++;
 
             // fill in the values
-            gtk_list_store_append (store, &iter);
+            GObject *row = gnc_customer_import_row_new ();
             FILL_IN_HELPER ("id", CI_ID);
             FILL_IN_HELPER ("company", CI_COMPANY);
             FILL_IN_HELPER ("name", CI_NAME);
@@ -175,6 +217,8 @@ gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp
             FILL_IN_HELPER ("shipphone", CI_SHIPPHONE);
             FILL_IN_HELPER ("shipfax", CI_SHIPFAX);
             FILL_IN_HELPER ("shipemail", CI_SHIPEMAIL);
+            g_list_store_append (store, row);
+            g_object_unref (row);
         }
         else
         {
@@ -205,14 +249,13 @@ gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp
 
 
 void
-gnc_customer_import_fix_customers (GtkListStore *store, guint *fixed, guint *deleted, gchar * type)
+gnc_customer_import_fix_customers (GListStore *store, guint *fixed,
+                                   guint *deleted, gchar *type)
 {
-    GtkTreeIter iter;
-    gboolean valid;
-    gchar *company, *name, *addr1, *addr2, *addr3, *addr4;
+    guint position = 0;
     guint dummy;
 
-    // allow the call to this function with only GtkListeStore* specified
+    (void)type;
     if (!fixed)
         fixed = &dummy;
     if (!deleted)
@@ -221,56 +264,44 @@ gnc_customer_import_fix_customers (GtkListStore *store, guint *fixed, guint *del
     *fixed = 0;
     *deleted = 0;
 
-    valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL(store), &iter);
-    while (valid)
+    while (position < g_list_model_get_n_items (G_LIST_MODEL (store)))
     {
-        // Walk through the list, reading each row
-        gtk_tree_model_get (GTK_TREE_MODEL(store), &iter,
-                            CI_COMPANY, &company,
-                            CI_NAME, &name,
-                            CI_ADDR1, &addr1,
-                            CI_ADDR2, &addr2,
-                            CI_ADDR3, &addr3,
-                            CI_ADDR4, &addr4,
-                            -1);
+        GObject *row = g_list_model_get_item (G_LIST_MODEL (store), position);
+        const gchar *company = gnc_customer_import_row_get (row, CI_COMPANY);
+        const gchar *name = gnc_customer_import_row_get (row, CI_NAME);
 
         // Company name is mandatory.
         // If not provided, default the company name to the value of the field name.
-        if (strlen(company) == 0)
+        if (*company == '\0')
         {
             //But if the field name is also blank, then delete the row.
-            if (strlen(name) == 0)
+            if (*name == '\0')
             {
                 // no fix possible -> delete row
-                valid = gtk_list_store_remove (store, &iter);
+                g_list_store_remove (store, position);
                 (*deleted)++;
+                g_object_unref (row);
                 continue;
             }
             else
             {
                 // fix possible -> copy name to company
-                gtk_list_store_set (store, &iter, CI_COMPANY, name, -1);
+                gnc_customer_import_row_set (row, CI_COMPANY, name);
                 (*fixed)++;
             }
         }
 
-
-        g_free (company);
-        g_free (name);
-        g_free (addr1);
-        g_free (addr2);
-        g_free (addr3);
-        g_free (addr4);
-
-        valid = gtk_tree_model_iter_next (GTK_TREE_MODEL(store), &iter);
+        g_object_unref (row);
+        position++;
     }
 }
 
 void
-gnc_customer_import_create_customers (GtkListStore *store, QofBook *book, guint *n_customers_created, guint *n_customers_updated, gchar * type)
+gnc_customer_import_create_customers (GListStore *store, QofBook *book,
+                                      guint *n_customers_created,
+                                      guint *n_customers_updated, gchar *type)
 {
-    gboolean valid;
-    GtkTreeIter iter;
+    guint position = 0;
     gchar *id, *company, *name, *addr1, *addr2, *addr3, *addr4, *phone, *fax, *email;
     gchar *notes, *shipname, *shipaddr1, *shipaddr2, *shipaddr3, *shipaddr4, *shipphone, *shipfax, *shipemail;
     GncAddress *addr, *shipaddr;
@@ -293,31 +324,29 @@ gnc_customer_import_create_customers (GtkListStore *store, QofBook *book, guint 
     *n_customers_created = 0;
     *n_customers_updated = 0;
 
-    valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL(store), &iter);
-    while (valid)
+    while (position < g_list_model_get_n_items (G_LIST_MODEL (store)))
     {
         // Walk through the list, reading each row
-        gtk_tree_model_get (GTK_TREE_MODEL(store), &iter,
-                            CI_ID, &id,
-                            CI_COMPANY, &company,
-                            CI_NAME, &name,
-                            CI_ADDR1, &addr1,
-                            CI_ADDR2, &addr2,
-                            CI_ADDR3, &addr3,
-                            CI_ADDR4, &addr4,
-                            CI_PHONE, &phone,
-                            CI_FAX, &fax,
-                            CI_EMAIL, &email,
-                            CI_NOTES, &notes,
-                            CI_SHIPNAME, &shipname,
-                            CI_SHIPADDR1, &shipaddr1,
-                            CI_SHIPADDR2, &shipaddr2,
-                            CI_SHIPADDR3, &shipaddr3,
-                            CI_SHIPADDR4, &shipaddr4,
-                            CI_SHIPPHONE, &shipphone,
-                            CI_SHIPFAX, &shipfax,
-                            CI_SHIPEMAIL, &shipemail,
-                            -1);
+        GObject *row = g_list_model_get_item (G_LIST_MODEL (store), position);
+        id = gnc_customer_import_row_dup (row, CI_ID);
+        company = gnc_customer_import_row_dup (row, CI_COMPANY);
+        name = gnc_customer_import_row_dup (row, CI_NAME);
+        addr1 = gnc_customer_import_row_dup (row, CI_ADDR1);
+        addr2 = gnc_customer_import_row_dup (row, CI_ADDR2);
+        addr3 = gnc_customer_import_row_dup (row, CI_ADDR3);
+        addr4 = gnc_customer_import_row_dup (row, CI_ADDR4);
+        phone = gnc_customer_import_row_dup (row, CI_PHONE);
+        fax = gnc_customer_import_row_dup (row, CI_FAX);
+        email = gnc_customer_import_row_dup (row, CI_EMAIL);
+        notes = gnc_customer_import_row_dup (row, CI_NOTES);
+        shipname = gnc_customer_import_row_dup (row, CI_SHIPNAME);
+        shipaddr1 = gnc_customer_import_row_dup (row, CI_SHIPADDR1);
+        shipaddr2 = gnc_customer_import_row_dup (row, CI_SHIPADDR2);
+        shipaddr3 = gnc_customer_import_row_dup (row, CI_SHIPADDR3);
+        shipaddr4 = gnc_customer_import_row_dup (row, CI_SHIPADDR4);
+        shipphone = gnc_customer_import_row_dup (row, CI_SHIPPHONE);
+        shipfax = gnc_customer_import_row_dup (row, CI_SHIPFAX);
+        shipemail = gnc_customer_import_row_dup (row, CI_SHIPEMAIL);
 
         // Set the customer id if one has not been chosen
         if (strlen (id) == 0)
@@ -417,7 +446,7 @@ gnc_customer_import_create_customers (GtkListStore *store, QofBook *book, guint 
         g_free (shipphone);
         g_free (shipfax);
         g_free (shipemail);
-        valid = gtk_tree_model_iter_next (GTK_TREE_MODEL(store), &iter);
+        g_object_unref (row);
+        position++;
     }
 }
-
