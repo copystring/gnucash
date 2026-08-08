@@ -998,13 +998,8 @@
                             <property name="hexpand">1</property>
                             <property name="focusable">1</property>
 <property name="child">
-                              <object class="GtkTreeView" id="template_list">
+                              <object class="GtkBox" id="template_list_placeholder">
                                 <property name="focusable">1</property>
-                                <property name="headers-visible">0</property>
-                                <signal name="row-activated" handler="gnc_ab_trans_dialog_templ_list_row_activated_cb" swapped="no"/>
-                                <child internal-child="selection">
-                                  <object class="GtkTreeSelection" id="treeview-selection1"/>
-                                </child>
                               </object>
                             </property>
                           </object>

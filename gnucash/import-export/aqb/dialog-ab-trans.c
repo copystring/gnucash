@@ -50,14 +50,13 @@ static QofLogModule log_module = G_LOG_DOMAIN;
 #if (AQBANKING_VERSION_INT >= 60400)
 /* Template handling */
 static void gnc_ab_trans_dialog_fill_templ_helper(gpointer data, gpointer user_data);
-static gboolean gnc_ab_trans_dialog_clear_templ_helper(GtkTreeModel *model,
-        GtkTreePath *path,
-        GtkTreeIter *iter,
-        gpointer user_data);
-static gboolean gnc_ab_trans_dialog_get_templ_helper(GtkTreeModel *model,
-        GtkTreePath *path,
-        GtkTreeIter *iter,
-        gpointer data);
+static GtkStringObject *gnc_ab_trans_dialog_template_row_new (GncABTransTempl *templ);
+static void gnc_ab_trans_dialog_template_factory_setup (GtkListItemFactory *factory,
+                                                         GtkListItem *list_item,
+                                                         gpointer user_data);
+static void gnc_ab_trans_dialog_template_factory_bind (GtkListItemFactory *factory,
+                                                        GtkListItem *list_item,
+                                                        gpointer user_data);
 #endif
 static AB_TRANSACTION *gnc_ab_trans_dialog_fill_values(GncABTransDialog *td);
 static GNC_AB_JOB *gnc_ab_trans_dialog_get_available_empty_job(GNC_AB_ACCOUNT_SPEC *ab_acc,
@@ -82,20 +81,11 @@ void gnc_ab_trans_dialog_bicentry_filter_cb (GtkEditable *editable,
         gint         length,
         gint        *position,
         gpointer     user_data);
-void gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkTreeView *view,
-        GtkTreePath *path,
-        GtkTreeViewColumn *column,
-        gpointer user_data);
+void gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkColumnView *view,
+        guint position, gpointer user_data);
 
 static void gnc_ab_trans_dialog_verify_values(GncABTransDialog *td);
 
-
-enum
-{
-    TEMPLATE_NAME,
-    TEMPLATE_POINTER,
-    TEMPLATE_NUM_COLUMNS
-};
 
 struct _GncABTransDialog
 {
@@ -127,9 +117,10 @@ struct _GncABTransDialog
     /* Originator's name (might have to be edited by the user) */
     GtkWidget *orig_name_entry;
 
-    /* The template choosing GtkTreeView/GtkListStore */
-    GtkTreeView *template_gtktreeview;
-    GtkListStore *template_list_store;
+    /* The template choosing GtkColumnView/GListStore */
+    GtkColumnView *template_view;
+    GListStore *template_store;
+    GtkSingleSelection *template_selection;
 
     /* Exec button */
     GtkWidget *exec_button;
@@ -160,19 +151,58 @@ gboolean gnc_ab_trans_isSEPA(GncABTransType t)
 }
 
 #if (AQBANKING_VERSION_INT >= 60400)
+#define TEMPLATE_ROW_POINTER "template-pointer"
+
+static GtkStringObject *
+gnc_ab_trans_dialog_template_row_new (GncABTransTempl *templ)
+{
+    GtkStringObject *row;
+
+    g_return_val_if_fail (templ, NULL);
+    row = gtk_string_object_new (gnc_ab_trans_templ_get_name (templ));
+    g_object_set_data_full (G_OBJECT (row), TEMPLATE_ROW_POINTER, templ,
+                            (GDestroyNotify)gnc_ab_trans_templ_free);
+    return row;
+}
+
+static void
+gnc_ab_trans_dialog_template_factory_setup (GtkListItemFactory *factory,
+                                            GtkListItem *list_item,
+                                            gpointer user_data)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (list_item, label);
+}
+
+static void
+gnc_ab_trans_dialog_template_factory_bind (GtkListItemFactory *factory,
+                                           GtkListItem *list_item,
+                                           gpointer user_data)
+{
+    GtkStringObject *row = GTK_STRING_OBJECT (gtk_list_item_get_item (list_item));
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (list_item)),
+                        gtk_string_object_get_string (row));
+}
+
 static void
 gnc_ab_trans_dialog_fill_templ_helper(gpointer data, gpointer user_data)
 {
     GncABTransTempl *templ = data;
-    GtkListStore *store = user_data;
-    GtkTreeIter iter;
+    GListStore *store = user_data;
+    GtkStringObject *row;
 
     g_return_if_fail(templ && store);
-    gtk_list_store_append(store, &iter);
-    gtk_list_store_set(store, &iter,
-                       TEMPLATE_NAME, gnc_ab_trans_templ_get_name(templ),
-                       TEMPLATE_POINTER, templ,
-                       -1);
+    row = gnc_ab_trans_dialog_template_row_new (templ);
+    g_list_store_append (store, row);
+    g_object_unref (row);
 }
 #endif
 /**
@@ -262,13 +292,14 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     GtkWidget *orig_bankname_label;
     GtkWidget *orig_bankcode_heading;
     GtkWidget *orig_bankcode_label;
-    GtkCellRenderer *renderer;
-    GtkTreeViewColumn *column;
 #if (AQBANKING_VERSION_INT >= 60400)
     GtkExpander *template_expander;
     GtkWidget *template_label;
     GtkWidget *add_templ_button;
     GtkWidget *del_templ_button;
+    GtkScrolledWindow *template_scrolledwindow;
+    GtkListItemFactory *template_factory;
+    GtkColumnViewColumn *template_column;
 #endif
 
     g_return_val_if_fail(ab_acc, NULL);
@@ -318,13 +349,13 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     orig_bankname_label = GTK_WIDGET(gtk_builder_get_object (builder, "orig_bankname_label"));
     orig_bankcode_heading = GTK_WIDGET(gtk_builder_get_object (builder, "orig_bankcode_heading"));
     orig_bankcode_label = GTK_WIDGET(gtk_builder_get_object (builder, "orig_bankcode_label"));
-    td->template_gtktreeview =
-        GTK_TREE_VIEW(gtk_builder_get_object (builder, "template_list"));
 #if (AQBANKING_VERSION_INT >= 60400)
     template_expander = GTK_EXPANDER(gtk_builder_get_object (builder, "expander1"));
     template_label = GTK_WIDGET(gtk_builder_get_object (builder, "label1"));
     add_templ_button= GTK_WIDGET(gtk_builder_get_object(builder, "add_templ_button"));
     del_templ_button= GTK_WIDGET(gtk_builder_get_object(builder, "del_templ_button"));
+    template_scrolledwindow = GTK_SCROLLED_WINDOW(gtk_builder_get_object (builder,
+                                                  "template_scrolledwindow"));
 #endif
 
     /* Amount edit */
@@ -457,19 +488,24 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
 
 #if (AQBANKING_VERSION_INT >= 60400)
     /* Fill list for choosing a transaction template */
-    td->template_list_store = gtk_list_store_new(TEMPLATE_NUM_COLUMNS,
-                              G_TYPE_STRING, G_TYPE_POINTER);
-    g_list_foreach(templates, gnc_ab_trans_dialog_fill_templ_helper, td->template_list_store);
-    gtk_tree_view_set_model(td->template_gtktreeview,
-                            GTK_TREE_MODEL(td->template_list_store));
+    td->template_store = g_list_store_new (GTK_TYPE_STRING_OBJECT);
+    g_list_foreach (templates, gnc_ab_trans_dialog_fill_templ_helper, td->template_store);
+    td->template_selection = gtk_single_selection_new (G_LIST_MODEL (td->template_store));
+    td->template_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL
+                                                               (td->template_selection)));
+    template_factory = gtk_signal_list_item_factory_new ();
+    g_signal_connect (template_factory, "setup",
+                      G_CALLBACK (gnc_ab_trans_dialog_template_factory_setup), NULL);
+    g_signal_connect (template_factory, "bind",
+                      G_CALLBACK (gnc_ab_trans_dialog_template_factory_bind), NULL);
+    template_column = gtk_column_view_column_new (_("Template Name"), template_factory);
+    gtk_column_view_column_set_expand (template_column, TRUE);
+    gtk_column_view_append_column (td->template_view, template_column);
+    gtk_scrolled_window_set_child (template_scrolledwindow, GTK_WIDGET (td->template_view));
+    g_signal_connect (td->template_view, "activate",
+                      G_CALLBACK (gnc_ab_trans_dialog_templ_list_row_activated_cb), td);
     td->templ_changed = FALSE;
-    /* Keep a reference to the store */
 #endif
-    /* Show this list */
-    renderer = gtk_cell_renderer_text_new();
-    column = gtk_tree_view_column_new_with_attributes(
-                 "Template Name", renderer, "text", TEMPLATE_NAME, NULL);
-    gtk_tree_view_append_column(td->template_gtktreeview, column);
 
     /* Connect the Signals */
     gnc_builder_connect_signals_full(builder, gnc_builder_connect_full_func, td);
@@ -727,22 +763,6 @@ gnc_ab_trans_dialog_run_until_ok(GncABTransDialog *td)
     return result;
 }
 
-#if (AQBANKING_VERSION_INT >= 60400)
-static gboolean
-gnc_ab_trans_dialog_clear_templ_helper(GtkTreeModel *model,
-                                       GtkTreePath *path,
-                                       GtkTreeIter *iter,
-                                       gpointer user_data)
-{
-    GncABTransTempl *templ;
-
-    g_return_val_if_fail(model && iter, TRUE);
-
-    gtk_tree_model_get(model, iter, TEMPLATE_POINTER, &templ, -1);
-    gnc_ab_trans_templ_free(templ);
-    return FALSE;
-}
-#endif
 void
 gnc_ab_trans_dialog_free(GncABTransDialog *td)
 {
@@ -753,33 +773,13 @@ gnc_ab_trans_dialog_free(GncABTransDialog *td)
         gtk_window_destroy (GTK_WINDOW(td->dialog));
 
 #if (AQBANKING_VERSION_INT >= 60400)
-    if (td->template_list_store)
-    {
-        gtk_tree_model_foreach(GTK_TREE_MODEL(td->template_list_store),
-                               gnc_ab_trans_dialog_clear_templ_helper, NULL);
-        g_object_unref(td->template_list_store);
-    }
+    g_clear_object (&td->template_selection);
+    g_clear_object (&td->template_store);
 #endif
     g_free(td);
 }
 
 #if (AQBANKING_VERSION_INT >= 60400)
-static gboolean
-gnc_ab_trans_dialog_get_templ_helper(GtkTreeModel *model,
-                                     GtkTreePath *path,
-                                     GtkTreeIter *iter,
-                                     gpointer data)
-{
-    GList **list = data;
-    GncABTransTempl *templ;
-
-    g_return_val_if_fail(model && iter, TRUE);
-
-    gtk_tree_model_get(model, iter, TEMPLATE_POINTER, &templ, -1);
-    *list = g_list_prepend(*list, templ);
-    return FALSE;
-}
-
 GList *
 gnc_ab_trans_dialog_get_templ(const GncABTransDialog *td, gboolean *changed)
 {
@@ -794,9 +794,17 @@ gnc_ab_trans_dialog_get_templ(const GncABTransDialog *td, gboolean *changed)
             return NULL;
     }
 
-    gtk_tree_model_foreach(GTK_TREE_MODEL(td->template_list_store),
-                           gnc_ab_trans_dialog_get_templ_helper, &list);
-    list = g_list_reverse(list);
+    for (guint position = 0;
+         position < g_list_model_get_n_items (G_LIST_MODEL (td->template_store));
+         position++)
+    {
+        GtkStringObject *row = g_list_model_get_item (G_LIST_MODEL (td->template_store),
+                                                       position);
+        list = g_list_prepend (list, g_object_get_data (G_OBJECT (row),
+                                                        TEMPLATE_ROW_POINTER));
+        g_object_unref (row);
+    }
+    list = g_list_reverse (list);
     return list;
 }
 #endif
@@ -889,13 +897,12 @@ gnc_ab_get_trans_job(GNC_AB_ACCOUNT_SPEC *ab_acc,
 
 #if (AQBANKING_VERSION_INT >= 60400)
 void
-gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkTreeView *view,
-        GtkTreePath *path,
-        GtkTreeViewColumn *column,
-        gpointer user_data)
+gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkColumnView *view,
+                                                 guint position,
+                                                 gpointer user_data)
 {
     GncABTransDialog *td = user_data;
-    GtkTreeIter iter;
+    GtkStringObject *row;
     GncABTransTempl *templ;
     const gchar *new_name;
     const gchar *new_account;
@@ -905,16 +912,16 @@ gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkTreeView *view,
     gnc_numeric new_amount;
 
     g_return_if_fail(td);
+    (void)view;
 
     ENTER("td=%p", td);
-    if (!gtk_tree_model_get_iter(GTK_TREE_MODEL(td->template_list_store), &iter,
-                                 path))
+    row = g_list_model_get_item (G_LIST_MODEL (td->template_store), position);
+    if (!row)
     {
-        LEAVE("Could not get iter");
+        LEAVE("Could not get row");
         return;
     }
-    gtk_tree_model_get(GTK_TREE_MODEL(td->template_list_store), &iter,
-                       TEMPLATE_POINTER, &templ, -1);
+    templ = g_object_get_data (G_OBJECT (row), TEMPLATE_ROW_POINTER);
 
     /* Get new values */
     new_name = gnc_ab_trans_templ_get_recp_name(templ);
@@ -936,46 +943,26 @@ gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkTreeView *view,
     gnc_entry_set_text(GTK_ENTRY(td->purpose_entry), new_purpose);
     gnc_entry_set_text(GTK_ENTRY(td->purpose_cont_entry), new_purpose_cont);
     gnc_amount_edit_set_amount(GNC_AMOUNT_EDIT(td->amount_edit), new_amount);
+    g_object_unref (row);
     LEAVE(" ");
 }
 
-
-struct _FindTemplData
-{
-    const gchar *name;
-    const GncABTransTempl *pointer;
-};
-
 static gboolean
-find_templ_helper(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
-                  gpointer user_data)
+gnc_ab_trans_dialog_template_name_exists (const GncABTransDialog *td,
+                                          const gchar *name)
 {
-    struct _FindTemplData *data = user_data;
-    gchar *name;
-    GncABTransTempl *templ;
-    gboolean match;
-
-    g_return_val_if_fail(model && data, TRUE);
-    gtk_tree_model_get(model, iter,
-                       TEMPLATE_NAME, &name,
-                       TEMPLATE_POINTER, &templ,
-                       -1);
-    if (data->name)
+    for (guint position = 0;
+         position < g_list_model_get_n_items (G_LIST_MODEL (td->template_store));
+         position++)
     {
-        /* Search for the template by name */
-        g_return_val_if_fail(!data->pointer, TRUE);
-        match = strcmp(name, data->name) == 0;
-        if (match) data->pointer = templ;
+        GtkStringObject *row = g_list_model_get_item (G_LIST_MODEL (td->template_store),
+                                                       position);
+        gboolean exists = g_strcmp0 (gtk_string_object_get_string (row), name) == 0;
+        g_object_unref (row);
+        if (exists)
+            return TRUE;
     }
-    else
-    {
-        /* Search for the template by template pointer */
-        g_return_val_if_fail(!data->name, TRUE);
-        match = templ == data->pointer;
-        if (match) data->name = g_strdup(name);
-    }
-    g_free(name);
-    return match;
+    return FALSE;
 }
 
 void
@@ -988,10 +975,8 @@ gnc_ab_trans_dialog_add_templ_cb(GtkButton *button, gpointer user_data)
     gint retval;
     const gchar *name;
     GncABTransTempl *templ;
-    struct _FindTemplData data;
-    GtkTreeSelection *selection;
-    GtkTreeIter cur_iter;
-    GtkTreeIter new_iter;
+    GtkStringObject *row;
+    guint position;
 
     g_return_if_fail(td);
 
@@ -1017,11 +1002,7 @@ gnc_ab_trans_dialog_add_templ_cb(GtkButton *button, gpointer user_data)
         if (!*name)
             break;
 
-        data.name = name;
-        data.pointer = NULL;
-        gtk_tree_model_foreach(GTK_TREE_MODEL(td->template_list_store),
-                               find_templ_helper, &data);
-        if (data.pointer)
+        if (gnc_ab_trans_dialog_template_name_exists (td, name))
         {
             gnc_error_dialog(GTK_WINDOW (dialog), "%s",
                              _("A template with the given name already exists. "
@@ -1039,21 +1020,16 @@ gnc_ab_trans_dialog_add_templ_cb(GtkButton *button, gpointer user_data)
                     gnc_entry_get_text(GTK_ENTRY(td->purpose_entry)),
                     gnc_entry_get_text (GTK_ENTRY(td->purpose_cont_entry)));
 
-        /* Insert it, either after the selected one or at the end */
-        selection = gtk_tree_view_get_selection(td->template_gtktreeview);
-        if (gtk_tree_selection_get_selected(selection, NULL, &cur_iter))
-        {
-            gtk_list_store_insert_after(td->template_list_store,
-                                        &new_iter, &cur_iter);
-        }
+        /* Insert it, either after the selected one or at the end. */
+        position = gtk_single_selection_get_selected (td->template_selection);
+        if (position != GTK_INVALID_LIST_POSITION)
+            position++;
         else
-        {
-            gtk_list_store_append(td->template_list_store, &new_iter);
-        }
-        gtk_list_store_set(td->template_list_store, &new_iter,
-                           TEMPLATE_NAME, name,
-                           TEMPLATE_POINTER, templ,
-                           -1);
+            position = g_list_model_get_n_items (G_LIST_MODEL (td->template_store));
+        row = gnc_ab_trans_dialog_template_row_new (templ);
+        g_list_store_insert (td->template_store, position, row);
+        gtk_single_selection_set_selected (td->template_selection, position);
+        g_object_unref (row);
         td->templ_changed = TRUE;
         DEBUG("Added template with name %s", name);
         break;
@@ -1072,68 +1048,88 @@ void
 gnc_ab_trans_dialog_moveup_templ_cb(GtkButton *button, gpointer user_data)
 {
     GncABTransDialog *td = user_data;
-    GtkTreeSelection *selection;
-    GtkTreeModel *model;
-    GtkTreeIter iter;
-    GtkTreePath *prev_path;
-    GtkTreeIter prev_iter;
+    guint position;
+    GtkStringObject *row;
 
     g_return_if_fail(td);
 
-    selection = gtk_tree_view_get_selection(td->template_gtktreeview);
-    if (!gtk_tree_selection_get_selected(selection, &model, &iter))
+    position = gtk_single_selection_get_selected (td->template_selection);
+    if (position == GTK_INVALID_LIST_POSITION || position == 0)
         return;
 
-    prev_path = gtk_tree_model_get_path(model, &iter);
-    if (gtk_tree_path_prev(prev_path))
-    {
-        if (gtk_tree_model_get_iter(model, &prev_iter, prev_path))
-        {
-            gtk_list_store_move_before(GTK_LIST_STORE(model), &iter, &prev_iter);
-            td->templ_changed = TRUE;
-        }
-    }
-    gtk_tree_path_free(prev_path);
+    row = g_list_model_get_item (G_LIST_MODEL (td->template_store), position);
+    g_list_store_remove (td->template_store, position);
+    g_list_store_insert (td->template_store, position - 1, row);
+    gtk_single_selection_set_selected (td->template_selection, position - 1);
+    g_object_unref (row);
+    td->templ_changed = TRUE;
 }
 
 void
 gnc_ab_trans_dialog_movedown_templ_cb(GtkButton *button, gpointer user_data)
 {
     GncABTransDialog *td = user_data;
-    GtkTreeSelection *selection;
-    GtkTreeModel *model;
-    GtkTreeIter iter;
-    GtkTreeIter next_iter;
+    guint position;
+    guint count;
+    GtkStringObject *row;
 
     g_return_if_fail(td);
 
-    selection = gtk_tree_view_get_selection(td->template_gtktreeview);
-    if (!gtk_tree_selection_get_selected (selection, &model, &iter))
+    position = gtk_single_selection_get_selected (td->template_selection);
+    count = g_list_model_get_n_items (G_LIST_MODEL (td->template_store));
+    if (position == GTK_INVALID_LIST_POSITION || position + 1 >= count)
         return;
 
-    next_iter = iter;
-    if (gtk_tree_model_iter_next(model, &next_iter))
-    {
-        gtk_list_store_move_after(GTK_LIST_STORE(model), &iter, &next_iter);
-        td->templ_changed = TRUE;
-    }
+    row = g_list_model_get_item (G_LIST_MODEL (td->template_store), position);
+    g_list_store_remove (td->template_store, position);
+    g_list_store_insert (td->template_store, position + 1, row);
+    gtk_single_selection_set_selected (td->template_selection, position + 1);
+    g_object_unref (row);
+    td->templ_changed = TRUE;
+}
+
+static gint
+gnc_ab_trans_dialog_template_compare (gconstpointer left, gconstpointer right,
+                                      gpointer user_data)
+{
+    (void)user_data;
+    return g_utf8_collate (gtk_string_object_get_string (GTK_STRING_OBJECT (left)),
+                           gtk_string_object_get_string (GTK_STRING_OBJECT (right)));
 }
 
 void
 gnc_ab_trans_dialog_sort_templ_cb(GtkButton *button, gpointer user_data)
 {
     GncABTransDialog *td = user_data;
+    GtkStringObject *selected_row = NULL;
+    guint selected_position;
 
     g_return_if_fail(td);
 
     ENTER("td=%p", td);
-    gtk_tree_sortable_set_sort_column_id(
-        GTK_TREE_SORTABLE(td->template_list_store),
-        TEMPLATE_NAME, GTK_SORT_ASCENDING);
-    gtk_tree_sortable_set_sort_column_id(
-        GTK_TREE_SORTABLE(td->template_list_store),
-        GTK_TREE_SORTABLE_UNSORTED_SORT_COLUMN_ID,
-        GTK_SORT_ASCENDING);
+    selected_position = gtk_single_selection_get_selected (td->template_selection);
+    if (selected_position != GTK_INVALID_LIST_POSITION)
+        selected_row = g_list_model_get_item (G_LIST_MODEL (td->template_store),
+                                              selected_position);
+    g_list_store_sort (td->template_store, gnc_ab_trans_dialog_template_compare, NULL);
+    if (selected_row)
+    {
+        for (guint position = 0;
+             position < g_list_model_get_n_items (G_LIST_MODEL (td->template_store));
+             position++)
+        {
+            GtkStringObject *row = g_list_model_get_item (G_LIST_MODEL (td->template_store),
+                                                           position);
+            gboolean is_selected = row == selected_row;
+            g_object_unref (row);
+            if (is_selected)
+            {
+                gtk_single_selection_set_selected (td->template_selection, position);
+                break;
+            }
+        }
+        g_object_unref (selected_row);
+    }
     td->templ_changed = TRUE;
     LEAVE(" ");
 }
@@ -1142,32 +1138,32 @@ void
 gnc_ab_trans_dialog_del_templ_cb(GtkButton *button, gpointer user_data)
 {
     GncABTransDialog *td = user_data;
-    GtkTreeSelection *selection;
-    GtkTreeModel *model;
-    GtkTreeIter iter;
-    gchar *name;
+    guint position;
+    GtkStringObject *row;
+    const gchar *name;
 
     g_return_if_fail(td);
 
     ENTER("td=%p", td);
-    selection = gtk_tree_view_get_selection(td->template_gtktreeview);
-    if (!gtk_tree_selection_get_selected (selection, &model, &iter))
+    position = gtk_single_selection_get_selected (td->template_selection);
+    if (position == GTK_INVALID_LIST_POSITION)
     {
         LEAVE("None selected");
         return;
     }
 
-    gtk_tree_model_get(model, &iter, TEMPLATE_NAME, &name, -1);
+    row = g_list_model_get_item (G_LIST_MODEL (td->template_store), position);
+    name = gtk_string_object_get_string (row);
     if (gnc_verify_dialog (
                 GTK_WINDOW (td->parent), FALSE,
                 _("Do you really want to delete the template with the name \"%s\"?"),
                 name))
     {
-        gtk_list_store_remove(GTK_LIST_STORE(model), &iter);
+        g_list_store_remove (td->template_store, position);
         td->templ_changed = TRUE;
         DEBUG("Deleted template with name %s", name);
     }
-    g_free(name);
+    g_object_unref (row);
     LEAVE(" ");
 }
 
