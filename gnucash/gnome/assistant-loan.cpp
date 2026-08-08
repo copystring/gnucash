@@ -780,7 +780,7 @@ gnc_loan_assistant_create( LoanAssistantData *ldd )
                     FALSE );
 
                 gnc_box_append_full( GTK_BOX(vb), GTK_WIDGET(rouid->escrowCb), FALSE, FALSE, 2 );
-                gtk_widget_set_margin_start (GTK_WIDGET(rouid->escrowCb), 12);
+                gtk_widget_set_margin_start (GTK_WIDGET(rouid->escrowCb), 14);
 
                 g_signal_connect( rouid->optCb, "toggled",
                                   G_CALLBACK(loan_opt_toggled_cb),
