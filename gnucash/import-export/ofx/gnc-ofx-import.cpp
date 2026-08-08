@@ -57,6 +57,7 @@
 #include <string>
 #include <sstream>
 #include <unordered_map>
+#include <vector>
 
 #define GNC_PREFS_GROUP "dialogs.import.ofx"
 #define GNC_PREF_AUTO_COMMODITY "auto-create-commodity"
@@ -88,6 +89,21 @@ typedef struct _ofx_info
     GList* trans_list;                      // We store the processed ofx transactions here
     gint response;                          // Response sent by the match gui
 } ofx_info ;
+
+struct OfxAccountSelection
+{
+    std::string online_id;
+    std::string description;
+    gnc_commodity *commodity;
+    GNCAccountType account_type;
+};
+
+struct OfxAccountPreflight
+{
+    ofx_info *info;
+    std::vector<OfxAccountSelection> selections;
+    size_t next_selection;
+};
 
 static void runMatcher(ofx_info* info, char * selected_filename, gboolean go_to_next_file);
 
@@ -1026,120 +1042,102 @@ int ofx_proc_statement_cb (struct OfxStatementData data, void * statement_user_d
 }
 
 
-int ofx_proc_account_cb(struct OfxAccountData data, void * account_user_data)
+static void
+ofx_account_defaults (const struct OfxAccountData& data,
+                      GNCAccountType *default_type,
+                      const gchar **account_type_name)
 {
-    gnc_commodity_table * commodity_table;
-    gnc_commodity * default_commodity;
-    GNCAccountType default_type = ACCT_TYPE_NONE;
-    gchar * account_description;
-    GtkWidget * main_widget;
-    GtkWidget * parent;
-    /* In order to trigger a book options display on the creation of a new book,
-     * we need to detect when we are dealing with a new book. */
-    gboolean new_book = gnc_is_new_book();
-    ofx_info* info = (ofx_info*) account_user_data;
-    Account* account = NULL;
+    *default_type = ACCT_TYPE_NONE;
+    *account_type_name = _("Unknown OFX account");
 
-    const gchar * account_type_name = _("Unknown OFX account");
+    if (!data.account_type_valid)
+        return;
 
-    if (data.account_id_valid)
+    switch (data.account_type)
     {
-        commodity_table = gnc_get_current_commodities ();
-        if (data.currency_valid)
-        {
-            DEBUG("Currency from libofx: %s", data.currency);
-            default_commodity = gnc_commodity_table_lookup(commodity_table,
-                                GNC_COMMODITY_NS_CURRENCY,
-                                data.currency);
-        }
-        else
-        {
-            default_commodity = NULL;
-        }
-
-        if (data.account_type_valid)
-        {
-            switch (data.account_type)
-            {
-            case OfxAccountData::OFX_CHECKING:
-                default_type = ACCT_TYPE_BANK;
-                account_type_name = _("Unknown OFX checking account");
-                break;
-            case OfxAccountData::OFX_SAVINGS:
-                default_type = ACCT_TYPE_BANK;
-                account_type_name = _("Unknown OFX savings account");
-                break;
-            case OfxAccountData::OFX_MONEYMRKT:
-                default_type = ACCT_TYPE_MONEYMRKT;
-                account_type_name = _("Unknown OFX money market account");
-                break;
-            case OfxAccountData::OFX_CREDITLINE:
-                default_type = ACCT_TYPE_CREDITLINE;
-                account_type_name = _("Unknown OFX credit line account");
-                break;
-            case OfxAccountData::OFX_CMA:
-                default_type = ACCT_TYPE_NONE;
-                /* Cash Management Account */
-                account_type_name = _("Unknown OFX CMA account");
-                break;
-            case OfxAccountData::OFX_CREDITCARD:
-                default_type = ACCT_TYPE_CREDIT;
-                account_type_name = _("Unknown OFX credit card account");
-                break;
-            case OfxAccountData::OFX_INVESTMENT:
-                default_type = ACCT_TYPE_BANK;
-                account_type_name = _("Unknown OFX investment account");
-                break;
-            default:
-                PERR("WRITEME: ofx_proc_account() This is an unknown account type!");
-                break;
-            }
-        }
-
-        /* If the OFX importer was started in Gnucash in a 'new_book' situation,
-         * as described above, the first time the 'ofx_proc_account_cb' function
-         * is called a book is created. (This happens after the 'new_book' flag
-         * is set in 'gnc_get_current_commodities', called above.) So, before
-         * calling 'gnc_import_select_account', allow the user to set book
-         * options. */
-        if (new_book)
-            gnc_new_book_option_display (GTK_WIDGET (gnc_ui_get_main_window (NULL)));
-
-        gnc_utf8_strip_invalid(data.account_name);
-        gnc_utf8_strip_invalid(data.account_id);
-        account_description = g_strdup_printf (/* This string is a default account
-                                                  name. It MUST NOT contain the
-                                                  character ':' anywhere in it or
-                                                  in any translation.  */
-                                               "%s \"%s\"",
-                                               account_type_name,
-                                               data.account_name);
-
-        main_widget = gnc_gen_trans_list_widget (info->gnc_ofx_importer_gui);
-
-        /* On first use, the import-main-matcher is hidden / not realized so to
-         * get a parent use the transient parent of the matcher */
-        if (gtk_widget_get_realized (main_widget))
-            parent = main_widget;
-        else
-            parent = GTK_WIDGET(gtk_window_get_transient_for (GTK_WINDOW(main_widget)));
-
-        account = gnc_import_select_account (parent,
-                                             data.account_id, 1,
-                                             account_description, default_commodity,
-                                             default_type, NULL, NULL);
-
-        if (account)
-        {
-            info->last_import_account = account;
-        }
-
-        g_free(account_description);
+    case OfxAccountData::OFX_CHECKING:
+    case OfxAccountData::OFX_SAVINGS:
+        *default_type = ACCT_TYPE_BANK;
+        *account_type_name = data.account_type == OfxAccountData::OFX_CHECKING
+            ? _("Unknown OFX checking account")
+            : _("Unknown OFX savings account");
+        break;
+    case OfxAccountData::OFX_MONEYMRKT:
+        *default_type = ACCT_TYPE_MONEYMRKT;
+        *account_type_name = _("Unknown OFX money market account");
+        break;
+    case OfxAccountData::OFX_CREDITLINE:
+        *default_type = ACCT_TYPE_CREDITLINE;
+        *account_type_name = _("Unknown OFX credit line account");
+        break;
+    case OfxAccountData::OFX_CMA:
+        *account_type_name = _("Unknown OFX CMA account");
+        break;
+    case OfxAccountData::OFX_CREDITCARD:
+        *default_type = ACCT_TYPE_CREDIT;
+        *account_type_name = _("Unknown OFX credit card account");
+        break;
+    case OfxAccountData::OFX_INVESTMENT:
+        *default_type = ACCT_TYPE_BANK;
+        *account_type_name = _("Unknown OFX investment account");
+        break;
+    default:
+        PERR("ofx_proc_account(): unknown OFX account type");
+        break;
     }
-    else
+}
+
+static gnc_commodity *
+ofx_account_default_commodity (const struct OfxAccountData& data)
+{
+    if (!data.currency_valid)
+        return NULL;
+
+    DEBUG("Currency from libofx: %s", data.currency);
+    return gnc_commodity_table_lookup (gnc_get_current_commodities (),
+                                       GNC_COMMODITY_NS_CURRENCY,
+                                       data.currency);
+}
+
+static gchar *
+ofx_account_description (const struct OfxAccountData& data,
+                         const gchar *account_type_name)
+{
+    gchar *account_name = data.account_name_valid
+        ? gnc_utf8_strip_invalid_strdup (data.account_name) : g_strdup ("");
+    gchar *description = g_strdup_printf ("%s \"%s\"", account_type_name,
+                                          account_name);
+
+    g_free (account_name);
+    return description;
+}
+
+int
+ofx_proc_account_cb (struct OfxAccountData data, void * account_user_data)
+{
+    GNCAccountType default_type;
+    const gchar *account_type_name;
+    ofx_info* info = (ofx_info*) account_user_data;
+
+    if (!data.account_id_valid)
     {
         PERR("account online ID not available");
+        return 0;
     }
+
+    ofx_account_defaults (data, &default_type, &account_type_name);
+    gchar *online_id = gnc_utf8_strip_invalid_strdup (data.account_id);
+    gchar *description = ofx_account_description (data, account_type_name);
+    Account *account = gnc_import_select_account (GTK_WIDGET (info->parent),
+                                                   online_id, FALSE, description,
+                                                   ofx_account_default_commodity (data),
+                                                   default_type, NULL, NULL);
+    if (account)
+        info->last_import_account = account;
+    else
+        PERR("No preselected account for OFX online ID %s", online_id);
+    g_free (description);
+    g_free (online_id);
 
     return 0;
 }
@@ -1176,10 +1174,14 @@ double ofx_get_investment_amount(const OfxTransactionData* data)
 // Forward declaration, required because several static functions depend on one-another.
 static void
 gnc_file_ofx_import_process_file (ofx_info* info);
+static void
+gnc_file_ofx_import_parse_current_file (ofx_info* info);
+static void
+gnc_ofx_abort_import (ofx_info *info);
 
 // gnc_ofx_process_next_file processes the next file in the info->file_list.
 static void
-gnc_ofx_process_next_file (GtkDialog *dialog, gpointer user_data)
+gnc_ofx_process_next_file (GtkWidget *widget, gpointer user_data)
 {
     ofx_info* info = (ofx_info*) user_data;
     // Free the statement (if it was allocated)
@@ -1187,7 +1189,9 @@ gnc_ofx_process_next_file (GtkDialog *dialog, gpointer user_data)
     info->statement = NULL;
 
     // Done with the previous OFX file, process the next one if any.
+    auto *completed_filename = static_cast<gchar*> (info->file_list->data);
     info->file_list = g_slist_delete_link (info->file_list, info->file_list);
+    g_free (completed_filename);
     if (info->file_list)
         gnc_file_ofx_import_process_file (info);
     else
@@ -1195,18 +1199,20 @@ gnc_ofx_process_next_file (GtkDialog *dialog, gpointer user_data)
         // Final cleanup.
         g_free (info);
     }
+    (void)widget;
 }
 
 static void
-gnc_ofx_on_match_click (GtkDialog *dialog, gint response_id, gpointer user_data)
+gnc_ofx_on_match_click (GtkWidget *widget, gint response_id, gpointer user_data)
 {
     // Record the response of the user. If cancel we won't go to the next file, etc.
     ofx_info* info = (ofx_info*)user_data;
     info->response = response_id;
+    (void)widget;
 }
 
 static void
-gnc_ofx_match_done (GtkDialog *dialog, gpointer user_data)
+gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
 {
     ofx_info* info = (ofx_info*) user_data;
 
@@ -1214,7 +1220,10 @@ gnc_ofx_match_done (GtkDialog *dialog, gpointer user_data)
      * transaction, don't go to the next of xfile.
      */
     if (info->response != GTK_RESPONSE_OK)
+    {
+        gnc_ofx_abort_import (info);
         return;
+    }
 
     if (info->trans_list)
     {
@@ -1261,7 +1270,7 @@ gnc_ofx_match_done (GtkDialog *dialog, gpointer user_data)
         if (info->statement && info->statement->next)
         {
             info->statement = info->statement->next;
-            gnc_ofx_match_done (dialog, user_data);
+            gnc_ofx_match_done (widget, user_data);
             return;
         }
         else
@@ -1403,9 +1412,147 @@ runMatcher (ofx_info* info, char * selected_filename, gboolean go_to_next_file)
     }
 }
 
-// Aux function to process the OFX file in info->file_list
 static void
-gnc_file_ofx_import_process_file (ofx_info* info)
+gnc_ofx_abort_import (ofx_info *info)
+{
+    if (!info)
+        return;
+
+    g_list_free_full (info->statement, g_free);
+    for (GList *node = info->trans_list; node; node = node->next)
+    {
+        auto transaction = static_cast<Transaction*> (node->data);
+        xaccTransDestroy (transaction);
+        xaccTransCommitEdit (transaction);
+    }
+    g_list_free (info->trans_list);
+    g_slist_free_full (info->file_list, g_free);
+    g_free (info);
+}
+
+static int
+ofx_collect_account_cb (struct OfxAccountData data, void *user_data)
+{
+    OfxAccountPreflight *preflight = static_cast<OfxAccountPreflight*> (user_data);
+    GNCAccountType account_type;
+    const gchar *account_type_name;
+
+    if (!data.account_id_valid)
+        return 0;
+
+    gchar *online_id = gnc_utf8_strip_invalid_strdup (data.account_id);
+    for (const auto& selection : preflight->selections)
+        if (selection.online_id == online_id)
+        {
+            g_free (online_id);
+            return 0;
+        }
+
+    ofx_account_defaults (data, &account_type, &account_type_name);
+    gchar *description = ofx_account_description (data, account_type_name);
+    preflight->selections.emplace_back (OfxAccountSelection
+    {
+        online_id,
+        description,
+        ofx_account_default_commodity (data),
+        account_type
+    });
+    g_free (description);
+    g_free (online_id);
+    return 0;
+}
+
+static void
+ofx_preflight_continue (OfxAccountPreflight *preflight);
+
+static void
+ofx_preflight_account_selected (Account *account, gboolean accepted,
+                                gpointer user_data)
+{
+    OfxAccountPreflight *preflight =
+        static_cast<OfxAccountPreflight*> (user_data);
+
+    if (!accepted || !account)
+    {
+        gnc_ofx_abort_import (preflight->info);
+        delete preflight;
+        return;
+    }
+
+    preflight->info->last_import_account = account;
+    ++preflight->next_selection;
+    ofx_preflight_continue (preflight);
+}
+
+static void
+ofx_preflight_continue (OfxAccountPreflight *preflight)
+{
+    while (preflight->next_selection < preflight->selections.size ())
+    {
+        const auto& selection = preflight->selections[preflight->next_selection];
+        Account *account = gnc_import_select_account (NULL,
+                                                       selection.online_id.c_str (),
+                                                       FALSE, NULL, NULL,
+                                                       selection.account_type,
+                                                       NULL, NULL);
+        if (account)
+        {
+            preflight->info->last_import_account = account;
+            ++preflight->next_selection;
+            continue;
+        }
+
+        gnc_import_select_account_async (GTK_WIDGET (preflight->info->parent),
+                                         selection.online_id.c_str (), TRUE,
+                                         selection.description.c_str (),
+                                         selection.commodity,
+                                         selection.account_type,
+                                         NULL,
+                                         ofx_preflight_account_selected,
+                                         preflight);
+        return;
+    }
+
+    ofx_info *info = preflight->info;
+    delete preflight;
+    gnc_file_ofx_import_parse_current_file (info);
+}
+
+static void
+gnc_file_ofx_import_process_file (ofx_info *info)
+{
+    if (!info->file_list)
+        return;
+
+    /* LibOFX is synchronous. Collect account IDs first, then resolve every
+     * missing mapping through GTK4 callbacks before the mutating parse. */
+    auto *preflight = new OfxAccountPreflight { info, {}, 0 };
+    auto context = libofx_get_new_context ();
+    auto filename = static_cast<gchar*> (info->file_list->data);
+#ifdef G_OS_WIN32
+    auto parser_filename = g_win32_locale_filename_from_utf8 (filename);
+#else
+    auto parser_filename = filename;
+#endif
+
+    ofx_set_account_cb (context, ofx_collect_account_cb, preflight);
+    libofx_proc_file (context, parser_filename, AUTODETECT);
+    libofx_free_context (context);
+#ifdef G_OS_WIN32
+    g_free (parser_filename);
+#endif
+
+    /* This used to be delayed until libofx entered its account callback. It
+     * must run before an asynchronous picker can create the first account. */
+    if (gnc_is_new_book ())
+        gnc_new_book_option_display (GTK_WIDGET (gnc_ui_get_main_window (NULL)));
+    ofx_preflight_continue (preflight);
+}
+
+// Mutating parse after gnc_file_ofx_import_process_file has resolved all
+// top-level OFX account IDs.
+static void
+gnc_file_ofx_import_parse_current_file (ofx_info* info)
 {
     LibofxContextPtr libofx_context;
     char* filename = NULL;
@@ -1420,7 +1567,6 @@ gnc_file_ofx_import_process_file (ofx_info* info)
 
 #ifdef G_OS_WIN32
     selected_filename = g_win32_locale_filename_from_utf8 (filename);
-    g_free (filename);
 #else
     selected_filename = filename;
 #endif
@@ -1444,7 +1590,9 @@ gnc_file_ofx_import_process_file (ofx_info* info)
     // Free the libofx context before recursing to process the next file
     libofx_free_context(libofx_context);
     runMatcher(info, selected_filename,true);
+#ifdef G_OS_WIN32
     g_free(selected_filename);
+#endif
 }
 
 // The main import function. Starts the chain of file imports (if there are several)
