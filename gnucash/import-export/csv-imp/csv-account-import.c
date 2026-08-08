@@ -32,6 +32,7 @@
 
 #include "gnc-string-utils.h"
 #include "gnc-ui-util.h"
+#include "dialog-utils.h"
 #include <regex.h>
 #include "Account.h"
 #include "gnc-component-manager.h"
@@ -132,8 +133,8 @@ csv_import_read_file (GtkWindow *window, const gchar *filename,
                                          GTK_DIALOG_MODAL,
                                          GTK_MESSAGE_ERROR,
                                          GTK_BUTTONS_OK, "%s", errmsg);
-        gtk_dialog_run (GTK_DIALOG (dialog));
-        gtk_widget_destroy (dialog);
+        gnc_dialog_run (GTK_DIALOG(dialog));
+
         g_free (errmsg);
         g_free (contents);
 

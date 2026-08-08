@@ -406,7 +406,7 @@ init_match_picker_gui(GtkWidget *parent, GNCImportMatchPicker * matcher)
        ", clear_threshold:",matcher->clear_threshold,
        ", add_threshold:",matcher->add_threshold,
        ", display_threshold:",matcher->display_threshold); */
-    
+
     /* now that we've bound the checkbox appropriately we can hook up the
      * change callback */
     g_signal_connect ((GObject *)matcher->reconciled_chk, "toggled",
@@ -414,10 +414,10 @@ init_match_picker_gui(GtkWidget *parent, GNCImportMatchPicker * matcher)
 
     /* now that we've bound the checkbox appropriately we can hook up the change callback */
     g_signal_connect((GObject *)matcher->reconciled_chk, "toggled", G_CALLBACK(match_show_reconciled_changed_cb), matcher);
-    
+
     gnc_restore_window_size(GNC_PREFS_GROUP,
                             GTK_WINDOW (matcher->transaction_matcher), GTK_WINDOW(parent));
-    gtk_widget_show(matcher->transaction_matcher);
+    gtk_widget_set_visible (GTK_WIDGET(matcher->transaction_matcher), true);
 
     g_object_unref(G_OBJECT(builder));
 
@@ -441,9 +441,9 @@ gnc_import_match_picker_run_and_close (GtkWidget *parent, GNCImportTransInfo *tr
     /* Create a new match_picker, even though it's stored in a
        transmatcher struct :-) */
     matcher = g_new0(GNCImportMatchPicker, 1);
-    
+
     matcher->pending_matches = pending_matches;
-    
+
     /* DEBUG("Init match_picker"); */
     init_match_picker_gui(parent, matcher);
 
@@ -451,17 +451,20 @@ gnc_import_match_picker_run_and_close (GtkWidget *parent, GNCImportTransInfo *tr
     downloaded_transaction_append(matcher, transaction_info);
 
     old = gnc_import_TransInfo_get_selected_match (transaction_info);
-    old_selected_manually = 
+    old_selected_manually =
         gnc_import_TransInfo_get_match_selected_manually (transaction_info);
 
     /* Let this dialog run and close. */
     /*DEBUG("Right before run and close");*/
     gtk_window_set_modal(GTK_WINDOW(matcher->transaction_matcher), TRUE);
-    response = gtk_dialog_run (GTK_DIALOG (matcher->transaction_matcher));
-    
+
+//FIXME gtk4    response = gtk_dialog_run (GTK_DIALOG (matcher->transaction_matcher));
+gtk_window_set_modal (GTK_WINDOW(matcher->transaction_matcher), true); //FIXME gtk4
+response = GTK_RESPONSE_CANCEL; //FIXME gtk4
+
     gnc_save_window_size(GNC_PREFS_GROUP,
                          GTK_WINDOW (matcher->transaction_matcher));
-    gtk_widget_destroy (matcher->transaction_matcher);
+//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(matcher->transaction_matcher));
     /*DEBUG("Right after run and close");*/
     /* DEBUG("Response was %d.", response); */
     if (response == GTK_RESPONSE_OK && matcher->selected_match_info != old)
@@ -470,7 +473,7 @@ gnc_import_match_picker_run_and_close (GtkWidget *parent, GNCImportTransInfo *tr
         gnc_import_TransInfo_set_selected_match_info (transaction_info,
                 matcher->selected_match_info,
                 TRUE);
-        
+
         gnc_import_PendingMatches_remove_match (pending_matches,
                                                 old,
                                                 old_selected_manually);

@@ -40,6 +40,7 @@
 #include "gnc-date.h"
 #include "gnc-ui.h"
 #include "gnc-ui-util.h"
+#include "dialog-utils.h"
 #include "gnc-gui-query.h"
 #include "gncAddress.h"
 #include "gncVendorP.h"
@@ -143,8 +144,8 @@ gnc_bi_import_read_file (const gchar * filename, const gchar * parser_regexp,
                                          GTK_DIALOG_MODAL,
                                          GTK_MESSAGE_ERROR,
                                          GTK_BUTTONS_OK, "%s", errmsg);
-        gtk_dialog_run (GTK_DIALOG (dialog));
-        gtk_widget_destroy (dialog);
+        gnc_dialog_run (GTK_DIALOG(dialog));
+
         g_free (errmsg);
         errmsg = 0;
 
@@ -300,7 +301,7 @@ gnc_bi_import_fix_bis (GtkListStore * store, guint * n_rows_fixed, guint * n_row
     running_id = g_string_new("");
     ignore_invoice = FALSE;
     on_first_row_of_invoice = TRUE;
-    
+
     g_string_append_printf (info, _("Validation…\n") );
 
     // Walk through the list, reading each row.
@@ -734,8 +735,7 @@ gnc_bi_import_create_bis (GtkListStore * store, QofBook * book,
                                                      GTK_BUTTONS_YES_NO,
                                                      "%s",
                                                      _("Do you want to update existing bills/invoices?"));
-                    update = gtk_dialog_run (GTK_DIALOG (dialog));
-                    gtk_widget_destroy (dialog);
+                    update = gnc_dialog_run (GTK_DIALOG(dialog));
                 }
 
                 if (update == NO)
