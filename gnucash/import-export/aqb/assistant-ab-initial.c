@@ -100,9 +100,7 @@ static gchar *ab_account_longname(const GNC_AB_ACCOUNT_SPEC *ab_acc);
 static GNC_AB_ACCOUNT_SPEC *update_account_list_acc_cb(GNC_AB_ACCOUNT_SPEC *ab_acc, gpointer user_data);
 static void update_account_list(ABInitialInfo *info);
 static gboolean find_gnc_acc_cb(gpointer key, gpointer value, gpointer user_data);
-static gboolean clear_line_cb(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter, gpointer user_data);
-static void account_list_clicked_cb (GtkTreeView *view, GtkTreePath *path,
-                                     GtkTreeViewColumn  *col, gpointer user_data);
+static void account_list_clicked_cb (GtkColumnView *view, guint position, gpointer user_data);
 static void delete_account_match(ABInitialInfo *info, RevLookupData *data);
 static void delete_selected_match_cb(gpointer data, gpointer user_data);
 static void insert_acc_into_revhash_cb(gpointer ab_acc, gpointer gnc_acc, gpointer revhash);
@@ -118,8 +116,9 @@ struct _ABInitialInfo
 
     /* account match page */
     gboolean match_page_prepared;
-    GtkTreeView *account_view;
-    GtkListStore *account_store;
+    GtkColumnView *account_view;
+    GListStore *account_store;
+    GtkMultiSelection *account_selection;
 
     /* managed by child_exit_cb */
     DeferredInfo *deferred_info;
@@ -151,15 +150,88 @@ struct _RevLookupData
     GNC_AB_ACCOUNT_SPEC *ab_acc;
 };
 
-enum account_list_cols
+#define ACCOUNT_ROW_AB_ACCOUNT "ab-account"
+#define ACCOUNT_ROW_GNC_NAME "gnc-name"
+#define ACCOUNT_ROW_CHANGED "changed"
+
+static void
+account_row_factory_setup (GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data)
 {
-    ACCOUNT_LIST_COL_INDEX = 0,
-    ACCOUNT_LIST_COL_AB_NAME,
-    ACCOUNT_LIST_COL_AB_ACCT,
-    ACCOUNT_LIST_COL_GNC_NAME,
-    ACCOUNT_LIST_COL_CHECKED,
-    NUM_ACCOUNT_LIST_COLS
-};
+    GtkWidget *child;
+    if (GPOINTER_TO_INT (user_data) == 2)
+    {
+        child = gtk_check_button_new ();
+        gtk_widget_set_sensitive (child, FALSE);
+    }
+    else
+    {
+        child = gtk_label_new (NULL);
+        gtk_label_set_xalign (GTK_LABEL (child), 0.0);
+        gtk_label_set_ellipsize (GTK_LABEL (child), PANGO_ELLIPSIZE_END);
+    }
+    gtk_list_item_set_child (list_item, child);
+}
+
+static void
+account_row_factory_bind (GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data)
+{
+    GtkStringObject *row = GTK_STRING_OBJECT (gtk_list_item_get_item (list_item));
+    GtkWidget *child = gtk_list_item_get_child (list_item);
+    switch (GPOINTER_TO_INT (user_data))
+    {
+    case 0:
+        gtk_label_set_text (GTK_LABEL (child), gtk_string_object_get_string (row));
+        break;
+    case 1:
+        gtk_label_set_text (GTK_LABEL (child), g_object_get_data (G_OBJECT (row), ACCOUNT_ROW_GNC_NAME));
+        break;
+    default:
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (child),
+                                     GPOINTER_TO_INT (g_object_get_data (G_OBJECT (row), ACCOUNT_ROW_CHANGED)));
+        break;
+    }
+}
+
+static GtkColumnViewColumn *
+account_view_add_column (GtkColumnView *view, const gchar *title, gint column, gboolean expand)
+{
+    GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
+    GtkColumnViewColumn *result;
+    g_signal_connect (factory, "setup", G_CALLBACK (account_row_factory_setup), GINT_TO_POINTER (column));
+    g_signal_connect (factory, "bind", G_CALLBACK (account_row_factory_bind), GINT_TO_POINTER (column));
+    result = gtk_column_view_column_new (title, factory);
+    gtk_column_view_column_set_expand (result, expand);
+    gtk_column_view_append_column (view, result);
+    return result;
+}
+
+static gint
+account_row_index (ABInitialInfo *info, GNC_AB_ACCOUNT_SPEC *ab_acc)
+{
+    for (guint index = 0; index < g_list_model_get_n_items (G_LIST_MODEL (info->account_store)); index++)
+    {
+        GtkStringObject *row = g_list_model_get_item (G_LIST_MODEL (info->account_store), index);
+        gboolean found = aai_ab_account_equal (g_object_get_data (G_OBJECT (row), ACCOUNT_ROW_AB_ACCOUNT), ab_acc);
+        g_object_unref (row);
+        if (found)
+            return index;
+    }
+    return -1;
+}
+
+static void
+account_row_update (ABInitialInfo *info, GNC_AB_ACCOUNT_SPEC *ab_acc, const gchar *gnc_name)
+{
+    gint index = account_row_index (info, ab_acc);
+    if (index >= 0)
+    {
+        GtkStringObject *row = g_list_model_get_item (G_LIST_MODEL (info->account_store), index);
+        g_object_set_data_full (G_OBJECT (row), ACCOUNT_ROW_GNC_NAME, g_strdup (gnc_name), g_free);
+        g_object_set_data (G_OBJECT (row), ACCOUNT_ROW_CHANGED, GINT_TO_POINTER (TRUE));
+        g_list_model_items_changed (G_LIST_MODEL (info->account_store), index, 1, 1);
+        g_object_unref (row);
+    }
+}
 
 static gboolean
 aai_key_pressed_cb(GtkEventControllerKey *controller, guint keyval,
@@ -297,55 +369,37 @@ static void delete_account_match(ABInitialInfo *info, RevLookupData *data)
         info->account_view && data && data->ab_acc);
 
     g_hash_table_remove(info->gnc_hash, data->ab_acc);
-    gtk_tree_model_foreach(
-        GTK_TREE_MODEL(info->account_store),
-        (GtkTreeModelForeachFunc) clear_line_cb,
-        data);
+    account_row_update (info, data->ab_acc, "");
 }
 
 static void
 delete_selected_match_cb(gpointer data, gpointer user_data)
 {
-    GtkTreeIter iter;
-    GtkTreeModel *model = NULL;
     RevLookupData revLookupData = {NULL, NULL};
-
-    GtkTreePath *path = (GtkTreePath *) data;
     ABInitialInfo *info = (ABInitialInfo *) user_data;
-    g_return_if_fail(path && info && info->account_view);
-
-    model = gtk_tree_view_get_model(info->account_view);
-    g_return_if_fail(model);
-
-    if (gtk_tree_model_get_iter(model, &iter, path))
-    {
-        gtk_tree_model_get(model, &iter, ACCOUNT_LIST_COL_AB_ACCT, &revLookupData.ab_acc, -1);
-        if (revLookupData.ab_acc)
-            delete_account_match(info, &revLookupData);
-    }
+    GtkStringObject *row = data;
+    g_return_if_fail(row && info && info->account_view);
+    revLookupData.ab_acc = g_object_get_data (G_OBJECT (row), ACCOUNT_ROW_AB_ACCOUNT);
+    if (revLookupData.ab_acc)
+        delete_account_match(info, &revLookupData);
 }
 
 void
 aai_match_delete_button_clicked_cb(GtkButton *button, gpointer user_data)
 {
-    GList *selected_matches = NULL;
-    GtkTreeSelection *selection = NULL;
     ABInitialInfo *info = (ABInitialInfo *) user_data;
 
     g_return_if_fail(info && info->api && info->account_view && info->gnc_hash);
 
     PINFO("Selected account matches are deleted");
 
-    selection = gtk_tree_view_get_selection (info->account_view);
-    if (selection)
+    for (guint index = 0; index < g_list_model_get_n_items (G_LIST_MODEL (info->account_store)); index++)
     {
-        selected_matches = gtk_tree_selection_get_selected_rows (selection, NULL);
-        if (selected_matches)
+        if (gtk_selection_model_is_selected (GTK_SELECTION_MODEL (info->account_selection), index))
         {
-            g_list_foreach (selected_matches, delete_selected_match_cb, info);
-            g_list_free_full (
-                selected_matches,
-                (GDestroyNotify) gtk_tree_path_free);
+            GtkStringObject *row = g_list_model_get_item (G_LIST_MODEL (info->account_store), index);
+            delete_selected_match_cb (row, info);
+            g_object_unref (row);
         }
     }
 }
@@ -501,7 +555,7 @@ update_account_list_acc_cb(GNC_AB_ACCOUNT_SPEC *ab_acc, gpointer user_data)
     ABInitialInfo *info = user_data;
     gchar *gnc_name, *ab_name;
     Account *gnc_acc;
-    GtkTreeIter iter;
+    GtkStringObject *row;
 
     g_return_val_if_fail(ab_acc && info, NULL);
 
@@ -517,13 +571,12 @@ update_account_list_acc_cb(GNC_AB_ACCOUNT_SPEC *ab_acc, gpointer user_data)
         gnc_name = g_strdup("");
 
     /* Add item to the list store */
-    gtk_list_store_append(info->account_store, &iter);
-    gtk_list_store_set(info->account_store, &iter,
-                       ACCOUNT_LIST_COL_AB_NAME, ab_name,
-                       ACCOUNT_LIST_COL_AB_ACCT, ab_acc,
-                       ACCOUNT_LIST_COL_GNC_NAME, gnc_name,
-                       ACCOUNT_LIST_COL_CHECKED, FALSE,
-                       -1);
+    row = gtk_string_object_new (ab_name);
+    g_object_set_data (G_OBJECT (row), ACCOUNT_ROW_AB_ACCOUNT, ab_acc);
+    g_object_set_data_full (G_OBJECT (row), ACCOUNT_ROW_GNC_NAME, g_strdup (gnc_name), g_free);
+    g_object_set_data (G_OBJECT (row), ACCOUNT_ROW_CHANGED, GINT_TO_POINTER (FALSE));
+    g_list_store_append (info->account_store, row);
+    g_object_unref (row);
     g_free(gnc_name);
     g_free(ab_name);
 
@@ -537,23 +590,14 @@ update_account_list(ABInitialInfo *info)
 
     g_return_if_fail(info && info->api && info->gnc_hash);
 
-    /* Detach model from view while updating */
-    g_object_ref(info->account_store);
-    gtk_tree_view_set_model(info->account_view, NULL);
-
     /* Refill the list */
-    gtk_list_store_clear(info->account_store);
+    g_list_store_remove_all (info->account_store);
     if (AB_Banking_GetAccountSpecList(info->api, &acclist) >= 0 && acclist)
         AB_AccountSpec_List_ForEach(acclist, update_account_list_acc_cb, info);
     else
         g_warning("update_account_list: Oops, account list from AB_Banking "
                   "is NULL");
 
-    /* Attach model to view again */
-    gtk_tree_view_set_model(info->account_view,
-                            GTK_TREE_MODEL(info->account_store));
-
-    g_object_unref(info->account_store);
 }
 
 static gboolean
@@ -571,34 +615,11 @@ find_gnc_acc_cb(gpointer key, gpointer value, gpointer user_data)
     return FALSE;
 }
 
-static gboolean
-clear_line_cb(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter,
-              gpointer user_data)
-{
-    RevLookupData *data = user_data;
-    GtkListStore *store = GTK_LIST_STORE(model);
-    gpointer ab_acc;
-
-    g_return_val_if_fail(data && store, FALSE);
-
-    gtk_tree_model_get(model, iter, ACCOUNT_LIST_COL_AB_ACCT, &ab_acc, -1);
-
-    if (aai_ab_account_equal(ab_acc, data->ab_acc))
-    {
-        gtk_list_store_set(store, iter, ACCOUNT_LIST_COL_GNC_NAME, "",
-                           ACCOUNT_LIST_COL_CHECKED, TRUE, -1);
-        return TRUE;
-    }
-    return FALSE;
-}
-
 static void
-account_list_clicked_cb (GtkTreeView *view, GtkTreePath *path,
-                         GtkTreeViewColumn  *col, gpointer user_data)
+account_list_clicked_cb (GtkColumnView *view, guint position, gpointer user_data)
 {
     ABInitialInfo *info = user_data;
-    GtkTreeModel *model;
-    GtkTreeIter iter;
+    GtkStringObject *row;
     GNC_AB_ACCOUNT_SPEC *ab_acc;
     gchar *longname, *gnc_name;
     Account *old_value, *gnc_acc;
@@ -610,12 +631,10 @@ account_list_clicked_cb (GtkTreeView *view, GtkTreePath *path,
 
     PINFO("Row has been double-clicked.");
 
-    model = gtk_tree_view_get_model(view);
-
-    if (!gtk_tree_model_get_iter(model, &iter, path))
-        return; /* path describes a non-existing row - should not happen */
-
-    gtk_tree_model_get(model, &iter, ACCOUNT_LIST_COL_AB_ACCT, &ab_acc, -1);
+    row = g_list_model_get_item (G_LIST_MODEL (info->account_store), position);
+    if (!row)
+        return;
+    ab_acc = g_object_get_data (G_OBJECT (row), ACCOUNT_ROW_AB_ACCOUNT);
 
     if (ab_acc)
     {
@@ -653,23 +672,18 @@ account_list_clicked_cb (GtkTreeView *view, GtkTreePath *path,
                 /* Map ab_acc to gnc_acc */
                 g_hash_table_insert(info->gnc_hash, ab_acc, gnc_acc);
                 gnc_name = gnc_account_get_full_name(gnc_acc);
-                gtk_list_store_set(info->account_store, &iter,
-                                   ACCOUNT_LIST_COL_GNC_NAME, gnc_name,
-                                   ACCOUNT_LIST_COL_CHECKED, TRUE,
-                                   -1);
+                account_row_update (info, ab_acc, gnc_name);
                 g_free(gnc_name);
 
             }
             else
             {
                 g_hash_table_remove(info->gnc_hash, ab_acc);
-                gtk_list_store_set(info->account_store, &iter,
-                                   ACCOUNT_LIST_COL_GNC_NAME, "",
-                                   ACCOUNT_LIST_COL_CHECKED, TRUE,
-                                   -1);
+                account_row_update (info, ab_acc, "");
             }
         }
     }
+    g_object_unref (row);
 }
 
 static void
@@ -748,8 +762,6 @@ static ABInitialInfo *
 gnc_ab_initial_assistant_new(void)
 {
     GtkBuilder *builder;
-    GtkTreeViewColumn *column;
-    GtkTreeSelection *selection;
     gint component_id;
 
     ABInitialInfo *info = g_new0(ABInitialInfo, 1);
@@ -764,40 +776,21 @@ gnc_ab_initial_assistant_new(void)
     info->gnc_hash = NULL;
 
     info->match_page_prepared = FALSE;
-    info->account_view =
-        GTK_TREE_VIEW(gtk_builder_get_object (builder, "account_page_view"));
-
-    info->account_store = gtk_list_store_new(NUM_ACCOUNT_LIST_COLS,
-                          G_TYPE_INT, G_TYPE_STRING,
-                          G_TYPE_POINTER, G_TYPE_STRING,
-                          G_TYPE_BOOLEAN);
-    gtk_tree_view_set_model(info->account_view,
-                            GTK_TREE_MODEL(info->account_store));
-    g_object_unref(info->account_store);
-
-    column = gtk_tree_view_column_new_with_attributes(
-                 _("Online Banking Account Name"), gtk_cell_renderer_text_new(),
-                 "text", ACCOUNT_LIST_COL_AB_NAME, (gchar*) NULL);
-    gtk_tree_view_append_column(info->account_view, column);
-
-    column = gtk_tree_view_column_new_with_attributes(
-                 _("GnuCash Account Name"), gtk_cell_renderer_text_new(),
-                 "text", ACCOUNT_LIST_COL_GNC_NAME, (gchar*) NULL);
-    gtk_tree_view_column_set_expand(column, TRUE);
-    gtk_tree_view_append_column(info->account_view, column);
-
-    column = gtk_tree_view_column_new_with_attributes(
-                 _("New?"), gtk_cell_renderer_toggle_new(),
-                 "active", ACCOUNT_LIST_COL_CHECKED, (gchar*) NULL);
-    gtk_tree_view_append_column(info->account_view, column);
-
-    selection = gtk_tree_view_get_selection(info->account_view);
-    gtk_tree_selection_set_mode (selection, GTK_SELECTION_MULTIPLE);
+    info->account_store = g_list_store_new (GTK_TYPE_STRING_OBJECT);
+    info->account_selection = gtk_multi_selection_new (G_LIST_MODEL (info->account_store));
+    info->account_view = GTK_COLUMN_VIEW (gtk_column_view_new (
+        GTK_SELECTION_MODEL (info->account_selection)));
+    account_view_add_column (info->account_view, _("Online Banking Account Name"), 0, FALSE);
+    account_view_add_column (info->account_view, _("GnuCash Account Name"), 1, TRUE);
+    account_view_add_column (info->account_view, _("New?"), 2, FALSE);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (gtk_builder_get_object (
+                                       builder, "account_scrolledwindow")),
+                                   GTK_WIDGET (info->account_view));
 
     gnc_restore_window_size (GNC_PREFS_GROUP,
                              GTK_WINDOW(info->window), gnc_ui_get_main_window(NULL));
 
-    g_signal_connect(info->account_view, "row-activated",
+    g_signal_connect(info->account_view, "activate",
                      G_CALLBACK(account_list_clicked_cb), info);
 
     {
