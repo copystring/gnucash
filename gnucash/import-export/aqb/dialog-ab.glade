@@ -1139,18 +1139,6 @@
       </object>
     </child>
   </object>
-  <object class="GtkListStore" id="imexporter-list">
-    <columns>
-      <column type="gchararray"/>
-      <column type="gchararray"/>
-    </columns>
-  </object>
-  <object class="GtkListStore" id="profile-list">
-    <columns>
-      <column type="gchararray"/>
-      <column type="gchararray"/>
-    </columns>
-  </object>
   <object class="GtkDialog" id="aqbanking-select-imexporter-dialog">
 <property name="title" translatable="1">Select File Import Format and Template</property>
 <child internal-child="content_area">
@@ -1161,80 +1149,28 @@
             <property name="vexpand">1</property>
 <property name="spacing">18</property>
             <child>
-              <object class="GtkScrolledWindow">
+              <object class="GtkScrolledWindow" id="imexporter-scroll">
                 <property name="focusable">1</property>
                 <property name="hscrollbar-policy">never</property>
 <property name="min-content-height">300</property>
                 <property name="child">
-                  <object class="GtkTreeView" id="imexporter-sel">
-                    <property name="model">imexporter-list</property>
+                  <object class="GtkBox" id="imexporter-placeholder">
                     <property name="focusable">1</property>
                     <property name="tooltip-text" translatable="1">This list contains the file formats that AqBanking knows how to import. The profile list contains specializations and is populated according to which format you select in this list.</property>
-                    <child>
-                      <object class="GtkTreeViewColumn" id="imexporter-name">
-                        <property name="title" translatable="1">File Format</property>
-                        <child>
-                          <object class="GtkCellRendererText"/>
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkTreeViewColumn" id="imexporter-descr">
-                        <property name="title" translatable="1">Description</property>
-                        <child>
-                          <object class="GtkCellRendererText"/>
-                          <attributes>
-                            <attribute name="text">1</attribute>
-                          </attributes>
-                        </child>
-                      </object>
-                    </child>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="imex-selection"/>
-                    </child>
                   </object>
                 </property>
               </object>
             </child>
             <child>
-              <object class="GtkScrolledWindow">
+              <object class="GtkScrolledWindow" id="profile-scroll">
                 <property name="focusable">1</property>
                 <property name="hscrollbar-policy">never</property>
 <property name="min-content-height">300</property>
                 <property name="child">
-                  <object class="GtkTreeView" id="profile-sel">
-                    <property name="model">profile-list</property>
+                  <object class="GtkBox" id="profile-placeholder">
                     <property name="focusable">1</property>
                     <property name="tooltip-text" translatable="1">This lists one or more specialization templates that adjust the import for different banks&apos; uses of fields in the selected import format.</property>
                     <property name="width-request">400</property>
-                    <child>
-                      <object class="GtkTreeViewColumn" id="profile-name">
-                        <property name="title" translatable="1">Profiles</property>
-                        <child>
-                          <object class="GtkCellRendererText"/>
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkTreeViewColumn" id="profile-descr">
-                        <property name="title" translatable="1">Description</property>
-                        <child>
-                          <object class="GtkCellRendererText"/>
-                          <attributes>
-                            <attribute name="text">1</attribute>
-                          </attributes>
-                        </child>
-                      </object>
-                    </child>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="prof-selection"/>
-                    </child>
                   </object>
                 </property>
               </object>

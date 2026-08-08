@@ -39,8 +39,10 @@ struct _GncABSelectImExDlg
 {
     GtkWidget *dialog;
     GtkWidget *parent;
-    GtkListStore *imexporter_list;
-    GtkListStore *profile_list;
+    GtkStringList *imexporter_list;
+    GtkStringList *profile_list;
+    GtkSingleSelection *imexporter_selection;
+    GtkSingleSelection *profile_selection;
     GtkWidget *select_imexporter;
     GtkWidget *select_profile;
     GtkWidget *ok_button;
@@ -49,9 +51,10 @@ struct _GncABSelectImExDlg
 };
 
 // Expose the selection handlers to GtkBuilder.
-static gboolean imexporter_changed(GtkTreeSelection* sel,
-                                   gpointer data);
-static gboolean profile_changed(GtkTreeSelection* sel, gpointer data);
+static void imexporter_changed (GtkSelectionModel *selection, guint position,
+                                guint n_items, gpointer data);
+static void profile_changed (GtkSelectionModel *selection, guint position,
+                             guint n_items, gpointer data);
 
 static void
 clear_widget_pointer (GtkWidget *widget, gpointer data)
@@ -66,21 +69,67 @@ enum
     PROF_COL
 };
 
-static void
-populate_list_store (GtkListStore* model, GList* entries)
+static guint
+populate_list_store (GtkStringList *model, GList *entries)
 {
-    gtk_list_store_clear (model);
+    guint count = 0;
+    gtk_string_list_splice (model, 0, g_list_model_get_n_items (G_LIST_MODEL (model)), NULL);
     for (GList* node = entries; node; node = g_list_next (node))
     {
         AB_Node_Pair *pair = (AB_Node_Pair*)(node->data);
-        GtkTreeIter iter;
-        gtk_list_store_insert_with_values (GTK_LIST_STORE (model),
-                                           &iter, -1,
-                                           NAME_COL, pair->name,
-                                           PROF_COL, pair->descr,
-                                           -1);
+        GtkStringObject *item;
+        gtk_string_list_append (model, pair->name);
+        item = g_list_model_get_item (G_LIST_MODEL (model), count++);
+        g_object_set_data_full (G_OBJECT (item), "description", g_strdup (pair->descr), g_free);
+        g_object_unref (item);
         g_slice_free1 (sizeof(AB_Node_Pair), pair);
     }
+    return count;
+}
+
+static void
+text_factory_setup (GtkListItemFactory *factory, GtkListItem *list_item, gpointer)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (list_item, label);
+}
+
+static void
+text_factory_bind (GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data)
+{
+    GtkStringObject *item = GTK_STRING_OBJECT (gtk_list_item_get_item (list_item));
+    const gchar *text = GPOINTER_TO_INT (user_data)
+        ? g_object_get_data (G_OBJECT (item), "description")
+        : gtk_string_object_get_string (item);
+    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (list_item)), text ? text : "");
+}
+
+static GtkWidget *
+create_selection_view (GtkStringList *list, GtkSingleSelection **selection_out,
+                       const gchar *first_title)
+{
+    GtkSingleSelection *selection = gtk_single_selection_new (G_LIST_MODEL (list));
+    GtkWidget *view = gtk_column_view_new (GTK_SELECTION_MODEL (selection));
+    GtkListItemFactory *name_factory = gtk_signal_list_item_factory_new ();
+    GtkListItemFactory *description_factory = gtk_signal_list_item_factory_new ();
+    GtkColumnViewColumn *column;
+
+    gtk_single_selection_set_autoselect (selection, FALSE);
+    g_signal_connect (name_factory, "setup", G_CALLBACK (text_factory_setup), NULL);
+    g_signal_connect (name_factory, "bind", G_CALLBACK (text_factory_bind), NULL);
+    column = gtk_column_view_column_new (first_title, name_factory);
+    gtk_column_view_append_column (GTK_COLUMN_VIEW (view), column);
+
+    g_signal_connect (description_factory, "setup", G_CALLBACK (text_factory_setup), NULL);
+    g_signal_connect (description_factory, "bind", G_CALLBACK (text_factory_bind), GINT_TO_POINTER (1));
+    column = gtk_column_view_column_new (_("Description"), description_factory);
+    gtk_column_view_column_set_expand (column, TRUE);
+    gtk_column_view_append_column (GTK_COLUMN_VIEW (view), column);
+
+    *selection_out = selection;
+    return view;
 }
 
 GncABSelectImExDlg*
@@ -89,7 +138,6 @@ gnc_ab_select_imex_dlg_new (GtkWidget* parent, AB_BANKING* abi)
     GncABSelectImExDlg* imexd;
     GtkBuilder* builder;
     GList* imexporters;
-    GtkTreeSelection *imex_select = NULL, *prof_select = NULL;
 
     g_return_val_if_fail (abi, NULL);
     imexporters = gnc_ab_imexporter_list (abi);
@@ -99,8 +147,6 @@ gnc_ab_select_imex_dlg_new (GtkWidget* parent, AB_BANKING* abi)
     imexd->abi = abi;
 
     builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-ab.glade", "imexporter-list");
-    gnc_builder_add_from_file (builder, "dialog-ab.glade", "profile-list");
     gnc_builder_add_from_file (builder, "dialog-ab.glade",
                                "aqbanking-select-imexporter-dialog");
     imexd->dialog =
@@ -108,25 +154,27 @@ gnc_ab_select_imex_dlg_new (GtkWidget* parent, AB_BANKING* abi)
                                             "aqbanking-select-imexporter-dialog"));
     g_signal_connect (imexd->dialog, "destroy",
                       G_CALLBACK (clear_widget_pointer), &imexd->dialog);
-    imexd->imexporter_list =
-        GTK_LIST_STORE (gtk_builder_get_object (builder, "imexporter-list"));
-    imexd->profile_list =
-        GTK_LIST_STORE (gtk_builder_get_object (builder, "profile-list"));
-    imexd->select_imexporter =
-        GTK_WIDGET (gtk_builder_get_object (builder, "imexporter-sel"));
-    imexd->select_profile =
-        GTK_WIDGET (gtk_builder_get_object (builder, "profile-sel"));
+    imexd->imexporter_list = gtk_string_list_new (NULL);
+    imexd->profile_list = gtk_string_list_new (NULL);
+    imexd->select_imexporter = create_selection_view (imexd->imexporter_list,
+                                                       &imexd->imexporter_selection,
+                                                       _("File Format"));
+    imexd->select_profile = create_selection_view (imexd->profile_list,
+                                                   &imexd->profile_selection,
+                                                   _("Profiles"));
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (gtk_builder_get_object (
+                                       builder, "imexporter-scroll")), imexd->select_imexporter);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (gtk_builder_get_object (
+                                       builder, "profile-scroll")), imexd->select_profile);
     imexd->ok_button =
         GTK_WIDGET (gtk_builder_get_object (builder, "imex-okbutton"));
 
-    imex_select = GTK_TREE_SELECTION (gtk_builder_get_object (builder, "imex-selection"));
-    prof_select = GTK_TREE_SELECTION (gtk_builder_get_object (builder, "prof-selection"));
     populate_list_store (imexd->imexporter_list,
                          imexporters);
 
-    g_signal_connect (imex_select, "changed", G_CALLBACK(imexporter_changed),
+    g_signal_connect (imexd->imexporter_selection, "selection-changed", G_CALLBACK(imexporter_changed),
                       imexd);
-    g_signal_connect (prof_select, "changed", G_CALLBACK(profile_changed),
+    g_signal_connect (imexd->profile_selection, "selection-changed", G_CALLBACK(profile_changed),
                       imexd);
     g_list_free (imexporters);
     g_object_unref (G_OBJECT (builder));
@@ -142,10 +190,12 @@ gnc_ab_select_imex_dlg_destroy (GncABSelectImExDlg* imexd)
 {
 
     if (imexd->imexporter_list)
-        gtk_list_store_clear (imexd->imexporter_list);
+        gtk_string_list_splice (imexd->imexporter_list, 0,
+                                g_list_model_get_n_items (G_LIST_MODEL (imexd->imexporter_list)), NULL);
 
     if (imexd->profile_list)
-        gtk_list_store_clear (imexd->profile_list);
+        gtk_string_list_splice (imexd->profile_list, 0,
+                                g_list_model_get_n_items (G_LIST_MODEL (imexd->profile_list)), NULL);
 
     if (imexd->dialog)
         gtk_window_destroy (GTK_WINDOW(imexd->dialog));
@@ -153,66 +203,54 @@ gnc_ab_select_imex_dlg_destroy (GncABSelectImExDlg* imexd)
     g_free (imexd);
 }
 
-gboolean
-imexporter_changed(GtkTreeSelection* sel, gpointer data)
+void
+imexporter_changed (GtkSelectionModel *selection, guint, guint, gpointer data)
 {
     GncABSelectImExDlg* imexd = (GncABSelectImExDlg*)data;
-    GtkTreeIter iter;
-    GtkTreeModel* model;
+    GtkStringObject *item;
 
     gtk_widget_set_sensitive (imexd->ok_button, FALSE);
 
-    if (gtk_tree_selection_get_selected (sel, &model, &iter))
+    item = gtk_single_selection_get_selected_item (GTK_SINGLE_SELECTION (selection));
+    if (item)
     {
-        char* name = NULL;
         GList* profiles = NULL;
+        guint profile_count;
+        const char *name = gtk_string_object_get_string (item);
 
-        gtk_tree_model_get (model, &iter, NAME_COL, &name, -1);
         if (name && *name)
             profiles = gnc_ab_imexporter_profile_list (imexd->abi, name);
 
-        g_free (name);
-        gtk_list_store_clear (imexd->profile_list);
+        gtk_string_list_splice (imexd->profile_list, 0,
+                                g_list_model_get_n_items (G_LIST_MODEL (imexd->profile_list)), NULL);
 
         if (profiles)
         {
-             populate_list_store (imexd->profile_list, profiles);
+             profile_count = populate_list_store (imexd->profile_list, profiles);
         }
         else
         {
             gtk_widget_set_sensitive (imexd->ok_button, TRUE);
-            return FALSE;
+            g_object_unref (item);
+            return;
         }
 
-        if (!profiles->next)
-        {
-            GtkTreePath* path = gtk_tree_path_new_first();
-            GtkTreeSelection* profile_sel =
-                gtk_tree_view_get_selection (GTK_TREE_VIEW (imexd->select_profile));
-            gtk_tree_selection_select_path (profile_sel, path); //should call profile_changed
-            gtk_tree_path_free (path);
-        }
-        return FALSE;
+        if (profile_count == 1)
+            gtk_single_selection_set_selected (imexd->profile_selection, 0);
+        g_list_free (profiles);
+        g_object_unref (item);
+        return;
     }
-    return TRUE;
 }
 
-gboolean
-profile_changed (GtkTreeSelection* sel, gpointer data)
+void
+profile_changed (GtkSelectionModel *selection, guint, guint, gpointer data)
 {
     GncABSelectImExDlg* imexd = (GncABSelectImExDlg*)data;
-    GtkTreeIter iter;
-    GtkTreeModel* model;
 
-    gtk_widget_set_sensitive (imexd->ok_button, FALSE);
-
-    if (gtk_tree_selection_get_selected (sel, &model, &iter))
-    {
-        gtk_widget_set_sensitive (imexd->ok_button, TRUE);
-        return FALSE;
-    }
-
-    return TRUE;
+    gtk_widget_set_sensitive (imexd->ok_button,
+                              gtk_single_selection_get_selected (GTK_SINGLE_SELECTION (selection))
+                              != GTK_INVALID_LIST_POSITION);
 }
 
 gboolean
@@ -224,71 +262,53 @@ gnc_ab_select_imex_dlg_run (GncABSelectImExDlg* imexd)
 }
 
 static char*
-tree_view_get_name (GtkTreeView *tv)
+selection_get_name (GtkSingleSelection *selection)
 {
-    GtkTreeSelection* sel = gtk_tree_view_get_selection (tv);
-    GtkTreeIter iter;
-    GtkTreeModel* model;
-    if (sel && gtk_tree_selection_get_selected (sel, &model, &iter))
-    {
-        char* name;
-        gtk_tree_model_get(model, &iter, NAME_COL, &name, -1);
-        return name;
-    }
-
-    return NULL;
+    GtkStringObject *item = gtk_single_selection_get_selected_item (selection);
+    char *name = item ? g_strdup (gtk_string_object_get_string (item)) : NULL;
+    g_clear_object (&item);
+    return name;
 }
 
 static void
-tree_view_set_name (GtkTreeView *tree, const char* name)
+selection_set_name (GtkSingleSelection *selection, const char* name)
 {
-    GtkTreeIter iter;
-    GtkTreeModel* model = gtk_tree_view_get_model(tree);
-    bool found = false;
-
-    if (!gtk_tree_model_get_iter_first(model, &iter))
-        return;
-    do
+    GListModel *model = gtk_single_selection_get_model (selection);
+    for (guint index = 0; index < g_list_model_get_n_items (model); index++)
     {
-        char* row_name;
-        gtk_tree_model_get(model, &iter, NAME_COL, &row_name, -1);
-        if (!g_strcmp0(name, row_name))
+        GtkStringObject *item = g_list_model_get_item (model, index);
+        if (!g_strcmp0(name, gtk_string_object_get_string (item)))
         {
-            found = true;
+            gtk_single_selection_set_selected (selection, index);
+            g_object_unref (item);
             break;
         }
-    }
-    while(gtk_tree_model_iter_next(model, &iter));
-
-    if (found)
-    {
-        GtkTreeSelection *sel = gtk_tree_view_get_selection(tree);
-        gtk_tree_selection_select_iter(sel, &iter);
+        g_object_unref (item);
     }
 }
 
 char*
 gnc_ab_select_imex_dlg_get_imexporter_name (GncABSelectImExDlg* imexd)
 {
-    return tree_view_get_name (GTK_TREE_VIEW (imexd->select_imexporter));
+    return selection_get_name (imexd->imexporter_selection);
 }
 
 char*
 gnc_ab_select_imex_dlg_get_profile_name (GncABSelectImExDlg* imexd)
 {
-    return tree_view_get_name (GTK_TREE_VIEW (imexd->select_profile));
+    return selection_get_name (imexd->profile_selection);
 }
 
 void
 gnc_ab_select_imex_dlg_set_imexporter_name (GncABSelectImExDlg* imexd, const char* name)
 {
     if (name)
-        tree_view_set_name (GTK_TREE_VIEW (imexd->select_imexporter), name);
+        selection_set_name (imexd->imexporter_selection, name);
 }
 
 void
 gnc_ab_select_imex_dlg_set_profile_name (GncABSelectImExDlg* imexd, const char* name)
 {
     if (name)
-        tree_view_set_name (GTK_TREE_VIEW (imexd->select_profile), name);
+        selection_set_name (imexd->profile_selection, name);
 }
