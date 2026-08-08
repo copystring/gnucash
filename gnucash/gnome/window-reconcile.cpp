@@ -1249,10 +1249,10 @@ gnc_reconcile_window_create_view_box(Account *account,
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW (scrollWin),
                                    GTK_POLICY_AUTOMATIC,
                                    GTK_POLICY_AUTOMATIC);
-    gtk_container_set_border_width(GTK_CONTAINER(scrollWin), 5);
+    gnc_widget_set_all_margins (scrollWin, 5);
 
-    gtk_container_add(GTK_CONTAINER(frame), scrollWin);
-    gtk_container_add(GTK_CONTAINER(scrollWin), view);
+    gtk_frame_set_child (GTK_FRAME(frame), scrollWin);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(scrollWin), view);
     gnc_box_append_full(GTK_BOX(vbox), frame, TRUE, TRUE, 0);
 
     // get the vertical scroll bar width
@@ -1931,7 +1931,7 @@ recnWindowWithBalance (GtkWidget *parent, Account *account, gnc_numeric new_endi
 
     vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (vbox), FALSE);
-    gtk_container_add(GTK_CONTAINER(recnData->window), vbox);
+    gtk_window_set_child (GTK_WINDOW(recnData->window), vbox);
 
     // Set the name for this dialog so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(recnData->window), "gnc-id-reconcile");
@@ -1975,7 +1975,7 @@ recnWindowWithBalance (GtkWidget *parent, Account *account, gnc_numeric new_endi
 
         menu_model = (GMenuModel *)gtk_builder_get_object (recnData->builder, "recwin-menu");
         menu_bar = gtk_menu_bar_new_from_model (menu_model);
-        gtk_container_add (GTK_CONTAINER(vbox), menu_bar);
+        gtk_box_append (GTK_BOX(vbox), menu_bar);
 #ifdef MAC_INTEGRATION
         auto theApp = static_cast<GtkosxApplication*>(g_object_new (GTKOSX_TYPE_APPLICATION, NULL));
         gtk_widget_hide (menu_bar);
@@ -1991,7 +1991,7 @@ recnWindowWithBalance (GtkWidget *parent, Account *account, gnc_numeric new_endi
         gtk_toolbar_set_icon_size (GTK_TOOLBAR(tool_bar),
                                    GTK_ICON_SIZE_SMALL_TOOLBAR);
 
-        gtk_container_add (GTK_CONTAINER(vbox), GTK_WIDGET(tool_bar));
+        gtk_box_append (GTK_BOX(vbox), GTK_WIDGET(tool_bar));
 
         gtk_window_add_accel_group (GTK_WINDOW(recnData->window), recnData->accel_group);
 
@@ -2061,8 +2061,7 @@ has splits whose Reconciled Date is after this reconciliation statement date. \
 These splits may make reconciliation difficult. If this is the case, you may \
 use Find Transactions to find them, unreconcile, and re-reconcile."));
 
-            gnc_box_append_full (GTK_BOX(box), image, FALSE, FALSE, 0);
-            gtk_box_reorder_child (GTK_BOX(box), image, 0);
+            gtk_box_prepend (GTK_BOX(box), image);
 
             g_free (datestr);
             g_free (recnstr);
@@ -2085,8 +2084,8 @@ use Find Transactions to find them, unreconcile, and re-reconcile."));
         gnc_restore_window_size (GNC_PREFS_GROUP_RECONCILE,
                                  GTK_WINDOW(recnData->window), GTK_WINDOW(parent));
 
-        gtk_container_add(GTK_CONTAINER(frame), main_area);
-        gtk_container_set_border_width(GTK_CONTAINER(main_area), 10);
+        gtk_frame_set_child (GTK_FRAME(frame), main_area);
+        gnc_widget_set_all_margins (main_area, 10);
 
         debits_box = gnc_reconcile_window_create_view_box
                      (account, RECLIST_DEBIT, recnData,
@@ -2140,8 +2139,8 @@ use Find Transactions to find them, unreconcile, and re-reconcile."));
             /* hbox to hold title/value vboxes */
             totals_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 3);
             gtk_box_set_homogeneous (GTK_BOX (totals_hbox), FALSE);
-            gtk_container_add(GTK_CONTAINER(frame), totals_hbox);
-            gtk_container_set_border_width(GTK_CONTAINER(totals_hbox), 5);
+            gtk_frame_set_child (GTK_FRAME(frame), totals_hbox);
+            gnc_widget_set_all_margins (totals_hbox, 5);
 
             /* vbox to hold titles */
             title_vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 3);

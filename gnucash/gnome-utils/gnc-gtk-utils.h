@@ -63,6 +63,9 @@ void gnc_box_append_full (GtkBox *box, GtkWidget *child, gboolean expand,
 void gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
                            gboolean fill, guint padding);
 
+/** Set the four GTK4 widget margins corresponding to a legacy container border. */
+void gnc_widget_set_all_margins (GtkWidget *widget, gint margin);
+
 gboolean gnc_is_dark_theme (GdkRGBA *fg_color);
 void gnc_style_context_get_background_color (GtkStyleContext *context,
                                              GdkRGBA         *color);

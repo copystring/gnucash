@@ -3834,7 +3834,7 @@ gnc_main_window_update_toolbar (GncMainWindow *window, GncPluginPage *page,
     if (builder)
     {
         gchar *toolbar_name;
-        gtk_container_remove (GTK_CONTAINER(priv->menu_dock), priv->toolbar);
+        gtk_box_remove (GTK_BOX(priv->menu_dock), priv->toolbar);
 
         if (toolbar_qualifier)
             toolbar_name = g_strconcat ("mainwin-toolbar-", toolbar_qualifier, nullptr);
@@ -3847,7 +3847,7 @@ gnc_main_window_update_toolbar (GncMainWindow *window, GncPluginPage *page,
             priv->toolbar = (GtkWidget *)gtk_builder_get_object (builder, "mainwin-toolbar");
 
         g_object_set (priv->toolbar, "toolbar-style", GTK_TOOLBAR_BOTH, NULL);
-        gtk_container_add (GTK_CONTAINER(priv->menu_dock), priv->toolbar);
+        gtk_box_append (GTK_BOX(priv->menu_dock), priv->toolbar);
         g_free (toolbar_name);
     }
 
@@ -4201,7 +4201,7 @@ gnc_main_window_setup_window (GncMainWindow *window)
     main_vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (main_vbox), FALSE);
     gtk_widget_show (main_vbox);
-    gtk_container_add (GTK_CONTAINER (window), main_vbox);
+    gtk_window_set_child (GTK_WINDOW(window), main_vbox);
 
     priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
     priv->menu_dock = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
@@ -4257,12 +4257,12 @@ gnc_main_window_setup_window (GncMainWindow *window)
 
     priv->menubar_model = (GMenuModel *)gtk_builder_get_object (builder, "mainwin-menu");
     priv->menubar = gtk_menu_bar_new_from_model (priv->menubar_model);
-    gtk_container_add (GTK_CONTAINER(priv->menu_dock), priv->menubar);
+    gtk_box_append (GTK_BOX(priv->menu_dock), priv->menubar);
     gtk_widget_show (GTK_WIDGET(priv->menubar));
 
     priv->toolbar = (GtkWidget *)gtk_builder_get_object (builder, "mainwin-toolbar");
     g_object_set (priv->toolbar, "toolbar-style", GTK_TOOLBAR_BOTH, NULL);
-    gtk_container_add (GTK_CONTAINER(priv->menu_dock), GTK_WIDGET(priv->toolbar));
+    gtk_box_append (GTK_BOX(priv->menu_dock), GTK_WIDGET(priv->toolbar));
     gtk_widget_show (GTK_WIDGET(priv->toolbar));
 
     g_object_unref (builder);

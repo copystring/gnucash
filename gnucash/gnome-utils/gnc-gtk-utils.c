@@ -85,6 +85,17 @@ gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
     gnc_box_pack_full (box, child, expand, fill, padding, TRUE);
 }
 
+void
+gnc_widget_set_all_margins (GtkWidget *widget, gint margin)
+{
+    g_return_if_fail (GTK_IS_WIDGET (widget));
+
+    gtk_widget_set_margin_start (widget, margin);
+    gtk_widget_set_margin_end (widget, margin);
+    gtk_widget_set_margin_top (widget, margin);
+    gtk_widget_set_margin_bottom (widget, margin);
+}
+
 
 /** Find an entry in the GtkComboBox by its text value, and set
  *  the widget to that value.  This function also records the index of

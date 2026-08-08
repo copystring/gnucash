@@ -605,7 +605,7 @@ gnc_prefs_move_grid_entry (GtkWidget *child,
     g_object_get (child, "margin-left", &leftm, "margin-right", &rightm, NULL);
 
     g_object_ref (child);
-    gtk_container_remove (GTK_CONTAINER(copydata->grid_from), child);
+    gtk_grid_remove (copydata->grid_from, child);
 
     gtk_grid_attach (copydata->grid_to, child, left, copydata->rows + top , width, height);
 
@@ -706,7 +706,7 @@ gnc_preferences_build_page (gpointer data,
     {
         /* No existing content with this name.  Create a blank page */
         existing_content = gtk_grid_new ();
-        gtk_container_set_border_width (GTK_CONTAINER(existing_content), 6);
+        gnc_widget_set_all_margins (existing_content, 6);
         label = gtk_label_new (add_in->tabname);
         gnc_label_set_alignment (label, 0.0, 0.5);
         gtk_notebook_append_page (notebook, existing_content, label);
@@ -970,7 +970,8 @@ file_chooser_clear_cb (GtkButton *button, gpointer user_data)
     g_object_set_data_full (G_OBJECT(fcb_new),"pref", g_strdup (pref), (GDestroyNotify) g_free);
 
     gnc_box_append_full (GTK_BOX(box), fcb_new, TRUE, TRUE, 0);
-    gtk_box_reorder_child (GTK_BOX(box), fcb_new, 0);
+    gtk_box_remove (GTK_BOX(box), fcb_new);
+    gtk_box_prepend (GTK_BOX(box), fcb_new);
     gtk_widget_show (fcb_new);
 
     g_signal_connect (GTK_BUTTON(button), "clicked",
