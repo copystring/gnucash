@@ -224,14 +224,6 @@
       </object>
     </property>
   </object>
-  <object class="GtkListStore" id="liststore4">
-    <columns>
-      <column type="gchararray"/>
-      <column type="gpointer"/>
-      <column type="gchararray"/>
-      <column type="gchararray"/>
-    </columns>
-  </object>
   <object class="GtkWindow" id="deletion_date_dialog">
     <property name="default-height">500</property>
     <property name="title" translatable="yes">Remove Old Prices</property>
@@ -330,36 +322,8 @@
                 <child>
                   <object class="GtkScrolledWindow" id="scrolledwindow1">
                     <property name="child">
-                      <object class="GtkTreeView" id="commodty_treeview">
+                      <object class="GtkColumnView" id="commodity_list">
                         <property name="focusable">1</property>
-                        <property name="model">liststore4</property>
-                        <child internal-child="selection">
-                          <object class="GtkTreeSelection" id="selection1"/>
-                        </child>
-                        <child>
-                          <object class="GtkTreeViewColumn" id="name_column">
-                            <property name="title" translatable="yes">Commodity</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="name_cellr"/>
-                              <!-- Custom child fragments -->
-                              <attributes>
-                                <attribute name="text">0</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkTreeViewColumn" id="date_column">
-                            <property name="title" translatable="yes">First Date</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="date_cellr"/>
-                              <!-- Custom child fragments -->
-                              <attributes>
-                                <attribute name="text">2</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
                       </object>
                     </property>
                     <property name="focusable">1</property>

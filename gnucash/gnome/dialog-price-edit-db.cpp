@@ -88,7 +88,7 @@ struct PricesDialog
     GtkWidget * add_button;
 
     GtkWidget   *remove_dialog;
-    GtkTreeView *remove_view;
+    GtkWidget   *remove_view;
     GtkWidget   *namespace_cbwe;
     gchar       *target_namespace_name;
     int          remove_source;
@@ -237,8 +237,72 @@ gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
 }
 
 
-/** Enumeration for the price delete list-store */
-enum GncPriceColumn {PRICED_NAMESPACE_NAME, PRICED_FULL_NAME, PRICED_COMM, PRICED_DATE, PRICED_COUNT};
+namespace
+{
+constexpr const char *PRICE_REMOVE_MODEL_DATA = "gnc-price-remove-model";
+constexpr const char *PRICE_REMOVE_FULL_NAME_DATA = "gnc-price-remove-full-name";
+constexpr const char *PRICE_REMOVE_COMMODITY_DATA = "gnc-price-remove-commodity";
+constexpr const char *PRICE_REMOVE_DATE_DATA = "gnc-price-remove-date";
+constexpr const char *PRICE_REMOVE_COUNT_DATA = "gnc-price-remove-count";
+
+static GListStore *
+price_remove_model (GtkWidget *view)
+{
+    return G_LIST_STORE (g_object_get_data (G_OBJECT (view), PRICE_REMOVE_MODEL_DATA));
+}
+
+static GObject *
+price_remove_row_new (const char *full_name, gnc_commodity *commodity,
+                      const char *date, const char *count)
+{
+    auto row = g_object_new (G_TYPE_OBJECT, nullptr);
+    g_object_set_data_full (row, PRICE_REMOVE_FULL_NAME_DATA, g_strdup (full_name), g_free);
+    g_object_set_data (row, PRICE_REMOVE_COMMODITY_DATA, commodity);
+    g_object_set_data_full (row, PRICE_REMOVE_DATE_DATA, g_strdup (date), g_free);
+    g_object_set_data_full (row, PRICE_REMOVE_COUNT_DATA, g_strdup (count), g_free);
+    return row;
+}
+
+static void
+price_remove_item_setup (GtkSignalListItemFactory *, GtkListItem *list_item, gpointer)
+{
+    auto label = gtk_label_new (nullptr);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (list_item, label);
+}
+
+static void
+price_remove_item_bind (GtkSignalListItemFactory *, GtkListItem *list_item, gpointer user_data)
+{
+    auto row = G_OBJECT (gtk_list_item_get_item (list_item));
+    auto label = GTK_LABEL (gtk_list_item_get_child (list_item));
+    auto key = static_cast<const char *> (user_data);
+    auto value = static_cast<const char *> (g_object_get_data (row, key));
+
+    gtk_label_set_text (label, value ? value : "");
+    gtk_label_set_xalign (label,
+                          key == PRICE_REMOVE_COUNT_DATA ? 0.5 : 0.0);
+}
+
+static GtkColumnViewColumn *
+price_remove_column_new (const char *title, const char *data_key)
+{
+    auto factory = gtk_signal_list_item_factory_new ();
+    g_signal_connect (factory, "setup", G_CALLBACK (price_remove_item_setup), nullptr);
+    g_signal_connect (factory, "bind", G_CALLBACK (price_remove_item_bind),
+                      const_cast<char *> (data_key));
+    return gtk_column_view_column_new (title, GTK_LIST_ITEM_FACTORY (factory));
+}
+
+static void
+price_remove_append_column (GtkColumnView *view, const char *title, const char *data_key)
+{
+    auto column = price_remove_column_new (title, data_key);
+    gtk_column_view_append_column (view, column);
+    g_object_unref (column);
+}
+}
 
 static bool
 continue_namespace_check (const gchar *target_namespace_name, const gchar *namespace_name)
@@ -260,18 +324,14 @@ continue_namespace_check (const gchar *target_namespace_name, const gchar *names
 }
 
 static time64
-gnc_prices_dialog_load_view (GtkTreeView *view, GNCPriceDB *pdb, const gchar *target_namespace_name)
+gnc_prices_dialog_load_view (GtkWidget *view, GNCPriceDB *pdb, const gchar *target_namespace_name)
 {
     auto oldest = gnc_time (nullptr);
-    auto model = gtk_tree_view_get_model (view);
+    auto model = price_remove_model (view);
     const auto commodity_table = gnc_get_current_commodities ();
     auto namespace_list = gnc_commodity_table_get_namespaces_list (commodity_table);
 
-    // disconnect the model to the price treeview
-    g_object_ref (G_OBJECT(model));
-    gtk_tree_view_set_model (GTK_TREE_VIEW(view), nullptr);
-
-    gtk_list_store_clear (GTK_LIST_STORE(model));
+    g_list_store_remove_all (model);
 
     for (auto node_n = namespace_list; node_n; node_n = g_list_next (node_n))
     {
@@ -296,23 +356,14 @@ gnc_prices_dialog_load_view (GtkTreeView *view, GNCPriceDB *pdb, const gchar *ta
                 auto price = static_cast<GNCPrice*> (node->data);
                 auto price_time = gnc_price_get_time64 (price);
                 auto name_str = gnc_commodity_get_printname (tmp_commodity);
-                auto tmp_namespace_gui_str = gnc_commodity_namespace_get_gui_name (tmp_namespace);
-
                 if (oldest > price_time)
                     oldest = price_time;
 
                 auto date_str = qof_print_date (price_time);
                 auto num_str = g_strdup_printf ("%d", num);
-
-                GtkTreeIter iter;
-                gtk_list_store_append (GTK_LIST_STORE(model), &iter);
-                gtk_list_store_set (GTK_LIST_STORE(model), &iter,
-                                                   PRICED_NAMESPACE_NAME, tmp_namespace_gui_str,
-                                                   PRICED_FULL_NAME, name_str,
-                                                   PRICED_COMM, tmp_commodity,
-                                                   PRICED_DATE, date_str,
-                                                   PRICED_COUNT, num_str,
-                                                   -1);
+                auto row = price_remove_row_new (name_str, tmp_commodity, date_str, num_str);
+                g_list_store_append (model, row);
+                g_object_unref (row);
 
                 g_free (date_str);
                 g_free (num_str);
@@ -323,34 +374,29 @@ gnc_prices_dialog_load_view (GtkTreeView *view, GNCPriceDB *pdb, const gchar *ta
     }
     g_list_free (namespace_list);
 
-    // reconnect the model to the price treeview
-    gtk_tree_view_set_model (GTK_TREE_VIEW(view), model);
-    g_object_unref (G_OBJECT(model));
-
     return oldest;
 }
 
 static GList *
-gnc_prices_dialog_get_commodities (GtkTreeView *view)
+gnc_prices_dialog_get_commodities (GtkWidget *view)
 {
-    auto model = gtk_tree_view_get_model (GTK_TREE_VIEW(view));
-    auto selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(view));
-    auto list = gtk_tree_selection_get_selected_rows (selection, &model);
+    auto model = price_remove_model (view);
+    auto selection_model = gtk_column_view_get_model (GTK_COLUMN_VIEW (view));
+    auto selection = gtk_selection_model_get_selection (selection_model);
+    GtkBitsetIter iter;
+    guint position;
     GList *comm_list = nullptr;
 
-    // Walk the list
-    for (auto row = g_list_first (list); row; row = g_list_next (row))
+    for (auto valid = gtk_bitset_iter_init_first (&iter, selection, &position);
+         valid; valid = gtk_bitset_iter_next (&iter, &position))
     {
-        auto path = static_cast<GtkTreePath *> (row->data);
-        GtkTreeIter iter;
-        if (gtk_tree_model_get_iter (model, &iter, path))
-        {
-            gnc_commodity *comm;
-            gtk_tree_model_get (model, &iter, PRICED_COMM, &comm, -1);
-            comm_list = g_list_prepend (comm_list, comm);
-        }
+        auto row = g_list_model_get_item (G_LIST_MODEL (model), position);
+        auto commodity = static_cast<gnc_commodity *> (
+            g_object_get_data (row, PRICE_REMOVE_COMMODITY_DATA));
+        comm_list = g_list_prepend (comm_list, commodity);
+        g_object_unref (row);
     }
-    g_list_free_full (list, (GDestroyNotify) gtk_tree_path_free);
+    gtk_bitset_unref (selection);
 
     return g_list_reverse (comm_list);
 }
@@ -405,15 +451,14 @@ check_event_app_cb (GtkWidget *widget, gpointer data)
 }
 
 static void
-selection_changed_cb (GtkTreeSelection *selection, gpointer data)
+selection_changed_cb (GtkSelectionModel *selection, guint, guint, gpointer data)
 {
     auto pdb_dialog = static_cast<PricesDialog *> (data);
-    auto model = gtk_tree_view_get_model (GTK_TREE_VIEW(pdb_dialog->remove_view));
-    auto rows = gtk_tree_selection_get_selected_rows (selection, &model);
-    gboolean have_rows = (gnc_list_length_cmp (rows, 0));
+    auto selected = gtk_selection_model_get_selection (selection);
+    auto have_rows = gtk_bitset_get_size (selected) != 0;
 
     change_source_flag (PRICE_REMOVE_SOURCE_COMM, have_rows, pdb_dialog);
-    g_list_free_full (rows, (GDestroyNotify) gtk_tree_path_free);
+    gtk_bitset_unref (selected);
 }
 
 static GDate
@@ -478,7 +523,6 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
 
     ENTER(" ");
     auto builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-price.ui", "liststore4");
     gnc_builder_add_from_file (builder, "dialog-price.ui", "deletion_date_dialog");
 
     pdb_dialog->remove_dialog = GTK_WIDGET(gtk_builder_get_object (builder, "deletion_date_dialog"));
@@ -504,21 +548,19 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
                       G_CALLBACK(namespace_changed_cb), pdb_dialog);
 
     // Setup the commodity view
-    pdb_dialog->remove_view = GTK_TREE_VIEW(gtk_builder_get_object (builder, "commodty_treeview"));
-    auto selection = gtk_tree_view_get_selection (pdb_dialog->remove_view);
-    gtk_tree_selection_set_mode (selection, GTK_SELECTION_MULTIPLE);
-
-    // Add Entries column this way as align does not seem to work from builder
-    auto tree_column = gtk_tree_view_column_new();
-    gtk_tree_view_column_set_title (tree_column, _("Entries"));
-    gtk_tree_view_append_column (GTK_TREE_VIEW(pdb_dialog->remove_view), tree_column);
-    gtk_tree_view_column_set_alignment (tree_column, 0.5);
-    gtk_tree_view_column_set_expand (tree_column, TRUE);
-    auto cr = gtk_cell_renderer_text_new();
-    gtk_tree_view_column_pack_start (tree_column, cr, TRUE);
-    // set 'xalign' property of the cell renderer
-    gtk_tree_view_column_set_attributes (tree_column, cr, "text", PRICED_COUNT, NULL);
-    gtk_cell_renderer_set_alignment (cr, 0.5, 0.5);
+    pdb_dialog->remove_view = GTK_WIDGET(gtk_builder_get_object (builder, "commodity_list"));
+    auto model = g_list_store_new (G_TYPE_OBJECT);
+    g_object_set_data_full (G_OBJECT (pdb_dialog->remove_view), PRICE_REMOVE_MODEL_DATA,
+                            model, g_object_unref);
+    auto selection = GTK_SELECTION_MODEL (gtk_multi_selection_new (
+        G_LIST_MODEL (g_object_ref (model))));
+    gtk_column_view_set_model (GTK_COLUMN_VIEW (pdb_dialog->remove_view), selection);
+    price_remove_append_column (GTK_COLUMN_VIEW (pdb_dialog->remove_view),
+                                _("Commodity"), PRICE_REMOVE_FULL_NAME_DATA);
+    price_remove_append_column (GTK_COLUMN_VIEW (pdb_dialog->remove_view),
+                                _("First Date"), PRICE_REMOVE_DATE_DATA);
+    price_remove_append_column (GTK_COLUMN_VIEW (pdb_dialog->remove_view),
+                                _("Entries"), PRICE_REMOVE_COUNT_DATA);
 
     // Load the view and get the earliest date
     pdb_dialog->target_namespace_name = g_strdup (GNC_COMMODITY_NS_NONISO_GUI);
@@ -526,7 +568,8 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
                                  pdb_dialog->price_db,
                                  pdb_dialog->target_namespace_name);
 
-    g_signal_connect (selection, "changed", G_CALLBACK(selection_changed_cb), pdb_dialog);
+    g_signal_connect (selection, "selection-changed", G_CALLBACK(selection_changed_cb), pdb_dialog);
+    g_object_unref (selection);
 
     gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pdb_dialog);
 
