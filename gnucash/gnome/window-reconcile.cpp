@@ -1949,7 +1949,7 @@ recnWindowWithBalance (GtkWidget *parent, Account *account, gnc_numeric new_endi
     gnc_account_foreach_split_until_date (account, statement_date, init_cleared);
 
     {
-        GtkToolbar *tool_bar;
+        GtkWidget *tool_bar;
         GMenuModel *menu_model;
         GtkWidget *menu_bar;
         const gchar *ui = GNUCASH_RESOURCE_PREFIX "/gnc-reconcile-window.ui";
@@ -1985,13 +1985,9 @@ recnWindowWithBalance (GtkWidget *parent, Account *account, gnc_numeric new_endi
 
         gtkosx_application_set_menu_bar (theApp, GTK_MENU_SHELL (menu_bar));
 #endif
-        tool_bar = (GtkToolbar *)gtk_builder_get_object (recnData->builder, "recwin-toolbar");
+        tool_bar = GTK_WIDGET (gtk_builder_get_object (recnData->builder, "recwin-toolbar"));
 
-        gtk_toolbar_set_style (GTK_TOOLBAR(tool_bar), GTK_TOOLBAR_BOTH);
-        gtk_toolbar_set_icon_size (GTK_TOOLBAR(tool_bar),
-                                   GTK_ICON_SIZE_SMALL_TOOLBAR);
-
-        gtk_box_append (GTK_BOX(vbox), GTK_WIDGET(tool_bar));
+        gtk_box_append (GTK_BOX(vbox), tool_bar);
 
         gtk_window_add_accel_group (GTK_WINDOW(recnData->window), recnData->accel_group);
 
