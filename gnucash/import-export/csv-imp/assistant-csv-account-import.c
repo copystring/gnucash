@@ -109,6 +109,56 @@ static gchar *mnemonic_escape (const gchar *source)
     return dest;
 }
 
+static void
+csv_import_preview_item_setup (GtkListItemFactory *factory, GtkListItem *item,
+                               gpointer user_data)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    (void)factory;
+    (void)user_data;
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (item, label);
+}
+
+static void
+csv_import_preview_item_bind (GtkListItemFactory *factory, GtkListItem *item,
+                              gpointer user_data)
+{
+    GObject *row = gtk_list_item_get_item (item);
+    GtkLabel *label = GTK_LABEL (gtk_list_item_get_child (item));
+    const gchar *value = csv_import_row_get (row, GPOINTER_TO_UINT (user_data));
+
+    (void)factory;
+    if (g_strcmp0 (csv_import_row_get (row, ROW_COLOR), "pink") == 0)
+    {
+        gchar *escaped = g_markup_escape_text (value, -1);
+        gchar *markup = g_strdup_printf ("<span background=\"pink\">%s</span>", escaped);
+
+        gtk_label_set_markup (label, markup);
+        g_free (markup);
+        g_free (escaped);
+    }
+    else
+        gtk_label_set_text (label, value);
+}
+
+static void
+csv_import_preview_add_column (GtkColumnView *view, const gchar *title, guint column)
+{
+    GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
+    GtkColumnViewColumn *view_column;
+
+    g_signal_connect (factory, "setup", G_CALLBACK (csv_import_preview_item_setup),
+                      GUINT_TO_POINTER (column));
+    g_signal_connect (factory, "bind", G_CALLBACK (csv_import_preview_item_bind),
+                      GUINT_TO_POINTER (column));
+    view_column = gtk_column_view_column_new (title, factory);
+    gtk_column_view_column_set_resizable (view_column, TRUE);
+    gtk_column_view_append_column (view, view_column);
+}
+
 static
 void create_regex (GString *regex_str, const gchar *sep)
 {
@@ -219,36 +269,25 @@ csv_import_file_chooser_selection_changed_cb (GtkFileChooser *chooser,
 void csv_import_hrows_cb (GtkWidget *spin, gpointer user_data)
 {
     CsvImportInfo *info = user_data;
-
-    GtkTreeIter iter;
-    gboolean valid;
-    int num_rows;
+    guint count;
 
     /* Get number of rows for header */
     info->header_rows = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON(spin));
 
-    /* Get number of rows displayed */
-    num_rows = gtk_tree_model_iter_n_children (GTK_TREE_MODEL(info->store), NULL);
-
-    /* Modify background color for header rows */
-    if (info->header_rows == 0)
+    /* Keep the preview highlighting derived from the one header-row invariant
+     * instead of incrementally changing individual legacy model rows. */
+    count = g_list_model_get_n_items (G_LIST_MODEL (info->store));
+    for (guint position = 0;
+         position < count;
+         position++)
     {
-        valid = gtk_tree_model_iter_nth_child (GTK_TREE_MODEL(info->store), &iter, NULL, 0 );
-        if (valid)
-            gtk_list_store_set (info->store, &iter, ROW_COLOR, NULL, -1);
+        GObject *row = g_list_model_get_item (G_LIST_MODEL (info->store), position);
+        csv_import_row_set (row, ROW_COLOR,
+                            position < (guint)info->header_rows ? "pink" : "");
+        g_object_unref (row);
     }
-    else
-    {
-        if (info->header_rows - 1 < num_rows)
-        {
-            valid = gtk_tree_model_iter_nth_child (GTK_TREE_MODEL(info->store), &iter, NULL, info->header_rows - 1 );
-            if (valid)
-                gtk_list_store_set (info->store, &iter, ROW_COLOR, "pink", -1);
-            valid = gtk_tree_model_iter_next (GTK_TREE_MODEL(info->store), &iter);
-            if (valid)
-                gtk_list_store_set (info->store, &iter, ROW_COLOR, NULL, -1);
-        }
-    }
+    if (count)
+        g_list_model_items_changed (G_LIST_MODEL (info->store), 0, count, count);
 }
 
 
@@ -263,7 +302,7 @@ static void csv_import_assistant_enable_account_forward (CsvImportInfo *info)
     gboolean store_has_rows = TRUE;
 
     /* if the store is empty, disable "Next" button */
-    if (gtk_tree_model_iter_n_children (GTK_TREE_MODEL(info->store), NULL) == 0)
+    if (g_list_model_get_n_items (G_LIST_MODEL (info->store)) == 0)
         store_has_rows = FALSE;
 
     gtk_assistant_set_page_complete (assistant, info->account_page, store_has_rows);
@@ -312,7 +351,7 @@ void csv_import_sep_cb (GtkWidget *radio, gpointer user_data)
     }
 
     /* Generate preview */
-    gtk_list_store_clear (info->store);
+    g_list_store_remove_all (info->store);
     gtk_widget_set_sensitive (info->header_row_spin, TRUE);
 
     if (csv_import_read_file (GTK_WINDOW (info->assistant), info->file_name, info->regexp->str, info->store, 11) == MATCH_FOUND)
@@ -391,7 +430,7 @@ csv_import_assistant_account_page_prepare (GtkAssistant *assistant,
     gtk_assistant_set_page_complete (assistant, info->account_page, FALSE);
 
     /* test read one line */
-    gtk_list_store_clear (info->store);
+    g_list_store_remove_all (info->store);
     res = csv_import_read_file (GTK_WINDOW (info->assistant), info->file_name, info->regexp->str, info->store, 1 );
     if (res == RESULT_OPEN_FAILED)
     {
@@ -404,7 +443,7 @@ csv_import_assistant_account_page_prepare (GtkAssistant *assistant,
         gtk_assistant_set_page_complete (assistant, info->account_page, TRUE);
 
     // generate preview
-    gtk_list_store_clear (info->store);
+    g_list_store_remove_all (info->store);
 
     gtk_widget_set_sensitive (info->header_row_spin, TRUE);
 
@@ -542,7 +581,7 @@ csv_import_assistant_finish (GtkAssistant *assistant, gpointer user_data)
 {
     CsvImportInfo *info = user_data;
 
-    gtk_list_store_clear (info->store);
+    g_list_store_remove_all (info->store);
     csv_import_read_file (GTK_WINDOW (info->assistant), info->file_name, info->regexp->str, info->store, 0 );
     csv_account_import (info);
 }
@@ -558,7 +597,7 @@ csv_import_close_handler (gpointer user_data)
     g_object_unref (info->store);
 
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(info->assistant));
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(info->assistant));
+    gtk_window_destroy (GTK_WINDOW(info->assistant));
 }
 
 /*******************************************************
@@ -568,8 +607,8 @@ static GtkWidget *
 csv_import_assistant_create (CsvImportInfo *info)
 {
     GtkBuilder *builder;
-    GtkCellRenderer *renderer;
-    GtkTreeViewColumn *column;
+    GtkNoSelection *selection;
+    GtkScrolledWindow *preview_scrolledwindow;
     gchar *mnemonic_desc = NULL;
 
     builder = gtk_builder_new();
@@ -619,24 +658,20 @@ csv_import_assistant_create (CsvImportInfo *info)
     /* Account Tree Page */
     info->account_page = GTK_WIDGET(gtk_builder_get_object(builder, "import_tree_page"));
     info->header_row_spin = GTK_WIDGET(gtk_builder_get_object (builder, "num_hrows"));
-    info->tree_view = GTK_WIDGET(gtk_builder_get_object (builder, "treeview"));
+    preview_scrolledwindow = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder,
+                                                   "scroll_window"));
 
     /* Comma Separated file default */
     info->regexp = g_string_new ("");
     create_regex (info->regexp, ",");
 
-    /* create model and bind to view */
-    info->store = gtk_list_store_new (N_COLUMNS,
-                                      G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
-                                      G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
-    gtk_tree_view_set_model (GTK_TREE_VIEW(info->tree_view), GTK_TREE_MODEL(info->store));
+    /* The preview shares the parsed GTK4 row model with the importer. */
+    info->store = g_list_store_new (G_TYPE_OBJECT);
+    selection = gtk_no_selection_new (G_LIST_MODEL (info->store));
+    info->preview_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
 #define CREATE_COLUMN(description,column_id) \
-  renderer = gtk_cell_renderer_text_new (); \
   mnemonic_desc = mnemonic_escape (_(description)); \
-  column = gtk_tree_view_column_new_with_attributes (mnemonic_desc, renderer, "text", column_id, NULL); \
-  gtk_tree_view_column_add_attribute (column, renderer, "background", ROW_COLOR); \
-  gtk_tree_view_column_set_resizable (column, TRUE); \
-  gtk_tree_view_append_column (GTK_TREE_VIEW(info->tree_view), column); \
+  csv_import_preview_add_column (info->preview_view, mnemonic_desc, column_id); \
   g_free (mnemonic_desc);
     CREATE_COLUMN ("Type", TYPE);
     CREATE_COLUMN ("Account Full Name", FULL_NAME);
@@ -650,6 +685,8 @@ csv_import_assistant_create (CsvImportInfo *info)
     CREATE_COLUMN ("Hidden", HIDDEN);
     CREATE_COLUMN ("Tax Info", TAX);
     CREATE_COLUMN ("Placeholder", PLACE_HOLDER);
+#undef CREATE_COLUMN
+    gtk_scrolled_window_set_child (preview_scrolledwindow, GTK_WIDGET (info->preview_view));
 
     /* Finish Page */
     info->finish_label = GTK_WIDGET(gtk_builder_get_object (builder, "end_page"));
