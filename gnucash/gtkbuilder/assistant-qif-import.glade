@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkListStore" id="date_format_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-  </object>
+  <object class="GtkStringList" id="date_format_model" />
   <object class="GtkAssistant" id="qif_import_assistant">
 <property name="title" translatable="1">QIF Import Assistant</property>
     <signal name="apply" handler="gnc_ui_qif_import_finish_cb" swapped="no" />
@@ -189,16 +185,10 @@ Please select a date format for the file. QIF files created by European software
                   </object>
                 </child>
                 <child>
-                  <object class="GtkComboBox" id="date_format_combobox">
+                  <object class="GtkDropDown" id="date_format_dropdown">
                     <property name="valign">center</property>
-                    <property name="model">date_format_liststore</property>
-                    <signal name="changed" handler="gnc_ui_qif_import_date_valid_cb" swapped="no" />
-                    <child>
-                      <object class="GtkCellRendererText" id="cellrenderertext1" />
-                      <attributes>
-                        <attribute name="text">0</attribute>
-                      </attributes>
-                    </child>
+                    <property name="model">date_format_model</property>
+                    <signal name="notify::selected" handler="gnc_ui_qif_import_date_valid_cb" swapped="no" />
                   </object>
                 </child>
               </object>
@@ -291,12 +281,9 @@ Please enter a name for the account. If the file was exported from another accou
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
 <property name="child">
-                  <object class="GtkTreeView" id="selected_file_view">
-                    <property name="focusable">1</property>
-                    <property name="headers-visible">0</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection1" />
-                    </child>
+                  <object class="GtkBox" id="selected_file_view">
+                    <property name="orientation">vertical</property>
+                    <property name="vexpand">1</property>
                   </object>
                 </property>
               </object>
@@ -379,11 +366,9 @@ Note that GnuCash will be creating many accounts that did not exist on your othe
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
 <property name="child">
-                  <object class="GtkTreeView" id="account_page_view">
-                    <property name="focusable">1</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection2" />
-                    </child>
+                  <object class="GtkBox" id="account_page_view">
+                    <property name="orientation">vertical</property>
+                    <property name="vexpand">1</property>
                   </object>
                 </property>
               </object>
@@ -462,11 +447,9 @@ If you change your mind later, you can reorganize the account structure safely w
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
 <property name="child">
-                  <object class="GtkTreeView" id="category_page_view">
-                    <property name="focusable">1</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection3" />
-                    </child>
+                  <object class="GtkBox" id="category_page_view">
+                    <property name="orientation">vertical</property>
+                    <property name="vexpand">1</property>
                   </object>
                 </property>
               </object>
@@ -543,11 +526,9 @@ In the following page, you will see the text that appears in the Payee and Memo 
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
 <property name="child">
-                  <object class="GtkTreeView" id="memo_page_view">
-                    <property name="focusable">1</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection4" />
-                    </child>
+                  <object class="GtkBox" id="memo_page_view">
+                    <property name="orientation">vertical</property>
+                    <property name="vexpand">1</property>
                   </object>
                 </property>
               </object>
@@ -818,11 +799,9 @@ Click "Next" to review the possible matches.</property>
                       <object class="GtkScrolledWindow" id="scrolledwindow22">
                         <property name="focusable">1</property>
 <property name="child">
-                          <object class="GtkTreeView" id="new_transaction_view">
-                            <property name="focusable">1</property>
-                            <child internal-child="selection">
-                              <object class="GtkTreeSelection" id="treeview-selection5" />
-                            </child>
+                          <object class="GtkBox" id="new_transaction_view">
+                            <property name="orientation">vertical</property>
+                            <property name="vexpand">1</property>
                           </object>
                         </property>
                       </object>
@@ -843,11 +822,9 @@ Click "Next" to review the possible matches.</property>
                       <object class="GtkScrolledWindow" id="scrolledwindow23">
                         <property name="focusable">1</property>
 <property name="child">
-                          <object class="GtkTreeView" id="old_transaction_view">
-                            <property name="focusable">1</property>
-                            <child internal-child="selection">
-                              <object class="GtkTreeSelection" id="treeview-selection6" />
-                            </child>
+                          <object class="GtkBox" id="old_transaction_view">
+                            <property name="orientation">vertical</property>
+                            <property name="vexpand">1</property>
                           </object>
                         </property>
                       </object>
