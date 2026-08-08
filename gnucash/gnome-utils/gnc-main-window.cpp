@@ -807,9 +807,6 @@ gnc_main_window_restore_window (GncMainWindow *window, GncMainWindowSaveData *da
             added_page_offsets = g_slist_append (added_page_offsets,
                                                  GINT_TO_POINTER(offset));
 
-        /* give the page a chance to display */
-        while (gtk_events_pending ())
-            gtk_main_iteration ();
     }
     priv->restoring_pages = FALSE;
     /* Restore page ordering within the notebook. Use +1 notation so the
@@ -3224,12 +3221,6 @@ gnc_main_window_disconnect (GncMainWindow *window,
         {
             page_num = gtk_notebook_page_num(notebook, new_page->notebook_page);
             gtk_notebook_set_current_page(notebook, page_num);
-            /* This may have caused WebKit to schedule  a timer interrupt which it
-               sometimes  forgets to cancel before deleting the object.  See
-               <https://bugs.webkit.org/show_bug.cgi?id=119003>.   Get around this
-               by flushing all events to get rid of the timer interrupt. */
-            while (gtk_events_pending())
-                gtk_main_iteration();
         }
     }
 
