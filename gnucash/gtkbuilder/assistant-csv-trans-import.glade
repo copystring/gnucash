@@ -622,17 +622,18 @@ For example
               </object>
             </child>
             <child>
+              <object class="GtkBox" id="preview_column_selectors">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">6</property>
+                <property name="hexpand">1</property>
+              </object>
+            </child>
+            <child>
               <object class="GtkScrolledWindow" id="scrolledwindow2">
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
                 <property name="child">
-                  <object class="GtkTreeView" id="treeview">
-                    <property name="focusable">1</property>
-<property name="enable-grid-lines">both</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection2" />
-                    </child>
-                  </object>
+                  <object class="GtkBox" id="preview_placeholder" />
                 </property>
               </object>
             </child>
