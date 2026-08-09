@@ -1105,45 +1105,79 @@ create_option_widget<GncOptionUIType::ACCOUNT_SEL> (GncOption& option,
 }
 
 static void
-list_changed_cb(GtkTreeSelection *selection, GncOption* option)
+list_item_setup_cb (GtkSignalListItemFactory *factory,
+                    GtkListItem *list_item,
+                    gpointer user_data)
 {
-    GtkTreeView *view = GTK_TREE_VIEW(option_get_gtk_widget (option));
-    gnc_option_changed_widget_cb(GTK_WIDGET(view), option);
+    auto label = gtk_label_new (nullptr);
+
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (list_item, label);
 }
 
 static void
-list_select_all_cb(GtkWidget *widget, gpointer data)
+list_item_bind_cb (GtkSignalListItemFactory *factory,
+                   GtkListItem *list_item,
+                   gpointer user_data)
 {
-    GncOption* option = static_cast<decltype(option)>(data);
-    GtkTreeView *view;
-    GtkTreeSelection *selection;
+    auto item = GTK_STRING_OBJECT (gtk_list_item_get_item (list_item));
+    auto label = GTK_LABEL (gtk_list_item_get_child (list_item));
 
-    view = GTK_TREE_VIEW(option_get_gtk_widget(option));
-    selection = gtk_tree_view_get_selection(view);
-    gtk_tree_selection_select_all(selection);
-    gnc_option_changed_widget_cb(GTK_WIDGET(view), option);
+    gtk_label_set_text (label, gtk_string_object_get_string (item));
+}
+
+static GtkListItemFactory *
+list_item_factory_new ()
+{
+    auto factory = gtk_signal_list_item_factory_new ();
+
+    g_signal_connect (factory, "setup", G_CALLBACK (list_item_setup_cb), nullptr);
+    g_signal_connect (factory, "bind", G_CALLBACK (list_item_bind_cb), nullptr);
+    return GTK_LIST_ITEM_FACTORY (factory);
+}
+
+static GtkMultiSelection *
+list_selection_from_option (GncOption *option)
+{
+    auto view = GTK_LIST_VIEW (option_get_gtk_widget (option));
+
+    return GTK_MULTI_SELECTION (gtk_list_view_get_model (view));
 }
 
 static void
-list_clear_all_cb(GtkWidget *widget, gpointer data)
+list_changed_cb (GtkSelectionModel *selection, guint position, guint n_items,
+                 GncOption *option)
 {
-    GncOption* option = static_cast<decltype(option)>(data);
-    GtkTreeView *view;
-    GtkTreeSelection *selection;
-
-    view = GTK_TREE_VIEW(option_get_gtk_widget(option));
-    selection = gtk_tree_view_get_selection(view);
-    gtk_tree_selection_unselect_all(selection);
-    gnc_option_changed_widget_cb(GTK_WIDGET(view), option);
+    gnc_option_changed_widget_cb (GTK_WIDGET (option_get_gtk_widget (option)), option);
 }
 
 static void
-list_set_default_cb(GtkWidget *widget, gpointer data)
+list_select_all_cb (GtkWidget *widget, gpointer data)
 {
-    GncOption* option = static_cast<decltype(option)>(data);
-    list_clear_all_cb(widget, data);
-    option->set_value(option->get_default_value<GncMultichoiceOptionIndexVec>());
-    option->set_ui_item_from_option();
+    auto option = static_cast<GncOption *>(data);
+    auto selection = list_selection_from_option (option);
+
+    gtk_selection_model_select_all (GTK_SELECTION_MODEL (selection));
+}
+
+static void
+list_clear_all_cb (GtkWidget *widget, gpointer data)
+{
+    auto option = static_cast<GncOption *>(data);
+    auto selection = list_selection_from_option (option);
+
+    gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (selection));
+}
+
+static void
+list_set_default_cb (GtkWidget *widget, gpointer data)
+{
+    auto option = static_cast<GncOption *>(data);
+
+    option->set_value (option->get_default_value<GncMultichoiceOptionIndexVec> ());
+    option->set_ui_item_from_option ();
+    gnc_option_changed_widget_cb (option_get_gtk_widget (option), option);
 }
 
 class GncGtkListUIItem : public GncOptionGtkUIItem
@@ -1154,102 +1188,81 @@ public:
 
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
-        auto widget{GTK_TREE_VIEW(get_widget())};
-        auto selection{gtk_tree_view_get_selection(widget)};
-        gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
-        g_signal_handlers_block_by_func(selection, (gpointer)list_changed_cb, &option);
-        gtk_tree_selection_unselect_all(selection);
-        for (auto index : option.get_value<GncMultichoiceOptionIndexVec>())
+        auto selection = list_selection_from_option (&option);
+        auto model = gtk_multi_selection_get_model (selection);
+        const auto count = g_list_model_get_n_items (model);
+
+        g_signal_handlers_block_by_func (selection, (gpointer)list_changed_cb, &option);
+        gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (selection));
+        for (auto index : option.get_value<GncMultichoiceOptionIndexVec> ())
         {
-            auto path{gtk_tree_path_new_from_indices(index, -1)};
-            gtk_tree_selection_select_path(selection, path);
-            gtk_tree_path_free(path);
+            if (static_cast<guint> (index) < count)
+                gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection), index, FALSE);
         }
-        g_signal_handlers_unblock_by_func(selection, (gpointer)list_changed_cb, &option);
+        g_signal_handlers_unblock_by_func (selection, (gpointer)list_changed_cb, &option);
     }
 
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-        auto widget{GTK_TREE_VIEW(get_widget())};
-        auto selection{gtk_tree_view_get_selection(widget)};
-        auto selected_rows{gtk_tree_selection_get_selected_rows(selection, nullptr)};
-        GncMultichoiceOptionIndexVec vec;
-        for (auto row = selected_rows; row; row = g_list_next(row))
+        auto selection = list_selection_from_option (&option);
+        auto selected = gtk_selection_model_get_selection (GTK_SELECTION_MODEL (selection));
+        GtkBitsetIter iter;
+        guint index;
+        GncMultichoiceOptionIndexVec values;
+
+        if (gtk_bitset_iter_init_first (&iter, selected, &index))
         {
-            auto path{static_cast<GtkTreePath*>(row->data)};
-            auto indices{gtk_tree_path_get_indices(path)};
-            vec.push_back(*indices);
+            do
+            {
+                values.push_back (static_cast<decltype(values)::value_type> (index));
+            } while (gtk_bitset_iter_next (&iter, &index));
         }
-        g_list_free_full(selected_rows, (GDestroyNotify)gtk_tree_path_free);
-        option.set_value(vec);
+        gtk_bitset_unref (selected);
+        option.set_value (values);
     }
 };
 
 static GtkWidget *
-create_list_widget(GncOption& option, char *name)
+create_list_widget (GncOption& option, char *name)
 {
-    auto frame = gtk_frame_new(name);
+    auto frame = gtk_frame_new (name);
     auto hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    auto values = create_permissible_values_model (option);
+    auto selection = gtk_multi_selection_new (G_LIST_MODEL (values));
+    auto view = gtk_list_view_new (GTK_SELECTION_MODEL (selection), list_item_factory_new ());
+    auto scrolled = gtk_scrolled_window_new ();
+
     gtk_box_set_homogeneous (GTK_BOX (hbox), FALSE);
-    gtk_frame_set_child (GTK_FRAME(frame), GTK_WIDGET(hbox));
+    gtk_frame_set_child (GTK_FRAME (frame), hbox);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), view);
+    gtk_widget_set_hexpand (scrolled, TRUE);
+    gtk_widget_set_vexpand (scrolled, TRUE);
 
-    auto store = gtk_list_store_new(1, G_TYPE_STRING);
-    auto view = GTK_TREE_VIEW(gtk_tree_view_new_with_model(GTK_TREE_MODEL(store)));
-    g_object_unref(store);
-    auto renderer = gtk_cell_renderer_text_new();
-    auto column = gtk_tree_view_column_new_with_attributes("", renderer,
-                                                           "text", 0,
-                                                           NULL);
-    gtk_tree_view_append_column(view, column);
-    gtk_tree_view_set_headers_visible(view, FALSE);
+    option.set_ui_item (std::make_unique<GncGtkListUIItem> (view));
+    option.set_ui_item_from_option ();
 
-    auto num_values = option.num_permissible_values();
-    for (decltype(num_values) i = 0; i < num_values; i++)
-    {
-        GtkTreeIter iter;
-        auto raw_string = option.permissible_value_name(i);
-        auto string = (raw_string && *raw_string) ? _(raw_string) : "";
-        gtk_list_store_append(store, &iter);
-        gtk_list_store_set(store, &iter, 0, string ? string : "", -1);
-    }
-
-    option.set_ui_item(std::make_unique<GncGtkListUIItem>(GTK_WIDGET(view)));
-    option.set_ui_item_from_option();
-
-    gtk_box_append (GTK_BOX(hbox), GTK_WIDGET(view));
-
-    auto selection = gtk_tree_view_get_selection(view);
-    gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
-    g_signal_connect(selection, "changed",
-                     G_CALLBACK(list_changed_cb), &option);
+    gtk_box_append (GTK_BOX (hbox), scrolled);
+    g_signal_connect (selection, "selection-changed", G_CALLBACK (list_changed_cb), &option);
 
     auto bbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-//FIXME gtk4    gtk_button_box_set_layout(GTK_BUTTON_BOX(bbox), GTK_BUTTONBOX_SPREAD);
-    gtk_box_append (GTK_BOX(hbox), GTK_WIDGET(bbox));
+    gtk_box_append (GTK_BOX (hbox), bbox);
 
-    auto button = gtk_button_new_with_label(_("Select All"));
-    gtk_box_append (GTK_BOX(bbox), GTK_WIDGET(button));
-    gtk_widget_set_tooltip_text(button, _("Select all entries."));
+    auto button = gtk_button_new_with_label (_("Select All"));
+    gtk_box_append (GTK_BOX (bbox), button);
+    gtk_widget_set_tooltip_text (button, _("Select all entries."));
+    g_signal_connect (button, "clicked", G_CALLBACK (list_select_all_cb), &option);
 
-    g_signal_connect(G_OBJECT(button), "clicked",
-                     G_CALLBACK(list_select_all_cb), &option);
+    button = gtk_button_new_with_label (_("Clear All"));
+    gtk_box_append (GTK_BOX (bbox), button);
+    gtk_widget_set_tooltip_text (button, _("Clear the selection and unselect all entries."));
+    g_signal_connect (button, "clicked", G_CALLBACK (list_clear_all_cb), &option);
 
-    button = gtk_button_new_with_label(_("Clear All"));
-    gtk_box_append (GTK_BOX(bbox), GTK_WIDGET(button));
-    gtk_widget_set_tooltip_text(button, _("Clear the selection and unselect all entries."));
+    button = gtk_button_new_with_label (_("Select Default"));
+    gtk_box_append (GTK_BOX (bbox), button);
+    gtk_widget_set_tooltip_text (button, _("Select the default selection."));
+    g_signal_connect (button, "clicked", G_CALLBACK (list_set_default_cb), &option);
 
-    g_signal_connect(G_OBJECT(button), "clicked",
-                     G_CALLBACK(list_clear_all_cb), &option);
-
-    button = gtk_button_new_with_label(_("Select Default"));
-    gtk_box_append (GTK_BOX(bbox), GTK_WIDGET(button));
-    gtk_widget_set_tooltip_text(button, _("Select the default selection."));
-
-    g_signal_connect(G_OBJECT(button), "clicked",
-                     G_CALLBACK(list_set_default_cb), &option);
-
-    g_object_set (G_OBJECT(hbox), "margin", 3, NULL);
-
+    g_object_set (hbox, "margin", 3, nullptr);
     return frame;
 }
 
@@ -1257,14 +1270,12 @@ template<> void
 create_option_widget<GncOptionUIType::LIST> (GncOption& option,
                                              GtkGrid *page_box, int row)
 {
-
     auto enclosing{create_list_widget(option, nullptr)};
     set_name_label(option, page_box, row, true);
     set_tool_tip(option, enclosing);
     grid_attach_widget (GTK_GRID(page_box), enclosing, row);
-    gtk_widget_set_visible (GTK_WIDGET(enclosing), true);
+    gtk_widget_set_visible (enclosing, true);
 }
-
 class GncGtkNumberRangeUIItem : public GncOptionGtkUIItem
 {
 public:
