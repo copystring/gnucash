@@ -540,13 +540,10 @@
 <property name="row-spacing">3</property>
                     <property name="column-spacing">6</property>
                     <child>
-                      <object class="GtkTreeView" id="types_tree_view">
+                      <object class="GtkListView" id="types_list_view">
                         <property name="focusable">1</property>
                         <property name="hexpand">1</property>
-                        <property name="headers-visible">0</property>
-                        <child internal-child="selection">
-                          <object class="GtkTreeSelection" id="treeview-selection2" />
-                        </child>
+                        <property name="vexpand">1</property>
                         <layout>
                           <property name="column">0</property>
                           <property name="row">0</property>
@@ -693,46 +690,6 @@
     <property name="value">3</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
-  </object>
-  <object class="GtkListStore" id="fraction_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Use Commodity Value</col>
-      </row>
-      <row>
-        <col id="0">1</col>
-      </row>
-      <row>
-        <col id="0">1/10</col>
-      </row>
-      <row>
-        <col id="0">1/100</col>
-      </row>
-      <row>
-        <col id="0">1/1000</col>
-      </row>
-      <row>
-        <col id="0">1/10000</col>
-      </row>
-      <row>
-        <col id="0">1/100000</col>
-      </row>
-      <row>
-        <col id="0">1/1000000</col>
-      </row>
-      <row>
-        <col id="0">1/10000000</col>
-      </row>
-      <row>
-        <col id="0">1/100000000</col>
-      </row>
-      <row>
-        <col id="0">1/1000000000</col>
-      </row>
-    </data>
   </object>
   <object class="GtkDialog" id="account_dialog">
 <property name="title" translatable="1">New Account</property>
@@ -951,14 +908,7 @@
                             <property name="visible">True</property>
 <property name="tooltip-text" translatable="1">Smallest fraction of this commodity that can be referenced.</property>
                             <child>
-                              <object class="GtkComboBox" id="account_scu">
-                                <property name="model">fraction_liststore</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="acct_scu_renderer" />
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
+                              <object class="GtkDropDown" id="account_scu">
                               </object>
                             </child>
                             <layout>
@@ -992,7 +942,7 @@
                           </object>
                         </child>
                         <child>
-                          <object class="GtkComboBox" id="account_type_combo">
+                          <object class="GtkDropDown" id="account_type_combo">
                             <layout>
                               <property name="column">1</property>
                               <property name="row">4</property>

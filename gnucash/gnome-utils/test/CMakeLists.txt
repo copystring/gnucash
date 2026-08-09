@@ -34,8 +34,16 @@ set (test_gnc_file_dialog_SOURCES
 gnc_add_test (test-gnc-file-dialog "${test_gnc_file_dialog_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+
+set (test_gnc_account_type_list_SOURCES
+  test-gnc-account-type-list.c
+)
+
+gnc_add_test (test-gnc-account-type-list "${test_gnc_account_type_list_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 set_dist_list(test_gnome_utils_DIST
   CMakeLists.txt
   test-load-gnome-utils-module.scm
   ${test_gnc_file_dialog_SOURCES}
+  ${test_gnc_account_type_list_SOURCES}
 )

@@ -62,7 +62,8 @@ struct AccountViewInfo_s
 typedef	struct
 {
     GtkWidget           *dialog;
-    GtkTreeModel        *model;
+    GListModel          *type_model;
+    gboolean             updating_type_selection;
     GncTreeViewAccount  *tree_view;
     GHashTable          *filter_override;
     guint32              visible_types;

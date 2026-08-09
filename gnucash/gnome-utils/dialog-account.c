@@ -101,7 +101,9 @@ typedef struct _AccountWindow
     GtkWidget            *account_scu;
 
     guint32        valid_types;
+    guint32        displayed_types;
     GNCAccountType preferred_account_type;
+    gboolean       updating_type_dropdown;
     GtkWidget     *type_combo;
     GtkTreeView   *parent_tree;
     GtkWidget     *parent_scroll;
@@ -173,6 +175,7 @@ void gnc_account_name_insert_text_cb (GtkWidget   *entry,
                                       gint        *position,
                                       gpointer     data);
 static void set_auto_interest_box (AccountWindow *aw);
+static void gnc_account_type_update (AccountWindow *aw);
 static gboolean account_commodity_filter (GtkTreeSelection* selection,
                                           GtkTreeModel* unused_model,
                                           GtkTreePath* s_path,
@@ -331,7 +334,7 @@ gnc_account_to_ui (AccountWindow *aw)
     {
         index = 0;
     }
-    gtk_combo_box_set_active (GTK_COMBO_BOX(aw->account_scu), index);
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (aw->account_scu), index);
 
     string = xaccAccountGetCode (account);
     if (string == NULL)
@@ -536,7 +539,7 @@ gnc_ui_to_account (AccountWindow *aw)
         old_scu = xaccAccountGetCommoditySCU (account);
     }
 
-    index = gtk_combo_box_get_active (GTK_COMBO_BOX(aw->account_scu));
+    index = gtk_drop_down_get_selected (GTK_DROP_DOWN (aw->account_scu));
     nonstd = (index != 0);
     if (nonstd != xaccAccountGetNonStdSCU (account))
         xaccAccountSetNonStdSCU (account, nonstd);
@@ -1244,181 +1247,218 @@ gnc_account_window_destroy_cb (GtkWidget *object, gpointer data)
     LEAVE(" ");
 }
 
+static gboolean
+account_type_mask_contains (guint32 types, GNCAccountType type)
+{
+    return type > ACCT_TYPE_NONE && type < NUM_ACCOUNT_TYPES &&
+           (types & (1u << type)) != 0;
+}
+
+static guint
+account_type_dropdown_find (GListModel *model, GNCAccountType type)
+{
+    guint count = g_list_model_get_n_items (model);
+
+    for (guint position = 0; position < count; position++)
+    {
+        GncAccountTypeItem *item = GNC_ACCOUNT_TYPE_ITEM (
+            g_list_model_get_item (model, position));
+        gboolean found = gnc_account_type_item_get_account_type (item) == type;
+
+        g_object_unref (item);
+        if (found)
+            return position;
+    }
+    return GTK_INVALID_LIST_POSITION;
+}
+
+static void
+account_type_dropdown_set_model (AccountWindow *aw, guint32 types)
+{
+    GListModel *model = gnc_account_type_list_new (types);
+    guint selected = account_type_dropdown_find (model, aw->type);
+
+    aw->updating_type_dropdown = TRUE;
+    gtk_drop_down_set_model (GTK_DROP_DOWN (aw->type_combo), model);
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (aw->type_combo), selected);
+    aw->updating_type_dropdown = FALSE;
+    aw->displayed_types = types;
+    g_object_unref (model);
+}
+
 static void
 gnc_account_parent_changed_cb (GObject *selection, gpointer data)
 {
     AccountWindow *aw = data;
     Account *parent_account;
-    guint32 types, old_types;
-    GtkTreeModelSort *s_model;
-    GtkTreeModel *type_model;
-    gboolean combo_set = FALSE;
+    guint32 types;
+    gboolean type_changed = FALSE;
 
     g_return_if_fail (aw);
     g_return_if_fail (selection == aw->selection);
 
     parent_account = gnc_tree_view_account_get_selected_account (
-                         GNC_TREE_VIEW_ACCOUNT(aw->parent_tree));
+                         GNC_TREE_VIEW_ACCOUNT (aw->parent_tree));
     if (!parent_account)
         return;
 
     if (gnc_account_is_root (parent_account))
-    {
         types = aw->valid_types;
-    }
     else
-    {
-        types = aw->valid_types &
-                xaccParentAccountTypesCompatibleWith (xaccAccountGetType (parent_account));
-    }
-    s_model = GTK_TREE_MODEL_SORT(gtk_combo_box_get_model (GTK_COMBO_BOX(aw->type_combo)));
-    type_model = gtk_tree_model_sort_get_model (s_model);
-    if (!type_model)
-        return;
+        types = aw->valid_types & xaccParentAccountTypesCompatibleWith (
+            xaccAccountGetType (parent_account));
 
     if (aw->type != aw->preferred_account_type &&
-            (types & (1 << aw->preferred_account_type)) != 0)
+        account_type_mask_contains (types, aw->preferred_account_type))
     {
-        /* we can change back to the preferred account type */
         aw->type = aw->preferred_account_type;
-        combo_set = TRUE;
+        type_changed = TRUE;
     }
-    else if ((types & (1 << aw->type)) == 0)
+    else if (!account_type_mask_contains (types, aw->type))
     {
-        /* our type is invalid now */
         aw->type = ACCT_TYPE_INVALID;
-    }
-    else
-    {
-        /* no type change, but maybe list of valid types changed */
-        old_types = gnc_tree_model_account_types_get_mask (type_model);
-        if (old_types != types)
-            combo_set = TRUE;
+        type_changed = TRUE;
     }
 
-    gnc_tree_model_account_types_set_mask (type_model, types);
+    if (type_changed || aw->displayed_types != types)
+        account_type_dropdown_set_model (aw, types);
 
-    if (combo_set)
-        gnc_tree_model_account_types_set_active_combo (GTK_COMBO_BOX(aw->type_combo),
-                                                       1 << aw->type);
+    if (type_changed)
+        gnc_account_type_update (aw);
 
     gnc_account_window_set_name (aw);
 }
 
 static void
-set_auto_interest_box(AccountWindow *aw)
+account_scu_dropdown_setup (AccountWindow *aw)
+{
+    const gchar *fractions[] =
+    {
+        _("Use Commodity Value"),
+        "1",
+        "1/10",
+        "1/100",
+        "1/1000",
+        "1/10000",
+        "1/100000",
+        "1/1000000",
+        "1/10000000",
+        "1/100000000",
+        "1/1000000000",
+        NULL
+    };
+    GtkStringList *model = gtk_string_list_new (fractions);
+
+    gtk_drop_down_set_model (GTK_DROP_DOWN (aw->account_scu),
+                             G_LIST_MODEL (model));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (aw->account_scu), 0);
+    g_object_unref (model);
+}
+static void
+set_auto_interest_box (AccountWindow *aw)
 {
     Account* account = aw_get_account (aw);
     gboolean type_ok = account_type_has_auto_interest_xfer (aw->type);
     gboolean pref_set = xaccAccountGetAutoInterest (account);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(aw->auto_interest_button),
+
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (aw->auto_interest_button),
                                   type_ok && pref_set);
-    gtk_widget_set_sensitive (GTK_WIDGET(aw->auto_interest_button), type_ok);
+    gtk_widget_set_sensitive (aw->auto_interest_button, type_ok);
 }
 
 static void
-gnc_account_type_combo_changed_cb (GtkComboBox *combo, gpointer data)
+gnc_account_type_update (AccountWindow *aw)
 {
-    AccountWindow *aw = data;
-    gboolean sensitive;
-    GNCAccountType type_id;
+    gboolean sensitive = FALSE;
 
-    g_return_if_fail (aw != NULL);
-
-    sensitive = FALSE;
-
-    type_id = gnc_tree_model_account_types_get_active_combo (combo);
-
-    if (type_id == ACCT_TYPE_NONE)
+    if (aw->type == ACCT_TYPE_NONE || aw->type == ACCT_TYPE_INVALID)
     {
         aw->type = ACCT_TYPE_INVALID;
     }
     else
     {
-        aw->type = type_id;
-        aw->preferred_account_type = type_id;
-
+        aw->preferred_account_type = aw->type;
         gnc_account_commodity_from_type (aw, TRUE);
-
-        sensitive = (aw->type != ACCT_TYPE_EQUITY &&
-                     aw->type != ACCT_TYPE_CURRENCY &&
-                     aw->type != ACCT_TYPE_STOCK &&
-                     aw->type != ACCT_TYPE_MUTUAL &&
-                     aw->type != ACCT_TYPE_TRADING);
+        sensitive = aw->type != ACCT_TYPE_EQUITY &&
+                    aw->type != ACCT_TYPE_CURRENCY &&
+                    aw->type != ACCT_TYPE_STOCK &&
+                    aw->type != ACCT_TYPE_MUTUAL &&
+                    aw->type != ACCT_TYPE_TRADING;
     }
 
     gtk_widget_set_sensitive (aw->opening_balance_page, sensitive);
-
     if (!sensitive)
     {
-        gnc_amount_edit_set_amount (GNC_AMOUNT_EDIT(aw->opening_balance_edit),
+        gnc_amount_edit_set_amount (GNC_AMOUNT_EDIT (aw->opening_balance_edit),
                                     gnc_numeric_zero ());
     }
     set_auto_interest_box (aw);
 }
 
 static void
+gnc_account_type_dropdown_changed_cb (GtkDropDown *dropdown, gpointer data)
+{
+    AccountWindow *aw = data;
+    GncAccountTypeItem *item;
+
+    g_return_if_fail (aw);
+    if (aw->updating_type_dropdown)
+        return;
+
+    item = GNC_ACCOUNT_TYPE_ITEM (gtk_drop_down_get_selected_item (dropdown));
+    aw->type = item ? gnc_account_type_item_get_account_type (item) :
+               ACCT_TYPE_INVALID;
+    g_clear_object (&item);
+    gnc_account_type_update (aw);
+}
+
+static void
 gnc_account_type_view_create (AccountWindow *aw, guint32 compat_types)
 {
-    GtkTreeModel *fmodel, *smodel;
-    GtkCellRenderer *renderer;
+    GtkExpression *expression;
 
     aw->valid_types &= compat_types;
     if (aw->valid_types == 0)
     {
-        /* no type restrictions, choose aw->type */
-        aw->valid_types = compat_types | (1 << aw->type);
+        /* No type restrictions: keep the account's current type visible. */
+        aw->valid_types = compat_types;
+        if (aw->type > ACCT_TYPE_NONE && aw->type < NUM_ACCOUNT_TYPES)
+            aw->valid_types |= 1u << aw->type;
         aw->preferred_account_type = aw->type;
     }
-    else if ((aw->valid_types & (1 << aw->type)) != 0)
+    else if (account_type_mask_contains (aw->valid_types, aw->type))
     {
-        /* aw->type is valid */
         aw->preferred_account_type = aw->type;
     }
-    else if ((aw->valid_types & (1 << last_used_account_type)) != 0)
+    else if (account_type_mask_contains (aw->valid_types,
+                                         last_used_account_type))
     {
-        /* last used account type is valid */
         aw->type = last_used_account_type;
         aw->preferred_account_type = last_used_account_type;
     }
     else
     {
-        /* choose first valid account type */
-        int i;
         aw->preferred_account_type = aw->type;
         aw->type = ACCT_TYPE_INVALID;
-        for (i = 0; i < 32; i++)
-            if ((aw->valid_types & (1 << i)) != 0)
+        for (gint type = ACCT_TYPE_NONE + 1; type < NUM_ACCOUNT_TYPES; type++)
+        {
+            if (account_type_mask_contains (aw->valid_types, type))
             {
-                aw->type = i;
+                aw->type = type;
                 break;
             }
+        }
     }
 
-    fmodel = gnc_tree_model_account_types_filter_using_mask (aw->valid_types);
-
-    smodel = gtk_tree_model_sort_new_with_model (fmodel);
-
-    gtk_tree_sortable_set_sort_column_id (GTK_TREE_SORTABLE(smodel),
-                                          GNC_TREE_MODEL_ACCOUNT_TYPES_COL_NAME,
-                                          GTK_SORT_ASCENDING);
-
-    gtk_combo_box_set_model (GTK_COMBO_BOX(aw->type_combo), smodel);
-
-    renderer = gtk_cell_renderer_text_new ();
-    gtk_cell_layout_pack_start (GTK_CELL_LAYOUT(aw->type_combo), renderer, TRUE);
-    gtk_cell_layout_set_attributes (GTK_CELL_LAYOUT(aw->type_combo), renderer,
-                                    "text", GNC_TREE_MODEL_ACCOUNT_TYPES_COL_NAME, NULL);
-
-    g_signal_connect (G_OBJECT(aw->type_combo), "changed",
-                      G_CALLBACK(gnc_account_type_combo_changed_cb), aw);
-
-    g_object_unref (G_OBJECT(fmodel));
-
-    gnc_tree_model_account_types_set_active_combo (GTK_COMBO_BOX(aw->type_combo),
-                                                   1 << aw->type);
+    expression = gtk_property_expression_new (GNC_TYPE_ACCOUNT_TYPE_ITEM,
+                                              NULL, "name");
+    gtk_drop_down_set_expression (GTK_DROP_DOWN (aw->type_combo), expression);
+    gtk_expression_unref (expression);
+    g_signal_connect (aw->type_combo, "notify::selected",
+                      G_CALLBACK (gnc_account_type_dropdown_changed_cb), aw);
+    account_type_dropdown_set_model (aw, aw->valid_types);
+    gnc_account_type_update (aw);
 }
-
 void
 gnc_account_name_insert_text_cb (GtkWidget   *entry,
                                  const gchar *text,
@@ -1581,7 +1621,6 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     ENTER("aw %p, modal %d", aw, aw->modal);
     builder = gtk_builder_new ();
     gtk_builder_set_current_object (builder, G_OBJECT(aw));
-    gnc_builder_add_from_file (builder, "dialog-account.glade", "fraction_liststore");
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_dialog");
 
     aw->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "account_dialog"));
@@ -1635,6 +1674,7 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
                       G_CALLBACK(commodity_changed_cb), aw);
 
     aw->account_scu = GTK_WIDGET(gtk_builder_get_object (builder, "account_scu"));
+    account_scu_dropdown_setup (aw);
 
     aw->parent_scroll = GTK_WIDGET(gtk_builder_get_object (builder, "parent_scroll"));
 

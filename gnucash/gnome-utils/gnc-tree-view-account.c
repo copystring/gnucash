@@ -2016,7 +2016,7 @@ gnc_tree_view_account_add_custom_column_renderer(GncTreeViewAccount *account_vie
 
 
 /* BEGIN FILTER FUNCTIONS */
-#define FILTER_TREE_VIEW "types_tree_view"
+#define FILTER_TREE_VIEW "types_list_view"
 
 /** This function tells the account tree view whether or not to filter
  *  out a particular account.  Accounts may be filtered if the user
@@ -2147,155 +2147,163 @@ gppat_filter_show_unused_toggled_cb (GtkToggleButton *button,
  *
  *  @param fd A pointer to the account filter dialog struct.
  */
-void
-gppat_filter_clear_all_cb (GtkWidget *button,
-                           AccountFilterDialog *fd)
-{
-    g_return_if_fail(GTK_IS_BUTTON(button));
-
-    ENTER("button %p", button);
-    fd->visible_types = 0;
-    gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(fd->model));
-    gnc_tree_view_account_refilter(fd->tree_view);
-    LEAVE("types 0x%x", fd->visible_types);
-}
-
-/** The "select all account types" button in the Filter dialog was
- *  clicked.  Make all account types visible, and update the page.
- *
- *  @param button The button that was clicked.
- *
- *  @param fd A pointer to the account filter dialog struct. */
-void
-gppat_filter_select_all_cb (GtkWidget *button,
-                            AccountFilterDialog *fd)
-{
-    g_return_if_fail(GTK_IS_BUTTON(button));
-
-    ENTER("button %p", button);
-    fd->visible_types = -1;
-    gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(fd->model));
-    gnc_tree_view_account_refilter(fd->tree_view);
-    LEAVE("types 0x%x", fd->visible_types);
-}
-
-/** The "select default account types" button in the Filter dialog was
- *  clicked.  Set all account types to their default visibility (which
- *  happens to be visible for all of them), and update the page.
- *
- *  @param button The button that was clicked.
- *
- *  @param fd A pointer to the account filter dialog struct.*/
-void
-gppat_filter_select_default_cb (GtkWidget *button,
-                                AccountFilterDialog *fd)
-{
-    ENTER("button %p", button);
-    gppat_filter_select_all_cb(button, fd);
-    LEAVE(" ");
-}
-
-/** Set the renderer's properties.
- *
- *  @param column A GtkTreeColumn
- *
- *  @param renderer The GtkCellRendererToggle being rendered by @column
- *
- *  @param model The GtkTreeModel being rendered
- *
- *  @param iter A GtkTreeIter of the current row rendered
- *
- *  @param data A pointer to the account filter dialog struct. */
 static void
-gppat_filter_visible_set_func (GtkTreeViewColumn *column,
-                               GtkCellRenderer *renderer,
-                               GtkTreeModel *model,
-                               GtkTreeIter *iter,
-                               gpointer data)
+account_filter_set_type_selection (AccountFilterDialog *fd, gboolean selected)
 {
-    AccountFilterDialog *fd = data;
-    GNCAccountType type;
-    gboolean active;
+    guint count;
 
-    gtk_tree_model_get(model, iter, GNC_TREE_MODEL_ACCOUNT_TYPES_COL_TYPE, &type, -1);
+    g_return_if_fail (fd);
+    g_return_if_fail (G_IS_LIST_MODEL (fd->type_model));
 
-    active = (fd->visible_types & (1 << type)) ? TRUE : FALSE;
-    g_object_set (G_OBJECT (renderer), "active", active, NULL);
-}
-
-/** A check box in the tree view was toggled.
- *
- *  @param renderer The GtkCellRendererToggle being toggled.
- *
- *  @param fd A pointer to the account filter dialog struct. */
-static void
-gppat_filter_visible_toggled_cb (GtkCellRendererToggle *renderer,
-                                 gchar *path_str,
-                                 AccountFilterDialog *fd)
-{
-    GtkTreeModel *model = fd->model;
-    GtkTreeIter iter;
-    GtkTreePath *path;
-    GNCAccountType type;
-
-    ENTER("toggled %p", path_str);
-    path = gtk_tree_path_new_from_string(path_str);
-
-    if (gtk_tree_model_get_iter(model, &iter, path))
+    fd->updating_type_selection = TRUE;
+    fd->visible_types = selected ? G_MAXUINT32 : 0;
+    count = g_list_model_get_n_items (fd->type_model);
+    for (guint position = 0; position < count; position++)
     {
-        gtk_tree_model_get(model, &iter, GNC_TREE_MODEL_ACCOUNT_TYPES_COL_TYPE, &type, -1);
-        fd->visible_types ^= (1 << type);
-        gnc_tree_view_account_refilter(fd->tree_view);
+        GncAccountTypeItem *item = GNC_ACCOUNT_TYPE_ITEM (
+            g_list_model_get_item (fd->type_model, position));
+
+        gnc_account_type_item_set_selected (item, selected);
+        g_object_unref (item);
     }
-    gtk_tree_path_free(path);
-    LEAVE("types 0x%x", fd->visible_types);
+    fd->updating_type_selection = FALSE;
+    gnc_tree_view_account_refilter (fd->tree_view);
 }
 
-/** The Filter dialog was closed.  Check to see if this was done via
- *  the OK button.  If so, make the changes permanent.  If not, revert
- *  any changes.
- *
- *  @param dialog A pointer to the "Filter By" dialog.
- *
- *  @param response The response code from closing the dialog.
- *
- *  @param fd A pointer to the account filter dialog struct.
- */
 void
-gppat_filter_response_cb (GtkWidget *dialog,
-                          gint       response,
+gppat_filter_clear_all_cb (GtkWidget *button, AccountFilterDialog *fd)
+{
+    g_return_if_fail (GTK_IS_BUTTON (button));
+
+    ENTER ("button %p", button);
+    account_filter_set_type_selection (fd, FALSE);
+    LEAVE ("types 0x%x", fd->visible_types);
+}
+
+void
+gppat_filter_select_all_cb (GtkWidget *button, AccountFilterDialog *fd)
+{
+    g_return_if_fail (GTK_IS_BUTTON (button));
+
+    ENTER ("button %p", button);
+    account_filter_set_type_selection (fd, TRUE);
+    LEAVE ("types 0x%x", fd->visible_types);
+}
+
+void
+gppat_filter_select_default_cb (GtkWidget *button, AccountFilterDialog *fd)
+{
+    ENTER ("button %p", button);
+    gppat_filter_select_all_cb (button, fd);
+    LEAVE (" ");
+}
+
+static void
+account_filter_type_selected_cb (GncAccountTypeItem *item, GParamSpec *pspec,
+                                 GtkListItem *list_item)
+{
+    AccountFilterDialog *fd = g_object_get_data (G_OBJECT (list_item),
+                                                 "account-filter-dialog");
+    GNCAccountType type = gnc_account_type_item_get_account_type (item);
+
+    g_return_if_fail (fd);
+    if (gnc_account_type_item_get_selected (item))
+        fd->visible_types |= 1u << type;
+    else
+        fd->visible_types &= ~(1u << type);
+
+    if (!fd->updating_type_selection)
+        gnc_tree_view_account_refilter (fd->tree_view);
+
+    (void)pspec;
+}
+
+static void
+account_filter_item_setup_cb (GtkSignalListItemFactory *factory,
+                              GtkListItem *list_item, gpointer user_data)
+{
+    GtkWidget *check_button = gtk_check_button_new (NULL);
+
+    gtk_widget_set_margin_start (check_button, 6);
+    gtk_widget_set_margin_end (check_button, 6);
+    gtk_widget_set_margin_top (check_button, 3);
+    gtk_widget_set_margin_bottom (check_button, 3);
+    gtk_list_item_set_child (list_item, check_button);
+    g_object_set_data (G_OBJECT (list_item), "account-filter-dialog", user_data);
+    (void)factory;
+}
+
+static void
+account_filter_item_bind_cb (GtkSignalListItemFactory *factory,
+                             GtkListItem *list_item, gpointer user_data)
+{
+    GncAccountTypeItem *item = GNC_ACCOUNT_TYPE_ITEM (
+        gtk_list_item_get_item (list_item));
+    GtkCheckButton *check_button = GTK_CHECK_BUTTON (
+        gtk_list_item_get_child (list_item));
+    GBinding *binding;
+
+    gtk_check_button_set_label (check_button,
+                                gnc_account_type_item_get_name (item));
+    binding = g_object_bind_property (item, "selected", check_button, "active",
+                                      G_BINDING_BIDIRECTIONAL |
+                                      G_BINDING_SYNC_CREATE);
+    g_object_set_data_full (G_OBJECT (list_item), "account-filter-binding",
+                            binding, (GDestroyNotify)g_binding_unbind);
+    g_signal_connect_object (item, "notify::selected",
+                             G_CALLBACK (account_filter_type_selected_cb),
+                             list_item, 0);
+    (void)factory;
+    (void)user_data;
+}
+
+static void
+account_filter_item_unbind_cb (GtkSignalListItemFactory *factory,
+                               GtkListItem *list_item, gpointer user_data)
+{
+    GncAccountTypeItem *item = GNC_ACCOUNT_TYPE_ITEM (
+        gtk_list_item_get_item (list_item));
+
+    g_signal_handlers_disconnect_by_func (item,
+                                          account_filter_type_selected_cb,
+                                          list_item);
+    g_object_set_data (G_OBJECT (list_item), "account-filter-binding", NULL);
+    (void)factory;
+    (void)user_data;
+}
+
+void
+gppat_filter_response_cb (GtkWidget *dialog, gint response,
                           AccountFilterDialog *fd)
 {
     gpointer gptemp;
 
-    g_return_if_fail(GTK_IS_DIALOG(dialog));
+    g_return_if_fail (GTK_IS_DIALOG (dialog));
 
-    ENTER("dialog %p, response %d", dialog, response);
-
+    ENTER ("dialog %p, response %d", dialog, response);
     if (response != GTK_RESPONSE_OK)
     {
         fd->visible_types = fd->original_visible_types;
         fd->show_hidden = fd->original_show_hidden;
         fd->show_zero_total = fd->original_show_zero_total;
         fd->show_unused = fd->original_show_unused;
-        gnc_tree_view_account_refilter(fd->tree_view);
+        gnc_tree_view_account_refilter (fd->tree_view);
     }
 
-    /* Clean up and delete dialog */
-    gptemp = (gpointer)fd->dialog;
-    g_atomic_pointer_compare_and_exchange(&gptemp,
-                                          (gpointer)dialog, NULL);
+    gptemp = fd->dialog;
+    g_atomic_pointer_compare_and_exchange (&gptemp, dialog, NULL);
     fd->dialog = gptemp;
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(dialog));
-    LEAVE("types 0x%x", fd->visible_types);
+    gtk_window_destroy (GTK_WINDOW (dialog));
+    g_clear_object (&fd->type_model);
+    LEAVE ("types 0x%x", fd->visible_types);
 }
-
 void
 account_filter_dialog_create(AccountFilterDialog *fd, GncPluginPage *page)
 {
     GtkWidget *dialog, *button;
-    GtkTreeView *view;
-    GtkCellRenderer *renderer;
+    GtkListView *view;
+    GtkSelectionModel *selection;
+    GtkListItemFactory *factory;
     GtkBuilder *builder;
     gchar *title;
 
@@ -2339,25 +2347,34 @@ account_filter_dialog_create(AccountFilterDialog *fd, GncPluginPage *page)
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button),
                                  fd->show_unused);
 
-    /* Set up the tree view and model */
-    view = GTK_TREE_VIEW(gtk_builder_get_object (builder, FILTER_TREE_VIEW));
+    /* The independent row objects carry the filter's checkbox state. */
+    view = GTK_LIST_VIEW (gtk_builder_get_object (builder, FILTER_TREE_VIEW));
+    fd->type_model = gnc_account_type_list_new (~(1u << ACCT_TYPE_ROOT));
 
-    fd->model = gnc_tree_model_account_types_filter_using_mask
-                (~(1 << ACCT_TYPE_ROOT));
-    gtk_tree_view_set_model(view, fd->model);
-    g_object_unref (fd->model);
+    for (guint position = 0;
+         position < g_list_model_get_n_items (fd->type_model); position++)
+    {
+        GncAccountTypeItem *item = GNC_ACCOUNT_TYPE_ITEM (
+            g_list_model_get_item (fd->type_model, position));
+        GNCAccountType type = gnc_account_type_item_get_account_type (item);
 
-    renderer = gtk_cell_renderer_toggle_new();
+        gnc_account_type_item_set_selected (item,
+                                            (fd->visible_types & (1u << type)) != 0);
+        g_object_unref (item);
+    }
 
-    g_signal_connect(renderer, "toggled",
-                     G_CALLBACK(gppat_filter_visible_toggled_cb), fd);
-
-    gtk_tree_view_insert_column_with_data_func (view, -1, NULL, renderer,
-                     gppat_filter_visible_set_func, fd, NULL);
-
-    gtk_tree_view_insert_column_with_attributes (view,
-            -1, _("Account Types"), gtk_cell_renderer_text_new(),
-            "text", GNC_TREE_MODEL_ACCOUNT_TYPES_COL_NAME, NULL);
+    selection = GTK_SELECTION_MODEL (gtk_no_selection_new (fd->type_model));
+    factory = GTK_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
+    g_signal_connect (factory, "setup", G_CALLBACK (account_filter_item_setup_cb),
+                      fd);
+    g_signal_connect (factory, "bind", G_CALLBACK (account_filter_item_bind_cb),
+                      fd);
+    g_signal_connect (factory, "unbind", G_CALLBACK (account_filter_item_unbind_cb),
+                      fd);
+    gtk_list_view_set_factory (view, factory);
+    gtk_list_view_set_model (view, selection);
+    g_object_unref (factory);
+    g_object_unref (selection);
 
     /* Wire up the rest of the callbacks */
 gnc_builder_connect_signals(builder, fd);
