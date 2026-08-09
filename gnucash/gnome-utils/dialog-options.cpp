@@ -65,16 +65,17 @@ static constexpr const char* GNC_PREFS_GROUP{"dialogs.options"};
 
 
 
-enum page_tree
-{
-    PAGE_INDEX = 0,
-    PAGE_NAME,
-    NUM_COLUMNS
-};
-
-
 static void dialog_reset_cb(GtkWidget * w, gpointer data);
-static void dialog_list_select_cb (GtkTreeSelection *selection, gpointer data);
+static void dialog_list_select_cb (GtkSelectionModel *selection,
+                                   guint position,
+                                   guint n_items,
+                                   gpointer data);
+static void dialog_page_list_item_setup_cb (GtkSignalListItemFactory *factory,
+                                            GtkListItem *list_item,
+                                            gpointer data);
+static void dialog_page_list_item_bind_cb (GtkSignalListItemFactory *factory,
+                                           GtkListItem *list_item,
+                                           gpointer data);
 static void component_close_handler (gpointer data);
 
 static inline GtkWidget* const
@@ -246,19 +247,13 @@ setup_notebook_pages(GncOptionsDialog* dlg, GtkBox* page_content_box,
     auto page_count = gtk_notebook_page_num(GTK_NOTEBOOK(notebook),
                                             GTK_WIDGET(page_content_box));
 
-    if (dlg->get_page_list_view())
+    if (dlg->get_page_list_model())
     {
-        /* Build the matching list item for selecting from large page sets */
-        auto view = GTK_TREE_VIEW(dlg->get_page_list_view());
-        auto list = GTK_LIST_STORE(gtk_tree_view_get_model(view));
+        /* The model order is the notebook-page order. */
+        auto list = dlg->get_page_list_model();
 
         PINFO("Page name is %s and page_count is %d", name, page_count);
-        GtkTreeIter iter;
-        gtk_list_store_append(list, &iter);
-        gtk_list_store_set(list, &iter,
-                           PAGE_NAME, _(name),
-                           PAGE_INDEX, page_count,
-                           -1);
+        gtk_string_list_append(list, _(name));
 
         if (page_count > MAX_TAB_COUNT - 1)   /* Convert 1-based -> 0-based */
         {
@@ -357,13 +352,8 @@ GncOptionsDialog::build_contents(GncOptionDB  *odb, bool show_dialog)
     gtk_notebook_popup_enable(GTK_NOTEBOOK(m_notebook));
     if (default_page >= 0)
     {
-        /* Find the page list and set the selection to the default page */
-        auto selection{gtk_tree_view_get_selection(GTK_TREE_VIEW(m_page_list_view))};
-        GtkTreeIter iter;
-
-        auto model{gtk_tree_view_get_model(GTK_TREE_VIEW(m_page_list_view))};
-        gtk_tree_model_iter_nth_child(model, &iter, NULL, default_page);
-        gtk_tree_selection_select_iter (selection, &iter);
+        /* The list model is append-only and therefore shares notebook indices. */
+        gtk_single_selection_set_selected(m_page_list_selection, default_page);
         gtk_notebook_set_current_page(GTK_NOTEBOOK(m_notebook), default_page);
     }
     dialog_changed_internal(m_window, FALSE);
@@ -497,21 +487,42 @@ dialog_reset_cb(GtkWidget * w, gpointer data)
     dialog_changed_internal (win->get_widget(), dialog_changed);
 }
 
-// changed signal handler
 static void
-dialog_list_select_cb (GtkTreeSelection *selection, gpointer data)
+dialog_page_list_item_setup_cb (GtkSignalListItemFactory *factory,
+                                GtkListItem *list_item,
+                                gpointer data)
 {
-    GncOptionsDialog * win = static_cast<decltype(win)>(data);
-    GtkTreeModel *list;
-    GtkTreeIter iter;
-    gint index = 0;
+    auto label = gtk_label_new(nullptr);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child(list_item, label);
+}
 
-    if (!gtk_tree_selection_get_selected(selection, &list, &iter))
+static void
+dialog_page_list_item_bind_cb (GtkSignalListItemFactory *factory,
+                               GtkListItem *list_item,
+                               gpointer data)
+{
+    auto item = GTK_STRING_OBJECT(gtk_list_item_get_item(list_item));
+    auto label = GTK_LABEL(gtk_list_item_get_child(list_item));
+
+    gtk_label_set_text(label, gtk_string_object_get_string(item));
+}
+
+// selection-changed signal handler
+static void
+dialog_list_select_cb (GtkSelectionModel *selection,
+                       guint position,
+                       guint n_items,
+                       gpointer data)
+{
+    GncOptionsDialog *win = static_cast<decltype(win)>(data);
+    auto index = gtk_single_selection_get_selected(GTK_SINGLE_SELECTION(selection));
+
+    if (index == GTK_INVALID_LIST_POSITION)
         return;
-    gtk_tree_model_get(list, &iter,
-                       PAGE_INDEX, &index,
-                       -1);
-    PINFO("Index is %d", index);
+
+    PINFO("Index is %u", index);
     gtk_notebook_set_current_page(GTK_NOTEBOOK(win->get_notebook()), index);
 }
 
@@ -549,27 +560,17 @@ GncOptionsDialog::GncOptionsDialog(bool modal, const char* title,
 
     /* Page List */
 
-    m_page_list_view = GTK_WIDGET(gtk_builder_get_object (builder, "page_list_treeview"));
-
-    auto view = GTK_TREE_VIEW(m_page_list_view);
-
-    auto store = gtk_list_store_new(NUM_COLUMNS, G_TYPE_INT, G_TYPE_STRING);
-    gtk_tree_view_set_model(view, GTK_TREE_MODEL(store));
-    g_object_unref(store);
-
-    auto renderer = gtk_cell_renderer_text_new();
-    auto column =
-        gtk_tree_view_column_new_with_attributes(_("Page"), renderer,
-                                                 "text", PAGE_NAME,
-                                                 nullptr);
-    gtk_tree_view_append_column(view, column);
-
-    gtk_tree_view_column_set_alignment(column, 0.5);
-
-    auto selection = gtk_tree_view_get_selection(view);
-    gtk_tree_selection_set_mode(selection, GTK_SELECTION_BROWSE);
-    g_signal_connect (selection, "changed",
-                      G_CALLBACK (dialog_list_select_cb), this);
+    m_page_list_model = gtk_string_list_new(nullptr);
+    m_page_list_selection = gtk_single_selection_new(G_LIST_MODEL(m_page_list_model));
+    auto factory = gtk_signal_list_item_factory_new();
+    g_signal_connect(factory, "setup", G_CALLBACK(dialog_page_list_item_setup_cb), nullptr);
+    g_signal_connect(factory, "bind", G_CALLBACK(dialog_page_list_item_bind_cb), nullptr);
+    m_page_list_view = gtk_list_view_new(GTK_SELECTION_MODEL(m_page_list_selection),
+                                         GTK_LIST_ITEM_FACTORY(factory));
+    gtk_widget_set_vexpand(m_page_list_view, TRUE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(m_page_list), m_page_list_view);
+    g_signal_connect(m_page_list_selection, "selection-changed",
+                     G_CALLBACK(dialog_list_select_cb), this);
 
     m_help_button = GTK_BUTTON(gtk_builder_get_object (builder, "helpbutton"));
     g_signal_connect(m_help_button, "clicked",
@@ -638,6 +639,14 @@ GncOptionsDialog::~GncOptionsDialog()
                                              (gpointer)dialog_window_key_pressed_cb,
                                              this);
         m_key_controller = nullptr;
+    }
+    if (m_page_list_selection)
+    {
+        g_signal_handlers_disconnect_by_func(m_page_list_selection,
+                                             (gpointer)dialog_list_select_cb,
+                                             this);
+        m_page_list_selection = nullptr;
+        m_page_list_model = nullptr;
     }
     m_option_db->foreach_section([](GncOptionSectionPtr& section)
     {
