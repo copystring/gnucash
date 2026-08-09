@@ -883,21 +883,19 @@ gnc_sx_slr_tree_model_adapter_new (GncSxInstanceModel *instances)
 void
 gnc_ui_sx_creation_error_dialog (GList **creation_errors)
 {
-    GtkWidget *dialog = NULL;
-    gchar *message = NULL;
+    GtkAlertDialog *dialog;
+    gchar *message;
+
     if (*creation_errors == NULL) return;
+
     message = gnc_g_list_stringjoin (*creation_errors, "\n");
     g_list_free_full (*creation_errors, g_free);
-    creation_errors = NULL;
-    dialog = gtk_message_dialog_new (NULL, 0,
-                                     GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
-                                     "\t%s\t", _("Invalid Transactions"));
-    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (dialog),
-                                              "%s", message);
-//FIXME gtk4    g_signal_connect_swapped (dialog, "response",
-//                              G_CALLBACK(gtk_window_destroy), GTK_WINDOW(dialog));
-//FIXME gtk4    gtk_dialog_run (GTK_DIALOG(dialog));
-gtk_window_set_modal (GTK_WINDOW(dialog), TRUE); //FIXME gtk4
+    *creation_errors = NULL;
+
+    dialog = gtk_alert_dialog_new ("%s", _("Invalid Transactions"));
+    gtk_alert_dialog_set_detail (dialog, message);
+    gtk_alert_dialog_show (dialog, NULL);
+    g_object_unref (dialog);
     g_free (message);
 }
 
