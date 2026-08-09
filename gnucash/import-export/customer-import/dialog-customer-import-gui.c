@@ -53,6 +53,18 @@ struct _customer_import_gui
     QofBook      *book;
 };
 
+typedef struct
+{
+    GWeakRef dialog;
+} CustomerImportFileDialogData;
+
+static void
+customer_import_file_dialog_data_free (CustomerImportFileDialogData *data)
+{
+    g_weak_ref_clear (&data->dialog);
+    g_free (data);
+}
+
 // callback routines
 void gnc_customer_import_gui_ok_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_import_gui_cancel_cb (GtkWidget *widget, gpointer data);
@@ -135,6 +147,7 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
     gtk_builder_set_current_object (builder, G_OBJECT(gui));
     gnc_builder_add_from_file (builder, "dialog-customer-import-gui.glade", "customer_import_dialog");
     gui->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "customer_import_dialog"));
+    g_object_set_data (G_OBJECT (gui->dialog), "gnc-customer-import-gui", gui);
     gui->entryFilename = GTK_WIDGET(gtk_builder_get_object (builder, "entryFilename"));
     preview_scrolledwindow = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder,
                                                    "scrolledwindow2"));
@@ -186,26 +199,58 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
     return gui;
 }
 
-static gchar *
-gnc_plugin_customer_import_getFilename (GtkWindow *parent)
+static GList *
+customer_import_file_filters (void)
 {
-    // prepare file import dialog
-    gchar *filename;
-    GList *filters;
+    GList *filters = NULL;
     GtkFileFilter *filter;
-    filters = NULL;
+
     filter = gtk_file_filter_new ();
     gtk_file_filter_set_name (filter, "comma separated values (*.csv)");
     gtk_file_filter_add_pattern (filter, "*.csv");
-    filters = g_list_append( filters, filter );
+    filters = g_list_append (filters, filter);
     filter = gtk_file_filter_new ();
     gtk_file_filter_set_name (filter, "text files (*.txt)");
     gtk_file_filter_add_pattern (filter, "*.txt");
-    filters = g_list_append( filters, filter );
-    filename = gnc_file_dialog(parent,
-                               _("Import Customers from CSV"), filters, NULL, GNC_FILE_DIALOG_IMPORT);
+    return g_list_append (filters, filter);
+}
 
-    return filename;
+static void
+customer_import_file_dialog_finished (GObject *source, GAsyncResult *result,
+                                      gpointer user_data)
+{
+    CustomerImportFileDialogData *data = user_data;
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GFile *file;
+    GtkWidget *dialog;
+    CustomerImportGui *gui = NULL;
+
+    file = gnc_file_dialog_request_finish (request, result, &error);
+    dialog = g_weak_ref_get (&data->dialog);
+    if (dialog)
+        gui = g_object_get_data (G_OBJECT (dialog),
+                                 "gnc-customer-import-gui");
+
+    if (file)
+    {
+        gchar *filename = g_file_get_path (file);
+
+        if (gui && filename)
+            gnc_entry_set_text (GTK_ENTRY (gui->entryFilename), filename);
+        else if (gui)
+            gnc_error_dialog (GTK_WINDOW (dialog), "%s",
+                              _("The selected file has no local path."));
+        g_free (filename);
+        g_object_unref (file);
+    }
+    else if (gui && error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        gnc_error_dialog (GTK_WINDOW (dialog), "%s", error->message);
+
+    g_clear_error (&error);
+    g_clear_object (&dialog);
+    customer_import_file_dialog_data_free (data);
 }
 
 void
@@ -275,6 +320,8 @@ gnc_customer_import_gui_destroy_cb (GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
 
+    g_object_set_data (G_OBJECT (widget), "gnc-customer-import-gui", NULL);
+
     gnc_suspend_gui_refresh ();
     gnc_unregister_gui_component (gui->component_id);
     gnc_resume_gui_refresh ();
@@ -284,17 +331,22 @@ gnc_customer_import_gui_destroy_cb (GtkWidget *widget, gpointer data)
     g_free (gui);
 }
 
-void gnc_customer_import_gui_buttonOpen_cb (GtkWidget *widget, gpointer data)
+void
+gnc_customer_import_gui_buttonOpen_cb (GtkWidget *widget, gpointer user_data)
 {
-    gchar *filename;
-    CustomerImportGui *gui = data;
+    CustomerImportGui *gui = user_data;
+    CustomerImportFileDialogData *data;
+    GncFileDialogRequest *request;
 
-    filename = gnc_plugin_customer_import_getFilename (gnc_ui_get_gtk_window (widget));
-    if (filename)
-    {
-        gnc_entry_set_text( GTK_ENTRY(gui->entryFilename), filename );
-        g_free( filename );
-    }
+    data = g_new0 (CustomerImportFileDialogData, 1);
+    g_weak_ref_init (&data->dialog, gui->dialog);
+    request = gnc_file_dialog_request_new (
+        gnc_ui_get_gtk_window (widget), _("Import Customers from CSV"),
+        customer_import_file_filters (), NULL, GNC_FILE_DIALOG_IMPORT);
+    gnc_file_dialog_request_open_async (request, NULL,
+                                        customer_import_file_dialog_finished,
+                                        data);
+    g_object_unref (request);
 }
 
 void gnc_customer_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer data)

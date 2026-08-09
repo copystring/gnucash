@@ -1596,7 +1596,113 @@ gnc_file_ofx_import_parse_current_file (ofx_info* info)
 }
 
 // The main import function. Starts the chain of file imports (if there are several)
-void gnc_file_ofx_import (GtkWindow *parent)
+typedef struct
+{
+    GWeakRef parent;
+    gboolean had_parent;
+} OfxFileDialogData;
+
+static void
+ofx_file_dialog_data_free (OfxFileDialogData *data)
+{
+    g_weak_ref_clear (&data->parent);
+    g_free (data);
+}
+
+static void
+ofx_import_selected_files (GtkWindow *parent, GSList *selected_filenames)
+{
+    char *default_dir;
+    ofx_info *info;
+
+    if (!selected_filenames)
+        return;
+
+    /* Remember the directory as the default. */
+    default_dir = g_path_get_dirname (static_cast<char *> (selected_filenames->data));
+    gnc_set_default_directory (GNC_PREFS_GROUP, default_dir);
+    g_free (default_dir);
+
+    /* Look up the needed preferences. */
+    auto_create_commodity =
+        gnc_prefs_get_bool (GNC_PREFS_GROUP_IMPORT, GNC_PREF_AUTO_COMMODITY);
+
+    DEBUG ("Opening selected file(s)");
+    info = g_new (ofx_info, 1);
+    info->num_trans_processed = 0;
+    info->statement = NULL;
+    info->last_investment_account = NULL;
+    info->last_import_account = NULL;
+    info->last_income_account = NULL;
+    info->parent = parent;
+    info->run_reconcile = FALSE;
+    info->file_list = selected_filenames;
+    info->trans_list = NULL;
+    info->response = 0;
+    gnc_file_ofx_import_process_file (info);
+}
+
+static GSList *
+ofx_file_list_from_selection (GListModel *files)
+{
+    GSList *selected_filenames = NULL;
+    guint position;
+
+    for (position = 0; position < g_list_model_get_n_items (files); position++)
+    {
+        GFile *file = G_FILE (g_list_model_get_item (files, position));
+        gchar *filename = g_file_get_path (file);
+
+        g_object_unref (file);
+        if (!filename)
+        {
+            g_slist_free_full (selected_filenames, g_free);
+            return NULL;
+        }
+        selected_filenames = g_slist_append (selected_filenames, filename);
+    }
+
+    return selected_filenames;
+}
+
+static void
+ofx_file_dialog_finished (GObject *source, GAsyncResult *result,
+                          gpointer user_data)
+{
+    OfxFileDialogData *data = static_cast<OfxFileDialogData *> (user_data);
+    auto request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GListModel *files;
+    GtkWindow *parent;
+    GSList *selected_filenames;
+
+    files = gnc_file_dialog_request_finish_multiple (request, result, &error);
+    parent = GTK_WINDOW (g_weak_ref_get (&data->parent));
+    if (!files)
+    {
+        if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            gnc_error_dialog (parent, "%s", error->message);
+        g_clear_error (&error);
+        g_clear_object (&parent);
+        ofx_file_dialog_data_free (data);
+        return;
+    }
+
+    selected_filenames = ofx_file_list_from_selection (files);
+    g_object_unref (files);
+    if (!selected_filenames)
+        gnc_error_dialog (parent, "%s", _("The selected file has no local path."));
+    else if (parent || !data->had_parent)
+        ofx_import_selected_files (parent, selected_filenames);
+    else
+        g_slist_free_full (selected_filenames, g_free);
+
+    g_clear_object (&parent);
+    ofx_file_dialog_data_free (data);
+}
+
+void
+gnc_file_ofx_import (GtkWindow *parent)
 {
     extern int ofx_PARSER_msg;
     extern int ofx_DEBUG_msg;
@@ -1604,12 +1710,11 @@ void gnc_file_ofx_import (GtkWindow *parent)
     extern int ofx_ERROR_msg;
     extern int ofx_INFO_msg;
     extern int ofx_STATUS_msg;
-    GSList* selected_filenames = NULL;
+    GncFileDialogRequest *request;
+    OfxFileDialogData *data;
+    GtkFileFilter *filter;
+    GList *filters;
     char *default_dir;
-    GList *filters = NULL;
-    ofx_info* info = NULL;
-    GtkFileFilter* filter = gtk_file_filter_new ();
-
 
     ofx_PARSER_msg = false;
     ofx_DEBUG_msg = false;
@@ -1618,47 +1723,24 @@ void gnc_file_ofx_import (GtkWindow *parent)
     ofx_INFO_msg = true;
     ofx_STATUS_msg = false;
 
-    DEBUG("gnc_file_ofx_import(): Begin...\n");
-
-    default_dir = gnc_get_default_directory(GNC_PREFS_GROUP);
-    gtk_file_filter_set_name (filter, _("Open/Quicken Financial Exchange file (*.ofx, *.qfx)"));
+    DEBUG ("gnc_file_ofx_import(): Begin...");
+    filter = gtk_file_filter_new ();
+    gtk_file_filter_set_name (filter,
+                              _("Open/Quicken Financial Exchange file (*.ofx, *.qfx)"));
     gtk_file_filter_add_pattern (filter, "*.[oqOQ][fF][xX]");
-    filters = g_list_prepend( filters, filter );
+    filters = g_list_prepend (NULL, filter);
+    default_dir = gnc_get_default_directory (GNC_PREFS_GROUP);
+    request = gnc_file_dialog_request_new (
+        parent, _("Select one or multiple OFX/QFX file(s) to process"), filters,
+        default_dir, GNC_FILE_DIALOG_IMPORT);
+    g_free (default_dir);
 
-    selected_filenames = gnc_file_dialog_multi (parent,
-                                                _("Select one or multiple OFX/QFX file(s) to process"),
-                                                filters,
-                                                default_dir,
-                                                GNC_FILE_DIALOG_IMPORT);
-    g_free(default_dir);
-
-    if (selected_filenames)
-    {
-        /* Remember the directory as the default. */
-        default_dir = g_path_get_dirname(static_cast<char*>(selected_filenames->data));
-        gnc_set_default_directory(GNC_PREFS_GROUP, default_dir);
-        g_free(default_dir);
-
-        /* Look up the needed preferences */
-        auto_create_commodity =
-            gnc_prefs_get_bool (GNC_PREFS_GROUP_IMPORT, GNC_PREF_AUTO_COMMODITY);
-
-        DEBUG("Opening selected file(s)");
-        // Create the structure that holds the list of files to process and the statement info.
-        info = g_new(ofx_info,1);
-        info->num_trans_processed = 0;
-        info->statement = NULL;
-        info->last_investment_account = NULL;
-        info->last_import_account = NULL;
-        info->last_income_account = NULL;
-        info->parent = parent;
-        info->run_reconcile = FALSE;
-        info->file_list = selected_filenames;
-        info->trans_list = NULL;
-        info->response = 0;
-        // Call the aux import function.
-        gnc_file_ofx_import_process_file (info);
-    }
+    data = g_new0 (OfxFileDialogData, 1);
+    data->had_parent = parent != NULL;
+    g_weak_ref_init (&data->parent, parent);
+    gnc_file_dialog_request_open_multiple_async (request, NULL,
+                                                 ofx_file_dialog_finished, data);
+    g_object_unref (request);
 }
 
 

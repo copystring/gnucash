@@ -57,6 +57,17 @@ struct _bi_import_gui
     gchar        *open_mode;
 };
 
+typedef struct
+{
+    GWeakRef dialog;
+} BiImportFileDialogData;
+
+static void
+bi_import_file_dialog_data_free (BiImportFileDialogData *data)
+{
+    g_weak_ref_clear (&data->dialog);
+    g_free (data);
+}
 
 // callback routines
 void gnc_bi_import_gui_ok_cb (GtkWidget *widget, gpointer data);
@@ -150,6 +161,7 @@ gnc_plugin_bi_import_showGUI (GtkWindow *parent)
     gtk_builder_set_current_object (builder, G_OBJECT(gui));
     gnc_builder_add_from_file (builder, "dialog-bi-import-gui.glade", "bi_import_dialog");
     gui->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "bi_import_dialog"));
+    g_object_set_data (G_OBJECT (gui->dialog), "gnc-bi-import-gui", gui);
     gtk_window_set_transient_for(GTK_WINDOW(gui->dialog), GTK_WINDOW(parent));
     gui->parent = parent;
     gui->entryFilename = GTK_WIDGET(gtk_builder_get_object (builder, "entryFilename"));
@@ -208,25 +220,57 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
     return gui;
 }
 
-static gchar *
-gnc_plugin_bi_import_getFilename(GtkWindow *parent)
+static GList *
+bi_import_file_filters (void)
 {
-    // prepare file import dialog
-    gchar *filename = NULL;
-    GList *filters;
+    GList *filters = NULL;
     GtkFileFilter *filter;
-    filters = NULL;
+
     filter = gtk_file_filter_new ();
     gtk_file_filter_set_name (filter, "comma separated values (*.csv)");
     gtk_file_filter_add_pattern (filter, "*.csv");
-    filters = g_list_append( filters, filter );
+    filters = g_list_append (filters, filter);
     filter = gtk_file_filter_new ();
     gtk_file_filter_set_name (filter, "text files (*.txt)");
     gtk_file_filter_add_pattern (filter, "*.txt");
-    filters = g_list_append( filters, filter );
-    filename = gnc_file_dialog(parent, _("Import Bills or Invoices from CSV"), filters, NULL, GNC_FILE_DIALOG_IMPORT);
+    return g_list_append (filters, filter);
+}
 
-    return filename;
+static void
+bi_import_file_dialog_finished (GObject *source, GAsyncResult *result,
+                                gpointer user_data)
+{
+    BiImportFileDialogData *data = user_data;
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GFile *file;
+    GtkWidget *dialog;
+    BillImportGui *gui = NULL;
+
+    file = gnc_file_dialog_request_finish (request, result, &error);
+    dialog = g_weak_ref_get (&data->dialog);
+    if (dialog)
+        gui = g_object_get_data (G_OBJECT (dialog), "gnc-bi-import-gui");
+
+    if (file)
+    {
+        gchar *filename = g_file_get_path (file);
+
+        if (gui && filename)
+            gnc_entry_set_text (GTK_ENTRY (gui->entryFilename), filename);
+        else if (gui)
+            gnc_error_dialog (GTK_WINDOW (dialog), "%s",
+                              _("The selected file has no local path."));
+        g_free (filename);
+        g_object_unref (file);
+    }
+    else if (gui && error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        gnc_error_dialog (GTK_WINDOW (dialog), "%s", error->message);
+
+    g_clear_error (&error);
+    g_clear_object (&dialog);
+    bi_import_file_dialog_data_free (data);
 }
 
 void
@@ -298,6 +342,8 @@ gnc_bi_import_gui_destroy_cb (GtkWidget *widget, gpointer data)
 {
     BillImportGui *gui = data;
 
+    g_object_set_data (G_OBJECT (widget), "gnc-bi-import-gui", NULL);
+
     gnc_suspend_gui_refresh ();
     gnc_unregister_gui_component (gui->component_id);
     gnc_resume_gui_refresh ();
@@ -307,19 +353,22 @@ gnc_bi_import_gui_destroy_cb (GtkWidget *widget, gpointer data)
     g_free (gui);
 }
 
-void gnc_bi_import_gui_buttonOpen_cb (GtkWidget *widget, gpointer data)
+void
+gnc_bi_import_gui_buttonOpen_cb (GtkWidget *widget, gpointer user_data)
 {
-    gchar *filename = NULL;
-    BillImportGui *gui = data;
+    BillImportGui *gui = user_data;
+    BiImportFileDialogData *data;
+    GncFileDialogRequest *request;
 
-    filename = gnc_plugin_bi_import_getFilename (gnc_ui_get_gtk_window (widget));
-    if (filename)
-    {
-        //printf("Setting filename"); // debug
-        gnc_entry_set_text( GTK_ENTRY(gui->entryFilename), filename );
-        //printf("Set filename"); // debug
-        g_free( filename );
-    }
+    data = g_new0 (BiImportFileDialogData, 1);
+    g_weak_ref_init (&data->dialog, gui->dialog);
+    request = gnc_file_dialog_request_new (
+        gnc_ui_get_gtk_window (widget),
+        _("Import Bills or Invoices from CSV"), bi_import_file_filters (), NULL,
+        GNC_FILE_DIALOG_IMPORT);
+    gnc_file_dialog_request_open_async (request, NULL,
+                                        bi_import_file_dialog_finished, data);
+    g_object_unref (request);
 }
 
 void gnc_bi_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer data)
