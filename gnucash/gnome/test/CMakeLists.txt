@@ -19,6 +19,8 @@ macro(add_gnome_test _TARGET _SOURCE_FILES)
   gnc_add_test(${_TARGET} "${_SOURCE_FILES}" GNOME_TEST_INCLUDE_DIRS GNOME_TEST_LIBS)
 endmacro()
 
+add_gnome_test(test-dialog-date-close test-dialog-date-close.c)
+
 gnc_add_test_with_guile(test-invoice-report-builtin-default test-invoice-report-builtin-default.cpp
   GNOME_TEST_INCLUDE_DIRS GNOME_TEST_LIBS
 )
@@ -59,6 +61,7 @@ gnc_add_test (test-assistant-stock-transaction
 set_dist_list(test_gnome_DIST
   CMakeLists.txt
   test-invoice-report-builtin-default.cpp
+  test-dialog-date-close.c
   ${test_gnome_scheme_SOURCES}
   ${test_gnome_SOURCES}
   ${test_assistant-stock-transaction_SOURCES}

@@ -1029,78 +1029,6 @@ gnc_invoice_window_printCB (GtkWindow* parent, gpointer data)
     gnc_main_window_open_page (GNC_MAIN_WINDOW (iw->dialog), iw->reportPage);
 }
 
-static gboolean
-gnc_dialog_post_invoice(InvoiceWindow *iw, char *message,
-                        time64 *ddue, time64 *postdate,
-                        char **memo, Account **acc, gboolean *accumulate)
-{
-    GncInvoice *invoice;
-    char *ddue_label, *post_label, *acct_label, *question_label;
-    GList * acct_types = NULL;
-    GList * acct_commodities = NULL;
-    QofInstance *owner_inst;
-    EntryList *entries, *entries_iter;
-
-    invoice = iw_get_invoice (iw);
-    if (!invoice)
-        return FALSE;
-
-    ddue_label = _("Due Date");
-    post_label = _("Post Date");
-    acct_label = _("Post to Account");
-    question_label = _("Accumulate Splits?");
-
-    /* Determine the type of account to post to */
-    acct_types = gncOwnerGetAccountTypesList (&(iw->owner));
-
-    /* Determine which commodity we're working with */
-    acct_commodities = gncOwnerGetCommoditiesList(&(iw->owner));
-
-    /* Get the invoice entries */
-    entries = gncInvoiceGetEntries (invoice);
-
-    /* Find the most suitable post date.
-     * For Customer Invoices that would be today.
-     * For Vendor Bills and Employee Vouchers
-     * that would be the date of the most recent invoice entry.
-     * Failing that, today is used as a fallback */
-    *postdate = gnc_time(NULL);
-
-    if (entries && ((gncInvoiceGetOwnerType (invoice) == GNC_OWNER_VENDOR) ||
-                    (gncInvoiceGetOwnerType (invoice) == GNC_OWNER_EMPLOYEE)))
-    {
-        *postdate = gncEntryGetDate ((GncEntry*)entries->data);
-        for (entries_iter = entries; entries_iter != NULL; entries_iter = g_list_next(entries_iter))
-        {
-            time64 entrydate = gncEntryGetDate ((GncEntry*)entries_iter->data);
-            if (entrydate > *postdate)
-                *postdate = entrydate;
-        }
-    }
-
-    /* Get the due date and posted account */
-    *ddue = *postdate;
-    *memo = NULL;
-    {
-    GncGUID *guid = NULL;
-    owner_inst = qofOwnerGetOwner (gncOwnerGetEndOwner (&(iw->owner)));
-    qof_instance_get (owner_inst,
-                      "invoice-last-posted-account", &guid,
-                      NULL);
-    *acc = xaccAccountLookup (guid, iw->book);
-    }
-    /* Get the default for the accumulate option */
-    *accumulate = gnc_prefs_get_bool(GNC_PREFS_GROUP_INVOICE, GNC_PREF_ACCUM_SPLITS);
-
-    if (!gnc_dialog_dates_acct_question_parented (iw_get_window(iw), message, ddue_label,
-            post_label, acct_label, question_label, TRUE, TRUE,
-            acct_types, acct_commodities, iw->book, iw->terms,
-            ddue, postdate, memo, acc, accumulate))
-        return FALSE;
-
-    return TRUE;
-}
-
 struct post_invoice_params
 {
     time64 ddue;            /* Due date */
@@ -1108,14 +1036,242 @@ struct post_invoice_params
     char *memo;             /* Memo for posting transaction */
     Account *acc;           /* Account to post to */
     gboolean accumulate;    /* Whether to accumulate splits */
-    GtkWindow *parent;
 };
 
+typedef struct
+{
+    InvoiceWindow *iw;
+    GWeakRef window;
+    gulong destroy_handler;
+    QofBook *book;
+    GncGUID invoice_guid;
+    GList *invoice_guids;
+    gboolean multiple;
+} InvoicePostRequest;
+
+static void gnc_invoice_post (InvoiceWindow *iw,
+                              struct post_invoice_params *post_params);
+
 static void
-gnc_invoice_post(InvoiceWindow *iw, struct post_invoice_params *post_params)
+post_invoice_params_clear (struct post_invoice_params *post_params)
+{
+    g_clear_pointer (&post_params->memo, g_free);
+}
+
+static void
+invoice_post_request_destroyed (GtkWidget *widget, InvoicePostRequest *request)
+{
+    (void)widget;
+    request->iw = NULL;
+    request->destroy_handler = 0;
+}
+
+static void
+invoice_post_request_free (InvoicePostRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    g_list_free_full (request->invoice_guids, g_free);
+    g_free (request);
+}
+
+static InvoicePostRequest *
+invoice_post_request_new (InvoiceWindow *iw, GList *invoice_guids)
+{
+    GtkWidget *window;
+    InvoicePostRequest *request;
+
+    if (!iw || !iw_get_invoice (iw))
+        return NULL;
+
+    window = iw_get_window (iw);
+    if (!window)
+        return NULL;
+
+    request = g_new0 (InvoicePostRequest, 1);
+    request->iw = iw;
+    request->book = iw->book;
+    request->invoice_guid = iw->invoice_guid;
+    request->invoice_guids = invoice_guids;
+    request->multiple = invoice_guids != NULL;
+    g_weak_ref_init (&request->window, window);
+    request->destroy_handler = g_signal_connect (
+        window, "destroy", G_CALLBACK (invoice_post_request_destroyed), request);
+    return request;
+}
+
+static gboolean
+invoice_post_request_all_unposted (const InvoicePostRequest *request)
+{
+    GList *node;
+
+    for (node = request->invoice_guids; node; node = node->next)
+    {
+        GncInvoice *invoice = gncInvoiceLookup (request->book, node->data);
+
+        if (!invoice || gncInvoiceIsPosted (invoice))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+static gboolean
+invoice_post_request_single_valid (const InvoicePostRequest *request)
 {
     GncInvoice *invoice;
-    char *message, *memo;
+
+    if (!request->iw)
+        return FALSE;
+
+    invoice = gncInvoiceLookup (request->book, &request->invoice_guid);
+    return invoice && !gncInvoiceIsPosted (invoice) &&
+           iw_get_invoice (request->iw) == invoice;
+}
+
+
+static void
+invoice_post_request_finished (GObject *source, GAsyncResult *result,
+                               gpointer user_data)
+{
+    InvoicePostRequest *request = user_data;
+    struct post_invoice_params post_params = { 0 };
+    GError *error = NULL;
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    (void)source;
+    if (!gnc_dialog_dates_acct_question_parented_finish (
+            result, &post_params.ddue, &post_params.postdate, &post_params.memo,
+            &post_params.acc, &post_params.accumulate, &error))
+        goto cleanup;
+
+    if (!window || qof_book_shutting_down (request->book))
+        goto cleanup;
+
+    if (request->multiple)
+    {
+        GList *node;
+
+        if (!invoice_post_request_all_unposted (request))
+        {
+            gnc_error_dialog (GTK_WINDOW (window), "%s",
+                              _("One or more selected invoices have changed. "
+                                "Re-check your selection."));
+            goto cleanup;
+        }
+
+        gnc_suspend_gui_refresh ();
+        for (node = request->invoice_guids; node; node = node->next)
+        {
+            GncInvoice *invoice = gncInvoiceLookup (request->book, node->data);
+            InvoiceWindow *iw = gnc_ui_invoice_edit (GTK_WINDOW (window), invoice);
+
+            if (iw)
+                gnc_invoice_post (iw, &post_params);
+        }
+        gnc_resume_gui_refresh ();
+    }
+    else if (invoice_post_request_single_valid (request))
+    {
+        gnc_invoice_post (request->iw, &post_params);
+    }
+
+cleanup:
+    g_clear_error (&error);
+    g_clear_object (&window);
+    post_invoice_params_clear (&post_params);
+    invoice_post_request_free (request);
+}
+
+static gboolean
+invoice_post_request_start (InvoicePostRequest *request, InvoiceWindow *iw,
+                            const char *message)
+{
+    GncInvoice *invoice;
+    GList *acct_types;
+    GList *acct_commodities;
+    QofInstance *owner_inst;
+    EntryList *entries;
+    EntryList *entries_iter;
+    GncGUID *guid = NULL;
+    Account *acc;
+    time64 ddue;
+    time64 postdate;
+    gboolean accumulate;
+    GtkWidget *window;
+
+    invoice = iw_get_invoice (iw);
+    if (!invoice)
+        return FALSE;
+
+    acct_types = gncOwnerGetAccountTypesList (&iw->owner);
+    acct_commodities = gncOwnerGetCommoditiesList (&iw->owner);
+
+    entries = gncInvoiceGetEntries (invoice);
+    postdate = gnc_time (NULL);
+    if (entries && ((gncInvoiceGetOwnerType (invoice) == GNC_OWNER_VENDOR) ||
+                    (gncInvoiceGetOwnerType (invoice) == GNC_OWNER_EMPLOYEE)))
+    {
+        postdate = gncEntryGetDate (entries->data);
+        for (entries_iter = entries; entries_iter;
+             entries_iter = g_list_next (entries_iter))
+        {
+            time64 entrydate = gncEntryGetDate (entries_iter->data);
+
+            if (entrydate > postdate)
+                postdate = entrydate;
+        }
+    }
+
+    ddue = postdate;
+    owner_inst = qofOwnerGetOwner (gncOwnerGetEndOwner (&iw->owner));
+    qof_instance_get (owner_inst, "invoice-last-posted-account", &guid, NULL);
+    acc = xaccAccountLookup (guid, iw->book);
+    accumulate = gnc_prefs_get_bool (GNC_PREFS_GROUP_INVOICE,
+                                     GNC_PREF_ACCUM_SPLITS);
+    window = g_weak_ref_get (&request->window);
+    if (!window)
+    {
+        g_list_free (acct_types);
+        g_list_free (acct_commodities);
+        return FALSE;
+    }
+
+    gnc_dialog_dates_acct_question_parented_async (
+        window, message, _("Due Date"), _("Post Date"), _("Post to Account"),
+        _("Accumulate Splits?"), TRUE, TRUE, acct_types, acct_commodities,
+        iw->book, iw->terms, ddue, postdate, NULL, acc, accumulate, NULL,
+        invoice_post_request_finished, request);
+    g_list_free (acct_commodities);
+    g_object_unref (window);
+    return TRUE;
+}
+
+static void
+invoice_post_request (InvoiceWindow *iw, const char *message,
+                      GList *invoice_guids)
+{
+    InvoicePostRequest *request = invoice_post_request_new (iw, invoice_guids);
+
+    if (!request)
+    {
+        g_list_free_full (invoice_guids, g_free);
+        return;
+    }
+
+    if (!invoice_post_request_start (request, iw, message))
+        invoice_post_request_free (request);
+}
+
+static void
+gnc_invoice_post (InvoiceWindow *iw, struct post_invoice_params *post_params)
+
+{
+    GncInvoice *invoice;
+    char *memo;
     Account *acc = NULL;
     time64 ddue, postdate;
     gboolean accumulate;
@@ -1160,10 +1316,9 @@ gnc_invoice_post(InvoiceWindow *iw, struct post_invoice_params *post_params)
     }
     else
     {
-        message = _("Do you really want to post the invoice?");
-        if (!gnc_dialog_post_invoice(iw, message,
-                                     &ddue, &postdate, &memo, &acc, &accumulate))
-            return;
+        invoice_post_request (iw, _("Do you really want to post the invoice?"),
+                              NULL);
+        return;
     }
 
     /* Yep, we're posting.  So, save the invoice...
@@ -3399,14 +3554,6 @@ multi_duplicate_invoice_cb (GtkWindow *dialog, GList *invoice_list, gpointer use
     }
 }
 
-static void post_one_invoice_cb(gpointer data, gpointer user_data)
-{
-    GncInvoice *invoice = data;
-    struct post_invoice_params *post_params = user_data;
-    InvoiceWindow *iw = gnc_ui_invoice_edit(post_params->parent, invoice);
-    gnc_invoice_post(iw, post_params);
-}
-
 static void gnc_invoice_is_posted(gpointer inv, gpointer test_value)
 {
     GncInvoice *invoice = inv;
@@ -3419,46 +3566,61 @@ static void gnc_invoice_is_posted(gpointer inv, gpointer test_value)
 }
 
 
+static GList *
+invoice_guid_list_copy (GList *invoice_list)
+{
+    GList *invoice_guids = NULL;
+    GList *node;
+
+    for (node = invoice_list; node; node = node->next)
+    {
+        GncInvoice *invoice = node->data;
+        GncGUID *guid;
+
+        if (!invoice)
+            continue;
+        guid = g_new (GncGUID, 1);
+        *guid = *gncInvoiceGetGUID (invoice);
+        invoice_guids = g_list_append (invoice_guids, guid);
+    }
+
+    return invoice_guids;
+}
+
 static void
 multi_post_invoice_cb (GtkWindow *dialog, GList *invoice_list, gpointer user_data)
 {
-    struct post_invoice_params post_params;
+    GList *invoice_guids;
     gboolean test;
     InvoiceWindow *iw;
 
+    (void)user_data;
     if (!gnc_list_length_cmp (invoice_list, 0))
         return;
-    // Get the posting parameters for these invoices
-    iw = gnc_ui_invoice_edit(dialog, invoice_list->data);
+
+    iw = gnc_ui_invoice_edit (dialog, invoice_list->data);
+    if (!iw)
+        return;
+
     test = FALSE;
-    gnc_suspend_gui_refresh (); // Turn off GUI refresh for the duration.
-    // Check if any of the selected invoices have already been posted.
-    g_list_foreach(invoice_list, gnc_invoice_is_posted, &test);
+    gnc_suspend_gui_refresh ();
+    g_list_foreach (invoice_list, gnc_invoice_is_posted, &test);
     gnc_resume_gui_refresh ();
     if (test)
     {
-        gnc_error_dialog (GTK_WINDOW (iw_get_window(iw)), "%s",
-                          _("One or more selected invoices have already been posted.\nRe-check your selection."));
+        gnc_error_dialog (GTK_WINDOW (iw_get_window (iw)), "%s",
+                          _("One or more selected invoices have already been posted.\n"
+                            "Re-check your selection."));
         return;
     }
 
-    if (!gnc_dialog_post_invoice(iw, _("Do you really want to post these invoices?"),
-                                 &post_params.ddue, &post_params.postdate,
-                                 &post_params.memo, &post_params.acc,
-                                 &post_params.accumulate))
+    invoice_guids = invoice_guid_list_copy (invoice_list);
+    if (!invoice_guids)
         return;
-    post_params.parent = dialog;
 
-    // Turn off GUI refresh for the duration.  This is more than just an
-    // optimization.  If the search that got us here is based on the "posted"
-    // status of an invoice, the updating the GUI will change the list we're
-    // working on which leads to bad things happening.
-    gnc_suspend_gui_refresh ();
-    g_list_foreach(invoice_list, post_one_invoice_cb, &post_params);
-    gnc_resume_gui_refresh ();
-}
-
-static void print_one_invoice_cb(GtkWindow *dialog, gpointer data, gpointer user_data)
+    invoice_post_request (iw, _("Do you really want to post these invoices?"),
+                          invoice_guids);
+}static void print_one_invoice_cb(GtkWindow *dialog, gpointer data, gpointer user_data)
 {
     GncInvoice *invoice = data;
     struct multi_edit_invoice_data *meid = user_data;

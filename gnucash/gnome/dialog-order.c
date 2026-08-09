@@ -251,26 +251,119 @@ gnc_order_window_invoice_cb (GtkWidget *widget, gpointer data)
     gnc_order_update_window (ow);
 }
 
+typedef struct
+{
+    OrderWindow *ow;
+    GWeakRef window;
+    gulong destroy_handler;
+    GncGUID order_guid;
+    QofBook *book;
+    gboolean restore_close_button;
+} OrderCloseRequest;
+
+static void
+order_close_request_destroyed (GtkWidget *widget, OrderCloseRequest *request)
+{
+    (void)widget;
+    request->ow = NULL;
+    request->destroy_handler = 0;
+}
+
+static void
+order_close_request_free (OrderCloseRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    if (request->ow && request->restore_close_button &&
+        request->ow->close_order_button)
+        gtk_widget_set_sensitive (request->ow->close_order_button, TRUE);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+order_close_date_finished (GObject *source, GAsyncResult *result,
+                           gpointer user_data)
+{
+    OrderCloseRequest *request = user_data;
+    GError *error = NULL;
+    GncOrder *order;
+    time64 date;
+
+    (void)source;
+    if (request->ow && !qof_book_shutting_down (request->book) &&
+        gnc_dialog_date_close_parented_finish (result, &date, &error))
+    {
+        order = gncOrderLookup (request->book, &request->order_guid);
+        if (order)
+        {
+            gncOrderSetDateClosed (order, date);
+            if (gnc_order_window_ok_save (request->ow))
+            {
+                request->ow->dialog_type = VIEW_ORDER;
+                gnc_entry_ledger_set_readonly (request->ow->ledger, TRUE);
+                gnc_order_update_window (request->ow);
+                request->restore_close_button = FALSE;
+            }
+        }
+    }
+
+    g_clear_error (&error);
+    order_close_request_free (request);
+}
+
+static void
+order_close_start_date_dialog (OrderCloseRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (!window || !request->ow || qof_book_shutting_down (request->book))
+    {
+        g_clear_object (&window);
+        order_close_request_free (request);
+        return;
+    }
+
+    gnc_dialog_date_close_parented_async (
+        window, _("Do you really want to close the order?"), _("Close Date"),
+        TRUE, gnc_time (NULL), NULL, order_close_date_finished, request);
+    g_object_unref (window);
+}
+
+static void
+order_close_verify_finished (GtkWindow *parent, gint response,
+                             gpointer user_data)
+{
+    OrderCloseRequest *request = user_data;
+
+    (void)parent;
+    if (response == GTK_RESPONSE_YES && request->ow &&
+        !qof_book_shutting_down (request->book))
+        order_close_start_date_dialog (request);
+    else
+        order_close_request_free (request);
+}
+
 void
 gnc_order_window_close_order_cb (GtkWidget *widget, gpointer data)
 {
     OrderWindow *ow = data;
+    OrderCloseRequest *request;
     GncOrder *order;
     GList *entries;
-    char *message, *label;
     gboolean non_inv = FALSE;
-    time64 t = gnc_time (NULL);
 
-    /* Make sure the order is ok */
+    (void)widget;
     if (!gnc_order_window_verify_ok (ow))
         return;
 
-    /* Make sure the order exists */
     order = ow_get_order (ow);
     if (!order)
         return;
 
-    /* Check that there is at least one Entry */
     if (gncOrderGetEntries (order) == NULL)
     {
         gnc_error_dialog (GTK_WINDOW (ow->dialog), "%s",
@@ -278,52 +371,40 @@ gnc_order_window_close_order_cb (GtkWidget *widget, gpointer data)
         return;
     }
 
-    /* Make sure we can close the order. Are there any uninvoiced entries? */
-    entries = gncOrderGetEntries (order);
-    for ( ; entries ; entries = entries->next)
+    for (entries = gncOrderGetEntries (order); entries; entries = entries->next)
     {
         GncEntry *entry = entries->data;
-        if (gncEntryGetInvoice (entry) == NULL)
+
+        if (!gncEntryGetInvoice (entry))
         {
             non_inv = TRUE;
             break;
         }
     }
 
+    request = g_new0 (OrderCloseRequest, 1);
+    request->ow = ow;
+    request->book = ow->book;
+    request->order_guid = ow->order_guid;
+    request->restore_close_button = TRUE;
+    g_weak_ref_init (&request->window, ow->dialog);
+    request->destroy_handler = g_signal_connect (
+        ow->dialog, "destroy", G_CALLBACK (order_close_request_destroyed), request);
+    if (ow->close_order_button)
+        gtk_widget_set_sensitive (ow->close_order_button, FALSE);
+
     if (non_inv)
     {
-        /* Damn; yes.  Well, ask the user to make sure they REALLY want to
-         * close this order!
-         */
-
-        message = _("This order contains entries that have not been invoiced. "
-                    "Are you sure you want to close it out before "
-                    "you invoice all the entries?");
-
-        if (gnc_verify_dialog (GTK_WINDOW (ow->dialog), FALSE, "%s", message) == FALSE)
-            return;
+        gnc_verify_dialog_async (
+            GTK_WINDOW (ow->dialog), FALSE, order_close_verify_finished, request,
+            "%s", _("This order contains entries that have not been invoiced. "
+                     "Are you sure you want to close it out before "
+                     "you invoice all the entries?"));
+        return;
     }
 
-    /* Ok, we can close this.  Ask for verification and set the closed date */
-    message = _("Do you really want to close the order?");
-    label = _("Close Date");
-
-    if (!gnc_dialog_date_close_parented (ow->dialog, message, label, TRUE, &t))
-        return;
-
-    gncOrderSetDateClosed (order, t);
-
-    /* save it off */
-    gnc_order_window_ok_save (ow);
-
-    /* Reset the type; change to read-only */
-    ow->dialog_type = VIEW_ORDER;
-    gnc_entry_ledger_set_readonly (ow->ledger, TRUE);
-
-    /* And redisplay the window */
-    gnc_order_update_window (ow);
+    order_close_start_date_dialog (request);
 }
-
 void
 gnc_order_window_destroy_cb (GtkWidget *widget, gpointer data)
 {
