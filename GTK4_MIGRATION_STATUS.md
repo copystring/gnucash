@@ -26,6 +26,16 @@ als PR eröffnet werden.
 - Mehrere Fenster- und Dialogpfade verwenden nun `close-request` sowie
   `GtkEventControllerKey`/`GtkEventControllerFocus` statt direkter GTK3-
   Ereignissignale.
+- Die gemeinsame Dateiauswahl verwendet `GtkFileDialog` mit asynchronem
+  Request-/Finish-Vertrag. Dateiöffnung, Speichern vor dem Schließen und der
+  XML-Encoding-Assistent setzen diese Fortsetzung ohne Ersatz-Hauptschleife
+  ein; Erkennung und Konvertierung behandeln XML-v2 mit und ohne deklarierte
+  Zeichenkodierung sowie gzip-Dateien.
+- Preferences, Commodity-Manager, Stock-Split-Assistent, mehrere AqBanking-
+  Transfers und die wichtigsten Importpfade sind auf GTK4-Modelle beziehungsweise
+  asynchrone Fenster umgestellt. Ihre gezielten Builder-, Syntax- und
+  Vertragsprüfungen sind Teil der lokalen Nachweise, aber kein Ersatz für die
+  plattformübergreifende Gesamtabnahme.
 - Der WKWebView-Backendpfad hält eine verwaltete native Unteransicht synchron
   mit der GTK-Allokation, begrenzt den Dateizugriff auf den temporären
   Reportbereich und blockiert jede Navigation, die nicht vom gemeinsamen
@@ -67,12 +77,6 @@ als PR eröffnet werden.
 
 ### Banking, Import und Export
 
-- Der XML-Encoding-Assistent ist noch nicht GTK4-funktionsfähig: er enthält
-  `GtkTreeView`/`GtkComboBox`-Modelle und der bisherige synchrone
-  Rückgabevertrag `gnc_xml_convert_single_file()` hing an der entfernten
-  `gtk_main()`-Schleife. Seine Portierung muss den Aufruf aus
-  `gnc_file_open_file()` in eine asynchrone Dateilade-Fortsetzung überführen;
-  ein verschachtelter Ersatzloop wäre keine vollständige Migration.
 - AqBanking benötigt einen nachweislich geprüften, fest referenzierten
   `gwengui-gtk4`-Stand. Die synchronen Gwen-Dialoge, die lokale
   Main-Context-Pumpe sowie TAN-, Flicker-, PIN-, Fortschritts- und
@@ -83,10 +87,17 @@ als PR eröffnet werden.
 
 ### Gesamtabnahme
 
+- Große, noch nicht portierte GTK3-Cluster sind die Assistenten, Commodity-
+  Auswahl und -Bearbeitung, die allgemeinen Query-/Bestätigungsdienste sowie
+  weitere Register- und Buchungsaktionen. Jeder davon braucht einen echten
+  asynchronen Aufrufervertrag; eine lokale `GtkDialog::response`-Umstellung
+  ohne die Fortsetzung des fachlichen Workflows wäre unvollständig.
 - Alle verbliebenen GTK3-/GDK3-APIs, direkten Ereignisstrukturen,
   blockierenden Dialogaufrufe und aktiven Paketierungsreferenzen müssen
-  vollständig erfasst und entfernt werden. Inaktive Altcodedateien werden
-  erst nach Ersetzung ihres Laufzeitpfads entfernt.
+  vollständig erfasst und entfernt werden. Der Scan umfasst weiterhin unter
+  anderem TreeView-/CellRenderer-Pfade, `GtkAssistant`, Register-Layout und
+  Dialog-Wrapper. Inaktive Altcodedateien werden erst nach Ersetzung ihres
+  Laufzeitpfads entfernt.
 - Appearance-Service, Hell-/Dunkel-/Systemmodus, High-DPI, mehrere Monitore
   und native Titelleisten benötigen eine plattformübergreifende Abnahme.
 - CI und Paketierung brauchen eine grüne Linux-, Windows- und macOS-Matrix
