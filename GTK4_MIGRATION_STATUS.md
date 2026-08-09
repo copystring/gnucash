@@ -36,6 +36,12 @@ als PR eröffnet werden.
   asynchrone Fenster umgestellt. Ihre gezielten Builder-, Syntax- und
   Vertragsprüfungen sind Teil der lokalen Nachweise, aber kein Ersatz für die
   plattformübergreifende Gesamtabnahme.
+- Kontolöschen, Transaktionen verwerfen und die Reconcile-Startabfrage sind
+  nicht mehr verschachtelt. Sie halten über Antworten nur GUIDs und WeakRefs;
+  bei Buch- oder Fensterwechsel werden die fachlichen Ziele erneut geprüft.
+- Beide Preis-Löschabläufe laufen asynchron. Der gemeinsame Warnungsdialog
+  benutzt ein reguläres GTK4-Fenster, bewahrt die permanenten und temporären
+  Warnpräferenzen und verhindert Mutationen nach Fenster- oder Buchwechsel.
 - Der WKWebView-Backendpfad hält eine verwaltete native Unteransicht synchron
   mit der GTK-Allokation, begrenzt den Dateizugriff auf den temporären
   Reportbereich und blockiert jede Navigation, die nicht vom gemeinsamen
