@@ -260,58 +260,198 @@ gnc_invoice_get_notes (InvoiceWindow *iw)
 /*******************************************************************************/
 /* FUNCTIONS FOR UNPOSTING */
 
-static gboolean
-iw_ask_unpost (InvoiceWindow *iw)
+static GncInvoice *iw_get_invoice (InvoiceWindow *iw);
+
+typedef struct
 {
-    GtkWidget *dialog;
-    GtkToggleButton *toggle;
-    GtkBuilder *builder;
-    gint response;
-    const gchar *style_label = NULL;
-    GncOwnerType owner_type = gncOwnerGetType (&iw->owner);
+    InvoiceWindow *iw;
+    GWeakRef window;
+    gulong destroy_handler;
+    QofBook *book;
+    GncGUID invoice_guid;
+    GtkWindow *dialog;
+    GtkToggleButton *reset_tax_tables;
+    gboolean reset_tax_tables_selected;
+    gboolean completed;
+} InvoiceUnpostRequest;
 
+static void invoice_unpost_complete (InvoiceUnpostRequest *request,
+                                     gboolean approved);
 
-    builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-invoice.glade", "unpost_message_dialog");
-    dialog = GTK_WIDGET (gtk_builder_get_object (builder, "unpost_message_dialog"));
-    toggle = GTK_TOGGLE_BUTTON(gtk_builder_get_object (builder, "yes_tt_reset"));
-
-    switch (owner_type)
-    {
-        case GNC_OWNER_VENDOR:
-            style_label = "gnc-class-vendors";
-            break;
-        case GNC_OWNER_EMPLOYEE:
-            style_label = "gnc-class-employees";
-            break;
-        default:
-            style_label = "gnc-class-customers";
-            break;
-    }
-    // Set a secondary style context for this page so it can be easily manipulated with css
-    gnc_widget_style_context_add_class (GTK_WIDGET(dialog), style_label);
-
-    gtk_window_set_transient_for (GTK_WINDOW(dialog),
-                                  GTK_WINDOW(iw_get_window(iw)));
-
-    iw->reset_tax_tables = FALSE;
-
-//FIXME gtk4    gtk_widget_show_all(dialog);
-
-//FIXME gtk4    response = gtk_dialog_run(GTK_DIALOG(dialog));
-gtk_window_set_modal (GTK_WINDOW(dialog), TRUE); //FIXME gtk4
-response = GTK_RESPONSE_CANCEL; //FIXME gtk4
-
-    if (response == GTK_RESPONSE_OK)
-        iw->reset_tax_tables =
-            gtk_toggle_button_get_active(toggle);
-
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(dialog));
-    g_object_unref(G_OBJECT(builder));
-
-    return (response == GTK_RESPONSE_OK);
+static void
+invoice_unpost_request_destroyed (GtkWidget *widget,
+                                  InvoiceUnpostRequest *request)
+{
+    (void)widget;
+    request->iw = NULL;
+    request->destroy_handler = 0;
+    invoice_unpost_complete (request, FALSE);
 }
 
+static void
+invoice_unpost_request_free (InvoiceUnpostRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+invoice_unpost_destroy_dialog (InvoiceUnpostRequest *request)
+{
+    GtkWindow *dialog = g_steal_pointer (&request->dialog);
+
+    if (!dialog)
+        return;
+
+    g_signal_handlers_disconnect_by_data (dialog, request);
+    gtk_window_destroy (dialog);
+    g_object_unref (dialog);
+}
+
+static void
+invoice_unpost_complete (InvoiceUnpostRequest *request, gboolean approved)
+{
+    GncInvoice *invoice;
+    gboolean result;
+
+    if (!request || request->completed)
+        return;
+
+    request->completed = TRUE;
+    if (approved && request->iw && !qof_book_shutting_down (request->book))
+    {
+        invoice = gncInvoiceLookup (request->book, &request->invoice_guid);
+        if (invoice && iw_get_invoice (request->iw) == invoice)
+        {
+            request->iw->reset_tax_tables = request->reset_tax_tables_selected;
+            gnc_suspend_gui_refresh ();
+            result = gncInvoiceUnpost (invoice, request->iw->reset_tax_tables);
+            gnc_resume_gui_refresh ();
+            if (result)
+            {
+                request->iw->dialog_type = EDIT_INVOICE;
+                gnc_entry_ledger_set_readonly (request->iw->ledger, FALSE);
+                gnc_invoice_update_window (request->iw, NULL);
+                gnc_table_refresh_gui (
+                    gnc_entry_ledger_get_table (request->iw->ledger), FALSE);
+            }
+        }
+    }
+
+    invoice_unpost_destroy_dialog (request);
+    invoice_unpost_request_free (request);
+}
+
+static void
+invoice_unpost_response_cb (GtkDialog *dialog, gint response,
+                            InvoiceUnpostRequest *request)
+{
+    (void)dialog;
+    if (response == GTK_RESPONSE_OK)
+    {
+        request->reset_tax_tables_selected = gtk_toggle_button_get_active (
+            request->reset_tax_tables);
+        invoice_unpost_complete (request, TRUE);
+        return;
+    }
+
+    invoice_unpost_complete (request, FALSE);
+}
+
+static gboolean
+invoice_unpost_close_request_cb (GtkWindow *dialog,
+                                 InvoiceUnpostRequest *request)
+{
+    (void)dialog;
+    invoice_unpost_complete (request, FALSE);
+    return TRUE;
+}
+
+static void
+invoice_unpost_destroy_cb (GtkWidget *widget, InvoiceUnpostRequest *request)
+{
+    (void)widget;
+    if (!request->completed)
+        g_clear_object (&request->dialog);
+    invoice_unpost_complete (request, FALSE);
+}
+
+static void
+invoice_unpost_request (InvoiceWindow *iw)
+{
+    GncOwnerType owner_type;
+    GtkWidget *window;
+    GtkBuilder *builder;
+    GtkWidget *dialog;
+    GtkWidget *ok_button;
+    const gchar *style_label;
+    InvoiceUnpostRequest *request;
+
+    window = iw_get_window (iw);
+    if (!window)
+        return;
+
+    request = g_new0 (InvoiceUnpostRequest, 1);
+    request->iw = iw;
+    request->book = iw->book;
+    request->invoice_guid = iw->invoice_guid;
+    g_weak_ref_init (&request->window, window);
+    request->destroy_handler = g_signal_connect (
+        window, "destroy", G_CALLBACK (invoice_unpost_request_destroyed), request);
+
+    builder = gtk_builder_new ();
+    if (!gnc_builder_add_from_file (builder, "dialog-invoice.glade",
+                                    "unpost_message_dialog"))
+    {
+        g_object_unref (builder);
+        invoice_unpost_request_free (request);
+        return;
+    }
+
+    dialog = GTK_WIDGET (gtk_builder_get_object (builder, "unpost_message_dialog"));
+    request->reset_tax_tables = GTK_TOGGLE_BUTTON (
+        gtk_builder_get_object (builder, "yes_tt_reset"));
+    ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton1"));
+    if (!dialog || !request->reset_tax_tables || !ok_button)
+    {
+        g_object_unref (builder);
+        invoice_unpost_request_free (request);
+        return;
+    }
+
+    request->dialog = g_object_ref (GTK_WINDOW (dialog));
+    owner_type = gncOwnerGetType (&iw->owner);
+    switch (owner_type)
+    {
+    case GNC_OWNER_VENDOR:
+        style_label = "gnc-class-vendors";
+        break;
+    case GNC_OWNER_EMPLOYEE:
+        style_label = "gnc-class-employees";
+        break;
+    default:
+        style_label = "gnc-class-customers";
+        break;
+    }
+    gnc_widget_style_context_add_class (GTK_WIDGET (request->dialog), style_label);
+    gtk_window_set_transient_for (request->dialog, GTK_WINDOW (window));
+    gtk_window_set_modal (request->dialog, TRUE);
+    gtk_window_set_default_widget (request->dialog, ok_button);
+    g_signal_connect (request->dialog, "response",
+                      G_CALLBACK (invoice_unpost_response_cb), request);
+    g_signal_connect (request->dialog, "close-request",
+                      G_CALLBACK (invoice_unpost_close_request_cb), request);
+    g_signal_connect (request->dialog, "destroy",
+                      G_CALLBACK (invoice_unpost_destroy_cb), request);
+    g_object_unref (builder);
+
+    gtk_window_present (request->dialog);
+}
 /*******************************************************************************/
 /* INVOICE WINDOW */
 
@@ -787,167 +927,323 @@ gnc_invoice_window_blankCB (GtkWidget *widget, gpointer data)
     }
 }
 
-typedef struct dialog_args
+typedef void (*InvoiceReportTemplateCallback) (GtkWindow *parent,
+                                               char *report_guid,
+                                               gpointer user_data);
+
+typedef struct
 {
-    GtkProgressBar  *pb;
-    GtkWidget       *dialog;
-    gdouble          timeout;
-} dialog_args;
+    GWeakRef parent;
+    gboolean has_parent;
+    gulong parent_destroy_handler;
+    GtkWindow *dialog;
+    GtkWidget *combo;
+    GtkProgressBar *progress_bar;
+    GtkEventController *key_controller;
+    guint timeout_source;
+    gdouble timeout;
+    char *default_guid;
+    InvoiceReportTemplateCallback completed;
+    gpointer user_data;
+    gboolean done;
+} InvoiceReportTemplateRequest;
+
+static void invoice_report_template_complete (
+    InvoiceReportTemplateRequest *request, gboolean accepted);
+
+static void
+invoice_report_template_stop_timeout (InvoiceReportTemplateRequest *request)
+{
+    if (!request->timeout_source)
+        return;
+
+    g_source_remove (request->timeout_source);
+    request->timeout_source = 0;
+}
+
+static void
+invoice_report_template_request_free (InvoiceReportTemplateRequest *request)
+{
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    g_clear_object (&parent);
+    g_weak_ref_clear (&request->parent);
+    g_free (request->default_guid);
+    g_free (request);
+}
+
+static void
+invoice_report_template_destroy_dialog (InvoiceReportTemplateRequest *request)
+{
+    GtkWindow *dialog = g_steal_pointer (&request->dialog);
+
+    if (!dialog)
+        return;
+
+    if (request->combo)
+        g_signal_handlers_disconnect_by_data (request->combo, request);
+    if (request->key_controller)
+        g_signal_handlers_disconnect_by_data (request->key_controller, request);
+    g_signal_handlers_disconnect_by_data (dialog, request);
+    gtk_window_destroy (dialog);
+    g_object_unref (dialog);
+}
+
+static void
+invoice_report_template_complete (InvoiceReportTemplateRequest *request,
+                                  gboolean accepted)
+{
+    GtkWindow *parent;
+    char *report_guid = NULL;
+
+    if (!request || request->done)
+        return;
+
+    request->done = TRUE;
+    invoice_report_template_stop_timeout (request);
+    if (accepted)
+    {
+        if (request->combo)
+            report_guid = gnc_report_combo_get_active_guid (
+                GNC_REPORT_COMBO (request->combo));
+        else
+            report_guid = g_steal_pointer (&request->default_guid);
+    }
+
+    invoice_report_template_destroy_dialog (request);
+    parent = g_weak_ref_get (&request->parent);
+    if (request->has_parent && !parent)
+        g_clear_pointer (&report_guid, g_free);
+    request->completed (parent, report_guid, request->user_data);
+    g_clear_object (&parent);
+    invoice_report_template_request_free (request);
+}
+
+static void
+invoice_report_template_parent_destroyed_cb (
+    GtkWidget *widget, InvoiceReportTemplateRequest *request)
+{
+    (void)widget;
+    request->parent_destroy_handler = 0;
+    invoice_report_template_complete (request, FALSE);
+}
+
+static void
+invoice_report_template_response_cb (GtkDialog *dialog, gint response,
+                                     InvoiceReportTemplateRequest *request)
+{
+    (void)dialog;
+    invoice_report_template_complete (request, response == GTK_RESPONSE_OK);
+}
 
 static gboolean
-update_progress_bar (gpointer user_data)
+invoice_report_template_close_request_cb (
+    GtkWindow *dialog, InvoiceReportTemplateRequest *request)
 {
-    dialog_args     *args = user_data;
-    GtkProgressBar  *pb = args->pb;
-    gdouble          frac = gtk_progress_bar_get_fraction (pb);
-    gdouble          step = 0.1 / (args->timeout);
-
-    frac -= step;
-
-    if (frac < step)
-    {
-        gtk_dialog_response (GTK_DIALOG(args->dialog), GTK_RESPONSE_OK);
-        return FALSE;
-    }
-    gtk_progress_bar_set_fraction (pb, frac);
+    (void)dialog;
+    invoice_report_template_complete (request, FALSE);
     return TRUE;
 }
 
 static void
-combo_popped_cb (GObject    *gobject,
-                 GParamSpec *pspec,
-                 gpointer    user_data)
+invoice_report_template_destroy_cb (
+    GtkWidget *widget, InvoiceReportTemplateRequest *request)
 {
-    gboolean popup_shown;
-
-    g_object_get (G_OBJECT(gobject), "popup-shown", &popup_shown, NULL);
-
-    if (popup_shown)
-        g_source_remove_by_user_data (user_data);
+    (void)widget;
+    if (!request->done)
+        g_clear_object (&request->dialog);
+    invoice_report_template_complete (request, FALSE);
 }
 
 static gboolean
-dialog_key_press_event_cb (GtkEventControllerKey *key, guint keyval,
-                           guint keycode, GdkModifierType state,
-                           gpointer user_data)
+invoice_report_template_timeout_cb (gpointer user_data)
 {
-     g_source_remove_by_user_data (user_data);
-     return FALSE;
+    InvoiceReportTemplateRequest *request = user_data;
+    gdouble fraction = gtk_progress_bar_get_fraction (request->progress_bar);
+    gdouble step = 0.1 / request->timeout;
+
+    fraction -= step;
+    if (fraction < step)
+    {
+        request->timeout_source = 0;
+        invoice_report_template_complete (request, TRUE);
+        return G_SOURCE_REMOVE;
+    }
+
+    gtk_progress_bar_set_fraction (request->progress_bar, fraction);
+    return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+invoice_report_template_idle_cb (gpointer user_data)
+{
+    InvoiceReportTemplateRequest *request = user_data;
+
+    request->timeout_source = 0;
+    invoice_report_template_complete (request, TRUE);
+    return G_SOURCE_REMOVE;
 }
 
 static void
-combo_changed_cb (GtkComboBox *widget, gpointer user_data)
+invoice_report_template_combo_popped_cb (
+    GObject *object, GParamSpec *pspec, gpointer user_data)
 {
-    g_source_remove_by_user_data (user_data);
+    gboolean popup_shown;
+
+    (void)pspec;
+    g_object_get (object, "popup-shown", &popup_shown, NULL);
+    if (popup_shown)
+        invoice_report_template_stop_timeout (user_data);
 }
 
-/* This function will return the selected invoice report guid if
- * the countdown times out or a selection is made and OK pressed.
- *
- * If cancel is pressed then it will return NULL
- */
-static char*
-use_default_report_template_or_change (GtkWindow *parent)
+static gboolean
+invoice_report_template_key_pressed_cb (
+    GtkEventControllerKey *controller, guint keyval, guint keycode,
+    GdkModifierType state, gpointer user_data)
 {
-    QofBook     *book = gnc_get_current_book ();
-    GtkWidget   *combo;
-    GtkBuilder  *builder;
-    GtkWidget   *dialog;
-    GtkWidget   *ok_button;
-    GtkWidget   *report_combo_hbox;
-    GtkWidget   *progress_bar;
-    GtkWidget   *label;
-    gchar       *ret_guid = NULL;
-    gchar       *rep_guid = NULL;
-    gchar       *rep_name = NULL;
-    gboolean     warning_visible = FALSE;
-    gint         result;
-    gdouble      timeout;
-    dialog_args *args;
+    (void)controller;
+    (void)keyval;
+    (void)keycode;
+    (void)state;
+    invoice_report_template_stop_timeout (user_data);
+    return FALSE;
+}
 
+static void
+invoice_report_template_combo_changed_cb (GtkComboBox *combo,
+                                          gpointer user_data)
+{
+    (void)combo;
+    invoice_report_template_stop_timeout (user_data);
+}
+
+static InvoiceReportTemplateRequest *
+invoice_report_template_request_new (
+    GtkWindow *parent, InvoiceReportTemplateCallback completed, gpointer user_data)
+{
+    InvoiceReportTemplateRequest *request = g_new0 (
+        InvoiceReportTemplateRequest, 1);
+
+    request->completed = completed;
+    request->user_data = user_data;
+    request->has_parent = parent != NULL;
+    g_weak_ref_init (&request->parent, parent);
+    if (parent)
+        request->parent_destroy_handler = g_signal_connect (
+            parent, "destroy",
+            G_CALLBACK (invoice_report_template_parent_destroyed_cb), request);
+    return request;
+}
+
+static void
+use_default_report_template_or_change_async (
+    GtkWindow *parent, InvoiceReportTemplateCallback completed, gpointer user_data)
+{
+    InvoiceReportTemplateRequest *request;
+    QofBook *book = gnc_get_current_book ();
+    GtkBuilder *builder;
+    GtkWidget *dialog;
+    GtkWidget *ok_button;
+    GtkWidget *report_combo_hbox;
+    GtkWidget *progress_bar;
+    GtkWidget *label;
+    GtkWidget *combo;
+    gchar *report_guid;
+    gchar *report_name;
+    gboolean warning_visible;
+    gdouble timeout;
+
+    g_return_if_fail (completed != NULL);
+
+    request = invoice_report_template_request_new (parent, completed, user_data);
     timeout = qof_book_get_default_invoice_report_timeout (book);
+    request->timeout = timeout;
+    combo = gnc_default_invoice_report_combo (
+        "gnc:custom-report-invoice-template-guids");
+    report_name = qof_book_get_default_invoice_report_name (book);
+    report_guid = gnc_get_default_invoice_print_report ();
+    gnc_report_combo_set_active (GNC_REPORT_COMBO (combo), report_guid,
+                                 report_name);
+    g_free (report_guid);
+    g_free (report_name);
 
-    combo = gnc_default_invoice_report_combo ("gnc:custom-report-invoice-template-guids");
-
-    rep_name = qof_book_get_default_invoice_report_name (book);
-    rep_guid = gnc_get_default_invoice_print_report ();
-
-    gnc_report_combo_set_active (GNC_REPORT_COMBO(combo),
-                                 rep_guid,
-                                 rep_name);
-    g_free (rep_guid);
-    g_free (rep_name);
-
-    warning_visible = gnc_report_combo_is_warning_visible_for_active (GNC_REPORT_COMBO(combo));
-
-    // When timeout is 0, only return if warning not visible
+    warning_visible = gnc_report_combo_is_warning_visible_for_active (
+        GNC_REPORT_COMBO (combo));
     if (timeout == 0 && !warning_visible)
-        return gnc_get_default_invoice_print_report ();
+    {
+        g_object_unref (combo);
+        request->default_guid = gnc_get_default_invoice_print_report ();
+        request->timeout_source = g_idle_add (
+            invoice_report_template_idle_cb, request);
+        return;
+    }
 
     builder = gtk_builder_new ();
-    gnc_builder_add_from_file (builder, "dialog-invoice.glade", "invoice_print_dialog");
+    if (!gnc_builder_add_from_file (builder, "dialog-invoice.glade",
+                                    "invoice_print_dialog"))
+    {
+        g_object_unref (builder);
+        g_object_unref (combo);
+        invoice_report_template_complete (request, FALSE);
+        return;
+    }
 
-    dialog = GTK_WIDGET(gtk_builder_get_object (builder, "invoice_print_dialog"));
+    dialog = GTK_WIDGET (gtk_builder_get_object (builder, "invoice_print_dialog"));
+    ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "ok_button"));
+    report_combo_hbox = GTK_WIDGET (
+        gtk_builder_get_object (builder, "report_combo_hbox"));
+    progress_bar = GTK_WIDGET (gtk_builder_get_object (builder, "progress_bar"));
+    label = GTK_WIDGET (gtk_builder_get_object (builder, "label"));
+    if (!dialog || !ok_button || !report_combo_hbox || !progress_bar || !label)
+    {
+        g_object_unref (builder);
+        g_object_unref (combo);
+        invoice_report_template_complete (request, FALSE);
+        return;
+    }
 
-    gtk_window_set_transient_for (GTK_WINDOW(dialog), parent);
-
-    gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_OK);
-
-    ok_button = GTK_WIDGET(gtk_builder_get_object (builder, "ok_button"));
-    report_combo_hbox = GTK_WIDGET(gtk_builder_get_object (builder, "report_combo_hbox"));
-    progress_bar = GTK_WIDGET(gtk_builder_get_object (builder, "progress_bar"));
-    label = GTK_WIDGET(gtk_builder_get_object (builder, "label"));
-
-    gtk_box_append (GTK_BOX(report_combo_hbox), GTK_WIDGET(combo));
-
+    request->dialog = g_object_ref (GTK_WINDOW (dialog));
+    request->combo = combo;
+    request->progress_bar = GTK_PROGRESS_BAR (progress_bar);
+    if (parent)
+        gtk_window_set_transient_for (request->dialog, parent);
+    gtk_window_set_modal (request->dialog, TRUE);
+    gtk_window_set_default_widget (request->dialog, ok_button);
+    gtk_box_append (GTK_BOX (report_combo_hbox), combo);
     gtk_widget_grab_focus (ok_button);
+    gtk_progress_bar_set_fraction (request->progress_bar, 1);
 
-    gtk_progress_bar_set_fraction (GTK_PROGRESS_BAR(progress_bar), 1);
+    request->key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (GTK_WIDGET (request->dialog),
+                               request->key_controller);
+    g_signal_connect (request->dialog, "response",
+                      G_CALLBACK (invoice_report_template_response_cb), request);
+    g_signal_connect (request->dialog, "close-request",
+                      G_CALLBACK (invoice_report_template_close_request_cb), request);
+    g_signal_connect (request->dialog, "destroy",
+                      G_CALLBACK (invoice_report_template_destroy_cb), request);
+    g_signal_connect (combo, "changed",
+                      G_CALLBACK (invoice_report_template_combo_changed_cb), request);
+    g_signal_connect (request->key_controller, "key-pressed",
+                      G_CALLBACK (invoice_report_template_key_pressed_cb), request);
+    g_signal_connect (combo, "notify::popup-shown",
+                      G_CALLBACK (invoice_report_template_combo_popped_cb), request);
 
-    args = g_malloc (sizeof(dialog_args));
-    args->dialog = dialog;
-    args->pb = GTK_PROGRESS_BAR(progress_bar);
-    args->timeout = timeout;
-
-//FIXME gtk4    gtk_widget_show_all (dialog);
-
-    g_object_unref (G_OBJECT(builder));
-
-    g_signal_connect (G_OBJECT(combo), "changed",
-                      G_CALLBACK(combo_changed_cb), args);
-
-    GtkEventController *event_controller = gtk_event_controller_key_new ();
-    gtk_widget_add_controller (GTK_WIDGET(dialog), event_controller);
-    g_signal_connect (event_controller,
-                      "key-pressed",
-                      G_CALLBACK(dialog_key_press_event_cb), args);
-
-    g_signal_connect (G_OBJECT(combo), "notify::popup-shown",
-                      G_CALLBACK (combo_popped_cb), args);
-
-    // if warning visible, do not add args timeout, wait for user
     if (warning_visible)
     {
-        gtk_label_set_text (GTK_LABEL(label),
-                            N_("Choose a different report template or Printable Invoice will be used"));
-        gtk_widget_set_visible (GTK_WIDGET(progress_bar), FALSE);
+        gtk_label_set_text (
+            GTK_LABEL (label),
+            _("Choose a different report template or Printable Invoice will be used"));
+        gtk_widget_set_visible (progress_bar, FALSE);
     }
     else
-        g_timeout_add (100, update_progress_bar, args);
+        request->timeout_source = g_timeout_add (
+            100, invoice_report_template_timeout_cb, request);
 
-//FIXME gtk4    result = gtk_dialog_run (GTK_DIALOG(dialog));
-gtk_window_set_modal (GTK_WINDOW(dialog), TRUE); //FIXME gtk4
-result = GTK_RESPONSE_CANCEL; //FIXME gtk4
-
-    g_source_remove_by_user_data (args);
-
-    if (result == GTK_RESPONSE_OK)
-        ret_guid = gnc_report_combo_get_active_guid (GNC_REPORT_COMBO(combo));
-
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(dialog));
-    g_free (args);
-
-    return ret_guid;
+    g_object_unref (builder);
+    gtk_window_present (request->dialog);
 }
 
 static GncPluginPage *
@@ -1000,6 +1296,83 @@ equal_fn (gpointer find_data, gpointer elt_data)
     return (find_data && (find_data == elt_data));
 }
 
+typedef struct
+{
+    InvoiceWindow *iw;
+    GWeakRef window;
+    gulong destroy_handler;
+    QofBook *book;
+    GncGUID invoice_guid;
+} InvoicePrintRequest;
+
+static void
+invoice_print_request_destroyed (GtkWidget *widget, InvoicePrintRequest *request)
+{
+    (void)widget;
+    request->iw = NULL;
+    request->destroy_handler = 0;
+}
+
+static void
+invoice_print_request_free (InvoicePrintRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static InvoicePrintRequest *
+invoice_print_request_new (InvoiceWindow *iw)
+{
+    GtkWidget *window;
+    InvoicePrintRequest *request;
+
+    if (!iw || !iw_get_invoice (iw))
+        return NULL;
+
+    window = iw_get_window (iw);
+    if (!window)
+        return NULL;
+
+    request = g_new0 (InvoicePrintRequest, 1);
+    request->iw = iw;
+    request->book = iw->book;
+    request->invoice_guid = iw->invoice_guid;
+    g_weak_ref_init (&request->window, window);
+    request->destroy_handler = g_signal_connect (
+        window, "destroy", G_CALLBACK (invoice_print_request_destroyed), request);
+    return request;
+}
+
+static void
+invoice_print_template_finished (GtkWindow *parent, char *report_guid,
+                                 gpointer user_data)
+{
+    InvoicePrintRequest *request = user_data;
+    GncInvoice *invoice;
+
+    if (parent && report_guid && request->iw &&
+        !qof_book_shutting_down (request->book))
+    {
+        invoice = gncInvoiceLookup (request->book, &request->invoice_guid);
+        if (invoice && iw_get_invoice (request->iw) == invoice)
+        {
+            request->iw->reportPage = gnc_invoice_window_print_invoice (
+                parent, invoice, report_guid);
+            if (request->iw->reportPage)
+                gnc_main_window_open_page (
+                    GNC_MAIN_WINDOW (request->iw->dialog), request->iw->reportPage);
+        }
+    }
+
+    g_free (report_guid);
+    invoice_print_request_free (request);
+}
+
 /* From the invoice editor, open the invoice report. This will reuse the
    invoice report if generated from the current invoice editor. Note the
    link is lost when GnuCash is restarted. This link may be restored
@@ -1007,26 +1380,27 @@ equal_fn (gpointer find_data, gpointer elt_data)
    whereby report's report-type matches an invoice report, and the
    report's invoice option value matches the current invoice. */
 void
-gnc_invoice_window_printCB (GtkWindow* parent, gpointer data)
+gnc_invoice_window_printCB (GtkWindow *parent, gpointer data)
 {
     InvoiceWindow *iw = data;
+    InvoicePrintRequest *request;
+
+    if (!iw)
+        return;
 
     if (gnc_find_first_gui_component (WINDOW_REPORT_CM_CLASS, equal_fn,
                                       iw->reportPage))
-        gnc_plugin_page_report_reload (GNC_PLUGIN_PAGE_REPORT (iw->reportPage));
-    else
     {
-        gchar *report_guid = use_default_report_template_or_change (parent);
-
-        if (!report_guid)
-            return;
-
-        iw->reportPage = gnc_invoice_window_print_invoice (parent,
-                                                           iw_get_invoice (iw),
-                                                           report_guid);
-        g_free (report_guid);
+        gnc_plugin_page_report_reload (GNC_PLUGIN_PAGE_REPORT (iw->reportPage));
+        return;
     }
-    gnc_main_window_open_page (GNC_MAIN_WINDOW (iw->dialog), iw->reportPage);
+
+    request = invoice_print_request_new (iw);
+    if (!request)
+        return;
+
+    use_default_report_template_or_change_async (
+        parent, invoice_print_template_finished, request);
 }
 
 struct post_invoice_params
@@ -1486,31 +1860,16 @@ void
 gnc_invoice_window_unpostCB (GtkWidget *widget, gpointer data)
 {
     InvoiceWindow *iw = data;
-    GncInvoice *invoice;
-    gboolean result;
 
-    invoice = iw_get_invoice (iw);
-    if (!invoice)
+    (void)widget;
+    if (!iw_get_invoice (iw))
         return;
 
-    /* make sure the user REALLY wants to do this! */
-    result = iw_ask_unpost(iw);
-    if (!result) return;
-
-    /* Attempt to unpost the invoice */
-    gnc_suspend_gui_refresh ();
-    result = gncInvoiceUnpost (invoice, iw->reset_tax_tables);
-    gnc_resume_gui_refresh ();
-    if (!result) return;
-
-    /* if we get here, we succeeded in unposting -- reset the ledger and redisplay */
-    iw->dialog_type = EDIT_INVOICE;
-    gnc_entry_ledger_set_readonly (iw->ledger, FALSE);
-    gnc_invoice_update_window (iw, NULL);
-    gnc_table_refresh_gui (gnc_entry_ledger_get_table (iw->ledger), FALSE);
+    invoice_unpost_request (iw);
 }
 
-void gnc_invoice_window_cut_cb (GtkWidget *widget, gpointer data)
+void
+gnc_invoice_window_cut_cb (GtkWidget *widget, gpointer data)
 {
     InvoiceWindow *iw = data;
     gnucash_register_cut_clipboard (iw->reg);
@@ -3620,40 +3979,71 @@ multi_post_invoice_cb (GtkWindow *dialog, GList *invoice_list, gpointer user_dat
 
     invoice_post_request (iw, _("Do you really want to post these invoices?"),
                           invoice_guids);
-}static void print_one_invoice_cb(GtkWindow *dialog, gpointer data, gpointer user_data)
+}
+
+typedef struct
 {
-    GncInvoice *invoice = data;
-    struct multi_edit_invoice_data *meid = user_data;
-    gnc_invoice_window_print_invoice (dialog, invoice, meid->report_guid);
+    QofBook *book;
+    GList *invoice_guids;
+} InvoiceMultiPrintRequest;
+
+static void
+invoice_multi_print_request_free (InvoiceMultiPrintRequest *request)
+{
+    g_list_free_full (request->invoice_guids, g_free);
+    g_free (request);
 }
 
 static void
-multi_print_invoice_one (gpointer data, gpointer user_data)
+invoice_multi_print_template_finished (GtkWindow *parent, char *report_guid,
+                                       gpointer user_data)
 {
-    struct multi_edit_invoice_data *meid = user_data;
-    print_one_invoice_cb (gnc_ui_get_main_window (GTK_WIDGET(meid->parent)), data, meid);
+    InvoiceMultiPrintRequest *request = user_data;
+    GList *node;
+
+    if (parent && report_guid && !qof_book_shutting_down (request->book))
+    {
+        GtkWindow *print_parent = gnc_ui_get_main_window (GTK_WIDGET (parent));
+
+        for (node = request->invoice_guids; node; node = node->next)
+        {
+            GncInvoice *invoice = gncInvoiceLookup (request->book, node->data);
+
+            if (invoice)
+                gnc_invoice_window_print_invoice (print_parent, invoice,
+                                                  report_guid);
+        }
+    }
+
+    g_free (report_guid);
+    invoice_multi_print_request_free (request);
 }
 
 static void
 multi_print_invoice_cb (GtkWindow *dialog, GList *invoice_list, gpointer user_data)
 {
-    gchar *report_guid = NULL;
-    struct multi_edit_invoice_data meid;
+    GncInvoice *invoice;
+    InvoiceMultiPrintRequest *request;
 
+    (void)user_data;
     if (!gnc_list_length_cmp (invoice_list, 0))
         return;
 
-    report_guid = use_default_report_template_or_change (dialog);
-
-    if (!report_guid)
+    invoice = invoice_list->data;
+    if (!invoice)
         return;
 
-    meid.user_data = user_data;
-    meid.parent = dialog;
-    meid.report_guid = report_guid;
+    request = g_new0 (InvoiceMultiPrintRequest, 1);
+    request->book = qof_instance_get_book (QOF_INSTANCE (invoice));
+    request->invoice_guids = invoice_guid_list_copy (invoice_list);
+    if (!request->invoice_guids)
+    {
+        invoice_multi_print_request_free (request);
+        return;
+    }
 
-    g_list_foreach (invoice_list, multi_print_invoice_one, &meid);
-    g_free (report_guid);
+    use_default_report_template_or_change_async (
+        dialog, invoice_multi_print_template_finished, request);
 }
 
 static gpointer
