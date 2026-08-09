@@ -49,8 +49,6 @@ libfreetype.6.dylib
 libfreetype.dylib
 libfribidi.0.dylib
 libfribidi.dylib
-libgailutil-3.0.dylib
-libgailutil-3.dylib
 libgc.1.dylib
 libgc.dylib
 libgcrypt.20.dylib
