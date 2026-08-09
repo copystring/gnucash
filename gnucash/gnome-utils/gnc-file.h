@@ -206,7 +206,6 @@ void gnc_file_revert (GtkWindow *parent);
 
 GList *gnc_file_dialog_get_datafile_filters (void);
 
-void gnc_file_chooser_add_filters (GtkFileChooser* file_box, GList *filters);
 
 /** Tell the user about errors in the backends
 
@@ -215,18 +214,6 @@ gboolean show_session_error (GtkWindow *parent,
                              QofBackendError io_error,
                              const char *newfile,
                              GNCFileDialogType type);
-
-char * gnc_file_dialog (GtkWindow *parent,
-                        const char * title,
-                        GList * filters,
-                        const char * starting_dir,
-                        GNCFileDialogType type);
-
-GSList * gnc_file_dialog_multi (GtkWindow *parent,
-                                const char * title,
-                                GList * filters,
-                                const char * starting_dir,
-                                GNCFileDialogType type);
 
 gboolean gnc_file_open_file (GtkWindow *parent,
                              const char *filename,

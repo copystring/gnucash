@@ -462,196 +462,86 @@ gnc_file_dialog_get_datafile_filters (void)
     return filters;
 }
 
-void
-gnc_file_chooser_add_filters (GtkFileChooser* file_box, GList *filters)
+typedef void (*GncFileSelectionFunc) (GtkWindow *parent,
+                                      const gchar *filename);
+
+typedef struct
 {
-    g_return_if_fail (GTK_IS_WIDGET (file_box));
-    if (filters == NULL) return;
+    GWeakRef parent;
+    GncFileSelectionFunc selected;
+} GncFileSelectionData;
 
-    for (GList* node = filters; node; node = node->next)
-        gtk_file_chooser_add_filter (file_box, GTK_FILE_FILTER (node->data));
-
-    GtkFileFilter* all_filter = gtk_file_filter_new();
-    gtk_file_filter_set_name (all_filter, _("All files"));
-    gtk_file_filter_add_pattern (all_filter, "*");
-    gtk_file_chooser_add_filter (file_box, all_filter);
-
-    /* preselect the first filter */
-    gtk_file_chooser_set_filter (file_box, filters->data);
-    g_list_free (filters);
+static void
+gnc_file_selection_data_free (GncFileSelectionData *data)
+{
+    g_weak_ref_clear (&data->parent);
+    g_free (data);
 }
 
-// gnc_file_dialog_int is used both by gnc_file_dialog and gnc_file_dialog_multi
-static GSList *
-gnc_file_dialog_int (GtkWindow *parent,
-                     const char * title,
-                     GList * filters,
-                     const char * starting_dir,
-                     GNCFileDialogType type,
-                     gboolean multi
-                     )
+static void
+gnc_file_selection_finished (GObject *source, GAsyncResult *result,
+                             gpointer user_data)
 {
-    GtkWidget *file_box;
-    char *file_name = NULL;
-    gchar * okbutton = NULL;
-    const gchar *ok_icon = NULL;
-    GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
-    gint response;
-    GSList* file_name_list = NULL;
+    GncFileSelectionData *data = user_data;
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GFile *file;
+    GtkWindow *parent;
 
-    ENTER(" ");
-
-    switch (type)
+    file = gnc_file_dialog_request_finish (request, result, &error);
+    parent = GTK_WINDOW (g_weak_ref_get (&data->parent));
+    if (file)
     {
-    case GNC_FILE_DIALOG_OPEN:
-        action = GTK_FILE_CHOOSER_ACTION_OPEN;
-        okbutton = _("_Open");
-        if (title == NULL)
-            title = _("Open");
-        break;
-    case GNC_FILE_DIALOG_IMPORT:
-        action = GTK_FILE_CHOOSER_ACTION_OPEN;
-        okbutton = _("_Import");
-        if (title == NULL)
-            title = _("Import");
-        break;
-    case GNC_FILE_DIALOG_SAVE:
-        action = GTK_FILE_CHOOSER_ACTION_SAVE;
-        okbutton = _("_Save");
-        if (title == NULL)
-            title = _("Save");
-        break;
-    case GNC_FILE_DIALOG_EXPORT:
-        action = GTK_FILE_CHOOSER_ACTION_SAVE;
-        okbutton = _("_Export");
-        ok_icon = "go-next";
-        if (title == NULL)
-            title = _("Export");
-        break;
+        gchar *filename = g_file_get_path (file);
 
+        if (filename)
+        {
+            data->selected (parent, filename);
+            g_free (filename);
+        }
+        else if (parent)
+        {
+            gnc_error_dialog (parent, "%s", _("Please select a local file."));
+        }
+    }
+    else if (error && parent &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    {
+        gnc_error_dialog (parent, "%s", error->message);
     }
 
-    file_box = gtk_file_chooser_dialog_new(
-                   title,
-                   parent,
-                   action,
-                   _("_Cancel"), GTK_RESPONSE_CANCEL,
-                   NULL);
-    if (multi)
-        gtk_file_chooser_set_select_multiple (GTK_FILE_CHOOSER (file_box), TRUE);
+    g_clear_object (&file);
+    g_clear_error (&error);
+    g_clear_object (&parent);
+    gnc_file_selection_data_free (data);
+}
 
-    if (ok_icon)
-        gnc_gtk_dialog_add_button(file_box, okbutton, ok_icon, GTK_RESPONSE_ACCEPT);
+static void
+gnc_file_select_async (GtkWindow *parent, const gchar *title, GList *filters,
+                       const gchar *starting_dir, GNCFileDialogType type,
+                       GncFileSelectionFunc selected)
+{
+    GncFileSelectionData *data;
+    GncFileDialogRequest *request;
+
+    g_return_if_fail (selected != NULL);
+
+    data = g_new0 (GncFileSelectionData, 1);
+    g_weak_ref_init (&data->parent, parent);
+    data->selected = selected;
+    request = gnc_file_dialog_request_new (parent, title, filters, starting_dir,
+                                           type);
+    if (type == GNC_FILE_DIALOG_OPEN || type == GNC_FILE_DIALOG_IMPORT)
+        gnc_file_dialog_request_open_async (request, NULL,
+                                            gnc_file_selection_finished, data);
     else
-        gtk_dialog_add_button(GTK_DIALOG(file_box),
-                              okbutton, GTK_RESPONSE_ACCEPT);
-
-    if (starting_dir)
-    {
-        GFile *file = g_file_new_for_path (starting_dir);
-        gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(file_box), file, NULL);
-        g_object_unref (file);
-    }
-
-    gtk_window_set_modal(GTK_WINDOW(file_box), TRUE);
-
-    if (filters != NULL)
-        gnc_file_chooser_add_filters (GTK_FILE_CHOOSER (file_box), filters);
-
-//FIXME gtk4    response = gtk_dialog_run(GTK_DIALOG(file_box));
-gtk_window_set_modal (GTK_WINDOW(file_box), TRUE); //FIXME gtk4
-response = GTK_RESPONSE_CANCEL; //FIXME gtk4
-
-    // Set the name for this dialog so it can be easily manipulated with css
-    gtk_widget_set_name (GTK_WIDGET(file_box), "gnc-id-file");
-
-    if (response == GTK_RESPONSE_ACCEPT)
-    {
-        if (multi)
-        {
-//FIXME gtk4            file_name_list = gtk_file_chooser_get_filenames (GTK_FILE_CHOOSER (file_box));
-        }
-        else
-        {
-            /* look for constructs like postgres://foo */
-            GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER(file_box));
-            file_name = g_file_get_path (file);
-            g_object_unref (file);
-
-            if (file_name != NULL)
-            {
-                if (strstr (file_name, "file://") == file_name)
-                {
-                    g_free (file_name);
-                    /* nope, a local file name */
-                    GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER(file_box));
-                    file_name = g_file_get_path (file);
-                    g_object_unref (file);
-                }
-                file_name_list = g_slist_append (file_name_list, file_name);
-            }
-        }
-    }
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(file_box));
-    LEAVE("%s", file_name ? file_name : "(null)");
-    return file_name_list;
+        gnc_file_dialog_request_save_async (request, NULL,
+                                            gnc_file_selection_finished, data);
+    g_object_unref (request);
 }
 
-/********************************************************************\
- * gnc_file_dialog                                                  *
- *   Pops up a file selection dialog (either a "Save As" or an      *
- *   "Open"), and returns the name of the file the user selected.   *
- *   (This function does not return until the user selects a file   *
- *   or presses "Cancel" or the window manager destroy button)      *
- *                                                                  *
- * Args:   title        - the title of the window                   *
- *         filters      - list of GtkFileFilters to use, will be    *
- *                        freed automatically                       *
- *         default_dir  - start the chooser in this directory       *
- *         type         - what type of dialog (open, save, etc.)    *
- * Return: containing the name of the file the user selected        *
- \********************************************************************/
-char *
-gnc_file_dialog (GtkWindow *parent,
-                 const char * title,
-                 GList * filters,
-                 const char * starting_dir,
-                 GNCFileDialogType type
-                 )
-{
-    gchar* file_name = NULL;
-    GSList* ret = gnc_file_dialog_int (parent, title, filters, starting_dir, type, FALSE);
-    if (ret)
-        file_name = g_strdup (ret->data);
-    g_slist_free_full (ret, g_free);
-    return file_name;
-}
-
-/********************************************************************\
- * gnc_file_dialog_multi                                            *
- *   Pops up a file selection dialog (either a "Save As" or an      *
- *   "Open"), and returns the name of the files the user selected.  *
- *   Similar to gnc_file_dialog with allowing multi-file selection  *
- *                                                                  *
- * Args:   title        - the title of the window                   *
- *         filters      - list of GtkFileFilters to use, will be    *
- *                        freed automatically                       *
- *         default_dir  - start the chooser in this directory       *
- *         type         - what type of dialog (open, save, etc.)    *
- * Return: GList containing the names of the selected files         *
- \********************************************************************/
-
-GSList *
-gnc_file_dialog_multi (GtkWindow *parent,
-                       const char * title,
-                       GList * filters,
-                       const char * starting_dir,
-                       GNCFileDialogType type
-                       )
-{
-    return gnc_file_dialog_int (parent, title, filters, starting_dir, type, TRUE);
-}
-
+static void gnc_file_open_request_dialog (GtkWindow *parent,
+                                          const gchar *starting_dir);
 gboolean
 show_session_error (GtkWindow *parent,
                     QofBackendError io_error,
@@ -1283,7 +1173,6 @@ gnc_post_file_open (GtkWindow *parent, const char * filename, gboolean is_readon
 
 
     ENTER("filename %s", filename);
-RESTART:
     if (!filename || (*filename == '\0')) return FALSE;
 
     /* Convert user input into a normalized uri
@@ -1361,20 +1250,30 @@ RESTART:
     if (ERR_BACKEND_BAD_URL == io_err)
     {
         gchar *directory;
+
         show_session_error (parent, io_err, newfile, GNC_FILE_DIALOG_OPEN);
         if (g_file_test (filename, G_FILE_TEST_IS_DIR))
             directory = g_strdup (filename);
         else
             directory = gnc_get_default_directory (GNC_PREFS_GROUP_OPEN_SAVE);
 
-        filename = gnc_file_dialog (parent, NULL, NULL, directory,
-                                    GNC_FILE_DIALOG_OPEN);
-        /* Suppress trying to save the empty session. */
+        /* The failed session cannot continue. Restore the event state before
+         * scheduling a new native request for a valid local file. */
         qof_book_mark_session_saved (qof_session_get_book (new_session));
         qof_session_destroy (new_session);
-        new_session = NULL;
+        g_free (scheme);
+        g_free (hostname);
+        g_free (username);
+        g_free (password);
+        g_free (path);
+        g_free (newfile);
+        gnc_unset_busy_cursor (NULL);
+        qof_event_resume ();
+        gnc_gui_refresh_all ();
+        gnc_get_current_session ();
+        gnc_file_open_request_dialog (parent, directory);
         g_free (directory);
-        goto RESTART;
+        return FALSE;
     }
     /* if file appears to be locked, ask the user ... */
     else if (ERR_BACKEND_LOCKED == io_err || ERR_BACKEND_READONLY == io_err)
@@ -1649,44 +1548,51 @@ RESTART:
  *       so the paths used in here are always file
  *       paths, never db uris.
  */
+static void
+gnc_file_open_selected (GtkWindow *parent, const gchar *filename)
+{
+    (void)gnc_file_open_request (parent, filename, FALSE, FALSE);
+}
+
+static void
+gnc_file_open_request_dialog (GtkWindow *parent, const gchar *starting_dir)
+{
+    gnc_file_select_async (parent, _("Open"),
+                           gnc_file_dialog_get_datafile_filters (), starting_dir,
+                           GNC_FILE_DIALOG_OPEN, gnc_file_open_selected);
+}
+
+/* Starts the native file request after the current session can be closed. The
+ * eventual open result is reported by the existing session error UI; callers
+ * historically ignore the return value. */
 gboolean
 gnc_file_open (GtkWindow *parent)
 {
-    const gchar * newfile;
-    gchar *last = NULL;
-    gchar *default_dir = NULL;
-    gboolean result;
+    gchar *default_dir;
+    gchar *last;
 
     if (!gnc_file_query_save (parent, TRUE))
         return FALSE;
 
-    if ( last && gnc_uri_targets_local_fs (last))
+    last = gnc_history_get_last ();
+    if (last && gnc_uri_targets_local_fs (last))
     {
-        gchar *filepath = gnc_uri_get_path ( last );
-        default_dir = g_path_get_dirname( filepath );
-        g_free ( filepath );
+        gchar *filepath = gnc_uri_get_path (last);
+
+        default_dir = g_path_get_dirname (filepath);
+        g_free (filepath);
     }
     else
-        default_dir = gnc_get_default_directory(GNC_PREFS_GROUP_OPEN_SAVE);
+        default_dir = gnc_get_default_directory (GNC_PREFS_GROUP_OPEN_SAVE);
 
-    newfile = gnc_file_dialog (parent, _("Open"),
-                               gnc_file_dialog_get_datafile_filters (),
-                               default_dir, GNC_FILE_DIALOG_OPEN);
-    g_free ( last );
-    g_free ( default_dir );
+    gnc_file_open_request_dialog (parent, default_dir);
+    g_free (last);
+    g_free (default_dir);
 
-    result = gnc_file_open_request (parent, newfile, /*is_readonly*/ FALSE,
-                                    /*reset_bayes_conversion*/ FALSE);
-
-    /* This dialogue can show up early in the startup process. If the
-     * user fails to pick a file (by e.g. hitting the cancel button), we
-     * might be left with a null topgroup, which leads to nastiness when
-     * user goes to create their very first account. So create one. */
+    /* Keep a valid empty session if the native chooser is cancelled. */
     gnc_get_current_session ();
-
-    return result;
+    return TRUE;
 }
-
 gboolean
 gnc_file_open_file (GtkWindow *parent, const char * newfile, gboolean open_readonly)
 {
@@ -1703,37 +1609,39 @@ gnc_file_open_file (GtkWindow *parent, const char * newfile, gboolean open_reado
  *       paths used in it always refer to files and are
  *       never db uris
  */
+static void
+gnc_file_export_selected (GtkWindow *parent, const gchar *filename)
+{
+    gnc_file_do_export (parent, filename);
+}
+
 void
 gnc_file_export (GtkWindow *parent)
 {
-    const char *filename;
-    char *default_dir = NULL;        /* Default to last open */
-    char *last;
+    gchar *default_dir;
+    gchar *last;
 
-    ENTER(" ");
+    ENTER (" ");
 
-    last = gnc_history_get_last();
-    if ( last && gnc_uri_targets_local_fs (last))
+    last = gnc_history_get_last ();
+    if (last && gnc_uri_targets_local_fs (last))
     {
-        gchar *filepath = gnc_uri_get_path ( last );
-        default_dir = g_path_get_dirname( filepath );
-        g_free ( filepath );
+        gchar *filepath = gnc_uri_get_path (last);
+
+        default_dir = g_path_get_dirname (filepath);
+        g_free (filepath);
     }
     else
-        default_dir = gnc_get_default_directory(GNC_PREFS_GROUP_EXPORT);
+        default_dir = gnc_get_default_directory (GNC_PREFS_GROUP_EXPORT);
 
-    filename = gnc_file_dialog (parent, _("Save"),
-                                gnc_file_dialog_get_datafile_filters (),
-                                default_dir, GNC_FILE_DIALOG_SAVE);
-    g_free ( last );
-    g_free ( default_dir );
-    if (!filename) return;
-
-    gnc_file_do_export (parent, filename);
+    gnc_file_select_async (parent, _("Save"),
+                           gnc_file_dialog_get_datafile_filters (), default_dir,
+                           GNC_FILE_DIALOG_EXPORT, gnc_file_export_selected);
+    g_free (last);
+    g_free (default_dir);
 
     LEAVE (" ");
 }
-
 /* Prevent the user from storing or exporting data files into the settings
  * directory.
  */
@@ -1969,43 +1877,45 @@ gnc_file_save (GtkWindow *parent)
  *       paths used in it always refer to files and are
  *       never db uris. See gnc_file_do_save_as for that.
  */
+static void
+gnc_file_save_as_selected (GtkWindow *parent, const gchar *filename)
+{
+    gnc_file_do_save_as (parent, filename);
+}
+
 void
 gnc_file_save_as (GtkWindow *parent)
 {
-    const gchar *filename;
-    gchar *default_dir = NULL;        /* Default to last open */
+    gchar *default_dir;
     gchar *last;
 
-    ENTER(" ");
+    ENTER (" ");
 
     if (!gnc_current_session_exist ())
     {
-        LEAVE("No Session.");
+        LEAVE ("No Session.");
         return;
     }
 
-    last = gnc_history_get_last();
-    if ( last && gnc_uri_targets_local_fs (last))
+    last = gnc_history_get_last ();
+    if (last && gnc_uri_targets_local_fs (last))
     {
-        gchar *filepath = gnc_uri_get_path ( last );
-        default_dir = g_path_get_dirname( filepath );
-        g_free ( filepath );
+        gchar *filepath = gnc_uri_get_path (last);
+
+        default_dir = g_path_get_dirname (filepath);
+        g_free (filepath);
     }
     else
-        default_dir = gnc_get_default_directory(GNC_PREFS_GROUP_OPEN_SAVE);
+        default_dir = gnc_get_default_directory (GNC_PREFS_GROUP_OPEN_SAVE);
 
-    filename = gnc_file_dialog (parent, _("Save"),
-                                gnc_file_dialog_get_datafile_filters (),
-                                default_dir, GNC_FILE_DIALOG_SAVE);
-    g_free ( last );
-    g_free ( default_dir );
-    if (!filename) return;
-
-    gnc_file_do_save_as (parent, filename);
+    gnc_file_select_async (parent, _("Save"),
+                           gnc_file_dialog_get_datafile_filters (), default_dir,
+                           GNC_FILE_DIALOG_SAVE, gnc_file_save_as_selected);
+    g_free (last);
+    g_free (default_dir);
 
     LEAVE (" ");
 }
-
 void
 gnc_file_do_save_as (GtkWindow *parent, const char* filename)
 {
