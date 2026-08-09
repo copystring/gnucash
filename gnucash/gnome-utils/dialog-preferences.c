@@ -159,7 +159,8 @@ gnc_account_separator_pref_changed_cb (GtkEntry *entry, GtkWidget *dialog)
     gchar *sample;
     gchar *separator = NULL;
 
-    gchar *conflict_msg = gnc_account_separator_is_valid (gtk_entry_get_text (entry), &separator);
+    gchar *conflict_msg = gnc_account_separator_is_valid (
+        gtk_editable_get_text (GTK_EDITABLE (entry)), &separator);
 
     label = g_object_get_data (G_OBJECT(dialog), "sample_account");
     DEBUG("Sample Account pointer is %p", label);
@@ -192,61 +193,98 @@ gnc_account_separator_pref_changed_cb (GtkEntry *entry, GtkWidget *dialog)
 }
 
 
-/** Called when the 'Close' button pressed or preference dialog closes
- *  to check if the account separator is valid.
- *  Offers two choices, to reset separator to original value and exit
- *  or go back to the 'Accounts' page to change separator
- *
- *  @internal
- *
- *  @param dialog the prefs dialog.
- */
-static gboolean
-gnc_account_separator_validate (GtkWidget *dialog)
+static void
+gnc_preferences_select_account_page (GtkDialog *dialog);
+
+typedef struct
 {
-    GtkWidget *entry = g_object_get_data (G_OBJECT(dialog), "account-separator");
-    gboolean ret = TRUE;
-    gchar *separator = NULL;
-    gchar *conflict_msg = gnc_account_separator_is_valid (gtk_entry_get_text (GTK_ENTRY(entry)), &separator);
+    GWeakRef dialog;
+} SeparatorValidationRequest;
 
-    /* Check if the new separator clashes with existing account names */
-    if (conflict_msg)
-    {
-        GtkWidget   *msg_dialog, *msg_label;
-        GtkBuilder  *builder;
-        gint         response;
-
-        builder = gtk_builder_new ();
-        gnc_builder_add_from_file (builder, "dialog-preferences.glade", "separator_validation_dialog");
-
-        msg_dialog = GTK_WIDGET(gtk_builder_get_object (builder, "separator_validation_dialog"));
-
-        msg_label = GTK_WIDGET(gtk_builder_get_object (builder, "conflict_message"));
-
-        gtk_label_set_text (GTK_LABEL(msg_label), conflict_msg);
-
-        g_object_unref (G_OBJECT(builder));
-        gtk_widget_set_visible (msg_dialog, TRUE);
-
-        response = gnc_dialog_run_non_destructive (GTK_DIALOG(msg_dialog));
-        if (response == GTK_RESPONSE_ACCEPT) // reset to original
-        {
-            gchar *original_sep = g_object_get_data (G_OBJECT(entry), "original_text");
-
-            if (original_sep != NULL)
-                gtk_entry_set_text (GTK_ENTRY(entry), original_sep);
-        }
-        else
-            ret = FALSE;
-
-        g_free (conflict_msg);
-        gtk_window_destroy (GTK_WINDOW (msg_dialog));
-    }
-    g_free (separator);
-    return ret;
+static void
+gnc_preferences_close (GtkDialog *dialog)
+{
+    gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(dialog));
+    gnc_unregister_gui_component_by_data (DIALOG_PREFERENCES_CM_CLASS,
+                                          dialog);
+    gtk_window_destroy (GTK_WINDOW(dialog));
 }
 
+static void
+separator_validation_request_free (SeparatorValidationRequest *request)
+{
+    g_weak_ref_clear (&request->dialog);
+    g_free (request);
+}
 
+static void
+separator_validation_response_cb (GObject *source, GAsyncResult *result,
+                                  gpointer user_data)
+{
+    SeparatorValidationRequest *request = user_data;
+    GError *error = NULL;
+    gint response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG(source),
+                                                    result, &error);
+    GObject *object = g_weak_ref_get (&request->dialog);
+
+    if (object)
+    {
+        GtkDialog *dialog = GTK_DIALOG (object);
+        GtkWidget *entry = g_object_get_data (G_OBJECT(dialog),
+                                              "account-separator");
+
+        if (!error && response == 0)
+        {
+            const gchar *original = g_object_get_data (G_OBJECT(entry),
+                                                       "original_text");
+
+            if (original)
+                gtk_editable_set_text (GTK_EDITABLE (entry), original);
+            gnc_preferences_close (dialog);
+        }
+        else
+            gnc_preferences_select_account_page (dialog);
+        g_object_unref (object);
+    }
+
+    g_clear_error (&error);
+    separator_validation_request_free (request);
+}
+
+/** Called when the preferences dialog is closed to check whether the account
+ *  separator is valid. Conflicts are resolved asynchronously so that closing
+ *  the preferences window never enters a nested main loop. */
+static void
+gnc_account_separator_validate_async (GtkDialog *dialog)
+{
+    GtkWidget *entry = g_object_get_data (G_OBJECT(dialog),
+                                          "account-separator");
+    gchar *separator = NULL;
+    gchar *conflict_msg = gnc_account_separator_is_valid (
+        gtk_editable_get_text (GTK_EDITABLE (entry)), &separator);
+
+    if (conflict_msg)
+    {
+        const char *buttons[] = { _("Reset"), _("Close"), NULL };
+        GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", conflict_msg);
+        SeparatorValidationRequest *request =
+            g_new0 (SeparatorValidationRequest, 1);
+
+        g_weak_ref_init (&request->dialog, G_OBJECT(dialog));
+        gtk_alert_dialog_set_modal (alert, TRUE);
+        gtk_alert_dialog_set_buttons (alert, buttons);
+        gtk_alert_dialog_set_default_button (alert, 1);
+        gtk_alert_dialog_set_cancel_button (alert, 1);
+        gtk_alert_dialog_choose (alert, GTK_WINDOW(dialog), NULL,
+                                 separator_validation_response_cb, request);
+        g_object_unref (alert);
+    }
+    else
+        gnc_preferences_close (dialog);
+
+    g_free (conflict_msg);
+    g_free (separator);
+}
 /** Used to select the 'Accounts' page when the user wants
  *  to return from the account separator validation dialog
  *  to the preference dialog.
@@ -1252,15 +1290,7 @@ gnc_preferences_response_cb (GtkDialog *dialog, gint response, GtkDialog *unused
 
     case GTK_RESPONSE_DELETE_EVENT:
     default:
-        if (gnc_account_separator_validate (GTK_WIDGET(dialog)))
-        {
-            gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(dialog));
-            gnc_unregister_gui_component_by_data (DIALOG_PREFERENCES_CM_CLASS,
-                                                  dialog);
-            gtk_window_destroy (GTK_WINDOW(dialog));
-        }
-        else
-            gnc_preferences_select_account_page (dialog);
+        gnc_account_separator_validate_async (dialog);
         break;
     }
 }
