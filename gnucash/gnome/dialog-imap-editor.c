@@ -488,8 +488,8 @@ get_account_info (ImapDialog *dialog)
 {
     Account *root = gnc_book_get_root_account (gnc_get_current_book ()); GList *accounts = gnc_account_get_descendants_sorted (root);
     gchar *total; dialog->tot_entries = 0; dialog->tot_invalid_maps = 0; g_list_store_remove_all (dialog->rows);
-    gtk_multi_selection_set_selected (dialog->selection, GTK_INVALID_LIST_POSITION, FALSE);
-    gtk_entry_set_text (GTK_ENTRY (dialog->filter_text_entry), ""); g_clear_pointer (&dialog->filter_text, g_free); dialog->filter_text = g_strdup ("");
+    gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (dialog->selection));
+    gtk_editable_set_text (GTK_EDITABLE (dialog->filter_text_entry), ""); g_clear_pointer (&dialog->filter_text, g_free); dialog->filter_text = g_strdup ("");
     show_count_column (dialog, FALSE); show_filter_option (dialog, TRUE);
     if (dialog->type == BAYES) { GList *node; for (node = accounts; node; node = node->next) get_imap_info (dialog, node->data, NULL, _("Bayesian")); show_count_column (dialog, TRUE); }
     else if (dialog->type == NBAYES) { GList *node; for (node = accounts; node; node = node->next) { get_imap_info (dialog, node->data, IMAP_FRAME_DESC, _("Description Field")); get_imap_info (dialog, node->data, IMAP_FRAME_MEMO, _("Memo Field")); get_imap_info (dialog, node->data, IMAP_FRAME_CSV, _("CSV Account Map")); } }
@@ -508,13 +508,13 @@ filter_button_cb (GtkButton *button, ImapDialog *dialog)
 static void
 expand_button_cb (GtkButton *button, ImapDialog *dialog)
 {
-    GPtrArray *roots; guint i; gtk_entry_set_text (GTK_ENTRY (dialog->filter_text_entry), ""); g_free (dialog->filter_text); dialog->filter_text = g_strdup (""); roots = imap_root_rows (dialog);
+    GPtrArray *roots; guint i; gtk_editable_set_text (GTK_EDITABLE (dialog->filter_text_entry), ""); g_free (dialog->filter_text); dialog->filter_text = g_strdup (""); roots = imap_root_rows (dialog);
     for (i = 0; i < roots->len; i++) gtk_tree_list_row_set_expanded (g_ptr_array_index (roots, i), TRUE);
     g_ptr_array_unref (roots); gtk_filter_changed (GTK_FILTER (dialog->filter), GTK_FILTER_CHANGE_DIFFERENT); (void)button;
 }
 static void
 collapse_button_cb (GtkButton *button, ImapDialog *dialog)
-{ gtk_entry_set_text (GTK_ENTRY (dialog->filter_text_entry), ""); g_free (dialog->filter_text); dialog->filter_text = g_strdup (""); imap_apply_filter (dialog, FALSE); (void)button; }
+{ gtk_editable_set_text (GTK_EDITABLE (dialog->filter_text_entry), ""); g_free (dialog->filter_text); dialog->filter_text = g_strdup (""); imap_apply_filter (dialog, FALSE); (void)button; }
 static void
 list_type_selected_cb (GtkToggleButton *button, ImapDialog *dialog)
 {
