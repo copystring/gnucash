@@ -246,10 +246,8 @@ date_close_collect_values (DialogDateClose *ddc)
 }
 
 static void
-date_close_response_cb (GtkDialog *dialog, gint response, DialogDateClose *ddc)
+date_close_respond (DialogDateClose *ddc, gint response)
 {
-    (void)dialog;
-
     if (response == GTK_RESPONSE_OK)
     {
         if (!date_close_collect_values (ddc))
@@ -262,11 +260,25 @@ date_close_response_cb (GtkDialog *dialog, gint response, DialogDateClose *ddc)
     date_close_complete (ddc, FALSE, TRUE, NULL);
 }
 
+static void
+date_close_cancel_clicked_cb (GtkButton *button, DialogDateClose *ddc)
+{
+    (void)button;
+    date_close_respond (ddc, GTK_RESPONSE_CANCEL);
+}
+
+static void
+date_close_ok_clicked_cb (GtkButton *button, DialogDateClose *ddc)
+{
+    (void)button;
+    date_close_respond (ddc, GTK_RESPONSE_OK);
+}
+
 static gboolean
 date_close_close_request_cb (GtkWindow *dialog, DialogDateClose *ddc)
 {
     (void)dialog;
-    date_close_complete (ddc, FALSE, TRUE, NULL);
+    date_close_respond (ddc, GTK_RESPONSE_CANCEL);
     return TRUE;
 }
 
@@ -374,13 +386,16 @@ date_close_connect_cancellable (DialogDateClose *ddc)
 static gboolean
 date_close_setup_dialog (DialogDateClose *ddc, GtkBuilder *builder,
                          GtkWidget *parent, const char *dialog_name,
+                         const char *cancel_button_name,
                          const char *ok_button_name, gboolean ok_is_default)
 {
     GtkWidget *dialog = GTK_WIDGET (gtk_builder_get_object (builder, dialog_name));
+    GtkWidget *cancel_button = GTK_WIDGET (
+        gtk_builder_get_object (builder, cancel_button_name));
     GtkWidget *ok_button = GTK_WIDGET (
         gtk_builder_get_object (builder, ok_button_name));
 
-    if (!dialog || !ok_button)
+    if (!dialog || !cancel_button || !ok_button)
         return FALSE;
 
     ddc->dialog = g_object_ref (GTK_WINDOW (dialog));
@@ -391,8 +406,10 @@ date_close_setup_dialog (DialogDateClose *ddc, GtkBuilder *builder,
     if (ok_is_default)
         gtk_window_set_default_widget (ddc->dialog, ok_button);
 
-    g_signal_connect (ddc->dialog, "response",
-                      G_CALLBACK (date_close_response_cb), ddc);
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (date_close_cancel_clicked_cb), ddc);
+    g_signal_connect (ok_button, "clicked",
+                      G_CALLBACK (date_close_ok_clicked_cb), ddc);
     g_signal_connect (ddc->dialog, "close-request",
                       G_CALLBACK (date_close_close_request_cb), ddc);
     g_signal_connect (ddc->dialog, "destroy",
@@ -444,8 +461,8 @@ date_close_create_date_dialog (DialogDateClose *ddc, GtkWidget *parent,
     complete = gnc_builder_add_from_file (builder, "dialog-date-close.glade",
                                           "date_close_dialog");
     if (!complete || !date_close_setup_dialog (ddc, builder, parent,
-                                                "date_close_dialog", "okbutton",
-                                                ok_is_default))
+                                                "date_close_dialog", "cancelbutton",
+                                                "okbutton", ok_is_default))
     {
         g_object_unref (builder);
         return FALSE;
@@ -493,7 +510,7 @@ date_close_create_date_account_dialog (
     complete = gnc_builder_add_from_file (builder, "dialog-date-close.glade",
                                           "date_account_dialog");
     if (!complete || !date_close_setup_dialog (ddc, builder, parent,
-                                                "date_account_dialog",
+                                                "date_account_dialog", "cancelbutton1",
                                                 "okbutton1", ok_is_default))
     {
         g_object_unref (builder);

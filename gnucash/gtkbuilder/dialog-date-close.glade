@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="date_account_dialog">
+  <object class="GtkWindow" id="date_account_dialog">
     <property name="title" translatable="1">Question</property>
     <property name="modal">1</property>
-<child internal-child="content_area">
+<child>
       <object class="GtkBox" id="dialog-vbox6">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkBox" id="vbox3">
             <property name="vexpand">1</property>
@@ -146,13 +150,11 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton1</action-widget>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+    <child>
       <object class="GtkBox" id="dialog-action_area6">
-        <property name="visible">True</property>
+        <property name="orientation">horizontal</property>
+        <property name="spacing">6</property>
+        <property name="halign">end</property>
         <child>
           <object class="GtkButton" id="cancelbutton1">
             <property name="label" translatable="1">_Cancel</property>
@@ -174,13 +176,17 @@
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="date_close_dialog">
+  <object class="GtkWindow" id="date_close_dialog">
     <property name="title" translatable="1">Question</property>
     <property name="modal">1</property>
-<child internal-child="content_area">
+<child>
       <object class="GtkBox" id="dialog-vbox4">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkBox" id="vbox1">
             <property name="orientation">vertical</property>
@@ -226,13 +232,11 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+    <child>
       <object class="GtkBox" id="dialog-action_area4">
-        <property name="visible">True</property>
+        <property name="orientation">horizontal</property>
+        <property name="spacing">6</property>
+        <property name="halign">end</property>
         <child>
           <object class="GtkButton" id="cancelbutton">
             <property name="label" translatable="1">_Cancel</property>
