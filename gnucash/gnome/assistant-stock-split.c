@@ -156,6 +156,9 @@ gnc_stock_split_assistant_window_destroy_cb (GtkWidget *object, gpointer user_da
 
     gnc_unregister_gui_component_by_data (ASSISTANT_STOCK_SPLIT_CM_CLASS, info);
 
+    g_signal_handlers_disconnect_by_data (info->account_selection, info);
+    g_clear_object (&info->account_selection);
+    g_clear_object (&info->account_rows);
     g_free (info);
 }
 
@@ -320,7 +323,7 @@ stock_split_add_account_column (StockSplitInfo *info, const gchar *title,
     gtk_column_view_column_set_resizable (view_column, TRUE);
     gtk_column_view_column_set_expand (view_column, expand);
     gtk_column_view_append_column (info->account_view, view_column);
-    g_object_unref (factory);
+    g_object_unref (view_column);
 }
 
 static void
@@ -604,6 +607,7 @@ static void
 stock_split_update_navigation (StockSplitInfo *info)
 {
     gboolean is_last = info->current_page == G_N_ELEMENTS (info->pages) - 1;
+    GtkWidget *default_widget = NULL;
 
     gtk_widget_set_sensitive (info->back_button, info->current_page != 0);
     gtk_widget_set_visible (info->next_button, !is_last);
@@ -612,6 +616,12 @@ stock_split_update_navigation (StockSplitInfo *info)
                                                             info->current_page));
     gtk_widget_set_visible (info->apply_button, is_last);
     gtk_widget_set_sensitive (info->apply_button, is_last);
+
+    if (is_last)
+        default_widget = info->apply_button;
+    else if (gtk_widget_get_sensitive (info->next_button))
+        default_widget = info->next_button;
+    gtk_window_set_default_widget (info->window, default_widget);
 }
 
 static void
@@ -733,7 +743,7 @@ gnc_stock_split_assistant_create (StockSplitInfo *info)
                                                                     "account_view"));
     info->account_rows = g_list_store_new (stock_split_row_get_type ());
     info->account_selection = gtk_single_selection_new
-        (G_LIST_MODEL (info->account_rows));
+        (G_LIST_MODEL (g_object_ref (info->account_rows)));
     gtk_single_selection_set_autoselect (info->account_selection, FALSE);
     gtk_column_view_set_model (info->account_view,
                                GTK_SELECTION_MODEL (info->account_selection));
