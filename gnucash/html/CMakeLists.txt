@@ -1,3 +1,5 @@
+add_subdirectory(test)
+
 
 set (html_HEADERS
   gnc-html-history.h
