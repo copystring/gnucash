@@ -251,7 +251,7 @@ gnc_job_window_close_handler (gpointer user_data)
 {
     JobWindow *jw = user_data;
 
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(jw->dialog));
+    gtk_window_destroy (GTK_WINDOW (jw->dialog));
     /* jw is already freed at this point
     jw->dialog = NULL; */
 }
@@ -412,7 +412,7 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, jw);
                                          GNC_JOB_MODULE_NAME,
                                          QOF_EVENT_MODIFY | QOF_EVENT_DESTROY);
 
-//FIXME gtk4    gtk_widget_show_all (jw->dialog);
+    gtk_window_present (GTK_WINDOW (jw->dialog));
 
     // The job name should have keyboard focus
     gtk_widget_grab_focus(jw->name_entry);

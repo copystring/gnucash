@@ -306,7 +306,7 @@ gnc_employee_window_close_handler (gpointer user_data)
 {
     EmployeeWindow *ew = user_data;
 
-//FIXME gtk4    gtk_window_destroy(GTK_WINDOW(ew->dialog));
+    gtk_window_destroy (GTK_WINDOW (ew->dialog));
 }
 
 static void
@@ -545,7 +545,7 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ew);
                                          GNC_EMPLOYEE_MODULE_NAME,
                                          QOF_EVENT_MODIFY | QOF_EVENT_DESTROY);
 
-//FIXME gtk4    gtk_widget_show_all (ew->dialog);
+    gtk_window_present (GTK_WINDOW (ew->dialog));
 
     g_object_unref(G_OBJECT(builder));
 

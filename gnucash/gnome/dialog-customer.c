@@ -465,7 +465,7 @@ gnc_customer_window_close_handler (gpointer user_data)
 {
     CustomerWindow *cw = user_data;
 
-//FIXME gtk4    gtk_window_destroy(GTK_WINDOW(cw->dialog));
+    gtk_window_destroy (GTK_WINDOW (cw->dialog));
     // cw has already been freed by this point.
     // cw->dialog = NULL;
 }
@@ -739,7 +739,7 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
                                          GNC_CUSTOMER_MODULE_NAME,
                                          QOF_EVENT_MODIFY | QOF_EVENT_DESTROY);
 
-//FIXME gtk4    gtk_widget_show_all (cw->dialog);
+    gtk_window_present (GTK_WINDOW (cw->dialog));
     g_object_unref(G_OBJECT(builder));
 
     return cw;

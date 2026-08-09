@@ -318,7 +318,7 @@ gnc_vendor_window_close_handler (gpointer user_data)
 {
     VendorWindow *vw = user_data;
 
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(vw->dialog));
+    gtk_window_destroy (GTK_WINDOW (vw->dialog));
 }
 
 static void
@@ -517,7 +517,7 @@ gnc_vendor_new_window (GtkWindow *parent, QofBook *bookp, GncVendor *vendor)
                                          GNC_VENDOR_MODULE_NAME,
                                          QOF_EVENT_MODIFY | QOF_EVENT_DESTROY);
 
-//FIXME gtk4    gtk_widget_show_all (vw->dialog);
+    gtk_window_present (GTK_WINDOW (vw->dialog));
     g_object_unref(G_OBJECT(builder));
 
     return vw;
