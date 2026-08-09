@@ -381,9 +381,11 @@ gnc_search_dialog_display_results (GNCSearchWindow *sw)
 }
 
 static void
-match_combo_changed (GtkComboBoxText *combo_box, GNCSearchWindow *sw)
+match_combo_changed (GtkDropDown *drop_down, GParamSpec *pspec,
+                     GNCSearchWindow *sw)
 {
-    sw->grouping = gtk_combo_box_get_active(GTK_COMBO_BOX(combo_box));
+    sw->grouping = gtk_drop_down_get_selected (drop_down);
+    (void)pspec;
 }
 
 static void
@@ -1134,7 +1136,6 @@ gnc_search_dialog_init_widgets (GNCSearchWindow *sw, const gchar *title)
 {
     GtkBuilder        *builder;
     GtkWidget         *label, *add, *box;
-    GtkComboBoxText   *combo_box;
     GtkWidget         *widget;
     GtkWidget         *new_item_button;
     const char        *type_label;
@@ -1176,17 +1177,27 @@ gnc_search_dialog_init_widgets (GNCSearchWindow *sw, const gchar *title)
     gtk_box_append (GTK_BOX(box), GTK_WIDGET(add));
     gtk_widget_set_visible (GTK_WIDGET(add), TRUE);
 
-    /* Set the match-type menu */
-    sw->grouping_combo = gtk_combo_box_text_new();
-    combo_box = GTK_COMBO_BOX_TEXT(sw->grouping_combo);
-    gtk_combo_box_text_append_text(combo_box, _("all criteria are met"));
-    gtk_combo_box_text_append_text(combo_box, _("any criteria are met"));
-    gtk_combo_box_set_active(GTK_COMBO_BOX(combo_box), sw->grouping);
-    g_signal_connect(combo_box, "changed", G_CALLBACK (match_combo_changed), sw);
+    /* Set the match-type menu. The enum values deliberately equal the
+     * stable positions in this model. */
+    {
+        const char * const grouping_labels[] =
+        {
+            _("all criteria are met"),
+            _("any criteria are met"),
+            NULL
+        };
+        GtkStringList *grouping_model = gtk_string_list_new (grouping_labels);
 
-    box = GTK_WIDGET(gtk_builder_get_object (builder, "type_menu_box"));
-    gtk_box_append (GTK_BOX(box), GTK_WIDGET(combo_box));
-    gtk_widget_set_visible (GTK_WIDGET(combo_box), TRUE);
+        sw->grouping_combo = gtk_drop_down_new (G_LIST_MODEL (grouping_model), NULL);
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (sw->grouping_combo),
+                                    sw->grouping);
+        g_signal_connect (sw->grouping_combo, "notify::selected",
+                          G_CALLBACK (match_combo_changed), sw);
+
+        box = GTK_WIDGET(gtk_builder_get_object (builder, "type_menu_box"));
+        gtk_box_append (GTK_BOX(box), sw->grouping_combo);
+        gtk_widget_set_visible (sw->grouping_combo, TRUE);
+    }
 
     /* Grab the 'all items match' label */
     sw->match_all_label = GTK_WIDGET(gtk_builder_get_object (builder, "match_all_label"));
