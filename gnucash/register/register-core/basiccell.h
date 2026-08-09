@@ -161,9 +161,7 @@
 extern "C" {
 #endif
 
-#include <gdk/gdk.h>
 #include <glib.h>
-#include <gtk/gtk.h>
 
 #include "gnc-ui-util.h"
 #include "gnc-register-input.h"

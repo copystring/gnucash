@@ -156,7 +156,6 @@ set (gnome_utils_HEADERS
   gnc-recurrence.h
   gnc-general-select.h
   gnc-gnome-utils.h
-  gnc-register-input.h
   gnc-gui-query.h
   gnc-icons.h
   gnc-keyring.h
@@ -235,6 +234,7 @@ endif()
 target_include_directories(gnc-gnome-utils
     PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}
+      ${CMAKE_SOURCE_DIR}/gnucash/register/register-core
     PRIVATE
       ${GTK_MAC_INCLUDE_DIRS}
       ${LIBSECRET_INCLUDE_DIRS}
