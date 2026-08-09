@@ -111,9 +111,6 @@ check_readonly_threshold (const gchar *datestr, GDate *d, gboolean warn)
             gtk_alert_dialog_show (dialog, gnc_ui_get_main_window (NULL));
             g_object_unref (dialog);
 
-            g_free (dialog_title);
-            g_free (dialog_msg);
-
 //        g_warning("Entered date %s is before the \"auto-read-only threshold\";"
 //              " resetting to the threshold.", datestr);
         }
