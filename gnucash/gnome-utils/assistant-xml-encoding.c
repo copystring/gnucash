@@ -324,6 +324,13 @@ gxi_window_close_request_cb (GtkWindow *window, GncXmlImportData *data)
 }
 
 static void
+gxi_window_destroy_cb (GtkWidget *widget, GncXmlImportData *data)
+{
+    (void)widget;
+    gxi_complete (data, FALSE, TRUE);
+}
+
+static void
 gxi_cancel_clicked_cb (GtkButton *button, GncXmlImportData *data)
 {
     (void)button;
@@ -474,6 +481,8 @@ gxi_create_window (GncXmlImportData *data, GtkWindow *parent)
 
     g_signal_connect (data->window, "close-request",
                       G_CALLBACK (gxi_window_close_request_cb), data);
+    g_signal_connect (data->window, "destroy",
+                      G_CALLBACK (gxi_window_destroy_cb), data);
     g_signal_connect (data->back_button, "clicked",
                       G_CALLBACK (gxi_back_clicked_cb), data);
     g_signal_connect (data->next_button, "clicked",
