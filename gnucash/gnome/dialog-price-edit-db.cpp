@@ -162,10 +162,9 @@ gnc_prices_dialog_destroy_cb (GtkWidget *object, gpointer data)
 static gboolean
 gnc_prices_dialog_close_request_cb (GtkWindow *window, gpointer data)
 {
-    auto pdb_dialog = static_cast<PricesDialog *> (data);
-
     // This callback allows the window size to be saved on closing with the X.
     gnc_save_window_size (GNC_PREFS_GROUP, window);
+    (void)data;
     return FALSE;
 }
 
@@ -273,7 +272,7 @@ static GObject *
 price_remove_row_new (const char *full_name, gnc_commodity *commodity,
                       const char *date, const char *count)
 {
-    auto row = g_object_new (G_TYPE_OBJECT, nullptr);
+    auto row = G_OBJECT (g_object_new (G_TYPE_OBJECT, nullptr));
     g_object_set_data_full (row, PRICE_REMOVE_FULL_NAME_DATA, g_strdup (full_name), g_free);
     g_object_set_data (row, PRICE_REMOVE_COMMODITY_DATA, commodity);
     g_object_set_data_full (row, PRICE_REMOVE_DATE_DATA, g_strdup (date), g_free);
@@ -408,7 +407,7 @@ gnc_prices_dialog_get_commodities (GtkWidget *view)
     for (auto valid = gtk_bitset_iter_init_first (&iter, selection, &position);
          valid; valid = gtk_bitset_iter_next (&iter, &position))
     {
-        auto row = g_list_model_get_item (G_LIST_MODEL (model), position);
+        auto row = G_OBJECT (g_list_model_get_item (G_LIST_MODEL (model), position));
         auto commodity = static_cast<gnc_commodity *> (
             g_object_get_data (row, PRICE_REMOVE_COMMODITY_DATA));
         comm_list = g_list_prepend (comm_list, commodity);
@@ -1176,7 +1175,7 @@ gnc_prices_dialog_create (GtkWidget * parent, PricesDialog *pdb_dialog)
         }
         /* default to 'close' button */
         button = GTK_WIDGET(gtk_builder_get_object (builder, "close_button"));
-        gtk_widget_grab_default (button);
+        gtk_window_set_default_widget (GTK_WINDOW (pdb_dialog->window), button);
         gtk_widget_grab_focus (button);
 
     }
@@ -1279,6 +1278,6 @@ gnc_prices_dialog (GtkWidget * parent)
 
     gtk_widget_grab_focus (GTK_WIDGET(pdb_dialog->price_tree));
 
-    gtk_widget_show (pdb_dialog->window);
+    gtk_window_present (GTK_WINDOW (pdb_dialog->window));
     LEAVE(" ");
 }
