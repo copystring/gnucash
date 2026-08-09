@@ -37,7 +37,7 @@
 #include "gnc-general-select.h" // for GNC_GENERAL_SELECT
 #include "gnc-option-uitype.hpp"
 #include "gnc-tree-view-account.h" // for GNC_TREE_VIEW_ACCOUNT
-#include "gnc-tree-model-budget.h" // for gnc_tree_model_budget
+#include "gnc-tree-model-budget.h" // for GncBudgetListItem
 #include "misc-gnome-utils.h" // for xxxgtk_textview_set_text
 #include "dialog-utils.h"
 
@@ -1881,21 +1881,20 @@ create_option_widget<GncOptionUIType::PLOT_SIZE> (GncOption& option,
 }
 
 static GtkWidget *
-create_budget_widget(GncOption& option)
+create_budget_widget (GncOption& option)
 {
-    GtkTreeModel *tm;
-    GtkComboBox *cb;
-    GtkCellRenderer *cr;
+    auto model = gnc_budget_list_model_new (gnc_get_current_book ());
+    auto expression = gtk_property_expression_new (GNC_TYPE_BUDGET_LIST_ITEM,
+                                                   nullptr, "name");
 
-    tm = gnc_tree_model_budget_new(gnc_get_current_book());
-    cb = GTK_COMBO_BOX(gtk_combo_box_new_with_model(tm));
-    g_object_unref(tm);
-    cr = gtk_cell_renderer_text_new();
-    gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(cb), cr, TRUE);
+    return gtk_drop_down_new (model, expression);
+}
 
-    gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(cb), cr, "text",
-                                   BUDGET_NAME_COLUMN, NULL);
-    return GTK_WIDGET(cb);
+static void
+budget_option_selection_changed_cb (GObject *object, GParamSpec *pspec,
+                                    gpointer user_data)
+{
+    gnc_option_changed_widget_cb (GTK_WIDGET (object), user_data);
 }
 
 class GncGtkBudgetUIItem : public GncOptionGtkUIItem
@@ -1905,26 +1904,28 @@ public:
         GncOptionGtkUIItem{widget, GncOptionUIType::BUDGET} {}
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
-        GtkTreeIter iter;
-        auto widget{GTK_COMBO_BOX(get_widget())};
+        auto widget{GTK_DROP_DOWN(get_widget())};
         auto instance{option.get_value<const QofInstance*>()};
         if (instance)
         {
-            auto tree_model{gtk_combo_box_get_model(widget)};
-            if (gnc_tree_model_budget_get_iter_for_budget(tree_model, &iter,
-                                                          GNC_BUDGET(instance)))
-                gtk_combo_box_set_active_iter(widget, &iter);
+            auto position = gnc_budget_list_model_get_position (
+                gtk_drop_down_get_model (widget), GNC_BUDGET (instance));
+            if (position != G_MAXUINT)
+                gtk_drop_down_set_selected (widget, position);
         }
     }
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-        GtkTreeIter iter;
-        auto widget{GTK_COMBO_BOX(get_widget())};
-        if (gtk_combo_box_get_active_iter(widget, &iter))
+        auto widget{GTK_DROP_DOWN(get_widget())};
+        auto position = gtk_drop_down_get_selected (widget);
+        if (position != GTK_INVALID_LIST_POSITION)
         {
-            auto tree_model{gtk_combo_box_get_model(widget)};
-            auto budget{gnc_tree_model_budget_get_budget(tree_model, &iter)};
-            option.set_value(qof_instance_cast(budget));
+            auto item = GNC_BUDGET_LIST_ITEM (g_list_model_get_item (
+                gtk_drop_down_get_model (widget), position));
+            auto budget = gnc_budget_list_item_get_budget (item);
+            g_object_unref (item);
+            if (budget)
+                option.set_value(qof_instance_cast(budget));
         }
     }
 };
@@ -1938,9 +1939,8 @@ create_option_widget<GncOptionUIType::BUDGET> (GncOption& option,
     option.set_ui_item(std::make_unique<GncGtkBudgetUIItem>(widget));
     option.set_ui_item_from_option();
 
-    /* Maybe connect destroy handler for tree model here? */
-    g_signal_connect(G_OBJECT(widget), "changed",
-                     G_CALLBACK(gnc_option_changed_widget_cb), &option);
+    g_signal_connect(G_OBJECT(widget), "notify::selected",
+                     G_CALLBACK(budget_option_selection_changed_cb), &option);
 
     wrap_widget(option, widget, page_box, row);
 }

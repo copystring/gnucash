@@ -177,70 +177,144 @@ copy_budget (GncBudget *bgt, GncMainWindow *window)
 }
 
 static void
-row_activated_cb (GtkTreeView *tv, GtkTreePath *path,
-                  GtkTreeViewColumn *column, gpointer user_data)
+budget_list_item_setup_cb (GtkSignalListItemFactory *factory,
+                           GtkListItem *list_item,
+                           gpointer user_data)
 {
-    gtk_widget_activate (GTK_WIDGET(user_data)); //ok button
+    GtkWidget *label = gtk_label_new (NULL);
+
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child (list_item, label);
+}
+
+static void
+budget_list_item_bind_cb (GtkSignalListItemFactory *factory,
+                          GtkListItem *list_item,
+                          gpointer user_data)
+{
+    GncBudgetListItem *item = GNC_BUDGET_LIST_ITEM (
+        gtk_list_item_get_item (list_item));
+    GtkLabel *label = GTK_LABEL (gtk_list_item_get_child (list_item));
+    gboolean description = GPOINTER_TO_INT (user_data);
+
+    gtk_label_set_text (label, description
+                         ? gnc_budget_list_item_get_description (item)
+                         : gnc_budget_list_item_get_name (item));
+}
+
+static GtkListItemFactory *
+budget_list_item_factory_new (gboolean description)
+{
+    GtkSignalListItemFactory *factory = gtk_signal_list_item_factory_new ();
+
+    g_signal_connect (factory, "setup", G_CALLBACK (budget_list_item_setup_cb), NULL);
+    g_signal_connect (factory, "bind", G_CALLBACK (budget_list_item_bind_cb),
+                      GINT_TO_POINTER (description));
+    return GTK_LIST_ITEM_FACTORY (factory);
+}
+
+static GtkOrdering
+budget_name_sort_cb (gconstpointer first, gconstpointer second, gpointer user_data)
+{
+    GncBudgetListItem *first_item = GNC_BUDGET_LIST_ITEM (first);
+    GncBudgetListItem *second_item = GNC_BUDGET_LIST_ITEM (second);
+
+    const gchar *first_name = gnc_budget_list_item_get_name (first_item);
+    const gchar *second_name = gnc_budget_list_item_get_name (second_item);
+
+    return gtk_ordering_from_cmp (g_utf8_collate (first_name ? first_name : "",
+                                                  second_name ? second_name : ""));
+}
+
+static GtkOrdering
+budget_description_sort_cb (gconstpointer first, gconstpointer second, gpointer user_data)
+{
+    GncBudgetListItem *first_item = GNC_BUDGET_LIST_ITEM (first);
+    GncBudgetListItem *second_item = GNC_BUDGET_LIST_ITEM (second);
+
+    const gchar *first_description = gnc_budget_list_item_get_description (first_item);
+    const gchar *second_description = gnc_budget_list_item_get_description (second_item);
+
+    return gtk_ordering_from_cmp (g_utf8_collate (
+        first_description ? first_description : "",
+        second_description ? second_description : ""));
+}
+
+static void
+row_activated_cb (GtkColumnView *view, guint position, gpointer user_data)
+{
+    gtk_widget_activate (GTK_WIDGET (user_data)); // ok button
 }
 
 static void
 select_cancel_button_cb (GtkWidget *widget, gpointer user_data)
 {
-    gtk_window_destroy (GTK_WINDOW(user_data));
+    gtk_window_destroy (GTK_WINDOW (user_data));
 }
 
 static GncBudget *
-get_budget_from_tree_view (GtkTreeView *tv)
+get_budget_from_selection (GtkSingleSelection *selection)
 {
-    GncBudget *bgt = NULL;
-    GtkTreeIter iter;
-    GtkTreeSelection *sel = gtk_tree_view_get_selection (tv);
-    GtkTreeModel *tm = gtk_tree_view_get_model (tv);
+    guint position = gtk_single_selection_get_selected (selection);
 
-    if (gtk_tree_selection_get_selected (sel, &tm, &iter))
-        bgt = gnc_tree_model_budget_get_budget (tm, &iter);
+    if (position == GTK_INVALID_LIST_POSITION)
+        return NULL;
 
-    return bgt;
+    GListModel *model = gtk_single_selection_get_model (selection);
+    GncBudgetListItem *item = GNC_BUDGET_LIST_ITEM (
+        g_list_model_get_item (model, position));
+    GncBudget *budget;
+
+    if (!item)
+        return NULL;
+
+    budget = gnc_budget_list_item_get_budget (item);
+    g_object_unref (item);
+    return budget;
 }
 
 static void
 select_open_ok_button_cb (GtkWidget *widget, gpointer user_data)
 {
-    GtkWidget *main_window = user_data;
-    GtkTreeView *tv = g_object_get_data (G_OBJECT(widget), "tree-view");
-    GncBudget *bgt = get_budget_from_tree_view (tv);
+    GtkWidget *main_window = GTK_WIDGET (user_data);
+    GtkSingleSelection *selection = GTK_SINGLE_SELECTION (
+        g_object_get_data (G_OBJECT (widget), "budget-selection"));
+    GncBudget *budget = get_budget_from_selection (selection);
 
-    if (bgt)
-        gnc_main_window_open_page (GNC_MAIN_WINDOW(main_window),
-                                   gnc_plugin_page_budget_new (bgt));
+    if (budget)
+        gnc_main_window_open_page (GNC_MAIN_WINDOW (main_window),
+                                   gnc_plugin_page_budget_new (budget));
 
-    gtk_window_destroy (GTK_WINDOW(gtk_widget_get_root (GTK_WIDGET(widget))));
+    gtk_window_destroy (GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (widget))));
 }
 
 static void
 select_copy_ok_button_cb (GtkWidget *widget, gpointer user_data)
 {
-    GtkWidget *main_window = user_data;
-    GtkTreeView *tv = g_object_get_data (G_OBJECT(widget), "tree-view");
-    GncBudget *bgt = get_budget_from_tree_view (tv);
+    GtkWidget *main_window = GTK_WIDGET (user_data);
+    GtkSingleSelection *selection = GTK_SINGLE_SELECTION (
+        g_object_get_data (G_OBJECT (widget), "budget-selection"));
+    GncBudget *budget = get_budget_from_selection (selection);
 
-    if (bgt)
-        copy_budget (bgt, GNC_MAIN_WINDOW(main_window));
+    if (budget)
+        copy_budget (budget, GNC_MAIN_WINDOW (main_window));
 
-    gtk_window_destroy (GTK_WINDOW(gtk_widget_get_root (GTK_WIDGET(widget))));
+    gtk_window_destroy (GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (widget))));
 }
 
 static void
 select_delete_ok_button_cb (GtkWidget *widget, gpointer user_data)
 {
-    GtkWidget *main_window = user_data;
-    GtkTreeView *tv = g_object_get_data (G_OBJECT(widget), "tree-view");
-    GncBudget *bgt = get_budget_from_tree_view (tv);
+    GtkWidget *main_window = GTK_WIDGET (user_data);
+    GtkSingleSelection *selection = GTK_SINGLE_SELECTION (
+        g_object_get_data (G_OBJECT (widget), "budget-selection"));
+    GncBudget *budget = get_budget_from_selection (selection);
 
-    if (bgt)
-        gnc_budget_gui_delete_budget (bgt);
+    if (budget)
+        gnc_budget_gui_delete_budget (budget);
 
-    gtk_window_destroy (GTK_WINDOW(gtk_widget_get_root (GTK_WIDGET(widget))));
+    gtk_window_destroy (GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (widget))));
 }
 
 static gboolean
@@ -250,11 +324,11 @@ select_window_key_press_cb (GtkEventControllerKey *key, guint keyval,
 {
     if (keyval == GDK_KEY_Escape)
     {
-        gtk_window_destroy (GTK_WINDOW(user_data));
+        gtk_window_destroy (GTK_WINDOW (user_data));
         return TRUE;
     }
-    else
-        return FALSE;
+
+    return FALSE;
 }
 
 static GtkWidget *
@@ -264,71 +338,78 @@ gnc_budget_create_select_gui (GtkWindow *parent, QofBook *book)
     GtkWidget *sw;
     GtkWidget *ok_button;
     GtkWidget *cancel_button;
-    GtkBuilder  *builder;
-    GtkTreeView *tv;
-    GtkTreeIter iter;
-    GtkTreeSelection *sel;
-    GtkTreeModel *tm;
+    GtkBuilder *builder;
+    GtkColumnView *view;
+    GtkSingleSelection *selection;
 
     builder = gtk_builder_new ();
     gnc_builder_add_from_file (builder, "gnc-plugin-page-budget.ui", "budget_select_window");
-    win = GTK_WIDGET(gtk_builder_get_object (builder, "budget_select_window"));
+    win = GTK_WIDGET (gtk_builder_get_object (builder, "budget_select_window"));
 
-   if (parent != NULL)
-        gtk_window_set_transient_for (GTK_WINDOW(win), GTK_WINDOW(parent));
+    if (parent != NULL)
+        gtk_window_set_transient_for (GTK_WINDOW (win), parent);
 
-    sw = GTK_WIDGET(gtk_builder_get_object (builder, "select_sw"));
-    cancel_button = GTK_WIDGET(gtk_builder_get_object (builder, "select_cancel_button"));
-    ok_button = GTK_WIDGET(gtk_builder_get_object (builder, "select_ok_button"));
+    sw = GTK_WIDGET (gtk_builder_get_object (builder, "select_sw"));
+    cancel_button = GTK_WIDGET (gtk_builder_get_object (builder, "select_cancel_button"));
+    ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "select_ok_button"));
 
-    tv = GTK_TREE_VIEW(gtk_tree_view_new ());
-    sel = gtk_tree_view_get_selection (tv);
-    gtk_tree_selection_set_mode (sel, GTK_SELECTION_BROWSE);
-    g_signal_connect (tv, "row-activated", G_CALLBACK(row_activated_cb), ok_button);
-    tm = gnc_tree_model_budget_new (book);
-    gnc_tree_view_budget_set_model (tv, tm);
+    GListModel *model = gnc_budget_list_model_new (book);
+    GtkSortListModel *sorted_model = gtk_sort_list_model_new (model, NULL);
+    GtkColumnViewColumn *name_column;
+    GtkColumnViewColumn *description_column;
+    GtkSorter *name_sorter;
+    GtkSorter *description_sorter;
 
-    gboolean sort_ascending = TRUE;
-    GtkSortType sort_type = sort_ascending ? GTK_SORT_ASCENDING : GTK_SORT_DESCENDING;
+    selection = gtk_single_selection_new (G_LIST_MODEL (sorted_model));
+    view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
 
-    gtk_tree_sortable_set_sort_column_id (GTK_TREE_SORTABLE(tm),
-                                          BUDGET_NAME_COLUMN, sort_type);
+    name_sorter = GTK_SORTER (gtk_custom_sorter_new (budget_name_sort_cb, NULL, NULL));
+    name_column = gtk_column_view_column_new (_("Name"),
+                                              budget_list_item_factory_new (FALSE));
+    gtk_column_view_column_set_sorter (name_column, name_sorter);
+    gtk_column_view_append_column (view, name_column);
+    g_object_unref (name_sorter);
 
-    g_object_unref (tm);
+    description_sorter = GTK_SORTER (gtk_custom_sorter_new (budget_description_sort_cb,
+                                                            NULL, NULL));
+    description_column = gtk_column_view_column_new (_("Description"),
+                                                      budget_list_item_factory_new (TRUE));
+    gtk_column_view_column_set_sorter (description_column, description_sorter);
+    gtk_column_view_append_column (view, description_column);
+    g_object_unref (description_sorter);
 
-    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(sw), GTK_WIDGET(tv));
-    gtk_widget_set_vexpand (GTK_WIDGET(sw), TRUE);
+    gtk_sort_list_model_set_sorter (sorted_model, gtk_column_view_get_sorter (view));
+    gtk_column_view_sort_by_column (view, name_column, GTK_SORT_TYPE_ASCENDING);
+    g_signal_connect (view, "activate", G_CALLBACK (row_activated_cb), ok_button);
 
-    g_object_set_data (G_OBJECT(ok_button), "tree-view", tv);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (sw), GTK_WIDGET (view));
+    gtk_widget_set_vexpand (GTK_WIDGET (sw), TRUE);
+    g_object_set_data (G_OBJECT (ok_button), "budget-selection", selection);
 
-    gtk_widget_set_visible (GTK_WIDGET(win), TRUE);
+    gtk_widget_set_visible (win, TRUE);
 
     GtkEventController *event_controller_window = gtk_event_controller_key_new ();
-    gtk_widget_add_controller (GTK_WIDGET(win), event_controller_window);
-    g_signal_connect (G_OBJECT(event_controller_window),
-                      "key-pressed",
-                      G_CALLBACK(select_window_key_press_cb), win);
+    gtk_widget_add_controller (win, event_controller_window);
+    g_signal_connect (event_controller_window, "key-pressed",
+                      G_CALLBACK (select_window_key_press_cb), win);
 
-    g_object_set_data (G_OBJECT(win), "ok-button", ok_button);
+    g_object_set_data (G_OBJECT (win), "ok-button", ok_button);
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (select_cancel_button_cb), win);
 
-    g_signal_connect (G_OBJECT(cancel_button), "clicked",
-                      G_CALLBACK(select_cancel_button_cb), win);
-
-    // Preselect the default budget
-    GncBudget *bgt = gnc_budget_get_default (book);
-
-    if (bgt && gnc_tree_model_budget_get_iter_for_budget (tm, &iter, bgt))
+    // Preselect the default budget after sorting by its displayed name.
+    GncBudget *budget = gnc_budget_get_default (book);
+    if (budget)
     {
-        GtkTreePath *path = gtk_tree_model_get_path (tm, &iter);
-        gtk_tree_view_set_cursor (tv, path, NULL, FALSE);
-        gtk_tree_path_free (path);
+        guint position = gnc_budget_list_model_get_position (
+            gtk_single_selection_get_model (selection), budget);
+        if (position != G_MAXUINT)
+            gtk_single_selection_set_selected (selection, position);
     }
 
-    g_object_unref (G_OBJECT(builder));
-
+    g_object_unref (builder);
     return win;
 }
-
 /************************************************************
  *                    Command Callbacks                     *
  ************************************************************/
