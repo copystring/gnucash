@@ -47,6 +47,7 @@ typedef struct
 
 typedef struct
 {
+    gatomicrefcount ref_count;
     GtkWindow *dialog;
     GtkWidget *date;
     GtkWidget *post_date;
@@ -66,10 +67,13 @@ typedef struct
     GWeakRef parent;
     gulong parent_destroy_handler;
     gulong cancellable_handler;
+    GMainContext *context;
 } DialogDateClose;
 
 static void date_close_complete (DialogDateClose *ddc, gboolean success,
                                  gboolean cancelled, const char *message);
+static DialogDateClose *date_close_ref (DialogDateClose *ddc);
+static void date_close_unref (DialogDateClose *ddc);
 
 static void
 date_close_result_free (DialogDateCloseResult *result)
@@ -121,12 +125,19 @@ date_close_destroy (DialogDateClose *ddc)
     g_object_unref (dialog);
 }
 
+static DialogDateClose *
+date_close_ref (DialogDateClose *ddc)
+{
+    g_atomic_ref_count_inc (&ddc->ref_count);
+    return ddc;
+}
+
 static void
-date_close_free (DialogDateClose *ddc)
+date_close_unref (DialogDateClose *ddc)
 {
     GtkWindow *parent;
 
-    if (!ddc)
+    if (!ddc || !g_atomic_ref_count_dec (&ddc->ref_count))
         return;
 
     parent = g_weak_ref_get (&ddc->parent);
@@ -134,6 +145,7 @@ date_close_free (DialogDateClose *ddc)
         g_signal_handler_disconnect (parent, ddc->parent_destroy_handler);
     g_clear_object (&parent);
     g_weak_ref_clear (&ddc->parent);
+    g_main_context_unref (ddc->context);
 
     date_close_disconnect_cancellable (ddc);
     date_close_destroy (ddc);
@@ -176,7 +188,7 @@ date_close_complete (DialogDateClose *ddc, gboolean success,
                                  _("The dialog could not be created."));
     }
 
-    date_close_free (ddc);
+    date_close_unref (ddc);
     g_object_unref (task);
 }
 
@@ -275,12 +287,22 @@ date_close_parent_destroyed_cb (GtkWidget *widget, DialogDateClose *ddc)
     date_close_complete (ddc, FALSE, TRUE, NULL);
 }
 
+static gboolean
+date_close_cancel_on_main (gpointer user_data)
+{
+    DialogDateClose *ddc = user_data;
+
+    date_close_complete (ddc, FALSE, TRUE, NULL);
+    return G_SOURCE_REMOVE;
+}
+
 static void
 date_close_cancelled_cb (GCancellable *cancellable, DialogDateClose *ddc)
 {
     (void)cancellable;
-    ddc->cancellable_handler = 0;
-    date_close_complete (ddc, FALSE, TRUE, NULL);
+    g_main_context_invoke_full (
+        ddc->context, G_PRIORITY_DEFAULT, date_close_cancel_on_main,
+        date_close_ref (ddc), (GDestroyNotify)date_close_unref);
 }
 
 static void
@@ -295,11 +317,26 @@ date_close_report_error_async (GCancellable *cancellable,
     g_object_unref (task);
 }
 
+static void
+date_close_report_cancelled_async (GCancellable *cancellable,
+                                  GAsyncReadyCallback callback,
+                                  gpointer user_data)
+{
+    GTask *task = g_task_new (NULL, cancellable, callback, user_data);
+
+    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_CANCELLED,
+                             "%s", _("The dialog was cancelled."));
+    g_object_unref (task);
+}
+
 static DialogDateClose *
 date_close_new (GtkWidget *parent, GCancellable *cancellable,
                 GAsyncReadyCallback callback, gpointer user_data)
 {
     DialogDateClose *ddc = g_new0 (DialogDateClose, 1);
+
+    g_atomic_ref_count_init (&ddc->ref_count);
+    ddc->context = g_main_context_ref_thread_default ();
 
     ddc->task = g_task_new (NULL, cancellable, callback, user_data);
     g_weak_ref_init (&ddc->parent, parent);
@@ -313,13 +350,25 @@ static gboolean
 date_close_connect_cancellable (DialogDateClose *ddc)
 {
     GCancellable *cancellable = g_task_get_cancellable (ddc->task);
+    gulong handler;
 
     if (!cancellable)
         return TRUE;
 
-    ddc->cancellable_handler = g_cancellable_connect (
-        cancellable, G_CALLBACK (date_close_cancelled_cb), ddc, NULL);
-    return ddc->cancellable_handler != 0;
+    if (g_cancellable_is_cancelled (cancellable))
+    {
+        date_close_complete (ddc, FALSE, TRUE, NULL);
+        return FALSE;
+    }
+
+    handler = g_cancellable_connect (
+        cancellable, G_CALLBACK (date_close_cancelled_cb), date_close_ref (ddc),
+        (GDestroyNotify)date_close_unref);
+    if (!handler)
+        return FALSE;
+
+    ddc->cancellable_handler = handler;
+    return TRUE;
 }
 
 static gboolean
@@ -564,6 +613,12 @@ gnc_dialog_date_close_parented_async (GtkWidget *parent, const char *message,
 {
     DialogDateClose *ddc;
 
+    if (cancellable && g_cancellable_is_cancelled (cancellable))
+    {
+        date_close_report_cancelled_async (cancellable, callback, user_data);
+        return;
+    }
+
     if (!message || !label_message)
     {
         date_close_report_error_async (cancellable, callback, user_data,
@@ -614,6 +669,12 @@ gnc_dialog_dates_acct_question_parented_async (
     gpointer user_data)
 {
     DialogDateClose *ddc;
+
+    if (cancellable && g_cancellable_is_cancelled (cancellable))
+    {
+        date_close_report_cancelled_async (cancellable, callback, user_data);
+        return;
+    }
 
     if (!message || !ddue_label_message || !post_label_message ||
         !acct_label_message || !acct_types || !book ||
@@ -684,6 +745,12 @@ gnc_dialog_date_acct_parented_async (GtkWidget *parent, const char *message,
                                      gpointer user_data)
 {
     DialogDateClose *ddc;
+
+    if (cancellable && g_cancellable_is_cancelled (cancellable))
+    {
+        date_close_report_cancelled_async (cancellable, callback, user_data);
+        return;
+    }
 
     if (!message || !date_label_message || !acct_label_message ||
         !acct_types || !book)

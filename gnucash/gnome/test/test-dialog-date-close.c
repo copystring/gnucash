@@ -103,6 +103,25 @@ test_date_close_rejects_incomplete_request (void)
 }
 
 static void
+test_date_close_reports_cancelled_request (void)
+{
+    DateCloseTest test = { 0 };
+    GCancellable *cancellable = g_cancellable_new ();
+
+    test.loop = g_main_loop_new (NULL, FALSE);
+    test.kind = DATE_CLOSE;
+    g_cancellable_cancel (cancellable);
+    gnc_dialog_date_close_parented_async (
+        NULL, "Close order", "Close Date", FALSE, 0, cancellable,
+        date_close_invalid_finished, &test);
+    g_main_loop_run (test.loop);
+
+    g_assert_error (test.error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+    g_object_unref (cancellable);
+    date_close_test_clear (&test);
+}
+
+static void
 test_date_account_rejects_incomplete_request (void)
 {
     DateCloseTest test = { 0 };
@@ -141,6 +160,8 @@ main (int argc, char **argv)
     g_test_init (&argc, &argv, NULL);
     g_test_add_func ("/gnome/dialog-date-close/incomplete-date",
                      test_date_close_rejects_incomplete_request);
+    g_test_add_func ("/gnome/dialog-date-close/cancelled-date",
+                     test_date_close_reports_cancelled_request);
     g_test_add_func ("/gnome/dialog-date-close/incomplete-date-account",
                      test_date_account_rejects_incomplete_request);
     g_test_add_func ("/gnome/dialog-date-close/incomplete-posting",
