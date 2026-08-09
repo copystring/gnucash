@@ -43,6 +43,7 @@
 #include "gnc-gnome-utils.h"
 #include "gnc-uri-utils.h"
 #include "gnc-filepath-utils.h"
+#include "gnc-file.h"
 #include "Account.h"
 #include "dialog-invoice.h"
 
@@ -158,72 +159,121 @@ get_uri_dialog_file_ok_cb (GtkButton *fcb, GtkWidget *ok_button)
     gtk_widget_set_sensitive (ok_button, file_true);
 }
 
-static void
-get_uri_dialog_fcb_response_cb (GtkWidget *widget, int response, DoclinkUpdate *dlu)
+typedef struct
 {
-    if (response == GTK_RESPONSE_ACCEPT)
+    GWeakRef file_button;
+    GWeakRef ok_button;
+} DoclinkFileDialogData;
+
+static void
+get_uri_dialog_file_dialog_data_free (DoclinkFileDialogData *data)
+{
+    g_weak_ref_clear (&data->file_button);
+    g_weak_ref_clear (&data->ok_button);
+    g_free (data);
+}
+
+static GtkWindow *
+get_uri_dialog_file_dialog_parent (GtkWidget *widget)
+{
+    GtkRoot *root = gtk_widget_get_root (widget);
+
+    return GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
+}
+
+static void
+get_uri_dialog_file_dialog_finished (GObject *source, GAsyncResult *result,
+                                     gpointer user_data)
+{
+    DoclinkFileDialogData *data = user_data;
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GFile *file;
+    GtkWidget *file_button;
+    GtkWidget *ok_button;
+
+    file = gnc_file_dialog_request_finish (request, result, &error);
+    file_button = g_weak_ref_get (&data->file_button);
+    ok_button = g_weak_ref_get (&data->ok_button);
+    if (file && file_button)
     {
-        GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER(widget));
         gchar *uri = g_file_get_uri (file);
 
         if (uri && *uri)
         {
-            GtkWidget *label = g_object_get_data (G_OBJECT(dlu->fcb), "fcb_label");
+            GtkWidget *label = g_object_get_data (G_OBJECT (file_button),
+                                                  "fcb_label");
             gchar *filename = g_path_get_basename (uri);
             gchar *unescape_filename = g_uri_unescape_string (filename, NULL);
-            gtk_label_set_text (GTK_LABEL(label), unescape_filename);
 
-            DEBUG("Native file uri is '%s'", uri);
-
-            g_object_set_data_full (G_OBJECT(dlu->fcb), "uri", g_strdup (uri), g_free);
+            if (label)
+                gtk_label_set_text (GTK_LABEL (label), unescape_filename);
+            DEBUG ("Native file uri is '%s'", uri);
+            g_object_set_data_full (G_OBJECT (file_button), "uri",
+                                    g_strdup (uri), g_free);
             g_free (filename);
             g_free (unescape_filename);
+            if (ok_button)
+                get_uri_dialog_file_ok_cb (GTK_BUTTON (file_button), ok_button);
         }
         g_free (uri);
-        g_object_unref (file);
-        get_uri_dialog_file_ok_cb (GTK_BUTTON(dlu->fcb), dlu->ok_button);
     }
-    g_object_unref (widget);
+    else if (file_button && error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        gnc_error_dialog (get_uri_dialog_file_dialog_parent (file_button), "%s",
+                          error->message);
+
+    g_clear_object (&file);
+    g_clear_error (&error);
+    g_clear_object (&file_button);
+    g_clear_object (&ok_button);
+    get_uri_dialog_file_dialog_data_free (data);
 }
 
 static void
 get_uri_dialog_fcb_clicked_cb (GtkButton *fcb, DoclinkUpdate *dlu)
 {
-    GtkRoot *window = gtk_widget_get_root (GTK_WIDGET(fcb));
-    GtkWidget *label = g_object_get_data (G_OBJECT(fcb), "fcb_label");
-    const gchar *path_head = g_object_get_data (G_OBJECT(fcb), "path_head");
-    const gchar *uri = g_object_get_data (G_OBJECT(fcb), "uri");
-    GtkFileChooserNative *native = gtk_file_chooser_native_new (
-                                          _("Select document"),
-                                          GTK_WINDOW(window),
-                                          GTK_FILE_CHOOSER_ACTION_OPEN,
-                                          _("_OK"),
-                                          _("_Cancel"));
+    const gchar *path_head = g_object_get_data (G_OBJECT (fcb), "path_head");
+    const gchar *uri = g_object_get_data (G_OBJECT (fcb), "uri");
+    GtkWindow *parent = get_uri_dialog_file_dialog_parent (GTK_WIDGET (fcb));
+    GFile *initial_folder = NULL;
+    GncFileDialogRequest *request;
+    DoclinkFileDialogData *data;
 
     if (uri && *uri)
     {
         gchar *scheme = gnc_uri_get_scheme (uri);
-        gchar *full_filename = gnc_doclink_get_unescape_uri (path_head, uri, scheme);
-        gchar *path = g_path_get_dirname (full_filename);
-        GFile *file = g_file_new_for_path (path);
-        gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(native), file, NULL);
-        g_object_unref (file);
+        gchar *full_filename = gnc_doclink_get_unescape_uri (path_head, uri,
+                                                              scheme);
+        gchar *path = full_filename ? g_path_get_dirname (full_filename) : NULL;
+
+        if (path)
+            initial_folder = g_file_new_for_path (path);
         g_free (full_filename);
         g_free (scheme);
         g_free (path);
     }
     else if (path_head)
+        initial_folder = g_file_new_for_uri (path_head);
+
+    data = g_new0 (DoclinkFileDialogData, 1);
+    g_weak_ref_init (&data->file_button, fcb);
+    g_weak_ref_init (&data->ok_button, dlu->ok_button);
+    request = gnc_file_dialog_request_new_for_folder (
+        parent, _("Select document"), NULL, initial_folder,
+        GNC_FILE_DIALOG_OPEN);
+    g_clear_object (&initial_folder);
+    if (!request)
     {
-        GFile *file = g_file_new_for_uri (path_head);
-        gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(native), file, NULL);
-        g_object_unref (file);
+        get_uri_dialog_file_dialog_data_free (data);
+        return;
     }
-    g_signal_connect (G_OBJECT(native), "response",
-                      G_CALLBACK(get_uri_dialog_fcb_response_cb), dlu);
 
-    gtk_native_dialog_show (GTK_NATIVE_DIALOG(native));
+    gnc_file_dialog_request_open_async (request, NULL,
+                                        get_uri_dialog_file_dialog_finished,
+                                        data);
+    g_object_unref (request);
 }
-
 static void
 get_uri_dialog_uri_type_selected_cb (GtkToggleButton *button, gpointer user_data)
 {

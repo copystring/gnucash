@@ -71,7 +71,7 @@ struct _GncFileDialogRequest
     GObject parent_instance;
     GWeakRef parent;
     gchar *title;
-    gchar *starting_dir;
+    GFile *initial_folder;
     GListStore *filters;
     GtkFileFilter *default_filter;
     GNCFileDialogType type;
@@ -136,7 +136,7 @@ file_dialog_request_finalize (GObject *object)
 
     g_weak_ref_clear (&request->parent);
     g_clear_pointer (&request->title, g_free);
-    g_clear_pointer (&request->starting_dir, g_free);
+    g_clear_object (&request->initial_folder);
     g_clear_object (&request->default_filter);
     g_clear_object (&request->filters);
 
@@ -190,24 +190,51 @@ file_dialog_request_take_filters (GncFileDialogRequest *request, GList *filters)
     g_object_unref (all_filter);
 }
 
-GncFileDialogRequest *
-gnc_file_dialog_request_new (GtkWindow *parent, const gchar *title,
-                             GList *filters, const gchar *starting_dir,
-                             GNCFileDialogType type)
+static GncFileDialogRequest *
+file_dialog_request_new_internal (GtkWindow *parent, const gchar *title,
+                                  GList *filters, GFile *initial_folder,
+                                  GNCFileDialogType type)
 {
     GncFileDialogRequest *request;
 
     g_return_val_if_fail (!parent || GTK_IS_WINDOW (parent), NULL);
+    g_return_val_if_fail (!initial_folder || G_IS_FILE (initial_folder), NULL);
     g_return_val_if_fail (file_dialog_type_is_valid (type), NULL);
 
     request = g_object_new (GNC_TYPE_FILE_DIALOG_REQUEST, NULL);
     g_weak_ref_set (&request->parent, parent);
     request->title = g_strdup (title ? title : file_dialog_default_title (type));
-    request->starting_dir = g_strdup (starting_dir);
+    if (initial_folder)
+        request->initial_folder = g_object_ref (initial_folder);
     request->type = type;
     file_dialog_request_take_filters (request, filters);
 
     return request;
+}
+
+GncFileDialogRequest *
+gnc_file_dialog_request_new (GtkWindow *parent, const gchar *title,
+                             GList *filters, const gchar *starting_dir,
+                             GNCFileDialogType type)
+{
+    GFile *initial_folder = NULL;
+    GncFileDialogRequest *request;
+
+    if (starting_dir && *starting_dir)
+        initial_folder = g_file_new_for_path (starting_dir);
+    request = file_dialog_request_new_internal (parent, title, filters,
+                                                initial_folder, type);
+    g_clear_object (&initial_folder);
+    return request;
+}
+
+GncFileDialogRequest *
+gnc_file_dialog_request_new_for_folder (GtkWindow *parent, const gchar *title,
+                                        GList *filters, GFile *initial_folder,
+                                        GNCFileDialogType type)
+{
+    return file_dialog_request_new_internal (parent, title, filters,
+                                             initial_folder, type);
 }
 
 static GtkFileDialog *
@@ -218,13 +245,8 @@ file_dialog_request_create_dialog (GncFileDialogRequest *request)
     gtk_file_dialog_set_title (dialog, request->title);
     gtk_file_dialog_set_accept_label (dialog,
                                       file_dialog_accept_label (request->type));
-    if (request->starting_dir && *request->starting_dir)
-    {
-        GFile *folder = g_file_new_for_path (request->starting_dir);
-
-        gtk_file_dialog_set_initial_folder (dialog, folder);
-        g_object_unref (folder);
-    }
+    if (request->initial_folder)
+        gtk_file_dialog_set_initial_folder (dialog, request->initial_folder);
     if (request->filters)
     {
         gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (request->filters));

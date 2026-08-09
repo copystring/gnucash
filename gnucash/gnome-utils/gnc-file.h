@@ -157,6 +157,21 @@ GncFileDialogRequest *gnc_file_dialog_request_new (GtkWindow *parent,
                                                     const gchar *starting_dir,
                                                     GNCFileDialogType type);
 
+/**
+ * gnc_file_dialog_request_new_for_folder:
+ * @parent: (nullable): transient parent for the native chooser
+ * @title: (nullable): chooser title; the dialog type supplies the default
+ * @filters: (transfer full) (nullable): #GtkFileFilter list to offer
+ * @initial_folder: (transfer none) (nullable): local or URI-based folder
+ * @type: the requested GnuCash file operation
+ *
+ * Creates the same immutable request as gnc_file_dialog_request_new(), but
+ * preserves a #GFile start folder for callers that need URI semantics.
+ */
+GncFileDialogRequest *gnc_file_dialog_request_new_for_folder (
+    GtkWindow *parent, const gchar *title, GList *filters,
+    GFile *initial_folder, GNCFileDialogType type);
+
 void gnc_file_dialog_request_open_async (GncFileDialogRequest *request,
                                          GCancellable *cancellable,
                                          GAsyncReadyCallback callback,
