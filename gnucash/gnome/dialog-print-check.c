@@ -798,7 +798,6 @@ pcd_save_custom_data(PrintCheckDialog *pcd, const gchar *title)
 {
     GKeyFile *key_file;
     GError *error = NULL;
-    GtkWidget *dialog;
     gdouble multip;
     gint i = 1;
     GncGUID guid;
@@ -855,17 +854,13 @@ pcd_save_custom_data(PrintCheckDialog *pcd, const gchar *title)
     }
     else
     {
-        dialog = gtk_message_dialog_new(GTK_WINDOW(pcd->dialog),
-                                        GTK_DIALOG_DESTROY_WITH_PARENT,
-                                        GTK_MESSAGE_ERROR,
-                                        GTK_BUTTONS_CLOSE, "%s",
-                                        _("Cannot save check format file."));
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                                                 _("Cannot open file %s"),
-                                                 _(error->message));
-        gnc_dialog_run (GTK_DIALOG(dialog));
+        gchar *detail = g_strdup_printf (_("Cannot open file %s"),
+                                         error->message);
 
-        g_error_free(error);
+        gnc_error_dialog (GTK_WINDOW (pcd->dialog), "%s\n\n%s",
+                          _("Cannot save check format file."), detail);
+        g_free (detail);
+        g_error_free (error);
     }
     g_free(pathname);
     g_free(filename);
@@ -1527,7 +1522,6 @@ read_one_check_directory(PrintCheckDialog *pcd, GtkListStore *store,
     GDir *dir;
     const gchar *filename;
     GtkTreeIter iter;
-    GtkWidget *dialog;
     gboolean found = FALSE;
 
     dir = g_dir_open(dirname, 0, NULL);
@@ -1548,26 +1542,22 @@ read_one_check_directory(PrintCheckDialog *pcd, GtkListStore *store,
         existing = find_existing_format(store, format->guid, NULL);
         if (existing)
         {
-            dialog = gtk_message_dialog_new
-                     (GTK_WINDOW(pcd->dialog),
-                      GTK_DIALOG_DESTROY_WITH_PARENT,
-                      GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s",
-                      _("There is a duplicate check format file."));
-            gtk_message_dialog_format_secondary_text
-            (GTK_MESSAGE_DIALOG(dialog),
-             /* Translators:
-                %1$s is the type of the first check format
-                 (user defined or application defined);
-                %2$s is the filename of that format;
-                %3$s the type of the other check format; and
-                %4$s the filename of that other format.      */
-             _("The GUIDs in the %s check format file '%s' and "
-               "the %s check format file '%s' match."),
-             existing->group, existing->filename,
-             format->group, format->filename);
+            gchar *detail = g_strdup_printf (
+                /* Translators:
+                   %1$s is the type of the first check format
+                   (user defined or application defined);
+                   %2$s is the filename of that format;
+                   %3$s the type of the other check format; and
+                   %4$s the filename of that other format.      */
+                _("The GUIDs in the %s check format file '%s' and "
+                  "the %s check format file '%s' match."),
+                existing->group, existing->filename,
+                format->group, format->filename);
 
-             gnc_dialog_run (GTK_DIALOG(dialog));
-
+            gnc_error_dialog (GTK_WINDOW (pcd->dialog), "%s\n\n%s",
+                              _("There is a duplicate check format file."),
+                              detail);
+            g_free (detail);
             free_check_format (format);
         }
         else
