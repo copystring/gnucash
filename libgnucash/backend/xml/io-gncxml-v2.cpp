@@ -1708,6 +1708,17 @@ gnc_is_xml_data_file_v2 (const gchar* name, gboolean* with_encoding)
     return (gnc_is_our_xml_file (name, with_encoding));
 }
 
+extern "C" gboolean
+gnc_xml_file_needs_encoding_conversion (const gchar* filename)
+{
+    gboolean with_encoding = FALSE;
+
+    g_return_val_if_fail (filename != nullptr, FALSE);
+
+    return gnc_is_xml_data_file_v2 (filename, &with_encoding)
+        == GNC_BOOK_XML2_FILE && !with_encoding;
+}
+
 
 static void
 replace_character_references (gchar* string)

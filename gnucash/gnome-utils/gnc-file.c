@@ -29,6 +29,7 @@
 
 #include "dialog-utils.h"
 #include "assistant-xml-encoding.h"
+#include "gnc-backend-xml.h"
 #include "gnc-commodity.h"
 #include "gnc-component-manager.h"
 #include "gnc-engine.h"
@@ -801,6 +802,106 @@ run_post_load_scrubs (GtkWindow *parent, QofBook *book)
     g_list_free_full (infos, g_free);
 }
 
+typedef struct
+{
+    GWeakRef parent;
+    gchar *filename;
+    gboolean is_readonly;
+    gboolean reset_bayes_conversion;
+} GncFileOpenRequest;
+
+static gboolean gnc_post_file_open (GtkWindow *parent, const char *filename,
+                                    gboolean is_readonly);
+
+static void
+gnc_file_open_request_free (GncFileOpenRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_free (request->filename);
+    g_free (request);
+}
+
+static gboolean
+gnc_file_needs_xml_encoding_conversion (const gchar *filename)
+{
+    gchar *normalized_uri;
+    gchar *scheme = NULL;
+    gchar *hostname = NULL;
+    gchar *username = NULL;
+    gchar *password = NULL;
+    gchar *path = NULL;
+    gint32 port = 0;
+    gboolean needs_conversion = FALSE;
+
+    normalized_uri = gnc_uri_normalize_uri (filename, FALSE);
+    if (!normalized_uri)
+        return FALSE;
+
+    gnc_uri_get_components (normalized_uri, &scheme, &hostname, &port,
+                            &username, &password, &path);
+    if (gnc_uri_is_file_scheme (scheme) && path)
+        needs_conversion = gnc_xml_file_needs_encoding_conversion (path);
+
+    g_free (scheme);
+    g_free (hostname);
+    g_free (username);
+    g_free (password);
+    g_free (path);
+    g_free (normalized_uri);
+
+    return needs_conversion;
+}
+
+static void
+gnc_file_open_after_xml_conversion (GObject *source, GAsyncResult *result,
+                                    gpointer user_data)
+{
+    GncFileOpenRequest *request = user_data;
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+    GError *error = NULL;
+
+    if (gnc_xml_convert_single_file_finish (result, &error))
+    {
+        if (request->reset_bayes_conversion)
+            gnc_account_reset_convert_bayes_to_flat ();
+        gnc_post_file_open (parent, request->filename, request->is_readonly);
+    }
+    else if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        gnc_error_dialog (parent, "%s", error->message);
+
+    g_clear_error (&error);
+    g_clear_object (&parent);
+    gnc_file_open_request_free (request);
+    (void)source;
+}
+
+static gboolean
+gnc_file_open_request (GtkWindow *parent, const char *filename,
+                       gboolean is_readonly,
+                       gboolean reset_bayes_conversion)
+{
+    GncFileOpenRequest *request;
+
+    if (!filename || *filename == '\0')
+        return FALSE;
+
+    if (!gnc_file_needs_xml_encoding_conversion (filename))
+    {
+        if (reset_bayes_conversion)
+            gnc_account_reset_convert_bayes_to_flat ();
+        return gnc_post_file_open (parent, filename, is_readonly);
+    }
+
+    request = g_new0 (GncFileOpenRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->filename = g_strdup (filename);
+    request->is_readonly = is_readonly;
+    request->reset_bayes_conversion = reset_bayes_conversion;
+    gnc_xml_convert_single_file_async (filename, parent, NULL,
+                                       gnc_file_open_after_xml_conversion,
+                                       request);
+    return TRUE;
+}
 static gboolean
 gnc_post_file_open (GtkWindow *parent, const char * filename, gboolean is_readonly)
 {
@@ -1061,22 +1162,6 @@ RESTART:
         /* check for i/o error, put up appropriate error dialog */
         io_err = qof_session_pop_error (new_session);
 
-        if (io_err == ERR_FILEIO_NO_ENCODING)
-        {
-            if (gnc_xml_convert_single_file (newfile))
-            {
-                /* try to load once again */
-                gnc_window_show_progress(_("Loading user data…"), 0.0);
-                qof_session_load (new_session, gnc_window_show_progress);
-                gnc_window_show_progress(NULL, -1.0);
-                xaccLogEnable();
-                io_err = qof_session_get_error (new_session);
-            }
-            else
-            {
-                io_err = ERR_FILEIO_PARSE_ERROR;
-            }
-        }
 
         uh_oh = show_session_error (parent, io_err, newfile, GNC_FILE_DIALOG_OPEN);
         /* Attempt to update the database if it's too old */
@@ -1226,7 +1311,8 @@ gnc_file_open (GtkWindow *parent)
     g_free ( last );
     g_free ( default_dir );
 
-    result = gnc_post_file_open (parent, newfile, /*is_readonly*/ FALSE );
+    result = gnc_file_open_request (parent, newfile, /*is_readonly*/ FALSE,
+                                    /*reset_bayes_conversion*/ FALSE);
 
     /* This dialogue can show up early in the startup process. If the
      * user fails to pick a file (by e.g. hitting the cancel button), we
@@ -1245,11 +1331,8 @@ gnc_file_open_file (GtkWindow *parent, const char * newfile, gboolean open_reado
     if (!gnc_file_query_save (parent, TRUE))
         return FALSE;
 
-    /* Reset the flag that indicates the conversion of the bayes KVP
-     * entries has been run */
-    gnc_account_reset_convert_bayes_to_flat ();
-
-    return gnc_post_file_open (parent, newfile, open_readonly);
+    return gnc_file_open_request (parent, newfile, open_readonly,
+                                  /*reset_bayes_conversion*/ TRUE);
 }
 
 /* Note: this dialog will only be used when dbi is not enabled
