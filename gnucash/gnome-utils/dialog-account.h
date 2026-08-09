@@ -25,6 +25,7 @@
 #define DIALOG_ACCOUNT_H
 
 #include "Account.h"
+#include <gtk/gtk.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -169,6 +170,16 @@ Account * gnc_ui_new_accounts_from_name_with_defaults (GtkWindow *parent,
                                                        GList *valid_types,
                                                        const gnc_commodity *default_commodity,
                                                        Account *parent_acct);
+typedef void (*GncNewAccountCreatedCB) (Account *account, gboolean accepted,
+                                        gpointer user_data);
+
+/** Create an account without entering a nested event loop. Defaults, allowed
+ * types, initial parent, cancellation and component-manager cleanup have the
+ * same semantics as the legacy modal entry point. */
+void gnc_ui_new_accounts_from_name_with_defaults_async (
+    GtkWindow *parent, const char *name, GList *valid_types,
+    const gnc_commodity *default_commodity, Account *parent_acct,
+    GncNewAccountCreatedCB callback, gpointer user_data);
 
 /*
  * register a callback that gets called when the account has changed

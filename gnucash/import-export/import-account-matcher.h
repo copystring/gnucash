@@ -125,6 +125,21 @@ void gnc_import_select_account_async (GtkWidget *parent,
                                       GncImportAccountSelectedCB callback,
                                       gpointer user_data);
 
+/** Present the asynchronous account picker without applying import-specific
+ * mutations to the selected account. Account creation keeps its ordinary
+ * user-confirmed workflow, while assignments such as online IDs remain for
+ * the caller's later apply pass. The callback has the same ownership and
+ * acceptance contract as gnc_import_select_account_async().
+ */
+void gnc_import_select_account_async_no_mutation (GtkWidget *parent,
+                                                  const gchar *account_online_id_value,
+                                                  gboolean prompt_on_no_match,
+                                                  const gchar *account_human_description,
+                                                  const gnc_commodity *new_account_default_commodity,
+                                                  GNCAccountType new_account_default_type,
+                                                  Account *default_selection,
+                                                  GncImportAccountSelectedCB callback,
+                                                  gpointer user_data);
 #ifdef __cplusplus
 }
 #endif

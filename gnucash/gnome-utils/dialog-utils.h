@@ -221,6 +221,17 @@ gnc_ok_to_close_window (GtkWidget *parent);
  * imported/entered, since the book options can affect how transactions are
  * created. Note: This dialog is modal! */
 gboolean gnc_new_book_option_display (GtkWidget *parent);
+typedef void (*GncNewBookOptionsFinishedCB) (GtkWindow *parent,
+                                              gboolean applied,
+                                              gpointer user_data);
+
+/** Present the new-book options window without a nested event loop. The
+ * callback is invoked after the window closes. @a applied is true only after
+ * the book options have been applied; callers must revalidate the active book
+ * before continuing. */
+void gnc_new_book_option_display_async (GtkWidget *parent,
+                                        GncNewBookOptionsFinishedCB callback,
+                                        gpointer user_data);
 
 /** This function returns a widget for selecting a cost policy
   */

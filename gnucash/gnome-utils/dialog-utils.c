@@ -1390,6 +1390,59 @@ gnc_dialog_run (GtkDialog *dialog)
  * dialog so user can specify options, before any transactions can be
  * imported/entered, since the book options can affect how transactions are
  * created. Note: This dialog is modal! */
+typedef struct
+{
+    GWeakRef parent;
+    GncNewBookOptionsFinishedCB callback;
+    gpointer user_data;
+    gboolean completed;
+} GncNewBookOptionsRequest;
+
+static void
+new_book_options_destroyed (GtkWidget *window, gpointer user_data)
+{
+    GncNewBookOptionsRequest *request = user_data;
+    GtkWindow *parent;
+    gboolean applied;
+
+    if (!request || request->completed)
+        return;
+    request->completed = TRUE;
+    parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    applied = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (window),
+                                                   "gnc-options-dialog-applied"));
+    if (request->callback)
+        request->callback (parent, applied, request->user_data);
+    g_clear_object (&parent);
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+}
+
+void
+gnc_new_book_option_display_async (GtkWidget *parent,
+                                   GncNewBookOptionsFinishedCB callback,
+                                   gpointer user_data)
+{
+    GtkWidget *window = gnc_book_options_dialog_cb (
+        TRUE, _( "New Book Options"), parent ? GTK_WINDOW (parent) : NULL);
+    if (!window)
+    {
+        if (callback)
+            callback (parent ? GTK_WINDOW (parent) : NULL, FALSE, user_data);
+        return;
+    }
+
+    GncNewBookOptionsRequest *request = g_new0 (GncNewBookOptionsRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->callback = callback;
+    request->user_data = user_data;
+    g_signal_connect (window, "destroy", G_CALLBACK (new_book_options_destroyed), request);
+    if (parent)
+        g_signal_connect_object (parent, "destroy", G_CALLBACK (gtk_window_destroy),
+                                 window, G_CONNECT_SWAPPED);
+    gtk_window_set_modal (GTK_WINDOW (window), TRUE);
+    gtk_window_present (GTK_WINDOW (window));
+}
 gboolean
 gnc_new_book_option_display (GtkWidget *parent)
 {

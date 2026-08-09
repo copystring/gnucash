@@ -366,6 +366,8 @@ void GncOptionsDialog::call_apply_cb() noexcept
     auto close_cb = m_close_cb;
 
     m_close_cb = nullptr;
+    g_object_set_data (G_OBJECT (m_window), "gnc-options-dialog-applied",
+                       GINT_TO_POINTER (TRUE));
     if (m_apply_cb)
         (m_apply_cb)(this, m_apply_cb_data);
     m_close_cb = close_cb;

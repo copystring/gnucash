@@ -70,14 +70,15 @@ static QofLogModule log_module = GNC_MOD_IMPORT;
 \********************************************************************/
 
 static gboolean auto_create_commodity = FALSE;
-static Account *ofx_parent_account = NULL;
-
 typedef struct OfxTransactionData OfxTransactionData;
 
 // Structure we use to gather information about statement balance/account etc.
 typedef struct _ofx_info
 {
+    /* Held while an asynchronous import is active; destroy is still an abort. */
     GtkWindow* parent;
+    gulong parent_destroy_handler;
+    gboolean parent_destroyed;
     GNCImportMainMatcher *gnc_ofx_importer_gui;
     Account *last_import_account;
     Account *last_investment_account;
@@ -94,16 +95,150 @@ struct OfxAccountSelection
 {
     std::string online_id;
     std::string description;
-    gnc_commodity *commodity;
+    GncGUID commodity_guid;
     GNCAccountType account_type;
 };
 
-struct OfxAccountPreflight
+struct OfxSecuritySelection
+{
+    std::string unique_id;
+    std::string unique_id_type;
+    std::string fullname;
+    std::string mnemonic;
+};
+
+struct OfxInvestmentSelection
+{
+    std::string online_id;
+    std::string account_id;
+    std::string security_id;
+    std::string security_name;
+    std::string currency;
+    gboolean needs_income;
+};
+
+/* The reconcile flow outlives libofx_proc_file(), so it keeps only copied
+ * statement values, never an OfxStatementData or one of its string pointers. */
+struct OfxStatementSelection
+{
+    std::string account_id;
+    gboolean ledger_balance_valid;
+    double ledger_balance;
+    time64 ledger_balance_date;
+};
+
+/* LibOFX owns all callback data only for the duration of the callback. This
+ * state deliberately contains copied values and GUIDs, never LibOFX pointers
+ * or a live parser context. */
+struct OfxImportState
 {
     ofx_info *info;
-    std::vector<OfxAccountSelection> selections;
-    size_t next_selection;
+    GWeakRef parent;
+    gulong parent_destroy_handler;
+    gboolean has_parent;
+    gboolean parent_destroyed;
+    GncGUID book_guid;
+    std::vector<OfxAccountSelection> accounts;
+    std::vector<OfxSecuritySelection> securities;
+    std::vector<OfxInvestmentSelection> investments;
+    size_t account_index;
+    size_t security_index;
+    size_t investment_index;
+    size_t income_index;
+    std::unordered_map<std::string, GncGUID> account_guids;
+    std::unordered_map<std::string, GncGUID> commodity_guids;
+    std::unordered_map<std::string, GncGUID> investment_guids;
+    std::unordered_map<std::string, GncGUID> income_guids;
+    GncGUID last_investment_guid;
+    GncGUID last_income_guid;
+    GncGUID investment_parent_guid;
 };
+
+static std::string
+ofx_utf8_string (const char *value)
+{
+    if (!value)
+        return {};
+    auto utf8 = gnc_utf8_strip_invalid_strdup (value);
+    std::string result {utf8};
+    g_free (utf8);
+    return result;
+}
+
+static gboolean
+ofx_import_state_book_is_current (const OfxImportState *state)
+{
+    auto book = gnc_get_current_book ();
+    return state && book && guid_equal (&state->book_guid,
+                                        qof_instance_get_guid (QOF_INSTANCE (book)));
+}
+
+static Account *
+ofx_import_state_account (const OfxImportState *state, const GncGUID &guid)
+{
+    auto account = ofx_import_state_book_is_current (state) &&
+                   !guid_equal (&guid, guid_null ())
+        ? xaccAccountLookup (&guid, gnc_get_current_book ()) : nullptr;
+    return account && !qof_instance_get_destroying (QOF_INSTANCE (account))
+        ? account : nullptr;
+}
+
+static gboolean
+ofx_import_state_account_is_current (const OfxImportState *state,
+                                     const Account *account)
+{
+    return ofx_import_state_book_is_current (state) && account &&
+           gnc_account_get_book (account) == gnc_get_current_book () &&
+           !qof_instance_get_destroying (QOF_INSTANCE (account));
+}
+
+static gboolean
+ofx_import_state_commodity_is_current (const OfxImportState *state,
+                                       const gnc_commodity *commodity)
+{
+    return ofx_import_state_book_is_current (state) && commodity &&
+           qof_instance_get_book (QOF_INSTANCE (commodity)) == gnc_get_current_book () &&
+           !qof_instance_get_destroying (QOF_INSTANCE (commodity));
+}
+
+static gnc_commodity *
+ofx_import_state_commodity (const OfxImportState *state, const std::string &key)
+{
+    if (!state || !ofx_import_state_book_is_current (state))
+        return nullptr;
+    auto iterator = state->commodity_guids.find (key);
+    if (iterator == state->commodity_guids.end ())
+        return nullptr;
+    auto commodity = gnc_commodity_find_commodity_by_guid (&iterator->second,
+                                                            gnc_get_current_book ());
+    return ofx_import_state_commodity_is_current (state, commodity) ? commodity : nullptr;
+}
+
+static Account *
+ofx_import_state_mapped_account (const OfxImportState *state,
+                                 const std::unordered_map<std::string, GncGUID> &map,
+                                 const std::string &key)
+{
+    auto iterator = map.find (key);
+    return iterator == map.end () ? nullptr : ofx_import_state_account (state, iterator->second);
+}
+
+static void
+ofx_import_state_store_account (OfxImportState *state,
+                                std::unordered_map<std::string, GncGUID> &map,
+                                const std::string &key, const Account *account)
+{
+    if (ofx_import_state_account_is_current (state, account))
+        map[key] = *xaccAccountGetGUID (account);
+}
+
+static void
+ofx_import_state_store_commodity (OfxImportState *state, const std::string &key,
+                                  const gnc_commodity *commodity)
+{
+    if (ofx_import_state_commodity_is_current (state, commodity))
+        state->commodity_guids[key] = *qof_instance_get_guid (QOF_INSTANCE (commodity));
+}
 
 static void runMatcher(ofx_info* info, char * selected_filename, gboolean go_to_next_file);
 
@@ -125,8 +260,9 @@ get_associated_income_account(const Account* investment_account)
     qof_instance_get (QOF_INSTANCE (investment_account),
                       PROP_OFX_INCOME_ACCOUNT, &income_guid,
                       NULL);
-    acct = xaccAccountLookup (income_guid,
-                              gnc_account_get_book(investment_account));
+    if (income_guid)
+        acct = xaccAccountLookup (income_guid,
+                                  gnc_account_get_book(investment_account));
     guid_free (income_guid);
     return acct;
 }
@@ -259,80 +395,16 @@ sanitize_string (gchar* str)
     return str;
 }
 
-int ofx_proc_security_cb(const struct OfxSecurityData data, void * security_user_data)
+int
+ofx_proc_security_cb (const struct OfxSecurityData data, void *security_user_data)
 {
-    char* cusip = NULL;
-    char* default_fullname = NULL;
-    char* default_mnemonic = NULL;
+    auto state = static_cast<OfxImportState *> (security_user_data);
+    if (!data.unique_id_valid)
+        return 0;
 
-    if (data.unique_id_valid)
-    {
-        cusip = gnc_utf8_strip_invalid_strdup (data.unique_id);
-    }
-    if (data.secname_valid)
-    {
-        default_fullname = gnc_utf8_strip_invalid_strdup (data.secname);
-    }
-    if (data.ticker_valid)
-    {
-        default_mnemonic = gnc_utf8_strip_invalid_strdup (data.ticker);
-    }
-
-    if (auto_create_commodity)
-    {
-        gnc_commodity *commodity =
-            gnc_import_select_commodity(cusip,
-                                        FALSE,
-                                        default_fullname,
-                                        default_mnemonic);
-
-        if (!commodity)
-        {
-            QofBook *book = gnc_get_current_book();
-            gnc_quote_source *source;
-            gint source_selection = 0; // FIXME: This is just a wild guess
-            char *commodity_namespace = NULL;
-            int fraction = 1;
-
-            if (data.unique_id_type_valid)
-            {
-                commodity_namespace = gnc_utf8_strip_invalid_strdup (data.unique_id_type);
-            }
-
-            g_warning("Creating a new commodity, cusip=%s", cusip);
-            /* Create the new commodity */
-            commodity = gnc_commodity_new(book,
-                                          default_fullname,
-                                          commodity_namespace,
-                                          default_mnemonic,
-                                          cusip,
-                                          fraction);
-
-            /* Also set a single quote source */
-            gnc_commodity_begin_edit(commodity);
-            gnc_commodity_user_set_quote_flag (commodity, TRUE);
-            source = gnc_quote_source_lookup_by_ti (SOURCE_SINGLE, source_selection);
-            gnc_commodity_set_quote_source(commodity, source);
-            gnc_commodity_commit_edit(commodity);
-
-            /* Remember the commodity */
-            gnc_commodity_table_insert(gnc_get_current_commodities(), commodity);
-
-	    g_free (commodity_namespace);
-
-        }
-    }
-    else
-    {
-        gnc_import_select_commodity(cusip,
-                                    TRUE,
-                                    default_fullname,
-                                    default_mnemonic);
-    }
-
-    g_free (cusip);
-    g_free (default_mnemonic);
-    g_free (default_fullname);
+    auto unique_id = ofx_utf8_string (data.unique_id);
+    if (!ofx_import_state_commodity (state, unique_id))
+        PERR ("No preselected commodity for OFX security %s", unique_id.c_str ());
     return 0;
 }
 
@@ -363,42 +435,6 @@ static gnc_numeric gnc_ofx_numeric_from_double_txn(double value, const Transacti
     return gnc_ofx_numeric_from_double(value, xaccTransGetCurrency(txn));
 }
 
-/* Opens the dialog to create a new account with given name, commodity, parent, type.
- * Returns the new account, or NULL if it couldn't be created.. */
-static Account *gnc_ofx_new_account(GtkWindow* parent,
-                                    const char* name,
-                                    const gnc_commodity * account_commodity,
-                                    Account *parent_account,
-                                    GNCAccountType new_account_default_type)
-{
-    Account *result;
-    GList * valid_types = NULL;
-
-    g_assert(name);
-    g_assert(account_commodity);
-    g_assert(parent_account);
-
-    if (new_account_default_type != ACCT_TYPE_NONE)
-    {
-        // Passing the types as gpointer
-        valid_types =
-            g_list_prepend(valid_types,
-                           GINT_TO_POINTER(new_account_default_type));
-        if (!xaccAccountTypesCompatible(xaccAccountGetType(parent_account), new_account_default_type))
-        {
-            // Need to add the parent's account type
-            valid_types =
-                g_list_prepend(valid_types,
-                               GINT_TO_POINTER(xaccAccountGetType(parent_account)));
-        }
-    }
-    result = gnc_ui_new_accounts_from_name_with_defaults (parent, name,
-                                                          valid_types,
-                                                          account_commodity,
-                                                          parent_account);
-    g_list_free(valid_types);
-    return result;
-}
 /* LibOFX has a daylight time handling bug,
  * https://sourceforge.net/p/libofx/bugs/39/, which causes it to adjust the
  * timestamp for daylight time even when daylight time is not in
@@ -612,183 +648,28 @@ process_bank_transaction(Transaction *transaction, Account *import_account,
     }
 }
 
-typedef struct
+static std::string
+ofx_investment_key (const OfxTransactionData *data)
 {
-    gnc_commodity *commodity;
-    char *online_id;
-    char *acct_text;
-    gboolean choosing;
-} InvestmentAcctData;
-
-static Account*
-create_investment_subaccount(GtkWindow *parent, Account* parent_acct,
-                             InvestmentAcctData *inv_data)
-{
-
-    Account *investment_account =
-        gnc_ofx_new_account(parent,
-                            inv_data->acct_text,
-                            inv_data->commodity,
-                            parent_acct,
-                            ACCT_TYPE_STOCK);
-    if (investment_account)
-    {
-        xaccAccountSetOnlineID(investment_account, inv_data->online_id);
-        inv_data->choosing = FALSE;
-        ofx_parent_account = parent_acct;
-    }
-    else
-    {
-        ofx_parent_account = NULL;
-    }
-    return investment_account;
+    if (!data || !data->account_id_valid || !data->unique_id_valid)
+        return {};
+    return ofx_utf8_string (data->account_id) + ofx_utf8_string (data->unique_id);
 }
 
-static gboolean
-continue_account_selection(GtkWidget* parent, Account* account,
-                           gnc_commodity* commodity)
+static Account *
+ofx_preselected_investment_account (OfxImportState *state,
+                                    const OfxTransactionData *data)
 {
-    gboolean keep_going =
-        gnc_verify_dialog(
-            GTK_WINDOW (parent), TRUE,
-            "The chosen account \"%s\" does not have the correct "
-            "currency/security \"%s\" (it has \"%s\" instead). "
-            "This account cannot be used. "
-            "Do you want to choose again?",
-            xaccAccountGetName(account),
-            gnc_commodity_get_fullname(commodity),
-            gnc_commodity_get_fullname(xaccAccountGetCommodity(account)));
-    // We must also delete the online_id that was set in gnc_import_select_account()
-    xaccAccountSetOnlineID(account, "");
-    return keep_going;
+    return ofx_import_state_mapped_account (state, state->investment_guids,
+                                            ofx_investment_key (data));
 }
 
-static Account*
-choose_investment_account_helper(OfxTransactionData *data, ofx_info *info,
-                                 InvestmentAcctData *inv_data)
+static Account *
+ofx_preselected_income_account (OfxImportState *state,
+                                const OfxTransactionData *data)
 {
-    Account *investment_account, *parent_account;
-
-    if (xaccAccountGetCommodity(info->last_investment_account) == inv_data->commodity)
-        parent_account = info->last_investment_account;
-    else
-        parent_account = ofx_parent_account;
-
-    investment_account =
-        gnc_import_select_account(GTK_WIDGET(info->parent),
-                                  inv_data->online_id,
-                                  TRUE, inv_data->acct_text,
-                                  inv_data->commodity, ACCT_TYPE_STOCK,
-                                  parent_account, &inv_data->choosing);
-    if (investment_account &&
-        xaccAccountGetCommodity(investment_account) == inv_data->commodity)
-    {
-        Account *parent_account = gnc_account_get_parent(investment_account);
-
-        if (!ofx_parent_account && parent_account &&
-            !gnc_account_is_root(parent_account) &&
-            xaccAccountTypesCompatible(xaccAccountGetType(parent_account),
-                                       ACCT_TYPE_STOCK))
-            ofx_parent_account = parent_account;
-
-        info->last_investment_account = investment_account;
-        return investment_account;
-    }
-
-    /* That didn't work out. Create a subaccount if we can. */
-    if (auto_create_commodity && ofx_parent_account)
-    {
-        investment_account =
-            create_investment_subaccount(GTK_WINDOW(info->parent),
-                                                    ofx_parent_account,
-                                                    inv_data);
-    }
-    else
-    {
-        // No account with matching commodity. Ask the user
-        // whether to continue or abort.
-        inv_data->choosing =
-            continue_account_selection(GTK_WIDGET(info->parent),
-                                       investment_account, inv_data->commodity);
-        investment_account = NULL;
-    }
-
-    return investment_account;
-}
-
-static Account*
-choose_investment_account(OfxTransactionData *data, ofx_info *info,
-                          gnc_commodity *commodity)
-{
-    Account* investment_account = NULL;
-    InvestmentAcctData inv_data = {commodity, NULL, NULL, TRUE};
-
-     // As we now have the commodity, select the account with that commodity.
-
-     /* Translators: This string is a default account name. It MUST
-      * NOT contain the character ':' anywhere in it or in any
-      * translations.  */
-     inv_data.acct_text = g_strdup_printf(
-          _("Stock account for security \"%s\""),
-          sanitize_string (data->security_data_ptr->secname));
-
-     inv_data.online_id =
-         g_strdup_printf("%s%s", data->account_id, data->unique_id);
-
-     // Loop until we either have an account, or the user pressed Cancel
-     while (!investment_account && inv_data.choosing)
-         investment_account = choose_investment_account_helper(data, info,
-                                                               &inv_data);
-     if (!investment_account)
-     {
-          PERR("No investment account found for text: %s\n", inv_data.acct_text);
-     }
-     g_free (inv_data.acct_text);
-     g_free (inv_data.online_id);
-
-     return investment_account;
-}
-
-static Account*
-choose_income_account(Account* investment_account, Transaction *transaction,
-                      OfxTransactionData *data, ofx_info *info)
-{
-    Account *income_account = NULL;
-    DEBUG("Now let's find an account for the destination split");
-    income_account =
-        get_associated_income_account(investment_account);
-
-    if (income_account == NULL)
-    {
-        char *income_account_text;
-        gnc_commodity *currency = xaccTransGetCurrency(transaction);
-        DEBUG("Couldn't find an associated income account");
-        /* Translators: This string is a default account
-         * name. It MUST NOT contain the character ':' anywhere
-         * in it or in any translations.  */
-        income_account_text = g_strdup_printf(
-            _("Income account for security \"%s\""),
-            sanitize_string (data->security_data_ptr->secname));
-        income_account =
-            gnc_import_select_account(GTK_WIDGET(info->parent), NULL, TRUE,
-                                      income_account_text, currency,
-                                      ACCT_TYPE_INCOME,
-                                      info->last_income_account, NULL);
-
-        if (income_account != NULL)
-        {
-            info->last_income_account = income_account;
-            set_associated_income_account(investment_account,
-                                          income_account);
-            DEBUG("KVP written");
-        }
-    }
-    else
-    {
-        DEBUG("Found at least one associated income account");
-    }
-
-    return income_account;
+    return ofx_import_state_mapped_account (state, state->income_guids,
+                                            ofx_investment_key (data));
 }
 
 static void
@@ -860,80 +741,79 @@ add_currency_split(Transaction *transaction, Account* account,
    data->invtranstype*/
 
 static void
-process_investment_transaction(Transaction *transaction, Account *import_account,
-                               OfxTransactionData *data, ofx_info *info)
+process_investment_transaction (Transaction *transaction, Account *import_account,
+                                OfxTransactionData *data, OfxImportState *state)
 {
-    Account *investment_account = NULL;
-    Account *income_account = NULL;
-    gnc_commodity *investment_commodity;
+    Account *investment_account;
+    Account *income_account;
+    auto investment_commodity = ofx_import_state_commodity (
+        state, ofx_utf8_string (data->unique_id));
     double amount = data->amount;
 
-    g_return_if_fail(data->invtransactiontype_valid);
-
-    gnc_utf8_strip_invalid (data->unique_id);
-
-
-    // Set the cash split unless it's a reinvestment, which doesn't have one.
-    if (data->invtransactiontype != OFX_REINVEST)
-    {
-        DEBUG("Adding investment cash split.");
-        add_currency_split(transaction, import_account,
-                           -ofx_get_investment_amount(data), data);
-    }
-
-    investment_commodity = gnc_import_select_commodity(data->unique_id,
-                                                       FALSE, NULL, NULL);
+    g_return_if_fail (data->invtransactiontype_valid);
     if (!investment_commodity)
     {
-        PERR("Commodity not found for the investment transaction");
+        PERR ("No preselected commodity for the investment transaction");
         return;
     }
-    investment_account = choose_investment_account(data, info,
-                                                   investment_commodity);
 
+    investment_account = ofx_preselected_investment_account (state, data);
     if (!investment_account)
     {
-        PERR("Failed to determine an investment asset account.");
+        PERR ("No preselected investment asset account");
         return;
     }
+    auto investment_id = ofx_investment_key (data);
+    if (investment_id.empty ())
+    {
+        PERR ("No preselected investment online ID");
+        return;
+    }
+    xaccAccountSetOnlineID (investment_account, investment_id.c_str ());
+
+    if (data->invtransactiontype != OFX_REINVEST)
+        add_currency_split (transaction, import_account,
+                            -ofx_get_investment_amount (data), data);
 
     if (data->invtransactiontype != OFX_INCOME)
     {
         if (data->unitprice_valid && data->units_valid)
-            add_investment_split(transaction, investment_account, data);
+            add_investment_split (transaction, investment_account, data);
         else
-            PERR("Unable to add investment split, unit price or units were invalid.");
+            PERR ("Unable to add investment split, unit price or units were invalid.");
     }
 
-    if (!(data->invtransactiontype == OFX_REINVEST
-          || data->invtransactiontype == OFX_INCOME))
-        //Done
+    if (data->invtransactiontype != OFX_REINVEST && data->invtransactiontype != OFX_INCOME)
         return;
 
 #ifdef HAVE_LIBOFX_VERSION_0_10
     if (data->currency_ratio_valid && data->currency_ratio != 0)
         amount *= data->currency_ratio;
 #endif
-    income_account = choose_income_account(investment_account,
-                                           transaction, data, info);
-    g_return_if_fail(income_account);
+    income_account = ofx_preselected_income_account (state, data);
+    if (!income_account)
+    {
+        PERR ("No preselected investment income account");
+        return;
+    }
+    set_associated_income_account (investment_account, income_account);
 
-    DEBUG("Adding investment income split.");
     if (data->invtransactiontype == OFX_REINVEST)
-        add_currency_split(transaction, income_account, amount, data);
+        add_currency_split (transaction, income_account, amount, data);
     else
-        add_currency_split(transaction, income_account, -amount, data);
+        add_currency_split (transaction, income_account, -amount, data);
 }
-
 int ofx_proc_transaction_cb(OfxTransactionData data, void *user_data)
 {
     Account *import_account;
     gnc_commodity *currency = NULL;
     QofBook *book;
     Transaction *transaction;
-    ofx_info* info = (ofx_info*) user_data;
+        auto state = static_cast<OfxImportState *> (user_data);
+    auto info = state ? state->info : nullptr;
 
-    g_assert(info->parent);
+    if (!info || !ofx_import_state_book_is_current (state))
+        return 0;
 
     if (!data.amount_valid)
     {
@@ -947,12 +827,9 @@ int ofx_proc_transaction_cb(OfxTransactionData data, void *user_data)
         return 0;
     }
 
-    gnc_utf8_strip_invalid (data.account_id);
-
-    import_account = gnc_import_select_account(GTK_WIDGET(info->parent),
-                                        data.account_id,
-					0, NULL, NULL, ACCT_TYPE_NONE,
-					info->last_import_account, NULL);
+    auto account_id = ofx_utf8_string (data.account_id);
+    import_account = ofx_import_state_mapped_account (state, state->account_guids,
+                                                      account_id);
     if (import_account == NULL)
     {
         PERR("Unable to find account for id %s", data.account_id);
@@ -1004,7 +881,7 @@ int ofx_proc_transaction_cb(OfxTransactionData data, void *user_data)
              && data.security_data_ptr != NULL
              && data.security_data_ptr->secname_valid)
         process_investment_transaction(transaction, import_account,
-                                       &data, info);
+                                       &data, state);
     else
     {
         PERR("Unsupported OFX transaction type.");
@@ -1032,11 +909,25 @@ int ofx_proc_transaction_cb(OfxTransactionData data, void *user_data)
 }//end ofx_proc_transaction()
 
 
+static void
+ofx_statement_selection_free (gpointer data)
+{
+    delete static_cast<OfxStatementSelection *> (data);
+}
+
 int ofx_proc_statement_cb (struct OfxStatementData data, void * statement_user_data)
 {
-    ofx_info* info = (ofx_info*) statement_user_data;
-    struct OfxStatementData *statement = g_new (struct OfxStatementData, 1);
-    *statement = data;
+    auto state = static_cast<OfxImportState *> (statement_user_data);
+    auto info = state ? state->info : nullptr;
+    if (!info || !ofx_import_state_book_is_current (state))
+        return 0;
+
+    auto statement = new OfxStatementSelection {
+        data.account_id_valid ? ofx_utf8_string (data.account_id) : std::string {},
+        data.ledger_balance_valid,
+        data.ledger_balance,
+        data.ledger_balance_date
+    };
     info->statement = g_list_prepend (info->statement, statement);
     return 0;
 }
@@ -1113,35 +1004,24 @@ ofx_account_description (const struct OfxAccountData& data,
 }
 
 int
-ofx_proc_account_cb (struct OfxAccountData data, void * account_user_data)
+ofx_proc_account_cb (struct OfxAccountData data, void *account_user_data)
 {
-    GNCAccountType default_type;
-    const gchar *account_type_name;
-    ofx_info* info = (ofx_info*) account_user_data;
-
-    if (!data.account_id_valid)
-    {
-        PERR("account online ID not available");
+    auto state = static_cast<OfxImportState *> (account_user_data);
+    if (!data.account_id_valid || !ofx_import_state_book_is_current (state))
         return 0;
-    }
 
-    ofx_account_defaults (data, &default_type, &account_type_name);
-    gchar *online_id = gnc_utf8_strip_invalid_strdup (data.account_id);
-    gchar *description = ofx_account_description (data, account_type_name);
-    Account *account = gnc_import_select_account (GTK_WIDGET (info->parent),
-                                                   online_id, FALSE, description,
-                                                   ofx_account_default_commodity (data),
-                                                   default_type, NULL, NULL);
+    auto online_id = ofx_utf8_string (data.account_id);
+    auto account = ofx_import_state_mapped_account (state, state->account_guids,
+                                                     online_id);
     if (account)
-        info->last_import_account = account;
+    {
+        xaccAccountSetOnlineID (account, online_id.c_str ());
+        state->info->last_import_account = account;
+    }
     else
-        PERR("No preselected account for OFX online ID %s", online_id);
-    g_free (description);
-    g_free (online_id);
-
+        PERR ("No preselected account for OFX online ID %s", online_id.c_str ());
     return 0;
 }
-
 double ofx_get_investment_amount(const OfxTransactionData* data)
 {
     double amount = data->amount;
@@ -1175,7 +1055,9 @@ double ofx_get_investment_amount(const OfxTransactionData* data)
 static void
 gnc_file_ofx_import_process_file (ofx_info* info);
 static void
-gnc_file_ofx_import_parse_current_file (ofx_info* info);
+gnc_file_ofx_import_parse_current_file (OfxImportState *state);
+static void
+ofx_info_free (ofx_info *info);
 static void
 gnc_ofx_abort_import (ofx_info *info);
 
@@ -1184,8 +1066,13 @@ static void
 gnc_ofx_process_next_file (GtkWidget *widget, gpointer user_data)
 {
     ofx_info* info = (ofx_info*) user_data;
+    if (!info || info->parent_destroyed)
+    {
+        gnc_ofx_abort_import (info);
+        return;
+    }
     // Free the statement (if it was allocated)
-    g_list_free_full (info->statement, g_free);
+    g_list_free_full (info->statement, ofx_statement_selection_free);
     info->statement = NULL;
 
     // Done with the previous OFX file, process the next one if any.
@@ -1197,7 +1084,7 @@ gnc_ofx_process_next_file (GtkWidget *widget, gpointer user_data)
     else
     {
         // Final cleanup.
-        g_free (info);
+        ofx_info_free (info);
     }
     (void)widget;
 }
@@ -1215,6 +1102,12 @@ static void
 gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
 {
     ofx_info* info = (ofx_info*) user_data;
+
+    if (!info || info->parent_destroyed)
+    {
+        gnc_ofx_abort_import (info);
+        return;
+    }
 
     /* The the user did not click OK, don't process the rest of the
      * transaction, don't go to the next of xfile.
@@ -1238,10 +1131,10 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
 
     if (info->run_reconcile && info->statement && info->statement->data)
     {
-        auto statement = static_cast<struct OfxStatementData*>(info->statement->data);
+        auto statement = static_cast<OfxStatementSelection *> (info->statement->data);
         // Open a reconcile window.
         Account* account = gnc_import_select_account (gnc_gen_trans_list_widget(info->gnc_ofx_importer_gui),
-                                                      statement->account_id,
+                                                      statement->account_id.c_str (),
                                                       0, NULL, NULL, ACCT_TYPE_NONE, NULL, NULL);
         if (account && statement->ledger_balance_valid)
         {
@@ -1259,7 +1152,7 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
                 info->statement = info->statement->next;
             else
             {
-                g_list_free_full (g_list_first (info->statement), g_free);
+                g_list_free_full (g_list_first (info->statement), ofx_statement_selection_free);
                 info->statement = NULL;
             }
             return;
@@ -1275,7 +1168,7 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
         }
         else
         {
-            g_list_free_full (g_list_first (info->statement), g_free);
+            g_list_free_full (g_list_first (info->statement), ofx_statement_selection_free);
             info->statement = NULL;
         }
     }
@@ -1302,6 +1195,11 @@ make_date_amount_key (const Split* split)
 static void
 runMatcher (ofx_info* info, char * selected_filename, gboolean go_to_next_file)
 {
+    if (!info || info->parent_destroyed)
+    {
+        gnc_ofx_abort_import (info);
+        return;
+    }
     GtkWindow *parent = info->parent;
     GList* trans_list_remain = NULL;
     std::unordered_map <std::string,Account*> trans_map;
@@ -1413,12 +1311,32 @@ runMatcher (ofx_info* info, char * selected_filename, gboolean go_to_next_file)
 }
 
 static void
+ofx_info_parent_destroyed (GtkWidget *window, gpointer user_data)
+{
+    auto info = static_cast<ofx_info *> (user_data);
+    if (info)
+        info->parent_destroyed = TRUE;
+    (void)window;
+}
+
+static void
+ofx_info_free (ofx_info *info)
+{
+    if (!info)
+        return;
+    if (info->parent && info->parent_destroy_handler)
+        g_signal_handler_disconnect (info->parent, info->parent_destroy_handler);
+    g_clear_object (&info->parent);
+    g_free (info);
+}
+
+static void
 gnc_ofx_abort_import (ofx_info *info)
 {
     if (!info)
         return;
 
-    g_list_free_full (info->statement, g_free);
+    g_list_free_full (info->statement, ofx_statement_selection_free);
     for (GList *node = info->trans_list; node; node = node->next)
     {
         auto transaction = static_cast<Transaction*> (node->data);
@@ -1427,174 +1345,590 @@ gnc_ofx_abort_import (ofx_info *info)
     }
     g_list_free (info->trans_list);
     g_slist_free_full (info->file_list, g_free);
-    g_free (info);
+    ofx_info_free (info);
+}
+
+static void
+ofx_import_state_parent_destroyed (GtkWidget *window, gpointer user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (state)
+        state->parent_destroyed = TRUE;
+    (void)window;
+}
+
+static void
+ofx_import_state_free (OfxImportState *state)
+{
+    if (!state)
+        return;
+    auto parent = GTK_WINDOW (g_weak_ref_get (&state->parent));
+    if (parent && state->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, state->parent_destroy_handler);
+    g_clear_object (&parent);
+    g_weak_ref_clear (&state->parent);
+    delete state;
+}
+
+static void
+ofx_import_state_abort (OfxImportState *state)
+{
+    if (!state)
+        return;
+    auto info = state->info;
+    state->info = nullptr;
+    ofx_import_state_free (state);
+    gnc_ofx_abort_import (info);
+}
+
+static gboolean
+ofx_import_state_ready (OfxImportState *state)
+{
+    if (!ofx_import_state_book_is_current (state) || state->parent_destroyed)
+        return FALSE;
+    auto parent = GTK_WINDOW (g_weak_ref_get (&state->parent));
+    auto ready = !state->has_parent || parent != nullptr;
+    g_clear_object (&parent);
+    return ready;
+}
+
+static GtkWindow *
+ofx_import_state_parent (OfxImportState *state)
+{
+    return state ? GTK_WINDOW (g_weak_ref_get (&state->parent)) : nullptr;
+}
+
+static gnc_commodity *
+ofx_account_selection_commodity (OfxImportState *state,
+                                 const OfxAccountSelection &selection)
+{
+    if (!ofx_import_state_book_is_current (state) ||
+        guid_equal (&selection.commodity_guid, guid_null ()))
+        return nullptr;
+    auto commodity = gnc_commodity_find_commodity_by_guid (&selection.commodity_guid,
+                                                            gnc_get_current_book ());
+    return ofx_import_state_commodity_is_current (state, commodity) ? commodity : nullptr;
+}
+
+static gnc_commodity *
+ofx_create_commodity (const OfxSecuritySelection &selection)
+{
+    auto commodity = gnc_import_find_commodity_by_cusip (selection.unique_id.c_str ());
+    if (commodity)
+        return commodity;
+
+    auto book = gnc_get_current_book ();
+    auto name_space = selection.unique_id_type.empty () ? nullptr
+                                                        : selection.unique_id_type.c_str ();
+    commodity = gnc_commodity_new (book, selection.fullname.c_str (), name_space,
+                                   selection.mnemonic.c_str (),
+                                   selection.unique_id.c_str (), 1);
+    if (!commodity)
+        return nullptr;
+    gnc_commodity_begin_edit (commodity);
+    gnc_commodity_user_set_quote_flag (commodity, TRUE);
+    auto source = gnc_quote_source_lookup_by_ti (SOURCE_SINGLE, 0);
+    gnc_commodity_set_quote_source (commodity, source);
+    gnc_commodity_commit_edit (commodity);
+    gnc_commodity_table_insert (gnc_get_current_commodities (), commodity);
+    return commodity;
 }
 
 static int
 ofx_collect_account_cb (struct OfxAccountData data, void *user_data)
 {
-    OfxAccountPreflight *preflight = static_cast<OfxAccountPreflight*> (user_data);
+    auto state = static_cast<OfxImportState *> (user_data);
     GNCAccountType account_type;
     const gchar *account_type_name;
 
     if (!data.account_id_valid)
         return 0;
-
-    gchar *online_id = gnc_utf8_strip_invalid_strdup (data.account_id);
-    for (const auto& selection : preflight->selections)
+    auto online_id = ofx_utf8_string (data.account_id);
+    for (const auto &selection : state->accounts)
         if (selection.online_id == online_id)
-        {
-            g_free (online_id);
             return 0;
-        }
 
     ofx_account_defaults (data, &account_type, &account_type_name);
-    gchar *description = ofx_account_description (data, account_type_name);
-    preflight->selections.emplace_back (OfxAccountSelection
-    {
-        online_id,
-        description,
-        ofx_account_default_commodity (data),
-        account_type
-    });
+    auto description = ofx_account_description (data, account_type_name);
+    auto commodity = ofx_account_default_commodity (data);
+    OfxAccountSelection selection {};
+    selection.online_id = online_id;
+    selection.description = description;
+    selection.commodity_guid = commodity ? *qof_instance_get_guid (QOF_INSTANCE (commodity))
+                                         : *guid_null ();
+    selection.account_type = account_type;
+    state->accounts.emplace_back (selection);
     g_free (description);
-    g_free (online_id);
     return 0;
 }
 
-static void
-ofx_preflight_continue (OfxAccountPreflight *preflight);
-
-static void
-ofx_preflight_account_selected (Account *account, gboolean accepted,
-                                gpointer user_data)
+static int
+ofx_collect_security_cb (const struct OfxSecurityData data, void *user_data)
 {
-    OfxAccountPreflight *preflight =
-        static_cast<OfxAccountPreflight*> (user_data);
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!data.unique_id_valid)
+        return 0;
 
-    if (!accepted || !account)
+    auto unique_id = ofx_utf8_string (data.unique_id);
+    auto fullname = data.secname_valid ? ofx_utf8_string (data.secname) : std::string {};
+    auto mnemonic = data.ticker_valid ? ofx_utf8_string (data.ticker) : std::string {};
+    auto unique_id_type = data.unique_id_type_valid ? ofx_utf8_string (data.unique_id_type)
+                                                    : std::string {};
+    for (auto &selection : state->securities)
     {
-        gnc_ofx_abort_import (preflight->info);
-        delete preflight;
+        if (selection.unique_id != unique_id)
+            continue;
+        if (selection.fullname.empty ()) selection.fullname = fullname;
+        if (selection.mnemonic.empty ()) selection.mnemonic = mnemonic;
+        if (selection.unique_id_type.empty ()) selection.unique_id_type = unique_id_type;
+        return 0;
+    }
+    state->securities.emplace_back (OfxSecuritySelection {unique_id, unique_id_type,
+                                                           fullname, mnemonic});
+    return 0;
+}
+
+static int
+ofx_collect_transaction_cb (OfxTransactionData data, void *user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!data.invtransactiontype_valid || !data.account_id_valid || !data.unique_id_valid ||
+        !data.security_data_valid || !data.security_data_ptr ||
+        !data.security_data_ptr->secname_valid)
+        return 0;
+
+    auto account_id = ofx_utf8_string (data.account_id);
+    auto security_id = ofx_utf8_string (data.unique_id);
+    auto security_name = ofx_utf8_string (data.security_data_ptr->secname);
+    auto online_id = account_id + security_id;
+    auto needs_income = data.invtransactiontype == OFX_REINVEST ||
+                        data.invtransactiontype == OFX_INCOME;
+    auto currency = data.account_ptr && data.account_ptr->currency_valid
+        ? ofx_utf8_string (data.account_ptr->currency) : std::string {};
+
+    gboolean has_security = FALSE;
+    for (const auto &security : state->securities)
+        if (security.unique_id == security_id)
+        {
+            has_security = TRUE;
+            break;
+        }
+    if (!has_security)
+        state->securities.emplace_back (OfxSecuritySelection {security_id, {}, security_name, {}});
+
+    for (auto &selection : state->investments)
+    {
+        if (selection.online_id != online_id)
+            continue;
+        selection.needs_income |= needs_income;
+        if (selection.currency.empty ()) selection.currency = currency;
+        return 0;
+    }
+    state->investments.emplace_back (OfxInvestmentSelection {online_id, account_id,
+        security_id, security_name, currency, needs_income});
+    return 0;
+}
+
+static void ofx_import_state_continue (OfxImportState *state);
+static void gnc_file_ofx_import_parse_current_file (OfxImportState *state);
+
+static void
+ofx_import_state_account_selected (Account *account, gboolean accepted,
+                                   gpointer user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!ofx_import_state_account_is_current (state, account) || !accepted)
+    {
+        ofx_import_state_abort (state);
         return;
     }
-
-    preflight->info->last_import_account = account;
-    ++preflight->next_selection;
-    ofx_preflight_continue (preflight);
+    const auto &selection = state->accounts[state->account_index];
+    ofx_import_state_store_account (state, state->account_guids, selection.online_id, account);
+    state->info->last_import_account = account;
+    ++state->account_index;
+    ofx_import_state_continue (state);
 }
 
 static void
-ofx_preflight_continue (OfxAccountPreflight *preflight)
+ofx_import_state_security_selected (gnc_commodity *commodity, gboolean accepted,
+                                    gpointer user_data)
 {
-    while (preflight->next_selection < preflight->selections.size ())
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!ofx_import_state_commodity_is_current (state, commodity) || !accepted)
     {
-        const auto& selection = preflight->selections[preflight->next_selection];
-        Account *account = gnc_import_select_account (NULL,
-                                                       selection.online_id.c_str (),
-                                                       FALSE, NULL, NULL,
-                                                       selection.account_type,
-                                                       NULL, NULL);
-        if (account)
-        {
-            preflight->info->last_import_account = account;
-            ++preflight->next_selection;
-            continue;
-        }
+        ofx_import_state_abort (state);
+        return;
+    }
+    ofx_import_state_store_commodity (state,
+                                      state->securities[state->security_index].unique_id,
+                                      commodity);
+    ++state->security_index;
+    ofx_import_state_continue (state);
+}
 
-        gnc_import_select_account_async (GTK_WIDGET (preflight->info->parent),
-                                         selection.online_id.c_str (), TRUE,
-                                         selection.description.c_str (),
-                                         selection.commodity,
-                                         selection.account_type,
-                                         NULL,
-                                         ofx_preflight_account_selected,
-                                         preflight);
+static void
+ofx_import_state_accept_investment (OfxImportState *state, Account *account)
+{
+    const auto &selection = state->investments[state->investment_index];
+    auto parent = gnc_account_get_parent (account);
+    ofx_import_state_store_account (state, state->investment_guids, selection.online_id, account);
+    state->last_investment_guid = *xaccAccountGetGUID (account);
+    state->info->last_investment_account = account;
+    if (guid_equal (&state->investment_parent_guid, guid_null ()) && parent &&
+        !gnc_account_is_root (parent) &&
+        xaccAccountTypesCompatible (xaccAccountGetType (parent), ACCT_TYPE_STOCK))
+        state->investment_parent_guid = *xaccAccountGetGUID (parent);
+    ++state->investment_index;
+    ofx_import_state_continue (state);
+}
+
+static void
+ofx_import_state_retry_investment (GtkWindow *parent, gint response, gpointer user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!ofx_import_state_ready (state) || response != GTK_RESPONSE_YES)
+        ofx_import_state_abort (state);
+    else
+        ofx_import_state_continue (state);
+    (void)parent;
+}
+
+static void
+ofx_import_state_investment_created (Account *account, gboolean accepted,
+                                     gpointer user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!ofx_import_state_account_is_current (state, account) || !accepted)
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
+    ofx_import_state_accept_investment (state, account);
+}
+
+static void
+ofx_import_state_create_investment (OfxImportState *state, Account *parent,
+                                    gnc_commodity *commodity)
+{
+    const auto &selection = state->investments[state->investment_index];
+    auto description = g_strdup_printf (_("Stock account for security \"%s\""),
+                                        selection.security_name.c_str ());
+    GList *types = g_list_prepend (nullptr, GINT_TO_POINTER (ACCT_TYPE_STOCK));
+    if (!xaccAccountTypesCompatible (xaccAccountGetType (parent), ACCT_TYPE_STOCK))
+        types = g_list_prepend (types, GINT_TO_POINTER (xaccAccountGetType (parent)));
+    auto window = ofx_import_state_parent (state);
+    gnc_ui_new_accounts_from_name_with_defaults_async (
+        window, description, types, commodity, parent,
+        ofx_import_state_investment_created, state);
+    g_clear_object (&window);
+    g_list_free (types);
+    g_free (description);
+}
+
+static void
+ofx_import_state_investment_selected (Account *account, gboolean accepted,
+                                      gpointer user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!ofx_import_state_account_is_current (state, account) || !accepted)
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
+    const auto &selection = state->investments[state->investment_index];
+    auto commodity = ofx_import_state_commodity (state, selection.security_id);
+    if (commodity && xaccAccountGetCommodity (account) == commodity)
+    {
+        ofx_import_state_accept_investment (state, account);
         return;
     }
 
-    ofx_info *info = preflight->info;
-    delete preflight;
-    gnc_file_ofx_import_parse_current_file (info);
+    auto parent = ofx_import_state_account (state, state->investment_parent_guid);
+    if (auto_create_commodity && parent && commodity)
+    {
+        ofx_import_state_create_investment (state, parent, commodity);
+        return;
+    }
+    auto window = ofx_import_state_parent (state);
+    gnc_verify_dialog_async (
+        window, TRUE, ofx_import_state_retry_investment, state,
+        _("The chosen account \"%s\" does not have the correct currency/security \"%s\" "
+          "(it has \"%s\" instead). This account cannot be used. "
+          "Do you want to choose again?"),
+        xaccAccountGetName (account), gnc_commodity_get_fullname (commodity),
+        gnc_commodity_get_fullname (xaccAccountGetCommodity (account)));
+    g_clear_object (&window);
+}
+
+static void
+ofx_import_state_income_selected (Account *account, gboolean accepted,
+                                  gpointer user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!ofx_import_state_account_is_current (state, account) || !accepted)
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
+    const auto &selection = state->investments[state->income_index];
+    auto investment = ofx_import_state_mapped_account (state, state->investment_guids,
+                                                        selection.online_id);
+    if (!investment)
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
+    ofx_import_state_store_account (state, state->income_guids, selection.online_id, account);
+    state->last_income_guid = *xaccAccountGetGUID (account);
+    state->info->last_income_account = account;
+    ++state->income_index;
+    ofx_import_state_continue (state);
+}
+
+static void
+ofx_import_state_continue (OfxImportState *state)
+{
+    if (!ofx_import_state_ready (state))
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
+
+    while (state->account_index < state->accounts.size ())
+    {
+        const auto &selection = state->accounts[state->account_index];
+        auto account = gnc_import_select_account (nullptr, selection.online_id.c_str (), FALSE,
+                                                  nullptr, nullptr, selection.account_type,
+                                                  nullptr, nullptr);
+        if (account)
+        {
+            if (!ofx_import_state_account_is_current (state, account))
+            {
+                ofx_import_state_abort (state);
+                return;
+            }
+            ofx_import_state_store_account (state, state->account_guids, selection.online_id, account);
+            state->info->last_import_account = account;
+            ++state->account_index;
+            continue;
+        }
+        auto window = ofx_import_state_parent (state);
+        gnc_import_select_account_async_no_mutation (
+            GTK_WIDGET (window), selection.online_id.c_str (), TRUE,
+            selection.description.c_str (), ofx_account_selection_commodity (state, selection),
+            selection.account_type, nullptr, ofx_import_state_account_selected, state);
+        g_clear_object (&window);
+        return;
+    }
+
+    while (state->security_index < state->securities.size ())
+    {
+        const auto &selection = state->securities[state->security_index];
+        auto commodity = gnc_import_find_commodity_by_cusip (selection.unique_id.c_str ());
+        if (!commodity && auto_create_commodity)
+            commodity = ofx_create_commodity (selection);
+        if (commodity)
+        {
+            if (!ofx_import_state_commodity_is_current (state, commodity))
+            {
+                ofx_import_state_abort (state);
+                return;
+            }
+            ofx_import_state_store_commodity (state, selection.unique_id, commodity);
+            ++state->security_index;
+            continue;
+        }
+        auto window = ofx_import_state_parent (state);
+        gnc_import_select_commodity_async (GTK_WIDGET (window), selection.unique_id.c_str (),
+                                            TRUE, selection.fullname.c_str (),
+                                            selection.mnemonic.c_str (), nullptr,
+                                            ofx_import_state_security_selected, state);
+        g_clear_object (&window);
+        return;
+    }
+
+    while (state->investment_index < state->investments.size ())
+    {
+        const auto &selection = state->investments[state->investment_index];
+        auto commodity = ofx_import_state_commodity (state, selection.security_id);
+        if (!commodity)
+        {
+            ofx_import_state_abort (state);
+            return;
+        }
+        auto account = gnc_import_select_account (nullptr, selection.online_id.c_str (), FALSE,
+                                                  nullptr, nullptr, ACCT_TYPE_STOCK,
+                                                  nullptr, nullptr);
+        if (account)
+        {
+            ofx_import_state_investment_selected (account, TRUE, state);
+            return;
+        }
+        auto last = ofx_import_state_account (state, state->last_investment_guid);
+        auto parent = last && xaccAccountGetCommodity (last) == commodity
+            ? last : ofx_import_state_account (state, state->investment_parent_guid);
+        auto window = ofx_import_state_parent (state);
+        auto description = g_strdup_printf (_("Stock account for security \"%s\""),
+                                            selection.security_name.c_str ());
+        gnc_import_select_account_async_no_mutation (
+            GTK_WIDGET (window), selection.online_id.c_str (), TRUE, description, commodity,
+            ACCT_TYPE_STOCK, parent, ofx_import_state_investment_selected, state);
+        g_free (description);
+        g_clear_object (&window);
+        return;
+    }
+
+    while (state->income_index < state->investments.size ())
+    {
+        const auto &selection = state->investments[state->income_index];
+        if (!selection.needs_income)
+        {
+            ++state->income_index;
+            continue;
+        }
+        auto investment = ofx_import_state_mapped_account (state, state->investment_guids,
+                                                            selection.online_id);
+        auto income = investment ? get_associated_income_account (investment) : nullptr;
+        if (income)
+        {
+            if (!ofx_import_state_account_is_current (state, income))
+            {
+                ofx_import_state_abort (state);
+                return;
+            }
+            ofx_import_state_store_account (state, state->income_guids, selection.online_id, income);
+            ++state->income_index;
+            continue;
+        }
+        auto currency = selection.currency.empty () ? nullptr :
+            gnc_commodity_table_lookup (gnc_get_current_commodities (),
+                                        GNC_COMMODITY_NS_CURRENCY,
+                                        selection.currency.c_str ());
+        if (!currency)
+        {
+            auto source = ofx_import_state_mapped_account (state, state->account_guids,
+                                                            selection.account_id);
+            currency = source ? xaccAccountGetCommodity (source) : nullptr;
+        }
+        auto description = g_strdup_printf (_("Income account for security \"%s\""),
+                                            selection.security_name.c_str ());
+        auto window = ofx_import_state_parent (state);
+        auto last = ofx_import_state_account (state, state->last_income_guid);
+        gnc_import_select_account_async_no_mutation (
+            GTK_WIDGET (window), nullptr, TRUE, description, currency, ACCT_TYPE_INCOME, last,
+            ofx_import_state_income_selected, state);
+        g_free (description);
+        g_clear_object (&window);
+        return;
+    }
+
+    auto parent = ofx_import_state_parent (state);
+    state->info->gnc_ofx_importer_gui = gnc_gen_trans_list_new (GTK_WIDGET (parent), nullptr,
+                                                                 FALSE, 42, FALSE);
+    g_clear_object (&parent);
+    gnc_file_ofx_import_parse_current_file (state);
+}
+
+static void
+ofx_import_state_new_book_options_finished (GtkWindow *parent, gboolean applied,
+                                            gpointer user_data)
+{
+    auto state = static_cast<OfxImportState *> (user_data);
+    if (!applied || !ofx_import_state_ready (state))
+        ofx_import_state_abort (state);
+    else
+        ofx_import_state_continue (state);
+    (void)parent;
 }
 
 static void
 gnc_file_ofx_import_process_file (ofx_info *info)
 {
-    if (!info->file_list)
+    if (!info || !info->file_list)
         return;
+    if (info->parent_destroyed)
+    {
+        gnc_ofx_abort_import (info);
+        return;
+    }
 
-    /* LibOFX is synchronous. Collect account IDs first, then resolve every
-     * missing mapping through GTK4 callbacks before the mutating parse. */
-    auto *preflight = new OfxAccountPreflight { info, {}, 0 };
+    auto state = new OfxImportState {};
+    state->info = info;
+    state->has_parent = info->parent != nullptr;
+    state->parent_destroyed = info->parent_destroyed;
+    g_weak_ref_init (&state->parent, info->parent);
+    if (info->parent)
+        state->parent_destroy_handler = g_signal_connect (
+            info->parent, "destroy", G_CALLBACK (ofx_import_state_parent_destroyed), state);
+    state->book_guid = *qof_instance_get_guid (QOF_INSTANCE (gnc_get_current_book ()));
+    state->last_investment_guid = *guid_null ();
+    state->last_income_guid = *guid_null ();
+    state->investment_parent_guid = *guid_null ();
+
     auto context = libofx_get_new_context ();
-    auto filename = static_cast<gchar*> (info->file_list->data);
+    auto filename = static_cast<gchar *> (info->file_list->data);
 #ifdef G_OS_WIN32
     auto parser_filename = g_win32_locale_filename_from_utf8 (filename);
 #else
     auto parser_filename = filename;
 #endif
-
-    ofx_set_account_cb (context, ofx_collect_account_cb, preflight);
+    ofx_set_account_cb (context, ofx_collect_account_cb, state);
+    ofx_set_security_cb (context, ofx_collect_security_cb, state);
+    ofx_set_transaction_cb (context, ofx_collect_transaction_cb, state);
     libofx_proc_file (context, parser_filename, AUTODETECT);
     libofx_free_context (context);
 #ifdef G_OS_WIN32
     g_free (parser_filename);
 #endif
 
-    /* This used to be delayed until libofx entered its account callback. It
-     * must run before an asynchronous picker can create the first account. */
-    if (gnc_is_new_book ())
-        gnc_new_book_option_display (GTK_WIDGET (gnc_ui_get_main_window (NULL)));
-    ofx_preflight_continue (preflight);
-}
-
-// Mutating parse after gnc_file_ofx_import_process_file has resolved all
-// top-level OFX account IDs.
-static void
-gnc_file_ofx_import_parse_current_file (ofx_info* info)
-{
-    LibofxContextPtr libofx_context;
-    char* filename = NULL;
-    char * selected_filename = NULL;
-    GtkWindow *parent = info->parent;
-
-    if (info->file_list == NULL)
+    if (!ofx_import_state_ready (state))
+    {
+        ofx_import_state_abort (state);
         return;
-
-    filename = static_cast<char*>(info->file_list->data);
-    libofx_context = libofx_get_new_context();
-
-#ifdef G_OS_WIN32
-    selected_filename = g_win32_locale_filename_from_utf8 (filename);
-#else
-    selected_filename = filename;
-#endif
-    DEBUG("Filename found: %s", selected_filename);
-
-    // Reset the reconciliation information.
-    info->num_trans_processed = 0;
-    info->statement = NULL;
-
-    /* Initialize libofx and set the callbacks*/
-    ofx_set_statement_cb (libofx_context, ofx_proc_statement_cb, info);
-    ofx_set_account_cb (libofx_context, ofx_proc_account_cb, info);
-    ofx_set_transaction_cb (libofx_context, ofx_proc_transaction_cb, info);
-    ofx_set_security_cb (libofx_context, ofx_proc_security_cb, info);
-    /*ofx_set_status_cb(libofx_context, ofx_proc_status_cb, 0);*/
-
-    // Create the match dialog, and run the ofx file through the importer.
-    info->gnc_ofx_importer_gui = gnc_gen_trans_list_new (GTK_WIDGET(parent), NULL, FALSE, 42, FALSE);
-    libofx_proc_file (libofx_context, selected_filename, AUTODETECT);
-
-    // Free the libofx context before recursing to process the next file
-    libofx_free_context(libofx_context);
-    runMatcher(info, selected_filename,true);
-#ifdef G_OS_WIN32
-    g_free(selected_filename);
-#endif
+    }
+    if (gnc_is_new_book ())
+    {
+        auto parent = ofx_import_state_parent (state);
+        gnc_new_book_option_display_async (GTK_WIDGET (parent),
+                                           ofx_import_state_new_book_options_finished,
+                                           state);
+        g_clear_object (&parent);
+        return;
+    }
+    ofx_import_state_continue (state);
 }
 
+static void
+gnc_file_ofx_import_parse_current_file (OfxImportState *state)
+{
+    auto info = state ? state->info : nullptr;
+    if (!info || !info->file_list || !ofx_import_state_ready (state))
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
+
+    auto filename = static_cast<char *> (info->file_list->data);
+    auto libofx_context = libofx_get_new_context ();
+#ifdef G_OS_WIN32
+    auto selected_filename = g_win32_locale_filename_from_utf8 (filename);
+#else
+    auto selected_filename = filename;
+#endif
+    info->num_trans_processed = 0;
+    info->statement = nullptr;
+    ofx_set_statement_cb (libofx_context, ofx_proc_statement_cb, state);
+    ofx_set_account_cb (libofx_context, ofx_proc_account_cb, state);
+    ofx_set_transaction_cb (libofx_context, ofx_proc_transaction_cb, state);
+    ofx_set_security_cb (libofx_context, ofx_proc_security_cb, state);
+    libofx_proc_file (libofx_context, selected_filename, AUTODETECT);
+    libofx_free_context (libofx_context);
+    ofx_import_state_free (state);
+    runMatcher (info, selected_filename, TRUE);
+#ifdef G_OS_WIN32
+    g_free (selected_filename);
+#endif
+}
 // The main import function. Starts the chain of file imports (if there are several)
 typedef struct
 {
@@ -1634,7 +1968,10 @@ ofx_import_selected_files (GtkWindow *parent, GSList *selected_filenames)
     info->last_investment_account = NULL;
     info->last_import_account = NULL;
     info->last_income_account = NULL;
-    info->parent = parent;
+    info->parent = parent ? GTK_WINDOW (g_object_ref (parent)) : NULL;
+    if (info->parent)
+        info->parent_destroy_handler = g_signal_connect (
+            info->parent, "destroy", G_CALLBACK (ofx_info_parent_destroyed), info);
     info->run_reconcile = FALSE;
     info->file_list = selected_filenames;
     info->trans_list = NULL;

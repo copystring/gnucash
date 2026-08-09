@@ -81,6 +81,9 @@ typedef struct _AccountWindow
 
     GncGUID  account;
     Account *created_account;
+    GncGUID  created_account_guid;
+    GncNewAccountCreatedCB creation_callback;
+    gpointer creation_callback_data;
 
     gchar **subaccount_names;
     gchar **next_name;
@@ -783,8 +786,11 @@ gnc_finish_ok (AccountWindow *aw)
         return;
     }
 
-    /* save for posterity */
+    /* Save the account identity before the asynchronous completion can run.
+     * The completion itself looks it up again in the still-current book. */
     aw->created_account = aw_get_account (aw);
+    if (aw->created_account)
+        aw->created_account_guid = *xaccAccountGetGUID (aw->created_account);
 
     /* so it doesn't get freed on close */
     aw->account = *guid_null ();
@@ -1235,6 +1241,22 @@ gnc_account_window_destroy_cb (GtkWidget *object, gpointer data)
     gnc_unregister_gui_component (aw->component_id);
 
     gnc_resume_gui_refresh ();
+
+    if (aw->creation_callback)
+    {
+        Account *created_account = NULL;
+
+        if (aw->book == gnc_get_current_book () &&
+            !guid_equal (&aw->created_account_guid, guid_null ()))
+        {
+            created_account = xaccAccountLookup (&aw->created_account_guid, aw->book);
+            if (created_account &&
+                qof_instance_get_destroying (QOF_INSTANCE (created_account)))
+                created_account = NULL;
+        }
+        aw->creation_callback (created_account, created_account != NULL,
+                               aw->creation_callback_data);
+    }
 
     if (aw->subaccount_names)
     {
@@ -1847,7 +1869,8 @@ close_handler (gpointer user_data)
     ENTER("aw %p, modal %d", aw, aw->modal);
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(aw->dialog));
 
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(aw->dialog));
+    if (aw->creation_callback && aw->dialog)
+        gtk_window_destroy (GTK_WINDOW (aw->dialog));
     LEAVE(" ");
 }
 
@@ -2055,6 +2078,49 @@ gnc_ui_new_accounts_from_name_window (GtkWindow *parent, const char *name)
                                                          NULL, NULL);
 }
 
+void
+gnc_ui_new_accounts_from_name_with_defaults_async (
+    GtkWindow *parent, const char *name, GList *valid_types,
+    const gnc_commodity *default_commodity, Account *parent_acct,
+    GncNewAccountCreatedCB callback, gpointer user_data)
+{
+    QofBook *book = gnc_get_current_book ();
+    AccountWindow *aw;
+    Account *base_account = NULL;
+    gchar **subaccount_names;
+
+    if (!book)
+    {
+        if (callback)
+            callback (NULL, FALSE, user_data);
+        return;
+    }
+    if (!name || !*name)
+        subaccount_names = NULL;
+    else
+        subaccount_names = gnc_split_account_name (book, name, &base_account);
+    if (parent_acct)
+        base_account = parent_acct;
+
+    aw = gnc_ui_new_account_window_internal (parent, book, base_account,
+                                             subaccount_names, valid_types,
+                                             default_commodity, FALSE);
+    if (!aw)
+    {
+        g_strfreev (subaccount_names);
+        if (callback)
+            callback (NULL, FALSE, user_data);
+        return;
+    }
+
+    aw->creation_callback = callback;
+    aw->creation_callback_data = user_data;
+    gtk_window_set_modal (GTK_WINDOW (aw->dialog), TRUE);
+    if (parent)
+        g_signal_connect_object (parent, "destroy",
+                                 G_CALLBACK (gtk_window_destroy), aw->dialog,
+                                 G_CONNECT_SWAPPED);
+}
 Account *
 gnc_ui_new_accounts_from_name_with_defaults (GtkWindow *parent,
                                              const char *name,
