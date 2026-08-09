@@ -44,6 +44,7 @@ typedef void (* GncOptionsDialogCallback)(GncOptionsDialog*, void* data);
 class GncOptionsDialog
 {
     GtkWidget  * m_window;
+    GtkEventController * m_key_controller{nullptr};
     GtkWidget  * m_notebook;
     GtkWidget  * m_page_list_view;
     GtkWidget  * m_page_list;

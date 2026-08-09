@@ -730,16 +730,14 @@ billterms_window_close (GtkWidget *widget, gpointer data)
 }
 
 static gboolean
-billterms_window_delete_event_cb (GtkWidget *widget,
-                                  GdkEvent  *event,
-                                  gpointer   data)
+billterms_window_close_request_cb (GtkWindow *window, gpointer data)
 {
     BillTermsWindow *btw = data;
 
     if (!btw) return FALSE;
 
-    // this cb allows the window size to be saved on closing with the X
-    gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(btw->window));
+    // This callback allows the window size to be saved on closing with the X.
+    gnc_save_window_size (GNC_PREFS_GROUP, window);
     return FALSE;
 }
 
@@ -876,8 +874,8 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, btw);
 
     gnc_gui_component_set_session (btw->component_id, btw->session);
 
-    g_signal_connect (G_OBJECT(btw->window), "delete-event",
-                      G_CALLBACK(billterms_window_delete_event_cb), btw);
+    g_signal_connect (G_OBJECT(btw->window), "close-request",
+                      G_CALLBACK(billterms_window_close_request_cb), btw);
 
     gnc_restore_window_size (GNC_PREFS_GROUP, GTK_WINDOW(btw->window), GTK_WINDOW(parent));
 

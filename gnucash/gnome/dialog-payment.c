@@ -1204,14 +1204,10 @@ doc_sort_func (GtkTreeModel *model,
 }
 
 static gboolean
-payment_dialog_delete_event_cb (GtkWidget *widget,
-                                GdkEvent  *event,
-                                gpointer   user_data)
+payment_dialog_close_request_cb (GtkWindow *window, G_GNUC_UNUSED gpointer user_data)
 {
-    PaymentWindow *pw = user_data;
-
-    // this cb allows the window size to be saved on closing with the X
-    gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(pw->dialog));
+    // This callback allows the window size to be saved on closing with the X.
+    gnc_save_window_size (GNC_PREFS_GROUP, window);
 
     return FALSE;
 }
@@ -1425,8 +1421,8 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     g_signal_connect (G_OBJECT (selection), "changed",
                       G_CALLBACK (gnc_payment_dialog_xfer_acct_changed_cb), pw);
 
-    g_signal_connect (G_OBJECT(pw->dialog), "delete-event",
-                      G_CALLBACK(payment_dialog_delete_event_cb), pw);
+    g_signal_connect (G_OBJECT(pw->dialog), "close-request",
+                      G_CALLBACK(payment_dialog_close_request_cb), pw);
 
     /* Register with the component manager */
     pw->component_id =

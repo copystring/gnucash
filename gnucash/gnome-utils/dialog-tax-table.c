@@ -829,14 +829,10 @@ tax_table_window_close (GtkWidget *widget, gpointer data)
 }
 
 static gboolean
-tax_table_window_delete_event_cb (GtkWidget *widget,
-                                  GdkEvent  *event,
-                                  gpointer   user_data)
+tax_table_window_close_request_cb (GtkWindow *window, G_GNUC_UNUSED gpointer user_data)
 {
-    TaxTableWindow *ttw = user_data;
-    // this cb allows the window size to be saved on closing with the X
-    gnc_save_window_size (GNC_PREFS_GROUP,
-                          GTK_WINDOW(ttw->dialog));
+    // This callback allows the window size to be saved on closing with the X.
+    gnc_save_window_size (GNC_PREFS_GROUP, window);
     return FALSE;
 }
 
@@ -926,8 +922,8 @@ gnc_ui_tax_table_window_new (GtkWindow *parent, QofBook *book)
     gtk_widget_set_name (GTK_WIDGET(ttw->dialog), "gnc-id-new-tax-table");
     gnc_widget_style_context_add_class (GTK_WIDGET(ttw->dialog), "gnc-class-taxes");
 
-    g_signal_connect (ttw->dialog, "delete-event",
-                      G_CALLBACK(tax_table_window_delete_event_cb), ttw);
+    g_signal_connect (ttw->dialog, "close-request",
+                      G_CALLBACK(tax_table_window_close_request_cb), ttw);
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(ttw->dialog), event_controller);

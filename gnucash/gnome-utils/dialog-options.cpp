@@ -455,13 +455,14 @@ dialog_destroy_cb (GtkWidget *object, GncOptionsDialog *win)
     win->call_close_cb();
 }
 
-// "key_press_event" signal handler
+// GtkEventControllerKey::key-pressed signal handler
 static gboolean
-dialog_window_key_press_cb(GtkWidget *widget, GdkEventKey *event, gpointer data)
+dialog_window_key_pressed_cb (GtkEventControllerKey *key, guint keyval,
+                              guint keycode, GdkModifierType state, gpointer data)
 {
     GncOptionsDialog *win = static_cast<decltype(win)>(data);
 
-    if (event->keyval == GDK_KEY_Escape)
+    if (keyval == GDK_KEY_Escape)
     {
         component_close_handler (win);
         return TRUE;
@@ -616,8 +617,10 @@ GncOptionsDialog::GncOptionsDialog(bool modal, const char* title,
 
     g_signal_connect (m_window, "destroy", G_CALLBACK(dialog_destroy_cb), this);
 
-    g_signal_connect (m_window, "key_press_event",
-                      G_CALLBACK(dialog_window_key_press_cb), this);
+    m_key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (m_window, m_key_controller);
+    g_signal_connect (m_key_controller, "key-pressed",
+                      G_CALLBACK(dialog_window_key_pressed_cb), this);
 
     g_object_unref(G_OBJECT(builder));
 }
@@ -629,7 +632,13 @@ GncOptionsDialog::~GncOptionsDialog()
     m_destroying = true;
     gnc_unregister_gui_component_by_data(m_component_class, this);
     g_signal_handlers_disconnect_by_func(m_window, (gpointer)dialog_destroy_cb, this);
-    g_signal_handlers_disconnect_by_func(m_window, (gpointer)dialog_window_key_press_cb, this);
+    if (m_key_controller)
+    {
+        g_signal_handlers_disconnect_by_func(m_key_controller,
+                                             (gpointer)dialog_window_key_pressed_cb,
+                                             this);
+        m_key_controller = nullptr;
+    }
     m_option_db->foreach_section([](GncOptionSectionPtr& section)
     {
         section->foreach_option([](GncOption& option)

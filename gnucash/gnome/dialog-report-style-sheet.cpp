@@ -431,12 +431,10 @@ gnc_style_sheet_select_dialog_close_cb (GtkWidget *widget, gpointer user_data)
 }
 
 static gboolean
-gnc_style_sheet_select_dialog_delete_event_cb (GtkWidget       *widget,
-                                               const GdkEvent  *event,
-                                               gpointer         user_data)
+gnc_style_sheet_select_dialog_close_request_cb (GtkWindow *window,
+                                                G_GNUC_UNUSED gpointer user_data)
 {
-    auto ss{static_cast<StyleSheetDialog*>(user_data)};
-    gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(ss->toplevel));
+    gnc_save_window_size (GNC_PREFS_GROUP, window);
     return FALSE;
 }
 
@@ -523,8 +521,8 @@ gnc_style_sheet_select_dialog_create (GtkWindow *parent)
     g_signal_connect (ss->toplevel, "destroy",
                       G_CALLBACK(gnc_style_sheet_select_dialog_destroy_cb), ss);
 
-    g_signal_connect (ss->toplevel, "delete-event",
-                      G_CALLBACK(gnc_style_sheet_select_dialog_delete_event_cb), ss);
+    g_signal_connect (ss->toplevel, "close-request",
+                      G_CALLBACK(gnc_style_sheet_select_dialog_close_request_cb), ss);
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(ss->toplevel), event_controller);
