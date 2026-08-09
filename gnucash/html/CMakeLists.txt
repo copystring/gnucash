@@ -72,6 +72,10 @@ if (GNC_REPORT_WEBVIEW2)
   target_link_libraries(gnc-html PRIVATE dcomp ole32)
 endif()
 
+if (GNC_REPORT_WKWEBVIEW)
+  target_link_libraries(gnc-html PRIVATE PkgConfig::GTK4MACOS)
+endif()
+
 
 target_include_directories (gnc-html
 PUBLIC

@@ -261,6 +261,10 @@ if (WITH_GNUCASH)
   endif()
 
   pkg_check_modules (GTK4 REQUIRED IMPORTED_TARGET gtk4>=${GTK_MIN_VERSION})
+  if (APPLE)
+    # gdk_macos_surface_get_native_window is a supported GTK macOS backend API.
+    pkg_check_modules (GTK4MACOS REQUIRED IMPORTED_TARGET gtk4-macos>=${GTK_MIN_VERSION})
+  endif()
 endif()
 
 pkg_check_modules (ZLIB REQUIRED zlib)
