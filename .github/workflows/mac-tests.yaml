@@ -45,6 +45,8 @@ jobs:
         mkdir $HOME/gnucash/build
         cd $HOME/gnucash/build
         cmake -GNinja -DPKG_CONFIG_EXECUTABLE=$PREFIX/bin/pkgconf -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DWITH_PYTHON=ON -DGTEST_ROOT=$SRCROOT/googletest $GITHUB_WORKSPACE
+    - name: Validate GTK4 builder resources
+      run: find "$GITHUB_WORKSPACE/gnucash" -type f \( -name '*.ui' -o -name '*.glade' \) -exec gtk4-builder-tool validate {} \;
     - name: Build and Test GnuCash
       run: |
         cd $HOME/gnucash/build

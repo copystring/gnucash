@@ -27,6 +27,8 @@ jobs:
         run: |
           cd build
           cmake -G Ninja -DWITH_PYTHON=ON -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON
+      - name: Validate GTK4 builder resources
+        run: find "$GITHUB_WORKSPACE/gnucash" -type f \( -name '*.ui' -o -name '*.glade' \) -exec gtk4-builder-tool validate {} \;
       - name: Build and test GnuCash with coverage analysis
         run: |
           cd build

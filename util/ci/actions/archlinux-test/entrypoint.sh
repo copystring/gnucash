@@ -9,6 +9,7 @@ export PATH="$PATH:/usr/bin/core_perl"
 export CTEST_OUTPUT_ON_FAILURE=On
 git config --global --add safe.directory /github/workspace
 cmake /github/workspace -DWITH_PYTHON=ON -DCMAKE_BUILD_TYPE=debug -G Ninja
+find /github/workspace/gnucash -type f \( -name '*.ui' -o -name '*.glade' \) -exec gtk4-builder-tool validate {} \;
 ninja
 ninja check
 
