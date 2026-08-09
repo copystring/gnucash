@@ -80,14 +80,8 @@ gnc_options_dialog_apply_cb(GncOptionsDialog *opt_dialog,
     auto results = gnc_option_db_commit (win->odb);
     for (auto iter = results; iter; iter = iter->next)
     {
-        auto dialog = gtk_message_dialog_new(GTK_WINDOW (win->win),
-                                             static_cast<GtkDialogFlags>(0),
-                                             GTK_MESSAGE_ERROR,
-                                             GTK_BUTTONS_OK,
-                                             "%s",
-                                             (char*)iter->data);
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
+        gnc_error_dialog (GTK_WINDOW (win->win), "%s",
+                          static_cast<char *> (iter->data));
         g_free (iter->data);
     }
     g_list_free (results);

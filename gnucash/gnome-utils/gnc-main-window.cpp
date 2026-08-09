@@ -3099,18 +3099,11 @@ gnc_main_window_engine_commit_error_callback( gpointer data,
         QofBackendError errcode )
 {
     GncMainWindow* window = GNC_MAIN_WINDOW(data);
-    GtkWidget* dialog;
     const gchar *reason = _("Unable to save to database.");
+
     if ( errcode == ERR_BACKEND_READONLY )
         reason = _("Unable to save to database: Book is marked read-only.");
-    dialog = gtk_message_dialog_new( GTK_WINDOW(window),
-                                     GTK_DIALOG_DESTROY_WITH_PARENT,
-                                     GTK_MESSAGE_ERROR,
-                                     GTK_BUTTONS_CLOSE,
-                                     "%s",
-                                     reason );
-    gnc_dialog_run(GTK_DIALOG (dialog));
-
+    gnc_error_dialog (GTK_WINDOW (window), "%s", reason);
 }
 
 /** Connect a GncPluginPage to the window.  This function will insert
@@ -4578,13 +4571,8 @@ gnc_book_options_dialog_apply_helper(GncOptionDB * options)
     results = gnc_option_db_commit (options);
     for (iter = results; iter; iter = iter->next)
     {
-        GtkWidget *dialog = gtk_message_dialog_new(gnc_ui_get_main_window (nullptr),
-                                                   (GtkDialogFlags)0,
-                                                   GTK_MESSAGE_ERROR,
-                                                   GTK_BUTTONS_OK,
-                                                   "%s",
-                                                   (char*)iter->data);
-        gnc_dialog_run(GTK_DIALOG(dialog));
+        gnc_error_dialog (gnc_ui_get_main_window (nullptr), "%s",
+                          static_cast<char *> (iter->data));
         g_free (iter->data);
     }
     g_list_free (results);

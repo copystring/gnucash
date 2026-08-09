@@ -717,15 +717,7 @@ static void
 split_error_warning_dialog (GtkWidget *parent, const gchar *title,
                             gchar *message)
 {
-    GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW (parent), 0,
-                                                GTK_MESSAGE_ERROR,
-                                                GTK_BUTTONS_CLOSE,
-                                                "%s", title);
-    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (dialog),
-                                              "%s", message);
-    gtk_window_set_transient_for (GTK_WINDOW (dialog), GTK_WINDOW (parent));
-    gnc_dialog_run (GTK_DIALOG (dialog));
-
+    gnc_error_dialog (GTK_WINDOW (parent), "%s\n\n%s", title, message);
 }
 
 static gboolean
