@@ -85,7 +85,8 @@ typedef struct
     GtkWidget      *start_label;
     GtkWidget      *custom_entry;
 
-    GtkWidget      *file_chooser;
+    GtkWidget      *file_select_button;
+    GtkWidget      *file_name_label;
     GtkWidget      *finish_label;
     GtkWidget      *summary_label;
 

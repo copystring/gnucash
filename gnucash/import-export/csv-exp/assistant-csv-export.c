@@ -33,9 +33,11 @@
 #include "gnc-ui.h"
 #include "gnc-uri-utils.h"
 #include "gnc-component-manager.h"
+#include "gnc-ui-util.h"
 #include "gnc-date-edit.h"
 #include "gnc-prefs.h"
 #include "dialog-utils.h"
+#include "gnc-file.h"
 #include "Query.h"
 #include "Transaction.h"
 
@@ -72,8 +74,6 @@ void csv_export_show_range_cb (GtkToggleButton *button, gpointer user_data);
 void csv_export_start_date_cb (GtkWidget *radio, gpointer user_data);
 void csv_export_end_date_cb (GtkWidget *radio, gpointer user_data);
 
-void csv_export_file_chooser_file_activated_cb (GtkFileChooser *chooser, CsvExportInfo *info);
-void csv_export_file_chooser_selection_changed_cb (GtkFileChooser *chooser, CsvExportInfo *info);
 
 static const gchar *start_tree_string = N_(
             "This assistant will help you export the Account Tree to a file "
@@ -120,82 +120,105 @@ static const gchar *finish_trans_search_gl_string = N_(
             "You can also verify your selections by clicking on \"Back\" or \"Cancel\" to abort the export.\n");
 
 
-/**************************************************
- * csv_export_assistant_check_filename
- *
- * check for a valid filename for GtkFileChooser callbacks
- **************************************************/
+#define CSV_EXPORT_INFO_DATA_KEY "gnc-csv-export-info"
+
+typedef struct
+{
+    GWeakRef assistant;
+} CsvExportFileDialogData;
+
+static void
+csv_export_file_dialog_data_free (CsvExportFileDialogData *data)
+{
+    g_weak_ref_clear (&data->assistant);
+    g_free (data);
+}
+
 static gboolean
-csv_export_assistant_check_filename (GtkFileChooser *chooser,
-                                     CsvExportInfo *info)
+csv_export_assistant_set_filename (CsvExportInfo *info, GFile *file)
 {
-    GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER(chooser));
     gchar *file_name = g_file_get_path (file);
-    g_object_unref (file);
+    gchar *filedir;
 
-    /* Test for a valid filename and not a directory */
-    if (file_name && !g_file_test (file_name, G_FILE_TEST_IS_DIR))
+    if (!file_name || g_file_test (file_name, G_FILE_TEST_IS_DIR))
     {
-        gchar *filepath = gnc_uri_get_path (file_name);
-        gchar *filedir = g_path_get_dirname (filepath);
-
-        g_free (info->file_name);
-        info->file_name = g_strdup (file_name);
-
-        g_free (info->starting_dir);
-        info->starting_dir = g_strdup (filedir);
-
-        g_free (filedir);
-        g_free (filepath);
         g_free (file_name);
-
-        DEBUG("file_name selected is %s", info->file_name);
-        DEBUG("starting directory is %s", info->starting_dir);
-        return TRUE;
+        return FALSE;
     }
-    g_free (file_name);
-    return FALSE;
+
+    filedir = g_path_get_dirname (file_name);
+    g_free (info->file_name);
+    info->file_name = file_name;
+    g_free (info->starting_dir);
+    info->starting_dir = filedir;
+
+    DEBUG ("file_name selected is %s", info->file_name);
+    DEBUG ("starting directory is %s", info->starting_dir);
+    return TRUE;
 }
 
-
-/**************************************************
- * csv_export_file_chooser_file_activated_cb
- *
- * call back for GtkFileChooser file-activated signal
- **************************************************/
-void
-csv_export_file_chooser_file_activated_cb (GtkFileChooser *chooser,
-                                           CsvExportInfo *info)
+static void
+csv_export_file_dialog_finished (GObject *source, GAsyncResult *result,
+                                 gpointer user_data)
 {
-    GtkAssistant *assistant = GTK_ASSISTANT(info->assistant);
-    gtk_assistant_set_page_complete (assistant, info->file_page, FALSE);
+    CsvExportFileDialogData *data = user_data;
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GFile *file;
+    GtkWidget *assistant;
+    CsvExportInfo *info = NULL;
 
-    /* Test for a valid filename and not a directory */
-    if (csv_export_assistant_check_filename (chooser, info))
+    file = gnc_file_dialog_request_finish (request, result, &error);
+    assistant = g_weak_ref_get (&data->assistant);
+    if (assistant)
+        info = g_object_get_data (G_OBJECT (assistant),
+                                  CSV_EXPORT_INFO_DATA_KEY);
+
+    if (file && info)
     {
-        gtk_assistant_set_page_complete (assistant, info->file_page, TRUE);
-        gtk_assistant_next_page (assistant);
+        if (csv_export_assistant_set_filename (info, file))
+        {
+            gtk_label_set_text (GTK_LABEL (info->file_name_label),
+                                info->file_name);
+            gtk_assistant_set_page_complete (GTK_ASSISTANT (assistant),
+                                             info->file_page, TRUE);
+        }
+        else
+        {
+            gnc_error_dialog (GTK_WINDOW (assistant), "%s",
+                              _("Please select a file, not a folder."));
+        }
     }
+    else if (info && error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    {
+        gnc_error_dialog (GTK_WINDOW (assistant), "%s", error->message);
+    }
+
+    g_clear_object (&file);
+    g_clear_error (&error);
+    g_clear_object (&assistant);
+    csv_export_file_dialog_data_free (data);
 }
 
-
-/**************************************************
- * csv_export_file_chooser_selection_changed_cb
- *
- * call back for GtkFileChooser widget
- **************************************************/
-void
-csv_export_file_chooser_selection_changed_cb (GtkFileChooser *chooser,
-                                              CsvExportInfo *info)
+static void
+csv_export_choose_file_cb (GtkButton *button, gpointer user_data)
 {
-    GtkAssistant *assistant = GTK_ASSISTANT(info->assistant);
+    CsvExportInfo *info = user_data;
+    CsvExportFileDialogData *data;
+    GncFileDialogRequest *request;
 
-    /* Enable the "Next" button based on a valid filename */
-    gtk_assistant_set_page_complete (assistant, info->file_page,
-        csv_export_assistant_check_filename (chooser, info));
+    data = g_new0 (CsvExportFileDialogData, 1);
+    g_weak_ref_init (&data->assistant, info->assistant);
+    request = gnc_file_dialog_request_new (
+        GTK_WINDOW (info->assistant), _("Select CSV Export File"), NULL,
+        info->starting_dir, GNC_FILE_DIALOG_EXPORT);
+    gnc_file_dialog_request_save_async (request, NULL,
+                                        csv_export_file_dialog_finished, data);
+    g_object_unref (request);
+
+    (void)button;
 }
-
-
 /*******************************************************
  * csv_export_sep_cb
  *
@@ -771,16 +794,10 @@ csv_export_assistant_file_page_prepare (GtkAssistant *assistant,
 {
     CsvExportInfo *info = user_data;
 
-    /* Set the default directory */
-    if (info->starting_dir)
-    {
-        GFile *file = g_file_new_for_path (info->starting_dir);
-        gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(info->file_chooser), file, NULL);
-        g_object_unref (file);
-    }
-    gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER(info->file_chooser), "");
-
-    /* Disable the "Next" Assistant Button */
+    /* A new request inherits the last selected directory. */
+    g_clear_pointer (&info->file_name, g_free);
+    gtk_label_set_text (GTK_LABEL (info->file_name_label),
+                        _("No file selected"));
     gtk_assistant_set_page_complete (assistant, info->file_page, FALSE);
 }
 
@@ -874,6 +891,7 @@ static void
 csv_export_assistant_destroy_cb (GtkWidget *object, gpointer user_data)
 {
     CsvExportInfo *info = user_data;
+    g_object_set_data (G_OBJECT (object), CSV_EXPORT_INFO_DATA_KEY, NULL);
     gnc_unregister_gui_component_by_data (ASSISTANT_CSV_EXPORT_CM_CLASS, info);
     g_list_free (info->csva.account_list);
     g_clear_object (&info->csva.account_selection);
@@ -934,6 +952,7 @@ csv_export_assistant_create (CsvExportInfo *info)
     gtk_builder_set_current_object (builder, G_OBJECT(info));
     gnc_builder_add_from_file  (builder , "assistant-csv-export.glade", "csv_export_assistant");
     info->assistant = GTK_WIDGET(gtk_builder_get_object (builder, "csv_export_assistant"));
+    g_object_set_data (G_OBJECT (info->assistant), CSV_EXPORT_INFO_DATA_KEY, info);
 
     // Set the name for this assistant so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(info->assistant), "gnc-id-assistant-csv-export");
@@ -1050,19 +1069,14 @@ csv_export_assistant_create (CsvExportInfo *info)
         update_accounts_tree (info);
     }
 
-    /* File chooser Page */
-    info->file_page = GTK_WIDGET(gtk_builder_get_object(builder, "file_page"));
-    info->file_chooser = gtk_file_chooser_widget_new (GTK_FILE_CHOOSER_ACTION_SAVE);
-
-    g_signal_connect (G_OBJECT(info->file_chooser), "selection-changed",
-                      G_CALLBACK(csv_export_file_chooser_selection_changed_cb), info);
-
-    g_signal_connect (G_OBJECT(info->file_chooser), "file-activated",
-                      G_CALLBACK(csv_export_file_chooser_file_activated_cb), info);
-
-    gtk_box_append (GTK_BOX(info->file_page), GTK_WIDGET(info->file_chooser));
-    gtk_box_set_spacing (GTK_BOX(info->file_page), 6);
-    gtk_widget_set_visible (GTK_WIDGET(info->file_chooser), TRUE);
+    /* File selection page */
+    info->file_page = GTK_WIDGET (gtk_builder_get_object (builder, "file_page"));
+    info->file_select_button = GTK_WIDGET (gtk_builder_get_object (
+        builder, "file_select_button"));
+    info->file_name_label = GTK_WIDGET (gtk_builder_get_object (
+        builder, "file_name_label"));
+    g_signal_connect (info->file_select_button, "clicked",
+                      G_CALLBACK (csv_export_choose_file_cb), info);
 
     /* Finish Page */
     info->finish_label = GTK_WIDGET(gtk_builder_get_object (builder, "end_page"));
