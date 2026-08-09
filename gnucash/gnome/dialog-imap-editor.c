@@ -210,15 +210,15 @@ imap_apply_filter (ImapDialog *dialog, gboolean expand_matches)
     gtk_filter_changed (GTK_FILTER (dialog->filter), GTK_FILTER_CHANGE_DIFFERENT);
 }
 static void
-delete_info_bayes (Account *source_account, const gchar *head, guint depth)
+delete_info_bayes (Account *source_account, gchar *head, guint depth)
 {
     if (depth != 1) gnc_account_delete_map_entry (source_account, head, NULL, NULL, FALSE);
     else gnc_account_delete_all_bayes_maps (source_account);
 }
 
 static void
-delete_info_nbayes (Account *source_account, const gchar *head, const gchar *category,
-                    const gchar *match_string, guint depth)
+delete_info_nbayes (Account *source_account, gchar *head, gchar *category,
+                    gchar *match_string, guint depth)
 {
     if (depth != 1)
     {
@@ -245,13 +245,6 @@ delete_row_info (ImapDialog *dialog, ImapRow *row, guint depth)
 
 typedef struct { ImapRow *row; guint depth; } ImapSelectedRow;
 static void imap_selected_row_free (gpointer data) { g_free (data); }
-
-static gboolean
-imap_row_is_selectable (ImapDialog *dialog, ImapRow *row)
-{
-    return !dialog->filter_text || !*dialog->filter_text ||
-           (row && row->match_string);
-}
 
 static GPtrArray *
 imap_selected_rows (ImapDialog *dialog)
@@ -285,8 +278,7 @@ imap_selected_rows (ImapDialog *dialog)
             if (parent)
                 parent_row = imap_row_get (gtk_tree_list_row_get_item (parent));
 
-            if (imap_row_is_selectable (dialog, row) &&
-                !(depth > 0 && g_hash_table_contains (selected_roots, parent_row)))
+            if (!(depth > 0 && g_hash_table_contains (selected_roots, parent_row)))
             {
                 ImapSelectedRow *selected = g_new (ImapSelectedRow, 1);
 
@@ -611,36 +603,13 @@ static void
 list_type_selected_cb (GtkToggleButton *button, ImapDialog *dialog)
 {
     GncListType type = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (dialog->radio_bayes)) ? BAYES : gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (dialog->radio_nbayes)) ? NBAYES : ONLINE;
-    if (type == dialog->type) return; dialog->type = type; get_account_info (dialog);
+    if (type == dialog->type)
+        return;
+    dialog->type = type;
+    get_account_info (dialog);
     if (!((type == BAYES && dialog->inv_dialog_shown.bayes) || (type == NBAYES && dialog->inv_dialog_shown.nbayes) || (type == ONLINE && dialog->inv_dialog_shown.online))) gnc_imap_invalid_maps_dialog (dialog);
     (void)button;
 }
-static void
-selection_changed_cb (GtkSelectionModel *selection, guint position, guint n_items,
-                      ImapDialog *dialog)
-{
-    guint i;
-
-    if (!dialog->filter_text || !*dialog->filter_text)
-        return;
-
-    for (i = position; i < position + n_items; i++)
-        if (gtk_selection_model_is_selected (selection, i))
-        {
-            GtkTreeListRow *tree_row;
-            ImapRow *row;
-
-            tree_row = g_list_model_get_item (G_LIST_MODEL (dialog->filter_model), i);
-            if (!tree_row)
-                continue;
-
-            row = imap_row_get (gtk_tree_list_row_get_item (tree_row));
-            if (row && !row->match_string)
-                gtk_selection_model_unselect_item (selection, i);
-            g_object_unref (tree_row);
-        }
-}
-
 static void
 imap_update_grid_lines (gpointer prefs, gchar *pref, gpointer user_data)
 {
@@ -702,13 +671,15 @@ create_dialog (GtkWidget *parent, ImapDialog *dialog)
     GtkBuilder *builder = gtk_builder_new (); GtkWidget *button;
     gnc_builder_add_from_file (builder, "dialog-imap-editor.ui", "import_map_window");
     dialog->window = GTK_WINDOW (gtk_builder_get_object (builder, "import_map_window")); dialog->session = gnc_get_current_session (); dialog->type = BAYES;
-    if (parent) gtk_window_set_transient_for (dialog->window, GTK_WINDOW (parent)); gtk_widget_set_name (GTK_WIDGET (dialog->window), "gnc-id-import-map");
+    if (parent)
+        gtk_window_set_transient_for (dialog->window, GTK_WINDOW (parent));
+    gtk_widget_set_name (GTK_WIDGET (dialog->window), "gnc-id-import-map");
     dialog->radio_bayes = GTK_WIDGET (gtk_builder_get_object (builder, "radio-bayes")); dialog->radio_nbayes = GTK_WIDGET (gtk_builder_get_object (builder, "radio-nbayes")); dialog->radio_online = GTK_WIDGET (gtk_builder_get_object (builder, "radio-online"));
     dialog->filter_text_entry = GTK_WIDGET (gtk_builder_get_object (builder, "filter-text-entry")); dialog->filter_label = GTK_WIDGET (gtk_builder_get_object (builder, "filter-label")); dialog->filter_button = GTK_WIDGET (gtk_builder_get_object (builder, "filter-button")); dialog->expand_button = GTK_WIDGET (gtk_builder_get_object (builder, "expand-button")); dialog->collapse_button = GTK_WIDGET (gtk_builder_get_object (builder, "collapse-button")); dialog->total_entries_label = GTK_WIDGET (gtk_builder_get_object (builder, "total_entries_label")); dialog->remove_button = GTK_WIDGET (gtk_builder_get_object (builder, "remove_button"));
     dialog->rows = g_list_store_new (G_TYPE_OBJECT); dialog->tree_model = gtk_tree_list_model_new (G_LIST_MODEL (dialog->rows), FALSE, FALSE, imap_create_children, NULL, NULL); dialog->filter = gtk_custom_filter_new (imap_filter_match, dialog, NULL); dialog->filter_model = gtk_filter_list_model_new (G_LIST_MODEL (dialog->tree_model), GTK_FILTER (dialog->filter)); dialog->selection = gtk_multi_selection_new (G_LIST_MODEL (dialog->filter_model));
     dialog->view = GTK_COLUMN_VIEW (gtk_builder_get_object (builder, "treeview")); gtk_column_view_set_model (dialog->view, GTK_SELECTION_MODEL (dialog->selection)); gtk_column_view_set_enable_rubberband (dialog->view, TRUE); imap_update_grid_lines (NULL, NULL, dialog);
     imap_add_column (dialog, _("Source Account Name"), 0, TRUE); dialog->based_on_column = imap_add_column (dialog, _("Based On"), 1, FALSE); imap_add_column (dialog, _("Match String"), 2, TRUE); imap_add_column (dialog, _("Mapped to Account Name"), 3, TRUE); dialog->count_column = imap_add_column (dialog, _("Count of Match String Usage"), 4, FALSE);
-    gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_HORIZONTAL, imap_update_grid_lines, dialog); gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_VERTICAL, imap_update_grid_lines, dialog); g_signal_connect (dialog->radio_bayes, "toggled", G_CALLBACK (list_type_selected_cb), dialog); g_signal_connect (dialog->radio_nbayes, "toggled", G_CALLBACK (list_type_selected_cb), dialog); g_signal_connect (dialog->radio_online, "toggled", G_CALLBACK (list_type_selected_cb), dialog); g_signal_connect (dialog->filter_button, "clicked", G_CALLBACK (filter_button_cb), dialog); g_signal_connect (dialog->expand_button, "clicked", G_CALLBACK (expand_button_cb), dialog); g_signal_connect (dialog->collapse_button, "clicked", G_CALLBACK (collapse_button_cb), dialog); g_signal_connect (dialog->selection, "selection-changed", G_CALLBACK (selection_changed_cb), dialog);
+    gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_HORIZONTAL, imap_update_grid_lines, dialog); gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_VERTICAL, imap_update_grid_lines, dialog); g_signal_connect (dialog->radio_bayes, "toggled", G_CALLBACK (list_type_selected_cb), dialog); g_signal_connect (dialog->radio_nbayes, "toggled", G_CALLBACK (list_type_selected_cb), dialog); g_signal_connect (dialog->radio_online, "toggled", G_CALLBACK (list_type_selected_cb), dialog); g_signal_connect (dialog->filter_button, "clicked", G_CALLBACK (filter_button_cb), dialog); g_signal_connect (dialog->expand_button, "clicked", G_CALLBACK (expand_button_cb), dialog); g_signal_connect (dialog->collapse_button, "clicked", G_CALLBACK (collapse_button_cb), dialog);
     button = GTK_WIDGET (gtk_builder_get_object (builder, "delete_button")); g_signal_connect_swapped (button, "clicked", G_CALLBACK (imap_delete_selected), dialog); button = GTK_WIDGET (gtk_builder_get_object (builder, "remove_button")); g_signal_connect_swapped (button, "clicked", G_CALLBACK (imap_remove_invalid_maps), dialog); button = GTK_WIDGET (gtk_builder_get_object (builder, "close_button")); g_signal_connect (button, "clicked", G_CALLBACK (close_clicked_cb), dialog); gtk_window_set_default_widget (dialog->window, button);
     g_signal_connect (dialog->window, "close-request", G_CALLBACK (close_request_cb), dialog); g_signal_connect (dialog->window, "destroy", G_CALLBACK (destroy_cb), dialog); g_object_set_data (G_OBJECT (dialog->window), "gnc-imap-dialog", dialog); g_object_unref (builder);
     gnc_restore_window_size (GNC_PREFS_GROUP, dialog->window, parent ? GTK_WINDOW (parent) : NULL); get_account_info (dialog);
