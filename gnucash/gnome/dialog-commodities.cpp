@@ -82,9 +82,10 @@ void gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointe
 void gnc_commodities_show_currencies_toggled (GtkToggleButton *toggle, CommoditiesDialog *cd);
 }
 
-static gboolean gnc_commodities_window_key_press_cb (GtkWidget *widget,
-                                                     GdkEventKey *event,
-                                                     gpointer data);
+static gboolean gnc_commodities_window_key_pressed_cb (GtkEventControllerKey *key,
+                                                        guint keyval, guint keycode,
+                                                        GdkModifierType state,
+                                                        gpointer data);
 
 
 void
@@ -101,14 +102,12 @@ gnc_commodities_window_destroy_cb (GtkWidget *object,   CommoditiesDialog *cd)
 }
 
 static gboolean
-gnc_commodities_window_delete_event_cb (GtkWidget *widget,
-                                        GdkEvent  *event,
-                                        gpointer   data)
+gnc_commodities_window_close_request_cb (GtkWindow *window, gpointer data)
 {
     auto cd = static_cast<CommoditiesDialog*>(data);
-    // this cb allows the window size to be saved on closing with the X
-    gnc_save_window_size (GNC_PREFS_GROUP,
-                          GTK_WINDOW(cd->window));
+
+    // This callback allows the window size to be saved on closing with the X.
+    gnc_save_window_size (GNC_PREFS_GROUP, window);
     return FALSE;
 }
 
@@ -463,11 +462,13 @@ gnc_commodities_dialog_create (GtkWidget * parent, CommoditiesDialog *cd)
     g_signal_connect (cd->window, "destroy",
                       G_CALLBACK(gnc_commodities_window_destroy_cb), cd);
 
-    g_signal_connect (cd->window, "delete-event",
-                      G_CALLBACK(gnc_commodities_window_delete_event_cb), cd);
+    g_signal_connect (cd->window, "close-request",
+                      G_CALLBACK(gnc_commodities_window_close_request_cb), cd);
 
-    g_signal_connect (cd->window, "key_press_event",
-                      G_CALLBACK (gnc_commodities_window_key_press_cb), cd);
+    GtkEventController *key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (cd->window, key_controller);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gnc_commodities_window_key_pressed_cb), cd);
 
     gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, cd);
     g_object_unref (G_OBJECT(builder));
@@ -510,12 +511,13 @@ show_handler (const char *klass, gint component_id,
 }
 
 static gboolean
-gnc_commodities_window_key_press_cb (GtkWidget *widget, GdkEventKey *event,
-                                     gpointer data)
+gnc_commodities_window_key_pressed_cb (GtkEventControllerKey *key,
+                                        guint keyval, guint keycode,
+                                        GdkModifierType state, gpointer data)
 {
     auto cd = static_cast<CommoditiesDialog*>(data);
 
-    if (event->keyval == GDK_KEY_Escape)
+    if (keyval == GDK_KEY_Escape)
     {
         close_handler (cd);
         return TRUE;

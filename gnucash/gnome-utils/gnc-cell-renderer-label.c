@@ -50,11 +50,13 @@ gsl_dismiss (GtkEntry *entry)
 }
 
 static gboolean
-gsl_key_press_cb (GtkWidget *widget,
-                  GdkEventKey *event,
-                  gpointer   user_data)
+gsl_key_pressed_cb (GtkEventControllerKey *controller,
+                    guint keyval, guint keycode,
+                    GdkModifierType state, gpointer user_data)
 {
-    if (event->keyval == GDK_KEY_Escape)
+    GtkWidget *widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+
+    if (keyval == GDK_KEY_Escape)
     {
         gsl_dismiss (GTK_ENTRY (widget));
         return TRUE;
@@ -63,22 +65,20 @@ gsl_key_press_cb (GtkWidget *widget,
     return FALSE;
 }
 
-static gboolean
-gsl_focus_in_cb (GtkWidget     *widget,
-                 GdkEventFocus *event,
-                 gpointer       user_data)
+static void
+gsl_focus_enter_cb (GtkEventControllerFocus *controller, gpointer user_data)
 {
+    GtkWidget *widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+
     gtk_editable_select_region (GTK_EDITABLE (widget), 0, -1);
-    return FALSE;
 }
 
-static gboolean
-gsl_focus_out_cb (GtkWidget   *widget,
-                  GdkEventFocus *event,
-                  gpointer     user_data)
+static void
+gsl_focus_leave_cb (GtkEventControllerFocus *controller, gpointer user_data)
 {
+    GtkWidget *widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+
     gsl_dismiss (GTK_ENTRY (widget));
-    return FALSE;
 }
 
 static GtkWidget *
@@ -98,12 +98,17 @@ gnc_selectable_entry_new (const gchar *text, gfloat xalign)
     gtk_entry_set_text (entry, clean ? clean : "");
     g_free (clean);
 
-    g_signal_connect (entry, "focus-in-event",
-                      G_CALLBACK (gsl_focus_in_cb), NULL);
-    g_signal_connect (entry, "key-press-event",
-                      G_CALLBACK (gsl_key_press_cb), NULL);
-    g_signal_connect (entry, "focus-out-event",
-                      G_CALLBACK (gsl_focus_out_cb), NULL);
+    GtkEventController *focus_controller = gtk_event_controller_focus_new ();
+    GtkEventController *key_controller = gtk_event_controller_key_new ();
+
+    gtk_widget_add_controller (GTK_WIDGET (entry), focus_controller);
+    g_signal_connect (focus_controller, "enter",
+                      G_CALLBACK (gsl_focus_enter_cb), NULL);
+    g_signal_connect (focus_controller, "leave",
+                      G_CALLBACK (gsl_focus_leave_cb), NULL);
+    gtk_widget_add_controller (GTK_WIDGET (entry), key_controller);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gsl_key_pressed_cb), NULL);
 
     gtk_widget_show (GTK_WIDGET (entry));
     return GTK_WIDGET (entry);

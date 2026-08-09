@@ -68,9 +68,10 @@ void gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data);
 void gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data);
 void gnc_prices_dialog_add_clicked (GtkWidget *widget, gpointer data);
 void gnc_prices_dialog_get_quotes_clicked (GtkWidget *widget, gpointer data);
-static gboolean gnc_prices_dialog_key_press_cb (GtkWidget *widget,
-                                                GdkEventKey *event,
-                                                gpointer data);
+static gboolean gnc_prices_dialog_key_pressed_cb (GtkEventControllerKey *key,
+                                                  guint keyval, guint keycode,
+                                                  GdkModifierType state,
+                                                  gpointer data);
 }
 
 
@@ -115,14 +116,12 @@ gnc_prices_dialog_destroy_cb (GtkWidget *object, gpointer data)
 
 
 static gboolean
-gnc_prices_dialog_delete_event_cb (GtkWidget *widget,
-                                   GdkEvent  *event,
-                                   gpointer   data)
+gnc_prices_dialog_close_request_cb (GtkWindow *window, gpointer data)
 {
     auto pdb_dialog = static_cast<PricesDialog *> (data);
-    // this cb allows the window size to be saved on closing with the X
-    gnc_save_window_size (GNC_PREFS_GROUP,
-                          GTK_WINDOW(pdb_dialog->window));
+
+    // This callback allows the window size to be saved on closing with the X.
+    gnc_save_window_size (GNC_PREFS_GROUP, window);
     return FALSE;
 }
 
@@ -869,11 +868,13 @@ gnc_prices_dialog_create (GtkWidget * parent, PricesDialog *pdb_dialog)
     pdb_dialog->book = qof_session_get_book(pdb_dialog->session);
     pdb_dialog->price_db = gnc_pricedb_get_db(pdb_dialog->book);
 
-    g_signal_connect (pdb_dialog->window, "delete-event",
-                      G_CALLBACK(gnc_prices_dialog_delete_event_cb), pdb_dialog);
+    g_signal_connect (pdb_dialog->window, "close-request",
+                      G_CALLBACK(gnc_prices_dialog_close_request_cb), pdb_dialog);
 
-    g_signal_connect (pdb_dialog->window, "key_press_event",
-                      G_CALLBACK (gnc_prices_dialog_key_press_cb), pdb_dialog);
+    GtkEventController *key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (pdb_dialog->window, key_controller);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gnc_prices_dialog_key_pressed_cb), pdb_dialog);
 
     /* price tree */
     scrolled_window = GTK_WIDGET(gtk_builder_get_object (builder, "price_list_window"));
@@ -974,12 +975,13 @@ show_handler (const char *klass, gint component_id,
 
 
 static gboolean
-gnc_prices_dialog_key_press_cb (GtkWidget *widget, GdkEventKey *event,
-                                gpointer data)
+gnc_prices_dialog_key_pressed_cb (GtkEventControllerKey *key,
+                                   guint keyval, guint keycode,
+                                   GdkModifierType state, gpointer data)
 {
     auto pdb_dialog = static_cast<PricesDialog *> (data);
 
-    if (event->keyval == GDK_KEY_Escape)
+    if (keyval == GDK_KEY_Escape)
     {
         close_handler (pdb_dialog);
         return TRUE;

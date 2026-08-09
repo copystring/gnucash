@@ -1178,17 +1178,14 @@ _transaction_sort_func (GtkTreeModel *model, GtkTreeIter *iter_a, GtkTreeIter *i
         return _transaction_sort_func_date (model, iter_a, iter_b);
 }
 
-static gboolean
-finish_editing_before_ok_cb (GtkWidget *button, GdkEvent *event,
-                             GncSxSinceLastRunDialog *dialog)
+static void
+finish_editing_before_ok_cb (GtkButton *button, GncSxSinceLastRunDialog *dialog)
 {
-    // finish editing
+    // Finish editing before any activation path commits the dialog.
     if (dialog->temp_ce)
         gtk_cell_editable_editing_done (dialog->temp_ce);
 
     dialog->temp_ce = NULL;
-
-    return FALSE;
 }
 
 //FIXME gtk4 static gboolean
@@ -1292,7 +1289,7 @@ since_last_run_dialog (GtkWindow *parent, GncSxInstanceModel *sx_instances, GLis
 
     ok_button = GTK_WIDGET(gtk_builder_get_object (builder, "okbutton2"));
 
-    g_signal_connect (G_OBJECT(ok_button), "button-press-event",
+    g_signal_connect (G_OBJECT(ok_button), "clicked",
                       G_CALLBACK(finish_editing_before_ok_cb), dialog);
 
     {
