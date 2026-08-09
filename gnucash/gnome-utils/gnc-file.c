@@ -434,37 +434,32 @@ gnc_file_dialog_request_finish_multiple (GncFileDialogRequest *request,
     return g_task_propagate_pointer (G_TASK (result), error);
 }
 
-typedef bool (*CharToBool)(const char*);
-
-static bool datafile_filter (const GtkFileFilterInfo* info, CharToBool checker)
-{
-    return info && info->filename && checker (info->filename);
-}
-
 GList*
-gnc_file_chooser_get_datafile_filters ()
+gnc_file_dialog_get_datafile_filters (void)
 {
-    /* Translators: *.gnucash.*.gnucash, *.xac.*.xac are file patterns
-       and must not be translated*/
-    const char* datafiles = N_("Datafiles only (*.gnucash, *.xac)");
-    const char* backups = N_("Backups only (*.gnucash.*.gnucash, *.xac.*.xac)");
-    GList* rv = NULL;
+    /* GtkFileDialog accepts GtkFileFilter patterns only. The explicit backup
+     * filter retains direct access to timestamped copies; the datafile filter
+     * is intentionally an extension filter because the native portal cannot
+     * express the previous negative backup predicate. "All files" has always
+     * remained available as an explicit final filter. */
+    const char *datafiles = N_("GnuCash files (*.gnucash, *.xac)");
+    const char *backups = N_("Backups only (*.gnucash.*.gnucash, *.xac.*.xac)");
+    GtkFileFilter *filter;
+    GList *filters = NULL;
 
-    GtkFileFilter *filter = gtk_file_filter_new ();
+    filter = gtk_file_filter_new ();
     gtk_file_filter_set_name (filter, _(datafiles));
-    gtk_file_filter_add_custom (filter, GTK_FILE_FILTER_FILENAME,
-                                (GtkFileFilterFunc)datafile_filter,
-                                gnc_filename_is_datafile, NULL);
-    rv = g_list_prepend (rv, filter);
+    gtk_file_filter_add_pattern (filter, "*.gnucash");
+    gtk_file_filter_add_pattern (filter, "*.xac");
+    filters = g_list_append (filters, filter);
 
     filter = gtk_file_filter_new ();
     gtk_file_filter_set_name (filter, _(backups));
-    gtk_file_filter_add_custom (filter, GTK_FILE_FILTER_FILENAME,
-                                (GtkFileFilterFunc)datafile_filter,
-                                gnc_filename_is_backup, NULL);
-    rv = g_list_prepend (rv, filter);
+    gtk_file_filter_add_pattern (filter, "*.gnucash.??????????????.gnucash");
+    gtk_file_filter_add_pattern (filter, "*.xac.??????????????.xac");
+    filters = g_list_append (filters, filter);
 
-    return g_list_reverse (rv);
+    return filters;
 }
 
 void
@@ -1675,7 +1670,7 @@ gnc_file_open (GtkWindow *parent)
         default_dir = gnc_get_default_directory(GNC_PREFS_GROUP_OPEN_SAVE);
 
     newfile = gnc_file_dialog (parent, _("Open"),
-                               gnc_file_chooser_get_datafile_filters(),
+                               gnc_file_dialog_get_datafile_filters (),
                                default_dir, GNC_FILE_DIALOG_OPEN);
     g_free ( last );
     g_free ( default_dir );
@@ -1728,7 +1723,7 @@ gnc_file_export (GtkWindow *parent)
         default_dir = gnc_get_default_directory(GNC_PREFS_GROUP_EXPORT);
 
     filename = gnc_file_dialog (parent, _("Save"),
-                                gnc_file_chooser_get_datafile_filters(),
+                                gnc_file_dialog_get_datafile_filters (),
                                 default_dir, GNC_FILE_DIALOG_SAVE);
     g_free ( last );
     g_free ( default_dir );
@@ -2000,7 +1995,7 @@ gnc_file_save_as (GtkWindow *parent)
         default_dir = gnc_get_default_directory(GNC_PREFS_GROUP_OPEN_SAVE);
 
     filename = gnc_file_dialog (parent, _("Save"),
-                                gnc_file_chooser_get_datafile_filters(),
+                                gnc_file_dialog_get_datafile_filters (),
                                 default_dir, GNC_FILE_DIALOG_SAVE);
     g_free ( last );
     g_free ( default_dir );

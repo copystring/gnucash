@@ -58,7 +58,9 @@ typedef struct FileAccessWindow
     GtkWidget           *frame_file;
     GtkWidget           *frame_database;
     GtkWidget           *readonly_checkbutton;
-    GtkFileChooser      *fileChooser;
+    GtkWidget           *file_select_button;
+    GtkWidget           *file_name_label;
+    gchar               *file_name;
     gchar               *starting_dir;
     GtkComboBoxText     *cb_uri_type;
     GtkEntry            *tf_host;
@@ -68,8 +70,6 @@ typedef struct FileAccessWindow
     GtkEntry            *tf_port;
 } FileAccessWindow;
 
-void gnc_ui_file_access_file_activated_cb( GtkFileChooser *chooser,
-        FileAccessWindow *faw );
 void gnc_ui_file_access_response_cb( GtkDialog *, gint, GtkDialog * );
 static void cb_uri_type_changed_cb( GtkComboBoxText* cb );
 static void port_insert_text_cb( GtkEditable *editable, const gchar *text,
@@ -84,7 +84,6 @@ geturl( FileAccessWindow* faw )
     const gchar* password = NULL;
     /* Not const as return value of gtk_combo_box_text_get_active_text must be freed */
     gchar* type = NULL;
-    /* Not const as return value of gtk_file_chooser_get_filename must be freed */
     gchar* path = NULL;
     gint32 port = 0;
     const gchar* port_text = NULL;
@@ -92,7 +91,7 @@ geturl( FileAccessWindow* faw )
     type = gtk_combo_box_text_get_active_text (faw->cb_uri_type);
     if (gnc_uri_is_file_scheme (type))
     {
-        path = gtk_file_chooser_get_filename (faw->fileChooser);
+        path = g_strdup (faw->file_name);
         if ( !path ) /* file protocol was chosen but no filename was set */
         {
             g_free (type);
@@ -120,12 +119,112 @@ geturl( FileAccessWindow* faw )
     return url;
 }
 
-void
-gnc_ui_file_access_file_activated_cb( GtkFileChooser *chooser, FileAccessWindow *faw )
+typedef struct
 {
-    g_return_if_fail( chooser != NULL );
+    GWeakRef dialog;
+} FileAccessFileDialogData;
 
-    gnc_ui_file_access_response_cb( GTK_DIALOG(faw->dialog), GTK_RESPONSE_OK, NULL );
+static void
+file_access_file_dialog_data_free (FileAccessFileDialogData *data)
+{
+    g_weak_ref_clear (&data->dialog);
+    g_free (data);
+}
+
+static gboolean
+file_access_set_selected_file (FileAccessWindow *faw, GFile *file)
+{
+    gchar *path = g_file_get_path (file);
+    gchar *directory;
+
+    if (!path || g_file_test (path, G_FILE_TEST_IS_DIR))
+    {
+        g_free (path);
+        return FALSE;
+    }
+
+    directory = g_path_get_dirname (path);
+    g_free (faw->file_name);
+    faw->file_name = path;
+    g_free (faw->starting_dir);
+    faw->starting_dir = directory;
+    gtk_label_set_text (GTK_LABEL (faw->file_name_label), faw->file_name);
+    return TRUE;
+}
+
+static void
+file_access_file_dialog_finished (GObject *source, GAsyncResult *result,
+                                  gpointer user_data)
+{
+    FileAccessFileDialogData *data = user_data;
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GFile *file;
+    GtkWidget *dialog;
+    FileAccessWindow *faw = NULL;
+
+    file = gnc_file_dialog_request_finish (request, result, &error);
+    dialog = g_weak_ref_get (&data->dialog);
+    if (dialog)
+        faw = g_object_get_data (G_OBJECT (dialog), "FileAccessWindow");
+
+    if (file && faw)
+    {
+        if (!file_access_set_selected_file (faw, file))
+            gnc_error_dialog (GTK_WINDOW (dialog), "%s",
+                              _("Please select a file, not a folder."));
+    }
+    else if (dialog && error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    {
+        gnc_error_dialog (GTK_WINDOW (dialog), "%s", error->message);
+    }
+
+    g_clear_object (&file);
+    g_clear_error (&error);
+    g_clear_object (&dialog);
+    file_access_file_dialog_data_free (data);
+}
+
+static void
+file_access_choose_file_cb (GtkButton *button, gpointer user_data)
+{
+    FileAccessWindow *faw = user_data;
+    FileAccessFileDialogData *data;
+    GncFileDialogRequest *request;
+    GNCFileDialogType type;
+
+    switch (faw->type)
+    {
+    case FILE_ACCESS_OPEN:
+        type = GNC_FILE_DIALOG_OPEN;
+        break;
+    case FILE_ACCESS_SAVE_AS:
+        type = GNC_FILE_DIALOG_SAVE;
+        break;
+    case FILE_ACCESS_EXPORT:
+        type = GNC_FILE_DIALOG_EXPORT;
+        break;
+    default:
+        g_assert_not_reached ();
+    }
+
+    data = g_new0 (FileAccessFileDialogData, 1);
+    g_weak_ref_init (&data->dialog, faw->dialog);
+    request = gnc_file_dialog_request_new (
+        GTK_WINDOW (faw->dialog), _("Select GnuCash File"),
+        gnc_file_dialog_get_datafile_filters (), faw->starting_dir, type);
+    if (type == GNC_FILE_DIALOG_OPEN)
+        gnc_file_dialog_request_open_async (request, NULL,
+                                            file_access_file_dialog_finished,
+                                            data);
+    else
+        gnc_file_dialog_request_save_async (request, NULL,
+                                            file_access_file_dialog_finished,
+                                            data);
+    g_object_unref (request);
+
+    (void)button;
 }
 
 void
@@ -151,13 +250,13 @@ gnc_ui_file_access_response_cb(GtkDialog *dialog, gint response, GtkDialog *unus
         {
             return;
         }
-        if (g_str_has_prefix (url, "file://"))
+        if (g_str_has_prefix (url, "file://") &&
+            g_file_test (gnc_uri_get_path (url), G_FILE_TEST_IS_DIR))
         {
-          if ( g_file_test (gnc_uri_get_path (url), G_FILE_TEST_IS_DIR))
-            {
-                gtk_file_chooser_set_current_folder_uri( faw->fileChooser, url );
-                return;
-            }
+            gnc_error_dialog (GTK_WINDOW (dialog), "%s",
+                              _("Please select a file, not a folder."));
+            g_free (url);
+            return;
         }
         if ( faw->type == FILE_ACCESS_OPEN )
         {
@@ -197,9 +296,8 @@ set_widget_sensitivity( FileAccessWindow* faw, gboolean is_file_based_uri )
 {
     if (is_file_based_uri)
     {
-        gtk_widget_show(faw->frame_file);
-        gtk_widget_hide(faw->frame_database);
-        gtk_file_chooser_set_current_folder(faw->fileChooser, faw->starting_dir);
+        gtk_widget_show (faw->frame_file);
+        gtk_widget_hide (faw->frame_database);
     }
     else
     {
@@ -245,21 +343,23 @@ port_insert_text_cb( GtkEditable *editable, const gchar *text, gint length,
 }
 
 static void
-cb_uri_type_changed_cb( GtkComboBoxText* cb )
+cb_uri_type_changed_cb (GtkComboBoxText *cb)
 {
-    GtkWidget* dialog;
-    FileAccessWindow* faw;
-    const gchar* type;
+    GtkRoot *root;
+    FileAccessWindow *faw;
+    gchar *type;
 
-    g_return_if_fail( cb != NULL );
+    g_return_if_fail (cb != NULL);
 
-    dialog = gtk_widget_get_toplevel( GTK_WIDGET(cb) );
-    g_return_if_fail( dialog != NULL );
-    faw = g_object_get_data( G_OBJECT(dialog), "FileAccessWindow" );
-    g_return_if_fail( faw != NULL );
+    root = gtk_widget_get_root (GTK_WIDGET (cb));
+    g_return_if_fail (GTK_IS_WINDOW (root));
+    faw = g_object_get_data (G_OBJECT (root), "FileAccessWindow");
+    g_return_if_fail (faw != NULL);
 
-    type = gtk_combo_box_text_get_active_text( cb );
-    set_widget_sensitivity_for_uri_type( faw, type );
+    type = gtk_combo_box_text_get_active_text (cb);
+    if (type)
+        set_widget_sensitivity_for_uri_type (faw, type);
+    g_free (type);
 }
 
 static const char*
@@ -276,8 +376,10 @@ get_default_database( void )
     return default_db;
 }
 
-static void free_file_access_window (FileAccessWindow *faw)
+static void
+free_file_access_window (FileAccessWindow *faw)
 {
+    g_free (faw->file_name);
     g_free (faw->starting_dir);
     g_free (faw);
 }
@@ -288,9 +390,6 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     FileAccessWindow *faw;
     GtkBuilder* builder;
     GtkButton* op;
-    GtkWidget* file_chooser;
-    GtkFileChooserWidget* fileChooser;
-    GtkFileChooserAction fileChooserAction = GTK_FILE_CHOOSER_ACTION_OPEN;
     GList* list;
     GList* node;
     GtkWidget* uri_type_container;
@@ -345,14 +444,12 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     case FILE_ACCESS_OPEN:
         gtk_window_set_title(GTK_WINDOW(faw->dialog), _("Open…"));
         button_label = _("_Open");
-        fileChooserAction = GTK_FILE_CHOOSER_ACTION_OPEN;
         settings_section = GNC_PREFS_GROUP_OPEN_SAVE;
         break;
 
     case FILE_ACCESS_SAVE_AS:
         gtk_window_set_title(GTK_WINDOW(faw->dialog), _("Save As…"));
         button_label = _("_Save As");
-        fileChooserAction = GTK_FILE_CHOOSER_ACTION_SAVE;
         settings_section = GNC_PREFS_GROUP_OPEN_SAVE;
         gtk_widget_unparent (faw->readonly_checkbutton);
         faw->readonly_checkbutton = NULL;
@@ -361,7 +458,6 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     case FILE_ACCESS_EXPORT:
         gtk_window_set_title(GTK_WINDOW(faw->dialog), _("Export"));
         button_label = _("_Save As");
-        fileChooserAction = GTK_FILE_CHOOSER_ACTION_SAVE;
         settings_section = GNC_PREFS_GROUP_EXPORT;
         gtk_widget_unparent (faw->readonly_checkbutton);
         faw->readonly_checkbutton = NULL;
@@ -372,13 +468,12 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     if ( op != NULL )
         gtk_button_set_label( op, button_label );
 
-    file_chooser = GTK_WIDGET(gtk_builder_get_object (builder, "file_chooser" ));
-    fileChooser = GTK_FILE_CHOOSER_WIDGET(gtk_file_chooser_widget_new( fileChooserAction ));
-    faw->fileChooser = GTK_FILE_CHOOSER(fileChooser);
-    gnc_box_append_full( GTK_BOX(file_chooser), GTK_WIDGET(fileChooser), TRUE, TRUE, 6 );
-
-    gnc_file_chooser_add_filters (faw->fileChooser,
-                                  gnc_file_chooser_get_datafile_filters ());
+    faw->file_select_button = GTK_WIDGET (gtk_builder_get_object (
+        builder, "file_select_button"));
+    faw->file_name_label = GTK_WIDGET (gtk_builder_get_object (
+        builder, "file_name_label"));
+    g_signal_connect (faw->file_select_button, "clicked",
+                      G_CALLBACK (file_access_choose_file_cb), faw);
 
     /* Set the default directory */
     if (type == FILE_ACCESS_OPEN || type == FILE_ACCESS_SAVE_AS)
@@ -394,10 +489,6 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     }
     if (!faw->starting_dir)
         faw->starting_dir = gnc_get_default_directory(settings_section);
-    gtk_file_chooser_set_current_folder(faw->fileChooser, faw->starting_dir);
-
-    g_object_connect( G_OBJECT(faw->fileChooser), "signal::file-activated",
-                      gnc_ui_file_access_file_activated_cb, faw, NULL );
 
     uri_type_container = GTK_WIDGET(gtk_builder_get_object (builder, "vb_uri_type_container" ));
     faw->cb_uri_type = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());

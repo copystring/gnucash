@@ -47,9 +47,23 @@
             <property name="vexpand">1</property>
 <property name="child">
               <object class="GtkBox" id="file_chooser">
-<property name="orientation">vertical</property>
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <property name="margin-top">6</property>
                 <child>
-                  <placeholder />
+                  <object class="GtkButton" id="file_select_button">
+                    <property name="label" translatable="1">_Choose File…</property>
+                    <property name="use-underline">1</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="file_name_label">
+                    <property name="label" translatable="1">No file selected</property>
+                    <property name="ellipsize">middle</property>
+                    <property name="hexpand">1</property>
+                    <property name="halign">start</property>
+                    <property name="selectable">1</property>
+                  </object>
                 </child>
               </object>
             </property>
