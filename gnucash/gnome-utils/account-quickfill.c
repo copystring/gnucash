@@ -36,11 +36,6 @@ static void listen_for_account_events (QofInstance* entity,
                                        QofEventId event_type,
                                        gpointer user_data, gpointer event_data);
 
-/* Column indices for the list store */
-#define ACCOUNT_NAME        0
-#define ACCOUNT_POINTER     1
-#define NUM_ACCOUNT_COLUMNS 2
-
 struct _GncAccountListItem
 {
     GObject parent_instance;
@@ -108,10 +103,7 @@ gnc_account_list_item_get_name (GncAccountListItem *item)
 typedef struct
 {
     QuickFill* qf;
-    gboolean load_list_store;
-    GtkListStore* list_store;
     GListStore* account_list;
-    QofBook* book;
     Account* root;
     gint  listener;
     AccountBoolCB dont_add_cb;
@@ -122,6 +114,9 @@ static void
 shared_quickfill_destroy (QofBook* book, gpointer key, gpointer user_data)
 {
     QFB* qfb = user_data;
+
+    (void)book;
+    (void)key;
     gnc_prefs_remove_cb_by_func (GNC_PREFS_GROUP_GENERAL,
                                  GNC_PREF_ACCOUNT_SEPARATOR,
                                  shared_quickfill_pref_changed,
@@ -131,81 +126,26 @@ shared_quickfill_destroy (QofBook* book, gpointer key, gpointer user_data)
                                  shared_quickfill_pref_changed,
                                  qfb);
     gnc_quickfill_destroy (qfb->qf);
-    g_object_unref (qfb->list_store);
     g_object_unref (qfb->account_list);
     qof_event_unregister_handler (qfb->listener);
     g_free (qfb);
 }
 
 
-typedef struct find_data
+/* Build QuickFill and the visible GTK4 model from one account traversal. */
+typedef struct
 {
-    GList* accounts;
-    GList* refs;
-} find_data;
-
-static gboolean
-shared_quickfill_find_accounts (GtkTreeModel* model,
-                                GtkTreePath* path,
-                                GtkTreeIter* iter,
-                                gpointer user_data)
-{
-    Account* account = NULL;
-    find_data* data = user_data;
-    GtkTreeRowReference* ref;
-    GList* tmp;
-
-    gtk_tree_model_get (model, iter, ACCOUNT_POINTER, &account, -1);
-    for (tmp = data->accounts; tmp; tmp = g_list_next (tmp))
-    {
-        if (tmp->data == account)
-        {
-            ref = gtk_tree_row_reference_new (model, path);
-            data->refs = g_list_append (data->refs, ref);
-            data->accounts = g_list_delete_link (data->accounts, tmp);
-            return (data->accounts == NULL);
-        }
-    }
-    return FALSE;
-}
-
-
-/* Splat the account name into the shared quickfill object */
-static void
-load_shared_qf_cb (Account* account, gpointer data)
-{
-    QFB* qfb = data;
-    char* name;
-    GtkTreeIter iter;
-
-    if (qfb->dont_add_cb)
-    {
-        gboolean skip = (qfb->dont_add_cb) (account, qfb->dont_add_data);
-        if (skip)
-            return;
-    }
-
-    name = gnc_get_account_name_for_register (account);
-    if (NULL == name)
-        return;
-    gnc_quickfill_insert (qfb->qf, name, QUICKFILL_ALPHA);
-    if (qfb->load_list_store)
-    {
-        gtk_list_store_append (qfb->list_store, &iter);
-        gtk_list_store_set (qfb->list_store, &iter,
-                            ACCOUNT_NAME, name,
-                            ACCOUNT_POINTER, account,
-                            -1);
-    }
-    g_free (name);
-}
+    QFB *qfb;
+    GPtrArray *items;
+} AccountCacheLoadData;
 
 static void
-load_shared_account_list_cb (Account *account, gpointer data)
+load_shared_account_cache_cb (Account *account, gpointer user_data)
 {
-    QFB *qfb = data;
+    AccountCacheLoadData *data = user_data;
+    QFB *qfb = data->qfb;
     GncAccountListItem *item;
-    char *name;
+    gchar *name;
 
     if (qfb->dont_add_cb && qfb->dont_add_cb (account, qfb->dont_add_data))
         return;
@@ -214,35 +154,42 @@ load_shared_account_list_cb (Account *account, gpointer data)
     if (!name)
         return;
 
+    gnc_quickfill_insert (qfb->qf, name, QUICKFILL_ALPHA);
     item = gnc_account_list_item_new (account, name);
-    g_list_store_append (qfb->account_list, item);
-    g_object_unref (item);
+    g_ptr_array_add (data->items, item);
     g_free (name);
 }
 
 static void
-shared_account_list_reload (QFB *qfb)
+shared_quickfill_reload (QFB *qfb)
 {
-    g_list_store_remove_all (qfb->account_list);
-    gnc_account_foreach_descendant (qfb->root, load_shared_account_list_cb, qfb);
-}
+    AccountCacheLoadData data = { 0 };
+    guint old_length;
 
+    g_return_if_fail (qfb != NULL);
+
+    data.qfb = qfb;
+    data.items = g_ptr_array_new_with_free_func (g_object_unref);
+    gnc_quickfill_purge (qfb->qf);
+    gnc_account_foreach_descendant (qfb->root, load_shared_account_cache_cb,
+                                    &data);
+
+    old_length = g_list_model_get_n_items (G_LIST_MODEL (qfb->account_list));
+    g_list_store_splice (qfb->account_list, 0, old_length,
+                         (gpointer *)data.items->pdata, data.items->len);
+    g_ptr_array_unref (data.items);
+}
 
 static void
 shared_quickfill_pref_changed (gpointer prefs, gchar* pref, gpointer user_data)
 {
     QFB* qfb = user_data;
 
-    /* Reload the quickfill */
-    gnc_quickfill_purge (qfb->qf);
-    gtk_list_store_clear (qfb->list_store);
-    qfb->load_list_store = TRUE;
-    gnc_account_foreach_descendant (qfb->root, load_shared_qf_cb, qfb);
-    qfb->load_list_store = FALSE;
-    shared_account_list_reload (qfb);
+    (void)prefs;
+    (void)pref;
+
+    shared_quickfill_reload (qfb);
 }
-
-
 /* Build the quickfill list out of account names.
  * Essentially same loop as in gnc_load_xfer_cell() above.
  */
@@ -254,14 +201,10 @@ build_shared_quickfill (QofBook* book, Account* root, const char* key,
 
     qfb = g_new0 (QFB, 1);
     qfb->qf = gnc_quickfill_new();
-    qfb->book = book;
     qfb->root = root;
     qfb->listener = 0;
     qfb->dont_add_cb = cb;
     qfb->dont_add_data = data;
-    qfb->load_list_store = TRUE;
-    qfb->list_store      = gtk_list_store_new (NUM_ACCOUNT_COLUMNS,
-                                               G_TYPE_STRING, G_TYPE_POINTER);
     qfb->account_list = g_list_store_new (GNC_TYPE_ACCOUNT_LIST_ITEM);
 
     gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL,
@@ -274,9 +217,7 @@ build_shared_quickfill (QofBook* book, Account* root, const char* key,
                            shared_quickfill_pref_changed,
                            qfb);
 
-    gnc_account_foreach_descendant (root, load_shared_qf_cb, qfb);
-    qfb->load_list_store = FALSE;
-    shared_account_list_reload (qfb);
+    shared_quickfill_reload (qfb);
 
     qfb->listener = qof_event_register_handler (listen_for_account_events, qfb);
 
@@ -300,23 +241,6 @@ gnc_get_shared_account_name_quickfill (Account* root, const char* key,
 
     qfb = build_shared_quickfill (book, root, key, cb, cb_data);
     return qfb->qf;
-}
-
-GtkListStore*
-gnc_get_shared_account_name_list_store (Account* root, const char* key,
-                                        AccountBoolCB cb, gpointer cb_data)
-{
-    QFB* qfb;
-    QofBook* book;
-
-    book = gnc_account_get_book (root);
-    qfb = qof_book_get_data (book, key);
-
-    if (qfb)
-        return qfb->list_store;
-
-    qfb = build_shared_quickfill (book, root, key, cb, cb_data);
-    return qfb->list_store;
 }
 
 GListModel*
@@ -344,182 +268,23 @@ listen_for_account_events (QofInstance* entity, QofEventId event_type,
                            gpointer user_data, gpointer event_data)
 {
     QFB* qfb = user_data;
-    QuickFill* qf = qfb->qf;
-    QuickFill* match;
-    char* name;
-    const char* match_str;
     Account* account;
-    GtkTreeIter iter;
-    find_data data = { 0 };
-    GtkTreePath* path;
-    GList* tmp;
 
-    if (0 == (event_type & (QOF_EVENT_MODIFY | QOF_EVENT_ADD | QOF_EVENT_REMOVE)))
+    (void)event_data;
+    if (!(event_type & (QOF_EVENT_MODIFY | QOF_EVENT_ADD | QOF_EVENT_REMOVE)))
         return;
 
     if (!GNC_IS_ACCOUNT (entity))
         return;
+
     account = GNC_ACCOUNT (entity);
-
-    ENTER ("entity %p, event type %x, user data %p, ecent data %p",
-           entity, event_type, user_data, event_data);
-
     if (gnc_account_get_root (account) != qfb->root)
-    {
-        LEAVE ("root account mismatch");
         return;
-    }
 
-    name = gnc_get_account_name_for_register (account);
-    if (NULL == name)
-    {
-        LEAVE ("account has no name");
-        return;
-    }
-
-    switch (event_type)
-    {
-    case QOF_EVENT_MODIFY:
-        DEBUG ("modify %s", name);
-
-        /* Find the account (and all its descendants) in the model.  The
-         * full name of all these accounts has changed. */
-        data.accounts = gnc_account_get_descendants (account);
-        data.accounts = g_list_prepend (data.accounts, account);
-        gtk_tree_model_foreach (GTK_TREE_MODEL (qfb->list_store),
-                                shared_quickfill_find_accounts, &data);
-
-        /* Update the existing items in the list store.  Its possible
-         * that the change has caused an existing item to now become
-         * hidden, in which case it needs to be removed from the list
-         * store.  Otherwise its a simple update of the name string. */
-        for (tmp = data.refs; tmp; tmp = g_list_next (tmp))
-        {
-            gchar* old_name, *new_name;
-            path = gtk_tree_row_reference_get_path (tmp->data);
-            gtk_tree_row_reference_free (tmp->data);
-            if (!gtk_tree_model_get_iter (GTK_TREE_MODEL (qfb->list_store),
-                                          &iter, path))
-            {
-                gtk_tree_path_free (path);
-                continue;
-            }
-            gtk_tree_path_free (path);
-            gtk_tree_model_get (GTK_TREE_MODEL (qfb->list_store), &iter,
-                                ACCOUNT_POINTER, &account,
-                                ACCOUNT_NAME, &old_name,
-                                -1);
-
-            new_name = gnc_get_account_name_for_register (account);
-
-            /* check if the name has changed */
-            match = gnc_quickfill_get_string_match (qf, old_name);
-            if (match && (g_strcmp0 (old_name, new_name) != 0))
-                gnc_quickfill_remove (qf, old_name, QUICKFILL_ALPHA);
-
-            if (qfb->dont_add_cb &&
-                qfb->dont_add_cb (account, qfb->dont_add_data))
-            {
-                gnc_quickfill_remove (qf, new_name, QUICKFILL_ALPHA);
-                gtk_list_store_remove (qfb->list_store, &iter);
-            }
-            else
-            {
-                gnc_quickfill_insert (qf, new_name, QUICKFILL_ALPHA);
-                gtk_list_store_set (qfb->list_store, &iter,
-                                    ACCOUNT_NAME, new_name,
-                                    -1);
-            }
-            g_free (old_name);
-            g_free (new_name);
-        }
-
-        /* Any accounts that weren't found in the tree are accounts that
-         * were hidden but have now become visible. Add them to the list
-         * store. */
-        for (tmp = data.accounts; tmp; tmp = g_list_next (tmp))
-        {
-            account = tmp->data;
-            if (qfb->dont_add_cb)
-            {
-                if (qfb->dont_add_cb (account, qfb->dont_add_data))
-                {
-                    continue;
-                }
-            }
-            gnc_quickfill_insert (qf, name, QUICKFILL_ALPHA);
-            gtk_list_store_append (qfb->list_store, &iter);
-            gtk_list_store_set (qfb->list_store, &iter,
-                                ACCOUNT_NAME, name,
-                                ACCOUNT_POINTER, account,
-                                -1);
-        }
-        break;
-
-    case QOF_EVENT_REMOVE:
-        DEBUG ("remove %s", name);
-
-        /* Remove from qf */
-        gnc_quickfill_remove (qfb->qf, name, QUICKFILL_ALPHA);
-
-        /* Does the account exist in the model? */
-        data.accounts = g_list_append (NULL, account);
-        gtk_tree_model_foreach (GTK_TREE_MODEL (qfb->list_store),
-                                shared_quickfill_find_accounts, &data);
-
-        /* Remove from list store */
-        for (tmp = data.refs; tmp; tmp = g_list_next (tmp))
-        {
-            path = gtk_tree_row_reference_get_path (tmp->data);
-            gtk_tree_row_reference_free (tmp->data);
-            if (gtk_tree_model_get_iter (GTK_TREE_MODEL (qfb->list_store),
-                                         &iter, path))
-            {
-                gtk_list_store_remove (qfb->list_store, &iter);
-            }
-            gtk_tree_path_free (path);
-        }
-        break;
-
-    case QOF_EVENT_ADD:
-        DEBUG ("add %s", name);
-
-        if (qfb->dont_add_cb &&
-            qfb->dont_add_cb (account, qfb->dont_add_data))
-            break;
-
-        match = gnc_quickfill_get_string_match (qf, name);
-        if (match)
-        {
-            match_str = gnc_quickfill_string (match);
-            if (match_str && (g_strcmp0 (match_str, name) != 0))
-            {
-                PINFO ("got match for %s", name);
-                break;
-            }
-        }
-
-        PINFO ("insert new account %s into qf=%p", name, qf);
-        gnc_quickfill_insert (qf, name, QUICKFILL_ALPHA);
-        gtk_list_store_append (qfb->list_store, &iter);
-        gtk_list_store_set (qfb->list_store, &iter,
-                            ACCOUNT_NAME, name,
-                            ACCOUNT_POINTER, account,
-                            -1);
-        break;
-
-    default:
-        DEBUG ("other %s", name);
-        break;
-    }
-
-    if (data.accounts)
-        g_list_free (data.accounts);
-    if (data.refs)
-        g_list_free (data.refs);
-    shared_account_list_reload (qfb);
-    g_free (name);
-    LEAVE (" ");
+    /* Account events alter display names, visibility and the QuickFill tree.
+     * Rebuild both derived representations in one traversal so they cannot
+     * diverge while a register keeps the shared model open. */
+    shared_quickfill_reload (qfb);
 }
 
 /* ====================== END OF FILE ================================== */

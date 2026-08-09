@@ -41,6 +41,7 @@
 #include "QuickFill.h"
 #include "combocell.h"
 #include "gnc-prefs.h"
+#include "account-quickfill.h"
 #include "gnucash-item-edit.h"
 #include "gnucash-item-list.h"
 #include "gnucash-sheet.h"
@@ -57,6 +58,8 @@ typedef struct _PopBox
     GncItemEdit*  item_edit;
     GncItemList*  item_list;
     GtkListStore* tmp_store;
+    GtkListStore* model_store;
+    gulong model_changed_id;
 
     gboolean signals_connected; /* list signals connected? */
 
@@ -87,6 +90,10 @@ static gboolean gnc_combo_cell_enter (BasicCell* bcell,
                                       int* end_selection);
 static void gnc_combo_cell_leave (BasicCell* bcell);
 static void gnc_combo_cell_destroy (BasicCell* bcell);
+static void combo_model_store_reload (ComboCell* cell);
+static void combo_model_items_changed_cb (GListModel *model, guint position,
+                                          guint removed, guint added,
+                                          gpointer user_data);
 
 static GOnce auto_pop_init_once = G_ONCE_INIT;
 static gboolean auto_pop_combos = FALSE;
@@ -149,6 +156,8 @@ gnc_combo_cell_init (ComboCell* cell)
     box->item_edit = NULL;
     box->item_list = NULL;
     box->tmp_store = gtk_list_store_new (1, G_TYPE_STRING);
+    box->model_store = NULL;
+    box->model_changed_id = 0;
     box->signals_connected = FALSE;
     box->list_popped = FALSE;
     box->autosize = FALSE;
@@ -308,6 +317,15 @@ gnc_combo_cell_gui_destroy (BasicCell* bcell)
             box->tmp_store = NULL;
         }
 
+        if (box && box->model_changed_id)
+        {
+            g_signal_handler_disconnect (cell->shared_model,
+                                         box->model_changed_id);
+            box->model_changed_id = 0;
+        }
+
+        if (box)
+            g_clear_object (&box->model_store);
         /* allow the widget to be shown again */
         cell->cell.gui_realize = gnc_combo_cell_gui_realize;
         cell->cell.gui_move = NULL;
@@ -336,6 +354,10 @@ gnc_combo_cell_destroy (BasicCell* bcell)
 
         g_list_free_full (box->ignore_strings, g_free);
         box->ignore_strings = NULL;
+
+        g_clear_object (&box->tmp_store);
+        g_clear_object (&box->model_store);
+        g_clear_object (&cell->shared_model);
 
         g_free (box);
         cell->cell.gui_private = NULL;
@@ -413,11 +435,11 @@ gnc_combo_cell_use_quickfill_cache (ComboCell* cell, QuickFill* shared_qf)
 }
 
 void
-gnc_combo_cell_use_list_store_cache (ComboCell* cell, gpointer data)
+gnc_combo_cell_use_model_cache (ComboCell* cell, GListModel* model)
 {
     if (cell == NULL) return;
 
-    cell->shared_store = data;
+    g_set_object (&cell->shared_model, model);
 }
 
 void
@@ -508,7 +530,7 @@ gnc_combo_cell_set_value (ComboCell* cell, const char* str)
 }
 
 static inline void
-list_store_append (GtkListStore *store, char* string)
+list_store_append (GtkListStore *store, const gchar *string)
 {
     GtkTreeIter iter;
 
@@ -518,15 +540,68 @@ list_store_append (GtkListStore *store, char* string)
     gtk_list_store_set (store, &iter, 0, string, -1);
 }
 
+static void
+combo_model_store_reload (ComboCell* cell)
+{
+    PopBox* box = cell->cell.gui_private;
+    guint n_items;
+
+    g_return_if_fail (box != NULL);
+    g_return_if_fail (box->model_store != NULL);
+    g_return_if_fail (cell->shared_model != NULL);
+
+    gtk_list_store_clear (box->model_store);
+    n_items = g_list_model_get_n_items (cell->shared_model);
+    for (guint index = 0; index < n_items; index++)
+    {
+        GncAccountListItem *item = g_list_model_get_item (cell->shared_model,
+                                                           index);
+        const gchar *name;
+
+        if (!GNC_IS_ACCOUNT_LIST_ITEM (item))
+        {
+            g_object_unref (item);
+            continue;
+        }
+
+        name = gnc_account_list_item_get_name (item);
+        if (name)
+            list_store_append (box->model_store, name);
+        g_object_unref (item);
+    }
+}
+
+static void
+combo_model_items_changed_cb (GListModel *model,
+                              G_GNUC_UNUSED guint position,
+                              G_GNUC_UNUSED guint removed,
+                              G_GNUC_UNUSED guint added,
+                              gpointer user_data)
+{
+    ComboCell* cell = user_data;
+    PopBox* box;
+
+    g_return_if_fail (G_IS_LIST_MODEL (model));
+    g_return_if_fail (cell != NULL);
+
+    box = cell->cell.gui_private;
+    if (!box || !box->item_list || !box->model_store)
+        return;
+
+    block_list_signals (cell);
+    combo_model_store_reload (cell);
+    if (!gnc_item_list_using_temp (box->item_list))
+        gnc_item_list_select (box->item_list, cell->cell.value);
+    unblock_list_signals (cell);
+}
 /* This function looks through full_store for a partial match with newval and
  * returns the first match (which must be subsequently freed). It fills out
  * box->item_list with found matches.
  */
 static gchar*
 gnc_combo_cell_type_ahead_search (const gchar* newval,
-                                  GtkListStore* full_store, ComboCell *cell)
+                                  GListModel* full_model, ComboCell *cell)
 {
-    GtkTreeIter iter;
     PopBox* box = cell->cell.gui_private;
     int num_found = 0;
     gchar* match_str = NULL;
@@ -539,9 +614,7 @@ gnc_combo_cell_type_ahead_search (const gchar* newval,
                                              newval_rep, 0, NULL);
     char* normal_rep_str = g_utf8_normalize (rep_str, -1, G_NORMALIZE_NFC);
     GRegex *regex = g_regex_new (normal_rep_str, G_REGEX_CASELESS, 0, NULL);
-
-    gboolean valid = gtk_tree_model_get_iter_first (GTK_TREE_MODEL (full_store),
-                                                    &iter);
+    guint n_items = g_list_model_get_n_items (full_model);
 
     /* Limit the number found to keep the combo box from getting unreasonably
      * large.
@@ -555,7 +628,7 @@ gnc_combo_cell_type_ahead_search (const gchar* newval,
     g_free (escaped_newval);
     g_regex_unref (regex0);
 
-    block_list_signals (cell); //Prevent recursion from gtk_tree_view signals.
+    block_list_signals (cell);
     gnc_item_edit_hide_popup (box->item_edit);
     gtk_list_store_clear (box->tmp_store);
     unblock_list_signals (cell);
@@ -564,35 +637,41 @@ gnc_combo_cell_type_ahead_search (const gchar* newval,
     {
         /* Deleting everything in the cell shouldn't provide a search result for
          * "" because that will just be the first MAX_NUM_MATCHES accounts which
-         * isn't very useful.
-         *
-         * Skip the search show the popup again with all accounts. Clear the
-         * temp store or the cell will be pre-filled with the first account.
-         */
+         * isn't very useful. */
         gnc_item_list_set_temp_store (box->item_list, NULL);
         gnc_item_edit_show_popup (box->item_edit);
         box->list_popped = TRUE;
         goto cleanup;
     }
 
-    while (valid && num_found < MAX_NUM_MATCHES)
+    for (guint index = 0; index < n_items && num_found < MAX_NUM_MATCHES; index++)
     {
-        gchar* str_data = NULL;
-        gchar* normalized_str_data = NULL;
-        gtk_tree_model_get (GTK_TREE_MODEL (full_store), &iter, 0,
-                            &str_data, -1);
-        normalized_str_data = g_utf8_normalize (str_data, -1, G_NORMALIZE_NFC);
+        GncAccountListItem *item = g_list_model_get_item (full_model, index);
+        const gchar *name;
+        gchar *normalized_name;
 
-        if (g_regex_match (regex, normalized_str_data, 0, NULL))
+        if (!GNC_IS_ACCOUNT_LIST_ITEM (item))
+        {
+            g_object_unref (item);
+            continue;
+        }
+
+        name = gnc_account_list_item_get_name (item);
+        if (!name)
+        {
+            g_object_unref (item);
+            continue;
+        }
+        normalized_name = g_utf8_normalize (name, -1, G_NORMALIZE_NFC);
+        if (g_regex_match (regex, normalized_name, 0, NULL))
         {
             if (!num_found)
-                match_str = g_strdup (str_data);
-            ++num_found;
-            list_store_append (box->tmp_store, str_data);
+                match_str = g_strdup (name);
+            num_found++;
+            list_store_append (box->tmp_store, name);
         }
-        g_free (str_data);
-        g_free (normalized_str_data);
-        valid = gtk_tree_model_iter_next (GTK_TREE_MODEL (full_store), &iter);
+        g_free (normalized_name);
+        g_object_unref (item);
     }
 
     if (num_found)
@@ -606,7 +685,6 @@ cleanup:
     g_regex_unref (regex);
     return match_str;
 }
-
 static char*
 quickfill_match (QuickFill *qf, const char *string)
 {
@@ -673,11 +751,11 @@ gnc_combo_cell_modify_verify (BasicCell* _cell,
     }
 
     // Try using type-ahead
-    if (match_str == NULL && cell->shared_store)
+    if (match_str == NULL && cell->shared_model)
     {
         // No start-of-name match, try type-ahead search, we match any substring of the full account name.
-        GtkListStore *store = cell->shared_store;
-        match_str = gnc_combo_cell_type_ahead_search (newval, store, cell);
+        match_str = gnc_combo_cell_type_ahead_search (newval,
+                                                       cell->shared_model, cell);
         *start_selection = newval_chars;
         *end_selection = -1;
         *cursor_position = newval_chars;
@@ -690,7 +768,7 @@ gnc_combo_cell_modify_verify (BasicCell* _cell,
     if (match_str == NULL)
     {
         block_list_signals (cell); // Prevent recursion
-        if (cell->shared_store && gnc_item_list_using_temp (box->item_list))
+        if (cell->shared_model && gnc_item_list_using_temp (box->item_list))
         {
             gnc_item_list_set_temp_store (box->item_list, NULL);
             gtk_list_store_clear (box->tmp_store);
@@ -742,7 +820,7 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
         {
             const char *value = gnc_table_get_model_entry (box->sheet->table, bcell->cell_name);
 
-            if (cell->shared_store && gnc_item_list_using_temp (box->item_list))
+            if (cell->shared_model && gnc_item_list_using_temp (box->item_list))
             {
                 gnc_item_list_set_temp_store (box->item_list, NULL);
                 gtk_list_store_clear (box->tmp_store);
@@ -910,10 +988,19 @@ gnc_combo_cell_gui_realize (BasicCell* bcell, gpointer data)
     /* initialize gui-specific, private data */
     box->sheet = sheet;
     box->item_edit = item_edit;
-    if (cell->shared_store)
-        box->item_list = GNC_ITEM_LIST (gnc_item_list_new (cell->shared_store));
+    if (cell->shared_model)
+    {
+        box->model_store = gtk_list_store_new (1, G_TYPE_STRING);
+        combo_model_store_reload (cell);
+        box->model_changed_id = g_signal_connect (
+            cell->shared_model, "items-changed",
+            G_CALLBACK (combo_model_items_changed_cb), cell);
+        box->item_list = GNC_ITEM_LIST (gnc_item_list_new (box->model_store));
+    }
     else
+    {
         box->item_list = GNC_ITEM_LIST (gnc_item_list_new (box->tmp_store));
+    }
     gtk_widget_set_visible (GTK_WIDGET (box->item_list), TRUE);
     g_object_ref_sink (box->item_list);
 
@@ -1045,7 +1132,7 @@ gnc_combo_cell_enter (BasicCell* bcell,
 
     block_list_signals (cell);
 
-    if (cell->shared_store && gnc_item_list_using_temp (box->item_list))
+    if (cell->shared_model && gnc_item_list_using_temp (box->item_list))
     {
         // Clear the temp store to ensure we don't start in type-ahead mode.
         gnc_item_list_set_temp_store (box->item_list, NULL);

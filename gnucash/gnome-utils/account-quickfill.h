@@ -40,7 +40,7 @@
 #ifndef QUICKFILL_ACCOUNT_H
 #define QUICKFILL_ACCOUNT_H
 
-#include <gtk/gtk.h>
+#include <gio/gio.h>
 
 #include "Account.h"
 #include "QuickFill.h"
@@ -75,18 +75,12 @@ const gchar* gnc_account_list_item_get_name (GncAccountListItem *item);
  *  Each is identified with the 'key'.  Be sure to use distinct,
  *  unique keys that don't conflict with other users of QofBook.
  *
- *  This code listens to account creation events, and automatically
- *  adds new accounts to the quickfill list (assuming skip_cb allows
- *  it).  This code does not currently listen to account-destroy
- *  events.
+ *  This code keeps the quickfill and its shared list model synchronized with
+ *  account additions, removals, name changes and visibility changes.
  */
 QuickFill*
 gnc_get_shared_account_name_quickfill (Account* root, const char* key,
                                        AccountBoolCB skip_cb, gpointer cb_data);
-GtkListStore*
-gnc_get_shared_account_name_list_store (Account* root, const char* key,
-                                        AccountBoolCB cb, gpointer cb_data);
-
 /**
  * Return the GTK4 model companion to the shared account quickfill. The
  * model is owned by the book and changes whenever its account cache changes.
