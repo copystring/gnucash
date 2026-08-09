@@ -1217,12 +1217,9 @@ gnc_plugin_page_budget_cmd_estimate_budget (GSimpleAction *simple,
 
     if (gtk_tree_selection_count_selected_rows (sel) <= 0)
     {
-        GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW(
-                                gnc_plugin_page_get_window (GNC_PLUGIN_PAGE(page))),
-                                (GtkDialogFlags)(GTK_DIALOG_DESTROY_WITH_PARENT | GTK_DIALOG_MODAL),
-                                GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE, "%s",
-                                _("You must select at least one account to estimate."));
-        gnc_dialog_run (GTK_DIALOG(dialog));
+        gnc_info_dialog (GTK_WINDOW (gnc_plugin_page_get_window (
+                             GNC_PLUGIN_PAGE (page))), "%s",
+                         _("You must select at least one account to estimate."));
         return;
     }
 
@@ -1425,12 +1422,9 @@ gnc_plugin_page_budget_cmd_allperiods_budget (GSimpleAction *simple,
 
     if (gtk_tree_selection_count_selected_rows (sel) <= 0)
     {
-        GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW(
-                                gnc_plugin_page_get_window (GNC_PLUGIN_PAGE(page))),
-                                (GtkDialogFlags)(GTK_DIALOG_DESTROY_WITH_PARENT | GTK_DIALOG_MODAL),
-                                GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE, "%s",
-                                _("You must select at least one account to edit."));
-        gnc_dialog_run (GTK_DIALOG(dialog));
+        gnc_info_dialog (GTK_WINDOW (gnc_plugin_page_get_window (
+                             GNC_PLUGIN_PAGE (page))), "%s",
+                         _("You must select at least one account to edit."));
         return;
     }
 
@@ -1571,12 +1565,9 @@ gnc_plugin_page_budget_cmd_budget_note (GSimpleAction *simple,
 
     if (!acc)
     {
-        GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW(
-                                gnc_plugin_page_get_window (GNC_PLUGIN_PAGE(page))),
-                                (GtkDialogFlags)(GTK_DIALOG_DESTROY_WITH_PARENT | GTK_DIALOG_MODAL),
-                                GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE, "%s",
-                                _("You must select one budget cell to edit."));
-        gnc_dialog_run (GTK_DIALOG(dialog));
+        gnc_info_dialog (GTK_WINDOW (gnc_plugin_page_get_window (
+                             GNC_PLUGIN_PAGE (page))), "%s",
+                         _("You must select one budget cell to edit."));
         return;
     }
 
