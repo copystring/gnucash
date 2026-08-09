@@ -18,6 +18,11 @@ als PR eröffnet werden.
 - Kontensuche, Import-Map-Editor und IMAP-Editor verwenden GTK4-Modelle und
   `GtkColumnView`; Auswahl, Gruppenlöschung und die wichtigen Dialogdetails
   wurden dabei wiederhergestellt.
+- Die Berichtoptionen verwenden für einfache Auswahlwerte, Listen, Budgets und
+  Kontenlisten GTK4-Modelle. Die Kontenliste hält ihre Auswahl über GUIDs,
+  sodass Typ-/Hidden-Filter und Reloads des gemeinsamen Kontenmodells keine
+  Auswahl auf eine andere Zeile verschieben. Bilddatei-Optionen verwenden
+  `GtkFileDialog` mit Vorschau und Clear-Operation.
 - Mehrere Fenster- und Dialogpfade verwenden nun `close-request` sowie
   `GtkEventControllerKey`/`GtkEventControllerFocus` statt direkter GTK3-
   Ereignissignale.
@@ -62,6 +67,12 @@ als PR eröffnet werden.
 
 ### Banking, Import und Export
 
+- Der XML-Encoding-Assistent ist noch nicht GTK4-funktionsfähig: er enthält
+  `GtkTreeView`/`GtkComboBox`-Modelle und der bisherige synchrone
+  Rückgabevertrag `gnc_xml_convert_single_file()` hing an der entfernten
+  `gtk_main()`-Schleife. Seine Portierung muss den Aufruf aus
+  `gnc_file_open_file()` in eine asynchrone Dateilade-Fortsetzung überführen;
+  ein verschachtelter Ersatzloop wäre keine vollständige Migration.
 - AqBanking benötigt einen nachweislich geprüften, fest referenzierten
   `gwengui-gtk4`-Stand. Die synchronen Gwen-Dialoge, die lokale
   Main-Context-Pumpe sowie TAN-, Flicker-, PIN-, Fortschritts- und
