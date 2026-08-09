@@ -1,23 +1,8 @@
-<?xml version='1.0' encoding='UTF-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <interface>
-  <requires lib="gtk" version="4.0"/>
-  <object class="GtkTreeStore" id="tree-store">
-    <columns>
-      <column type="gchararray"/>
-      <column type="gpointer"/>
-      <column type="gchararray"/>
-      <column type="gchararray"/>
-      <column type="gchararray"/>
-      <column type="gpointer"/>
-      <column type="gchararray"/>
-      <column type="gchararray"/>
-      <column type="gchararray"/>
-      <column type="gboolean"/>
-    </columns>
-  </object>
-  <object class="GtkTreeModelFilter" id="treemodelfilter">
-    <property name="child-model">tree-store</property>
-  </object>
+  <requires lib="gtk" version="4.0" />
+
+
   <object class="GtkWindow" id="import_map_window">
     <property name="default-height">400</property>
     <property name="default-width">600</property>
@@ -75,87 +60,7 @@
         <child>
           <object class="GtkScrolledWindow" id="scrolledwindow2">
             <property name="child">
-              <object class="GtkTreeView" id="treeview">
-                <property name="focusable">1</property>
-                <property name="model">treemodelfilter</property>
-                <child internal-child="selection">
-                  <object class="GtkTreeSelection" id="treeview-selection1"/>
-                </child>
-                <child>
-                  <object class="GtkTreeViewColumn" id="source_account_name">
-                    <property name="resizable">1</property>
-                    <property name="title" translatable="yes">Source Account Name</property>
-                    <child>
-                      <object class="GtkCellRendererText" id="cellrenderertext3"/>
-                      <!-- Custom child fragments -->
-                      <attributes>
-                        <attribute name="text">0</attribute>
-                      </attributes>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkTreeViewColumn" id="based_on">
-                    <property name="resizable">1</property>
-                    <property name="title" translatable="yes">Based On</property>
-                    <child>
-                      <object class="GtkCellRendererText" id="cellrenderertext4">
-                        <property name="xpad">10</property>
-                      </object>
-                      <!-- Custom child fragments -->
-                      <attributes>
-                        <attribute name="text">2</attribute>
-                      </attributes>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkTreeViewColumn" id="match">
-                    <property name="resizable">1</property>
-                    <property name="title" translatable="yes">Match String</property>
-                    <child>
-                      <object class="GtkCellRendererText" id="cellrenderertext1">
-                        <property name="xpad">10</property>
-                      </object>
-                      <!-- Custom child fragments -->
-                      <attributes>
-                        <attribute name="text">3</attribute>
-                      </attributes>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkTreeViewColumn" id="map_account_name">
-                    <property name="resizable">1</property>
-                    <property name="title" translatable="yes">Mapped to Account Name</property>
-                    <child>
-                      <object class="GtkCellRendererText" id="cellrenderertext2">
-                        <property name="xpad">10</property>
-                      </object>
-                      <!-- Custom child fragments -->
-                      <attributes>
-                        <attribute name="text">4</attribute>
-                      </attributes>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkTreeViewColumn" id="count">
-                    <property name="resizable">1</property>
-                    <property name="title" translatable="yes">Count of Match String Usage</property>
-                    <child>
-                      <object class="GtkCellRendererText" id="cellrenderertext5">
-                        <property name="alignment">center</property>
-                        <property name="xpad">10</property>
-                      </object>
-                      <!-- Custom child fragments -->
-                      <attributes>
-                        <attribute name="text">8</attribute>
-                      </attributes>
-                    </child>
-                  </object>
-                </child>
-              </object>
+              <object class="GtkColumnView" id="treeview"><property name="focusable">1</property></object>
             </property>
             <property name="focusable">1</property>
             <property name="vexpand">1</property>
@@ -177,7 +82,7 @@
             <property name="margin-top">3</property>
             <property name="valign">center</property>
             <style>
-              <class name="gnc-class-highlight"/>
+              <class name="gnc-class-highlight" />
             </style>
           </object>
         </child>
