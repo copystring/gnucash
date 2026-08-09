@@ -102,7 +102,8 @@ static void impl_webview2_show_data (GncHtml *self, const gchar *data, int datal
 static void impl_webview2_reload (GncHtml *self, gboolean force_rebuild);
 static void impl_webview2_copy_to_clipboard (GncHtml *self);
 static gboolean impl_webview2_export_to_file (GncHtml *self, const gchar *filepath);
-static void impl_webview2_print (GncHtml *self, const gchar *jobname);
+static void impl_webview2_print (GncHtml *self, const gchar *jobname,
+                                  gboolean export_pdf);
 static void impl_webview2_cancel (GncHtml *self);
 static void impl_webview2_set_parent (GncHtml *self, GtkWindow *parent);
 static void impl_webview2_default_zoom_changed (gpointer prefs, gchar *pref,
@@ -231,6 +232,27 @@ public:
                                       ICoreWebView2CompositionController *controller) override;
 };
 
+class PrintToPdfCompletedHandler final
+    : public CallbackBase<ICoreWebView2PrintToPdfCompletedHandler>
+{
+public:
+    using CallbackBase::CallbackBase;
+
+    HRESULT STDMETHODCALLTYPE QueryInterface (REFIID requested, void **object) override
+    {
+        return query_interface (requested, object,
+                                IID_ICoreWebView2PrintToPdfCompletedHandler);
+    }
+
+    HRESULT STDMETHODCALLTYPE Invoke (HRESULT error, BOOL succeeded) override
+    {
+        if (FAILED (error))
+            log_hresult ("PDF export", error);
+        else if (!succeeded)
+            PERR ("WebView2 did not create the requested PDF file.");
+        return S_OK;
+    }
+};
 class NavigationStartingHandler final
     : public CallbackBase<ICoreWebView2NavigationStartingEventHandler>
 {
@@ -1072,11 +1094,39 @@ impl_webview2_export_to_file (GncHtml *html, const gchar *filepath)
 }
 
 static void
-impl_webview2_print (GncHtml *html, const gchar *)
+impl_webview2_print (GncHtml *html, const gchar *jobname, gboolean export_pdf)
 {
     auto priv = priv_for (GNC_HTML_WEBVIEW2 (html));
+
     if (!priv->web_view)
         return;
+    if (export_pdf)
+    {
+        ComPtr<ICoreWebView2_7> printable_view;
+        auto output_path = to_utf16 (jobname);
+
+        if (output_path.empty ())
+        {
+            PERR ("WebView2 cannot export a PDF without a local output path.");
+            return;
+        }
+        if (FAILED (priv->web_view->QueryInterface (IID_ICoreWebView2_7,
+                                                     reinterpret_cast<void **> (
+                                                         printable_view.GetAddressOf ()))))
+        {
+            PERR ("The installed WebView2 Runtime does not support PDF export.");
+            return;
+        }
+
+        auto handler = new PrintToPdfCompletedHandler (GNC_HTML_WEBVIEW2 (html));
+        const auto result = printable_view->PrintToPdf (output_path.c_str (), nullptr,
+                                                         handler);
+        handler->Release ();
+        if (FAILED (result))
+            log_hresult ("PDF export start", result);
+        return;
+    }
+
     ComPtr<ICoreWebView2_16> printable_view;
     if (FAILED (priv->web_view->QueryInterface (IID_ICoreWebView2_16,
                                                  reinterpret_cast<void **> (
@@ -1084,7 +1134,6 @@ impl_webview2_print (GncHtml *html, const gchar *)
         FAILED (printable_view->ShowPrintUI (COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM)))
         PERR ("The installed WebView2 Runtime does not support native report printing.");
 }
-
 static void
 impl_webview2_cancel (GncHtml *html)
 {

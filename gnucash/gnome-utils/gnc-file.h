@@ -172,6 +172,21 @@ GncFileDialogRequest *gnc_file_dialog_request_new_for_folder (
     GtkWindow *parent, const gchar *title, GList *filters,
     GFile *initial_folder, GNCFileDialogType type);
 
+/**
+ * gnc_file_dialog_request_new_for_file:
+ * @parent: (nullable): transient parent for the native chooser
+ * @title: (nullable): chooser title; the dialog type supplies the default
+ * @filters: (transfer full) (nullable): #GtkFileFilter list to offer
+ * @initial_file: (transfer none) (nullable): initial file name for a save request
+ * @type: the requested GnuCash file operation
+ *
+ * Creates the same immutable request as gnc_file_dialog_request_new(), but
+ * preserves a #GFile initial name for native GTK4 save dialogs.
+ */
+GncFileDialogRequest *gnc_file_dialog_request_new_for_file (
+    GtkWindow *parent, const gchar *title, GList *filters,
+    GFile *initial_file, GNCFileDialogType type);
+
 void gnc_file_dialog_request_open_async (GncFileDialogRequest *request,
                                          GCancellable *cancellable,
                                          GAsyncReadyCallback callback,

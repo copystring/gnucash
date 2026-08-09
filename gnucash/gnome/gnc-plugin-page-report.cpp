@@ -1293,11 +1293,6 @@ gnc_plugin_page_report_menu_updates (GncPluginPage *plugin_page)
     action = gnc_main_window_find_action (window, "FilePrintAction");
     g_simple_action_set_enabled (G_SIMPLE_ACTION(action), true);
 
-    if (priv->webkit2)
-    {
-        GtkWidget *pdf_item = gnc_main_window_menu_find_menu_item (window, "FilePrintPDFAction");
-        gtk_widget_hide (pdf_item);
-    }
     g_free (saved_reports_path);
     g_free (report_save_str);
     g_free (report_saveas_str);
@@ -2088,24 +2083,154 @@ static gchar *report_create_jobname(GncPluginPageReportPrivate *priv)
     return job_name;
 }
 
+typedef struct
+{
+    GWeakRef page;
+} GncReportPdfData;
+
+static void
+report_pdf_data_free (GncReportPdfData *data)
+{
+    g_weak_ref_clear (&data->page);
+    g_free (data);
+}
+
+static gchar *
+report_pdf_filename (const gchar *job_name)
+{
+    return g_str_has_suffix (job_name, ".pdf") ? g_strdup (job_name)
+                                                  : g_strconcat (job_name, ".pdf", nullptr);
+}
+
+static gchar *
+report_pdf_starting_directory (const gchar *filename)
+{
+    gchar *directory = g_path_get_dirname (filename);
+    GtkPrintSettings *print_settings;
+    const gchar *stored_directory;
+
+    if (g_strcmp0 (directory, ".") != 0 &&
+        g_file_test (directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+        return directory;
+    g_free (directory);
+
+    print_settings = gnc_print_get_settings ();
+    stored_directory = print_settings
+                           ? gtk_print_settings_get (print_settings,
+                                                     GNC_GTK_PRINT_SETTINGS_EXPORT_DIR)
+                           : nullptr;
+    if (stored_directory &&
+        g_file_test (stored_directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+        return g_strdup (stored_directory);
+
+    directory = gnc_get_default_directory (GNC_PREFS_GROUP_REPORT);
+    if (directory &&
+        g_file_test (directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+        return directory;
+    g_free (directory);
+    return g_get_current_dir ();
+}
+
+static GList *
+report_pdf_filters (void)
+{
+    GtkFileFilter *filter = gtk_file_filter_new ();
+
+    gtk_file_filter_set_name (filter, _("PDF files"));
+    gtk_file_filter_add_pattern (filter, "*.pdf");
+    return g_list_append (nullptr, filter);
+}
+
+static void
+report_pdf_store_output_directory (GncPluginPageReport *report,
+                                   const gchar *filename)
+{
+    GncPluginPageReportPrivate *priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE (report);
+    gchar *directory = g_path_get_dirname (filename);
+    GtkPrintSettings *print_settings;
+    GncInvoice *invoice;
+    GncOwner *owner;
+
+    if (!g_file_test (directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+    {
+        g_free (directory);
+        return;
+    }
+
+    gnc_set_default_directory (GNC_PREFS_GROUP_REPORT, directory);
+    print_settings = gnc_print_get_settings ();
+    if (print_settings)
+        gtk_print_settings_set (print_settings, GNC_GTK_PRINT_SETTINGS_EXPORT_DIR,
+                                directory);
+
+    invoice = lookup_invoice (priv);
+    owner = invoice ? (GncOwner *)gncInvoiceGetOwner (invoice) : nullptr;
+    if (owner)
+    {
+        QofInstance *instance = qofOwnerGetOwner (owner);
+
+        gncOwnerBeginEdit (owner);
+        qof_instance_set (instance, "export-pdf-dir", directory);
+        gncOwnerCommitEdit (owner);
+    }
+    g_free (directory);
+}
+
+static void
+report_pdf_file_selected (GObject *source, GAsyncResult *result,
+                          gpointer user_data)
+{
+    GncReportPdfData *data = static_cast<GncReportPdfData *> (user_data);
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = nullptr;
+    GFile *file = gnc_file_dialog_request_finish (request, result, &error);
+    auto report = static_cast<GncPluginPageReport *> (g_weak_ref_get (&data->page));
+
+    if (report)
+    {
+        auto parent = GTK_WINDOW (gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (report)));
+
+        if (file)
+        {
+            gchar *filename = g_file_get_path (file);
+
+            if (filename)
+            {
+                auto priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE (report);
+
+                gnc_html_print (priv->html, filename, TRUE);
+                report_pdf_store_output_directory (report, filename);
+                g_free (filename);
+            }
+            else
+                gnc_error_dialog (parent, "%s",
+                                  _("Please select a local file for the PDF export."));
+        }
+        else if (error &&
+                 !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            gnc_error_dialog (parent, "%s", error->message);
+        g_object_unref (report);
+    }
+
+    g_clear_object (&file);
+    g_clear_error (&error);
+    report_pdf_data_free (data);
+}
+
 static void
 gnc_plugin_page_report_print_cb (GSimpleAction *simple,
                                  GVariant *parameter,
                                  gpointer user_data)
 {
-    GncPluginPageReport *report = (GncPluginPageReport*)user_data;
-    GncPluginPageReportPrivate *priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
-    gchar *job_name = report_create_jobname(priv);
+    auto report = static_cast<GncPluginPageReport *> (user_data);
+    auto priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE (report);
+    gchar *job_name = report_create_jobname (priv);
 
-    //g_warning("Setting job name=%s", job_name);
-
-#ifdef WEBKIT1
     gnc_html_print (priv->html, job_name, FALSE);
-#else
-    gnc_html_print (priv->html, job_name);
-#endif
-
     g_free (job_name);
+
+    (void)simple;
+    (void)parameter;
 }
 
 static void
@@ -2113,70 +2238,34 @@ gnc_plugin_page_report_exportpdf_cb (GSimpleAction *simple,
                                      GVariant *parameter,
                                      gpointer user_data)
 {
-    GncPluginPageReport *report = (GncPluginPageReport*)user_data;
-    GncPluginPageReportPrivate *priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
-    gchar *job_name = report_create_jobname(priv);
-    GncInvoice *invoice;
-    GncOwner *owner = nullptr;
+    auto report = static_cast<GncPluginPageReport *> (user_data);
+    auto priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE (report);
+    auto parent = GTK_WINDOW (gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (report)));
+    gchar *job_name = report_create_jobname (priv);
+    gchar *filename = report_pdf_filename (job_name);
+    gchar *directory = report_pdf_starting_directory (filename);
+    gchar *basename = g_path_get_basename (filename);
+    gchar *proposed_filename = g_build_filename (directory, basename, nullptr);
+    GFile *initial_file = g_file_new_for_path (proposed_filename);
+    GncReportPdfData *data = g_new0 (GncReportPdfData, 1);
+    GncFileDialogRequest *request = gnc_file_dialog_request_new_for_file (
+        parent, _("Export to PDF File"), report_pdf_filters (), initial_file,
+        GNC_FILE_DIALOG_EXPORT);
 
-    // Do we have an invoice report?
-    invoice = lookup_invoice(priv);
-    if (invoice)
-    {
-        // Does this invoice also have an owner?
-        owner = (GncOwner*) gncInvoiceGetOwner(invoice);
-        if (owner)
-        {
-            QofInstance *inst = qofOwnerGetOwner (owner);
-            gchar *dirname = nullptr;
-            qof_instance_get (inst, "export-pdf-dir", &dirname, nullptr);
-            // Yes. In the kvp, look up the key for the Export-PDF output
-            // directory. If it exists, prepend this to the job name so that
-            // we can export to PDF.
-            if (dirname && g_file_test (dirname,
-                       (GFileTest)(G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)))
-            {
-                gchar *tmp = g_build_filename (dirname, job_name, nullptr);
-                g_free (job_name);
-                job_name = tmp;
-            }
-        }
-    }
-
-    //g_warning("Setting job name=%s", job_name);
-
-#ifdef WEBKIT1
-    gnc_html_print (priv->html, job_name, TRUE);
-#else
-    gnc_html_print (priv->html, job_name);
-#endif
-
-    if (owner)
-    {
-        /* As this is an invoice report with some owner, we will try
-         * to look up the chosen output directory from the print
-         * settings and store it again in the owner kvp.
-         */
-        GtkPrintSettings *print_settings = gnc_print_get_settings();
-        if (print_settings && gtk_print_settings_has_key (print_settings,
-                                  GNC_GTK_PRINT_SETTINGS_EXPORT_DIR))
-        {
-            const char* dirname = gtk_print_settings_get (print_settings,
-                                      GNC_GTK_PRINT_SETTINGS_EXPORT_DIR);
-            // Only store the directory if it exists.
-            if (g_file_test (dirname,
-                            (GFileTest)(G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)))
-            {
-                QofInstance *inst = qofOwnerGetOwner (owner);
-                gncOwnerBeginEdit (owner);
-                qof_instance_set (inst, "export-pdf-dir", dirname);
-                gncOwnerCommitEdit (owner);
-            }
-        }
-    }
+    g_weak_ref_init (&data->page, report);
+    gnc_file_dialog_request_save_async (request, nullptr, report_pdf_file_selected,
+                                        data);
+    g_object_unref (request);
+    g_object_unref (initial_file);
+    g_free (proposed_filename);
+    g_free (basename);
+    g_free (directory);
+    g_free (filename);
     g_free (job_name);
-}
 
+    (void)simple;
+    (void)parameter;
+}
 static void
 gnc_plugin_page_report_copy_cb (GSimpleAction *simple,
                                 GVariant *parameter,

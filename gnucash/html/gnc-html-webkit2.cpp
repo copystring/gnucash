@@ -112,7 +112,8 @@ static void impl_webkit_show_data( GncHtml* self, const gchar* data, int datalen
 static void impl_webkit_reload( GncHtml* self, gboolean force_rebuild );
 static void impl_webkit_copy_to_clipboard( GncHtml* self );
 static gboolean impl_webkit_export_to_file( GncHtml* self, const gchar* filepath );
-static void impl_webkit_print (GncHtml* self,const gchar* jobname);
+static void impl_webkit_print (GncHtml* self, const gchar* jobname,
+                               gboolean export_pdf);
 static void impl_webkit_cancel( GncHtml* self );
 static void impl_webkit_set_parent( GncHtml* self, GtkWindow* parent );
 static void impl_webkit_default_zoom_changed(gpointer prefs, gchar *pref, gpointer user_data);
@@ -1127,37 +1128,54 @@ impl_webkit_export_to_file( GncHtml* self, const char *filepath )
  * webkit_web_view_get_snapshot for each page.
  */
 static void
-impl_webkit_print (GncHtml* self,const gchar* jobname)
+impl_webkit_print (GncHtml *self, const gchar *jobname, gboolean export_pdf)
 {
-     g_return_if_fail (self != nullptr);
-     g_return_if_fail (GNC_IS_HTML_WEBKIT (self));
+    g_return_if_fail (self != nullptr);
+    g_return_if_fail (GNC_IS_HTML_WEBKIT (self));
 
-     auto priv = GNC_HTML_WEBKIT_GET_PRIVATE (self);
-     auto op = webkit_print_operation_new (priv->web_view);
-     gchar *basename = g_path_get_basename(jobname);
-     auto print_settings = gtk_print_settings_new();
-     webkit_print_operation_set_print_settings(op, print_settings);
-     gchar *export_filename = g_strdup(jobname);
-     g_free(basename);
-     gtk_print_settings_set(print_settings,
-                    GTK_PRINT_SETTINGS_OUTPUT_BASENAME,
-                    export_filename);
-     webkit_print_operation_set_print_settings(op, print_settings);
-     // Open a print dialog
-     auto root = gtk_widget_get_root (GTK_WIDGET (priv->web_view));
-     auto top = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : nullptr;
-     auto print_response = webkit_print_operation_run_dialog (op, top);
-     if (print_response == WEBKIT_PRINT_OPERATION_RESPONSE_PRINT)
-     {
-          // Get the newly updated print settings
-          g_object_unref(print_settings);
-          print_settings = g_object_ref(webkit_print_operation_get_print_settings(op));
-     }
-     g_free(export_filename);
-     g_object_unref (op);
-     g_object_unref (print_settings);
+    auto priv = GNC_HTML_WEBKIT_GET_PRIVATE (self);
+    auto op = webkit_print_operation_new (priv->web_view);
+    auto print_settings = gtk_print_settings_new ();
+
+    if (export_pdf)
+    {
+        GError *error = nullptr;
+        gchar *output_uri = g_filename_to_uri (jobname, nullptr, &error);
+
+        if (!output_uri)
+        {
+            PERR ("Could not create a PDF output URI: %s",
+                  error ? error->message : "unknown error");
+            g_clear_error (&error);
+            g_object_unref (print_settings);
+            g_object_unref (op);
+            return;
+        }
+
+        gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_PRINTER,
+                                "Print to File");
+        gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_OUTPUT_FILE_FORMAT,
+                                "pdf");
+        gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_OUTPUT_URI,
+                                output_uri);
+        webkit_print_operation_set_print_settings (op, print_settings);
+        webkit_print_operation_print (op);
+        g_free (output_uri);
+    }
+    else
+    {
+        auto root = gtk_widget_get_root (GTK_WIDGET (priv->web_view));
+        auto top = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : nullptr;
+
+        gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_OUTPUT_BASENAME,
+                                jobname);
+        webkit_print_operation_set_print_settings (op, print_settings);
+        (void)webkit_print_operation_run_dialog (op, top);
+    }
+
+    g_object_unref (print_settings);
+    g_object_unref (op);
 }
-
 static void
 impl_webkit_set_parent( GncHtml* self, GtkWindow* parent )
 {

@@ -73,7 +73,8 @@ static void impl_wkwebview_show_data (GncHtml *html, const gchar *data, int data
 static void impl_wkwebview_reload (GncHtml *html, gboolean force_rebuild);
 static void impl_wkwebview_copy_to_clipboard (GncHtml *html);
 static gboolean impl_wkwebview_export_to_file (GncHtml *html, const gchar *filepath);
-static void impl_wkwebview_print (GncHtml *html, const gchar *jobname);
+static void impl_wkwebview_print (GncHtml *html, const gchar *jobname,
+                                  gboolean export_pdf);
 static void impl_wkwebview_cancel (GncHtml *html);
 static void impl_wkwebview_set_parent (GncHtml *html, GtkWindow *parent);
 static void impl_wkwebview_default_zoom_changed (gpointer prefs, gchar *pref,
@@ -741,11 +742,45 @@ impl_wkwebview_export_to_file (GncHtml *html, const gchar *filepath)
 }
 
 static void
-impl_wkwebview_print (GncHtml *html, const gchar *jobname)
+impl_wkwebview_print (GncHtml *html, const gchar *jobname, gboolean export_pdf)
 {
     auto web_view = priv_for (GNC_HTML_WKWEBVIEW (html))->web_view;
+
     if (!web_view)
         return;
+    if (export_pdf)
+    {
+        if (!jobname || !*jobname)
+        {
+            PERR ("WKWebView cannot export a PDF without a local output path.");
+            return;
+        }
+        if (![web_view respondsToSelector:@selector(createPDFWithConfiguration:completionHandler:)])
+        {
+            PERR ("The installed macOS WebKit runtime does not support PDF export.");
+            return;
+        }
+
+        NSString *output_path = [NSString stringWithUTF8String:jobname];
+        [web_view createPDFWithConfiguration:nil
+                            completionHandler:^(NSData *data, NSError *error) {
+            if (error || !data)
+            {
+                PERR ("WKWebView PDF export failed: %s",
+                      error ? [[error localizedDescription] UTF8String]
+                            : "no PDF data was returned");
+                return;
+            }
+
+            NSError *write_error = nil;
+            if (![data writeToFile:output_path options:NSDataWritingAtomic
+                              error:&write_error])
+                PERR ("Could not write WKWebView PDF output: %s",
+                      [[write_error localizedDescription] UTF8String]);
+        }];
+        return;
+    }
+
     auto operation = [web_view printOperation];
     if (!operation)
         return;
@@ -753,7 +788,6 @@ impl_wkwebview_print (GncHtml *html, const gchar *jobname)
         [operation setJobTitle:[NSString stringWithUTF8String:jobname]];
     [operation runOperation];
 }
-
 static void
 impl_wkwebview_cancel (GncHtml *html)
 {
