@@ -166,9 +166,6 @@ void gnc_xfer_description_insert_cb(GtkEditable *editable,
                                     const gint insert_text_len,
                                     gint *start_pos,
                                     XferDialog *xferData);
-gboolean gnc_xfer_description_key_press_cb( GtkEntry *entry,
-                                            const GdkEvent *event,
-                                            XferDialog *xferData );
 void gnc_xfer_dialog_fetch (GtkButton *button, XferDialog *xferData);
 gboolean gnc_xfer_dialog_inc_exp_filter_func (Account *account,
                                               gpointer data);
@@ -629,7 +626,7 @@ gnc_xfer_dialog_fill_tree_view(XferDialog *xferData,
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(tree_view), event_controller);
-    g_signal_connect (G_OBJECT(event_controller), "key-press-event",
+    g_signal_connect (G_OBJECT(event_controller), "key-pressed",
                       G_CALLBACK (gnc_xfer_dialog_key_press_cb), nullptr);
 
     auto selection = gtk_tree_view_get_selection (tree_view);
@@ -874,47 +871,35 @@ gnc_xfer_description_insert_cb(GtkEditable *editable,
     g_free(new_text);
 }
 
-gboolean
-gnc_xfer_description_key_press_cb( GtkEntry       *entry,
-                                   const GdkEvent *event,
-                                   XferDialog     *xferData )
+static gboolean
+gnc_xfer_description_key_pressed_cb (GtkEventControllerKey *controller,
+                                      guint keyval,
+                                      guint keycode,
+                                      GdkModifierType state,
+                                      XferDialog *xferData)
 {
-    gboolean done_with_input = FALSE;
-
-    /* Most "special" keys are allowed to be handled directly by
-     * the entry's key press handler, but in some cases that doesn't
-     * seem to work right, so handle them here.
-     */
-    ENTER(" ");
-
-    guint keyval = gdk_key_event_get_keyval ((GdkEvent*)event);
-    GdkModifierType state = gdk_key_event_get_consumed_modifiers ((GdkEvent*)event);
-
-    switch ( keyval )
+    /* Return activates the dialog's default action after quickfill. Tab
+     * quickfills only in the forward direction, then lets focus advance. */
+    switch (keyval)
     {
-        case GDK_KEY_Return:
-        case GDK_KEY_KP_Enter:
-            gnc_xfer_dialog_quickfill( xferData );
-            /* NOT done with input, activate the default button of the dialog. */
-            break;
+    case GDK_KEY_Return:
+    case GDK_KEY_KP_Enter:
+        gnc_xfer_dialog_quickfill (xferData);
+        break;
 
-        case GDK_KEY_Tab:
-        case GDK_KEY_ISO_Left_Tab:
-            if ( !( state & GDK_SHIFT_MASK) ) /* Complete on Tab,
-                                               * but not Shift-Tab */
-            {
-                gnc_xfer_dialog_quickfill( xferData );
-                /* NOT done with input, though, since we need to focus to the next
-                 * field.  Unselect the current field, though.
-                 */
-                gtk_editable_select_region( GTK_EDITABLE(xferData->description_entry),
-                                            0, 0 );
-            }
-            break;
+    case GDK_KEY_Tab:
+    case GDK_KEY_ISO_Left_Tab:
+        if (!(state & GDK_SHIFT_MASK))
+        {
+            gnc_xfer_dialog_quickfill (xferData);
+            gtk_editable_select_region (GTK_EDITABLE (xferData->description_entry), 0, 0);
+        }
+        break;
     }
 
-    LEAVE("done=%d", done_with_input);
-    return( done_with_input );
+    (void)controller;
+    (void)keycode;
+    return FALSE;
 }
 
 /*** End of quickfill-specific callbacks ***/
@@ -1892,6 +1877,12 @@ gnc_xfer_dialog_create(GtkWidget *parent, XferDialog *xferData)
 
         entry = GTK_WIDGET(gtk_builder_get_object (builder, "description_entry"));
         xferData->description_entry = entry;
+
+        GtkEventController *description_key_controller = gtk_event_controller_key_new ();
+        gtk_event_controller_set_propagation_phase (description_key_controller, GTK_PHASE_CAPTURE);
+        gtk_widget_add_controller (entry, description_key_controller);
+        g_signal_connect (description_key_controller, "key-pressed",
+                          G_CALLBACK (gnc_xfer_description_key_pressed_cb), xferData);
 
         entry = GTK_WIDGET(gtk_builder_get_object (builder, "notes_entry"));
         xferData->notes_entry = entry;
