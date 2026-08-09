@@ -180,20 +180,20 @@ static GtkWidget *
 make_menu (GNCSearchCoreType *fe)
 {
     GNCSearchDate *fi = (GNCSearchDate *)fe;
-    GtkComboBox *combo;
+    GtkDropDown *drop_down;
 
-    combo = GTK_COMBO_BOX(gnc_combo_box_new_search());
+    drop_down = GTK_DROP_DOWN(gnc_search_drop_down_new());
 
-    gnc_combo_box_search_add(combo, _("is before"), QOF_COMPARE_LT);
-    gnc_combo_box_search_add(combo, _("is before or on"), QOF_COMPARE_LTE);
-    gnc_combo_box_search_add(combo, _("is on"), QOF_COMPARE_EQUAL);
-    gnc_combo_box_search_add(combo, _("is not on"), QOF_COMPARE_NEQ);
-    gnc_combo_box_search_add(combo, _("is after"), QOF_COMPARE_GT);
-    gnc_combo_box_search_add(combo, _("is on or after"), QOF_COMPARE_GTE);
-    gnc_combo_box_search_changed(combo, &fi->how);
-    gnc_combo_box_search_set_active(combo, fi->how ? fi->how : QOF_COMPARE_LT);
+    gnc_search_drop_down_add(drop_down, _("is before"), QOF_COMPARE_LT);
+    gnc_search_drop_down_add(drop_down, _("is before or on"), QOF_COMPARE_LTE);
+    gnc_search_drop_down_add(drop_down, _("is on"), QOF_COMPARE_EQUAL);
+    gnc_search_drop_down_add(drop_down, _("is not on"), QOF_COMPARE_NEQ);
+    gnc_search_drop_down_add(drop_down, _("is after"), QOF_COMPARE_GT);
+    gnc_search_drop_down_add(drop_down, _("is on or after"), QOF_COMPARE_GTE);
+    gnc_search_drop_down_changed(drop_down, &fi->how);
+    gnc_search_drop_down_set_active(drop_down, fi->how ? fi->how : QOF_COMPARE_LT);
 
-    return GTK_WIDGET(combo);
+    return GTK_WIDGET(drop_down);
 }
 
 static void

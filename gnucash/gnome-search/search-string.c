@@ -216,20 +216,20 @@ static GtkWidget *
 make_menu (GNCSearchCoreType *fe)
 {
     GNCSearchString *fi = (GNCSearchString *)fe;
-    GtkComboBox *combo;
+    GtkDropDown *drop_down;
 
-    combo = GTK_COMBO_BOX(gnc_combo_box_new_search());
+    drop_down = GTK_DROP_DOWN(gnc_search_drop_down_new());
 
-    gnc_combo_box_search_add(combo, _("contains"), SEARCH_STRING_CONTAINS);
-    gnc_combo_box_search_add(combo, _("equals"), SEARCH_STRING_EQUAL);
-    gnc_combo_box_search_add(combo, _("matches regex"),
+    gnc_search_drop_down_add(drop_down, _("contains"), SEARCH_STRING_CONTAINS);
+    gnc_search_drop_down_add(drop_down, _("equals"), SEARCH_STRING_EQUAL);
+    gnc_search_drop_down_add(drop_down, _("matches regex"),
                              SEARCH_STRING_MATCHES_REGEX);
-    gnc_combo_box_search_add(combo, _("does not match regex"),
+    gnc_search_drop_down_add(drop_down, _("does not match regex"),
                              SEARCH_STRING_NOT_MATCHES_REGEX);
-    gnc_combo_box_search_changed(combo, &fi->how);
-    gnc_combo_box_search_set_active(combo, fi->how ? fi->how : SEARCH_STRING_CONTAINS);
+    gnc_search_drop_down_changed(drop_down, &fi->how);
+    gnc_search_drop_down_set_active(drop_down, fi->how ? fi->how : SEARCH_STRING_CONTAINS);
 
-    return GTK_WIDGET(combo);
+    return GTK_WIDGET(drop_down);
 }
 
 static void

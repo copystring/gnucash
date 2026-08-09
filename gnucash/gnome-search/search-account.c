@@ -163,28 +163,28 @@ make_menu (GNCSearchCoreType *fe)
 {
     GNCSearchAccount *fi = (GNCSearchAccount *)fe;
     GNCSearchAccountPrivate *priv;
-    GtkComboBox *combo;
+    GtkDropDown *drop_down;
     int initial = 0;
 
-    combo = GTK_COMBO_BOX(gnc_combo_box_new_search());
+    drop_down = GTK_DROP_DOWN(gnc_search_drop_down_new());
 
     priv = _PRIVATE(fi);
     if (priv->match_all)
     {
-        gnc_combo_box_search_add(combo, _("matches all accounts"), QOF_GUID_MATCH_ALL);
+        gnc_search_drop_down_add(drop_down, _("matches all accounts"), QOF_GUID_MATCH_ALL);
         initial = QOF_GUID_MATCH_ALL;
     }
     else
     {
-        gnc_combo_box_search_add(combo, _("matches any account"), QOF_GUID_MATCH_ANY);
-        gnc_combo_box_search_add(combo, _("matches no accounts"), QOF_GUID_MATCH_NONE);
+        gnc_search_drop_down_add(drop_down, _("matches any account"), QOF_GUID_MATCH_ANY);
+        gnc_search_drop_down_add(drop_down, _("matches no accounts"), QOF_GUID_MATCH_NONE);
         initial = QOF_GUID_MATCH_ANY;
     }
 
-    gnc_combo_box_search_changed(combo, &fi->how);
-    gnc_combo_box_search_set_active(combo, fi->how ? fi->how : initial);
+    gnc_search_drop_down_changed(drop_down, &fi->how);
+    gnc_search_drop_down_set_active(drop_down, fi->how ? fi->how : initial);
 
-    return GTK_WIDGET(combo);
+    return GTK_WIDGET(drop_down);
 }
 
 static char *

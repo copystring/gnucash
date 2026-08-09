@@ -164,15 +164,15 @@ static GtkWidget *
 make_menu (GNCSearchCoreType *fe)
 {
     GNCSearchReconciled *fi = (GNCSearchReconciled *)fe;
-    GtkComboBox *combo;
+    GtkDropDown *drop_down;
 
-    combo = GTK_COMBO_BOX(gnc_combo_box_new_search());
-    gnc_combo_box_search_add(combo, _("is"), QOF_CHAR_MATCH_ANY);
-    gnc_combo_box_search_add(combo, _("is not"), QOF_CHAR_MATCH_NONE);
-    gnc_combo_box_search_changed(combo, &fi->how);
-    gnc_combo_box_search_set_active(combo, fi->how ? fi->how : QOF_CHAR_MATCH_ANY);
+    drop_down = GTK_DROP_DOWN(gnc_search_drop_down_new());
+    gnc_search_drop_down_add(drop_down, _("is"), QOF_CHAR_MATCH_ANY);
+    gnc_search_drop_down_add(drop_down, _("is not"), QOF_CHAR_MATCH_NONE);
+    gnc_search_drop_down_changed(drop_down, &fi->how);
+    gnc_search_drop_down_set_active(drop_down, fi->how ? fi->how : QOF_CHAR_MATCH_ANY);
 
-    return GTK_WIDGET(combo);
+    return GTK_WIDGET(drop_down);
 }
 
 static GtkWidget *
