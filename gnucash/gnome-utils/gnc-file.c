@@ -480,17 +480,27 @@ gnc_file_dialog_get_datafile_filters (void)
 }
 
 typedef void (*GncFileSelectionFunc) (GtkWindow *parent,
-                                      const gchar *filename);
+                                      const gchar *filename,
+                                      gpointer user_data);
+typedef void (*GncFileSelectionCancelledFunc) (GtkWindow *parent,
+                                               const GError *error,
+                                               gpointer user_data);
 
 typedef struct
 {
     GWeakRef parent;
+    gboolean has_parent;
     GncFileSelectionFunc selected;
+    GncFileSelectionCancelledFunc cancelled;
+    gpointer user_data;
+    GDestroyNotify user_data_destroy;
 } GncFileSelectionData;
 
 static void
 gnc_file_selection_data_free (GncFileSelectionData *data)
 {
+    if (data->user_data_destroy)
+        data->user_data_destroy (data->user_data);
     g_weak_ref_clear (&data->parent);
     g_free (data);
 }
@@ -507,25 +517,30 @@ gnc_file_selection_finished (GObject *source, GAsyncResult *result,
 
     file = gnc_file_dialog_request_finish (request, result, &error);
     parent = GTK_WINDOW (g_weak_ref_get (&data->parent));
-    if (file)
+    if (data->has_parent && !parent)
+    {
+        if (data->cancelled)
+            data->cancelled (NULL, NULL, data->user_data);
+    }
+    else if (file)
     {
         gchar *filename = g_file_get_path (file);
 
         if (filename)
         {
-            data->selected (parent, filename);
+            data->selected (parent, filename, data->user_data);
             g_free (filename);
         }
+        else if (data->cancelled)
+            data->cancelled (parent, NULL, data->user_data);
         else if (parent)
-        {
             gnc_error_dialog (parent, "%s", _("Please select a local file."));
-        }
     }
+    else if (data->cancelled)
+        data->cancelled (parent, error, data->user_data);
     else if (error && parent &&
              !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-    {
         gnc_error_dialog (parent, "%s", error->message);
-    }
 
     g_clear_object (&file);
     g_clear_error (&error);
@@ -534,9 +549,12 @@ gnc_file_selection_finished (GObject *source, GAsyncResult *result,
 }
 
 static void
-gnc_file_select_async (GtkWindow *parent, const gchar *title, GList *filters,
-                       const gchar *starting_dir, GNCFileDialogType type,
-                       GncFileSelectionFunc selected)
+gnc_file_select_async_full (GtkWindow *parent, const gchar *title, GList *filters,
+                            const gchar *starting_dir, GNCFileDialogType type,
+                            GncFileSelectionFunc selected,
+                            GncFileSelectionCancelledFunc cancelled,
+                            gpointer user_data,
+                            GDestroyNotify user_data_destroy)
 {
     GncFileSelectionData *data;
     GncFileDialogRequest *request;
@@ -545,7 +563,11 @@ gnc_file_select_async (GtkWindow *parent, const gchar *title, GList *filters,
 
     data = g_new0 (GncFileSelectionData, 1);
     g_weak_ref_init (&data->parent, parent);
+    data->has_parent = parent != NULL;
     data->selected = selected;
+    data->cancelled = cancelled;
+    data->user_data = user_data;
+    data->user_data_destroy = user_data_destroy;
     request = gnc_file_dialog_request_new (parent, title, filters, starting_dir,
                                            type);
     if (type == GNC_FILE_DIALOG_OPEN || type == GNC_FILE_DIALOG_IMPORT)
@@ -557,6 +579,14 @@ gnc_file_select_async (GtkWindow *parent, const gchar *title, GList *filters,
     g_object_unref (request);
 }
 
+static void
+gnc_file_select_async (GtkWindow *parent, const gchar *title, GList *filters,
+                       const gchar *starting_dir, GNCFileDialogType type,
+                       GncFileSelectionFunc selected)
+{
+    gnc_file_select_async_full (parent, title, filters, starting_dir, type,
+                                selected, NULL, NULL, NULL);
+}
 static void gnc_file_open_request_dialog (GtkWindow *parent,
                                           const gchar *starting_dir);
 gboolean
@@ -896,116 +926,206 @@ gnc_book_opened (void)
     gnc_hook_run(HOOK_BOOK_OPENED, gnc_get_current_session());
 }
 
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    gboolean can_cancel;
+    GncFileQuerySaveCallback completed;
+    gpointer user_data;
+} GncFileQuerySaveRequest;
+
+static void gnc_file_save_with_completion (GtkWindow *parent,
+                                           GncFileQuerySaveCallback completed,
+                                           gpointer user_data);
+
+static void
+gnc_file_query_save_request_free (GncFileQuerySaveRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+}
+
+static void
+gnc_file_query_save_complete (GncFileQuerySaveRequest *request,
+                              gboolean can_continue)
+{
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    if (request->has_parent && !parent)
+        can_continue = FALSE;
+    request->completed (parent, can_continue, request->user_data);
+    g_clear_object (&parent);
+    gnc_file_query_save_request_free (request);
+}
+
+static void gnc_file_query_save_continue (GncFileQuerySaveRequest *request);
+static void gnc_file_query_save_after_save (GtkWindow *parent, gboolean saved,
+                                             gpointer user_data);
+
+static void
+gnc_file_query_save_finished (GObject *source, GAsyncResult *result,
+                              gpointer user_data)
+{
+    GncFileQuerySaveRequest *request = user_data;
+    GError *error = NULL;
+    gint response;
+    GtkWindow *parent;
+
+    response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
+                                               &error);
+    parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    if (request->has_parent && !parent)
+    {
+        g_clear_error (&error);
+        gnc_file_query_save_complete (request, FALSE);
+        return;
+    }
+
+    if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_warning ("Save-before-close confirmation failed: %s", error->message);
+    g_clear_error (&error);
+
+    if (response == 0)
+        gnc_file_query_save_complete (request, TRUE);
+    else if (response == 1 && request->can_cancel)
+        gnc_file_query_save_complete (request, FALSE);
+    else if (response == (request->can_cancel ? 2 : 1))
+        gnc_file_save_with_completion (parent, gnc_file_query_save_after_save,
+                                       request);
+    else
+        gnc_file_query_save_complete (request, request->can_cancel ? FALSE : TRUE);
+
+    g_clear_object (&parent);
+}
+
+static void
+gnc_file_query_save_after_save (GtkWindow *parent, gboolean saved,
+                                gpointer user_data)
+{
+    GncFileQuerySaveRequest *request = user_data;
+
+    (void)parent;
+    if (saved)
+        gnc_file_query_save_complete (request, TRUE);
+    else
+        gnc_file_query_save_continue (request);
+}
+
+static void
+gnc_file_query_save_continue (GncFileQuerySaveRequest *request)
+{
+    QofBook *book;
+    GtkWindow *parent;
+    GtkAlertDialog *dialog;
+    const char *buttons_with_cancel[] =
+    {
+        _("Continue Without Saving"),
+        _("Cancel"),
+        _("Save"),
+        NULL
+    };
+    const char *buttons_without_cancel[] =
+    {
+        _("Continue Without Saving"),
+        _("Save"),
+        NULL
+    };
+    time64 oldest_change;
+    gint minutes;
+    gchar *detail;
+
+    if (!gnc_current_session_exist ())
+    {
+        gnc_file_query_save_complete (request, TRUE);
+        return;
+    }
+
+    book = qof_session_get_book (gnc_get_current_session ());
+    gnc_autosave_remove_timer (book);
+    if (!qof_book_session_not_saved (book))
+    {
+        gnc_file_query_save_complete (request, TRUE);
+        return;
+    }
+
+    parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    if (request->has_parent && !parent)
+    {
+        g_clear_object (&parent);
+        gnc_file_query_save_complete (request, FALSE);
+        return;
+    }
+
+    oldest_change = qof_book_get_session_dirty_time (book);
+    minutes = (gnc_time (NULL) - oldest_change) / 60 + 1;
+    detail = g_strdup_printf (ngettext (
+        "If you don't save, changes from the past %d minute will be discarded.",
+        "If you don't save, changes from the past %d minutes will be discarded.",
+        minutes), minutes);
+    dialog = gtk_alert_dialog_new ("%s", _("Save changes to the file?"));
+    gtk_alert_dialog_set_detail (dialog, detail);
+    gtk_alert_dialog_set_buttons (dialog, request->can_cancel ?
+                                  buttons_with_cancel : buttons_without_cancel);
+    gtk_alert_dialog_set_default_button (dialog, request->can_cancel ? 2 : 1);
+    gtk_alert_dialog_set_cancel_button (dialog, request->can_cancel ? 1 : 0);
+    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_file_query_save_finished,
+                             request);
+    g_object_unref (dialog);
+    g_free (detail);
+    g_clear_object (&parent);
+}
+
 void
-gnc_file_new (GtkWindow *parent)
+gnc_file_query_save_async (GtkWindow *parent, gboolean can_cancel,
+                           GncFileQuerySaveCallback completed,
+                           gpointer user_data)
+{
+    GncFileQuerySaveRequest *request;
+
+    g_return_if_fail (completed != NULL);
+    request = g_new0 (GncFileQuerySaveRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->can_cancel = can_cancel;
+    request->completed = completed;
+    request->user_data = user_data;
+    gnc_file_query_save_continue (request);
+}
+
+static void
+gnc_file_new_after_query (GtkWindow *parent, gboolean can_continue,
+                          gpointer user_data)
 {
     QofSession *session;
 
-    /* If user attempts to start a new session before saving results of
-     * the last one, prompt them to clean up their act. */
-    if (!gnc_file_query_save (parent, TRUE))
+    (void)user_data;
+    if (!can_continue)
         return;
 
     if (gnc_current_session_exist())
     {
         session = gnc_get_current_session ();
-
-        /* close any ongoing file sessions, and free the accounts.
-         * disable events so we don't get spammed by redraws. */
         qof_event_suspend ();
-
         gnc_hook_run(HOOK_BOOK_CLOSED, session);
-
         gnc_close_gui_component_by_session (session);
         gnc_state_save (session);
         gnc_clear_current_session();
         qof_event_resume ();
     }
 
-    /* start a new book */
     gnc_get_current_session ();
-
     gnc_hook_run(HOOK_NEW_BOOK, NULL);
-
     gnc_gui_refresh_all ();
-
-    /* Call this after re-enabling events. */
     gnc_book_opened ();
+    (void)parent;
 }
 
-gboolean
-gnc_file_query_save (GtkWindow *parent, gboolean can_cancel)
+void
+gnc_file_new (GtkWindow *parent)
 {
-    QofBook *current_book;
-
-    if (!gnc_current_session_exist())
-        return TRUE;
-
-    current_book = qof_session_get_book (gnc_get_current_session ());
-    /* Remove any pending auto-save timeouts */
-    gnc_autosave_remove_timer(current_book);
-
-    /* If user wants to mess around before finishing business with
-     * the old file, give him a chance to figure out what's up.
-     * Pose the question as a "while" loop, so that if user screws
-     * up the file-selection dialog, we don't blow him out of the water;
-     * instead, give them another chance to say "no" to the verify box.
-     */
-    while (qof_book_session_not_saved(current_book))
-    {
-        GtkWidget *dialog;
-        gint response;
-        const char *title = _("Save changes to the file?");
-        /* This should be the same message as in gnc-main-window.c */
-        time64 oldest_change;
-        gint minutes;
-
-        dialog = gtk_message_dialog_new(parent,
-                                        GTK_DIALOG_DESTROY_WITH_PARENT,
-                                        GTK_MESSAGE_QUESTION,
-                                        GTK_BUTTONS_NONE,
-                                        "%s", title);
-        oldest_change = qof_book_get_session_dirty_time(current_book);
-        minutes = (gnc_time (NULL) - oldest_change) / 60 + 1;
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                ngettext("If you don't save, changes from the past %d minute will be discarded.",
-                         "If you don't save, changes from the past %d minutes will be discarded.",
-                         minutes), minutes);
-        gtk_dialog_add_button(GTK_DIALOG(dialog),
-                              _("Continue _Without Saving"), GTK_RESPONSE_OK);
-
-        if (can_cancel)
-            gtk_dialog_add_button(GTK_DIALOG(dialog),
-                                  _("_Cancel"), GTK_RESPONSE_CANCEL);
-        gtk_dialog_add_button(GTK_DIALOG(dialog),
-                              _("_Save"), GTK_RESPONSE_YES);
-
-        gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
-
-        response = gnc_dialog_run (GTK_DIALOG(dialog));
-
-        switch (response)
-        {
-        case GTK_RESPONSE_YES:
-            gnc_file_save (parent);
-            /* Go check the loop condition. */
-            break;
-
-        case GTK_RESPONSE_CANCEL:
-        default:
-            if (can_cancel)
-                return FALSE;
-            /* No cancel function available. */
-            /* Fall through */
-
-        case GTK_RESPONSE_OK:
-            return TRUE;
-        }
-    }
-
-    return TRUE;
+    gnc_file_query_save_async (parent, TRUE, gnc_file_new_after_query, NULL);
 }
-
 
 
 static char*
@@ -1079,10 +1199,27 @@ typedef struct
     gchar *filename;
     gboolean is_readonly;
     gboolean reset_bayes_conversion;
+    gboolean break_lock;
 } GncFileOpenRequest;
 
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    gchar *filename;
+    gboolean reset_bayes_conversion;
+    gboolean offer_quit;
+} GncFileLockedOpenRequest;
+
+static gboolean gnc_file_open_request_with_mode (GtkWindow *parent,
+                                                  const char *filename,
+                                                  gboolean is_readonly,
+                                                  gboolean reset_bayes_conversion,
+                                                  gboolean break_lock);
 static gboolean gnc_post_file_open (GtkWindow *parent, const char *filename,
-                                    gboolean is_readonly);
+                                    gboolean is_readonly,
+                                    gboolean reset_bayes_conversion,
+                                    gboolean break_lock);
 
 static void
 gnc_file_open_request_free (GncFileOpenRequest *request)
@@ -1124,6 +1261,124 @@ gnc_file_needs_xml_encoding_conversion (const gchar *filename)
 }
 
 static void
+gnc_file_locked_open_request_free (GncFileLockedOpenRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_free (request->filename);
+    g_free (request);
+}
+
+static void
+gnc_file_locked_open_finished (GObject *source, GAsyncResult *result,
+                               gpointer user_data)
+{
+    GncFileLockedOpenRequest *request = user_data;
+    GError *error = NULL;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    gint response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
+                                                    &error);
+
+    if (request->has_parent && !parent)
+    {
+        g_clear_error (&error);
+        gnc_file_locked_open_request_free (request);
+        return;
+    }
+    if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_warning ("Locked-file decision failed: %s", error->message);
+    if (error)
+        response = request->offer_quit ? 4 : 3;
+    g_clear_error (&error);
+
+    switch (response)
+    {
+    case 0: /* Open Read-Only */
+        (void)gnc_file_open_request_with_mode (parent, request->filename, TRUE,
+                                               request->reset_bayes_conversion,
+                                               FALSE);
+        break;
+    case 1: /* Create New File */
+        gnc_file_new (parent);
+        break;
+    case 2: /* Open Anyway */
+        (void)gnc_file_open_request_with_mode (parent, request->filename, FALSE,
+                                               request->reset_bayes_conversion,
+                                               TRUE);
+        break;
+    case 4: /* Quit */
+        if (request->offer_quit && shutdown_cb)
+            shutdown_cb (0);
+        break;
+    default: /* Open Folder and cancellation */
+        gnc_file_open (parent);
+        break;
+    }
+
+    g_clear_object (&parent);
+    gnc_file_locked_open_request_free (request);
+}
+
+static void
+gnc_file_locked_open_async (GtkWindow *parent, const char *filename,
+                            gboolean reset_bayes_conversion,
+                            QofBackendError io_error, const char *newfile)
+{
+    const char *buttons_without_quit[] =
+    {
+        _("Open Read-Only"),
+        _("Create New File"),
+        _("Open Anyway"),
+        _("Open Folder"),
+        NULL
+    };
+    const char *buttons_with_quit[] =
+    {
+        _("Open Read-Only"),
+        _("Create New File"),
+        _("Open Anyway"),
+        _("Open Folder"),
+        _("Quit"),
+        NULL
+    };
+    const char *detail = io_error == ERR_BACKEND_LOCKED ?
+        _("That database may be in use by another user, in which case you "
+          "should not open the database. What would you like to do?") :
+        _("That database may be on a read-only file system, you may not have "
+          "write permission for the directory, or your anti-virus software is "
+          "preventing this action. If you proceed you may not be able to save "
+          "any changes. What would you like to do?");
+    GncFileLockedOpenRequest *request;
+    GtkAlertDialog *dialog;
+    gchar *displayname;
+    gchar *message;
+
+    if (!gnc_uri_is_file_uri (newfile))
+        displayname = gnc_uri_normalize_uri (newfile, FALSE);
+    else
+        displayname = gnc_uri_get_path (newfile);
+    message = g_strdup_printf (_("GnuCash could not obtain the lock for %s."),
+                               displayname);
+
+    request = g_new0 (GncFileLockedOpenRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->filename = g_strdup (filename);
+    request->reset_bayes_conversion = reset_bayes_conversion;
+    request->offer_quit = shutdown_cb != NULL;
+
+    dialog = gtk_alert_dialog_new ("%s", message);
+    gtk_alert_dialog_set_detail (dialog, detail);
+    gtk_alert_dialog_set_buttons (dialog, request->offer_quit ?
+                                  buttons_with_quit : buttons_without_quit);
+    gtk_alert_dialog_set_default_button (dialog, request->offer_quit ? 4 : 3);
+    gtk_alert_dialog_set_cancel_button (dialog, request->offer_quit ? 4 : 3);
+    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_file_locked_open_finished,
+                             request);
+    g_object_unref (dialog);
+    g_free (message);
+    g_free (displayname);
+}
+static void
 gnc_file_open_after_xml_conversion (GObject *source, GAsyncResult *result,
                                     gpointer user_data)
 {
@@ -1135,7 +1390,8 @@ gnc_file_open_after_xml_conversion (GObject *source, GAsyncResult *result,
     {
         if (request->reset_bayes_conversion)
             gnc_account_reset_convert_bayes_to_flat ();
-        gnc_post_file_open (parent, request->filename, request->is_readonly);
+        gnc_post_file_open (parent, request->filename, request->is_readonly,
+                            request->reset_bayes_conversion, request->break_lock);
     }
     else if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         gnc_error_dialog (parent, "%s", error->message);
@@ -1151,6 +1407,16 @@ gnc_file_open_request (GtkWindow *parent, const char *filename,
                        gboolean is_readonly,
                        gboolean reset_bayes_conversion)
 {
+    return gnc_file_open_request_with_mode (parent, filename, is_readonly,
+                                            reset_bayes_conversion, FALSE);
+}
+
+static gboolean
+gnc_file_open_request_with_mode (GtkWindow *parent, const char *filename,
+                                  gboolean is_readonly,
+                                  gboolean reset_bayes_conversion,
+                                  gboolean break_lock)
+{
     GncFileOpenRequest *request;
 
     if (!filename || *filename == '\0')
@@ -1160,7 +1426,8 @@ gnc_file_open_request (GtkWindow *parent, const char *filename,
     {
         if (reset_bayes_conversion)
             gnc_account_reset_convert_bayes_to_flat ();
-        return gnc_post_file_open (parent, filename, is_readonly);
+        return gnc_post_file_open (parent, filename, is_readonly,
+                                   reset_bayes_conversion, break_lock);
     }
 
     request = g_new0 (GncFileOpenRequest, 1);
@@ -1168,13 +1435,15 @@ gnc_file_open_request (GtkWindow *parent, const char *filename,
     request->filename = g_strdup (filename);
     request->is_readonly = is_readonly;
     request->reset_bayes_conversion = reset_bayes_conversion;
+    request->break_lock = break_lock;
     gnc_xml_convert_single_file_async (filename, parent, NULL,
                                        gnc_file_open_after_xml_conversion,
                                        request);
     return TRUE;
 }
 static gboolean
-gnc_post_file_open (GtkWindow *parent, const char * filename, gboolean is_readonly)
+gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonly,
+                    gboolean reset_bayes_conversion, gboolean break_lock)
 {
     QofSession *new_session;
     gboolean uh_oh = FALSE;
@@ -1261,7 +1530,8 @@ gnc_post_file_open (GtkWindow *parent, const char * filename, gboolean is_readon
 
     // Begin the new session. If we are in read-only mode, ignore the locks.
     qof_session_begin (new_session, newfile,
-                       is_readonly ? SESSION_READ_ONLY : SESSION_NORMAL_OPEN);
+                       break_lock ? SESSION_BREAK_LOCK :
+                       (is_readonly ? SESSION_READ_ONLY : SESSION_NORMAL_OPEN));
     io_err = qof_session_get_error (new_session);
 
     if (ERR_BACKEND_BAD_URL == io_err)
@@ -1292,100 +1562,13 @@ gnc_post_file_open (GtkWindow *parent, const char * filename, gboolean is_readon
         g_free (directory);
         return FALSE;
     }
-    /* if file appears to be locked, ask the user ... */
+    /* A lock decision must not keep the partially opened session alive while
+     * a native GTK4 alert is visible. The callback restarts the request with
+     * an explicit open mode after this attempt has cleaned up. */
     else if (ERR_BACKEND_LOCKED == io_err || ERR_BACKEND_READONLY == io_err)
     {
-        GtkWidget *dialog;
-        gchar *displayname = NULL;
-
-        char *fmt1 = _("GnuCash could not obtain the lock for %s.");
-        char *fmt2 = ((ERR_BACKEND_LOCKED == io_err) ?
-                      _("That database may be in use by another user, "
-                        "in which case you should not open the database. "
-                        "What would you like to do?") :
-                      _("That database may be on a read-only file system, "
-                        "you may not have write permission for the directory, "
-                        "or your anti-virus software is preventing this action. "
-                        "If you proceed you may not be able to save any changes. "
-                        "What would you like to do?")
-                     );
-        int rc;
-
-        /* Hide the db password and local filesystem schemes in error messages */
-        if (!gnc_uri_is_file_uri (newfile))
-            displayname = gnc_uri_normalize_uri ( newfile, FALSE);
-        else
-            displayname = gnc_uri_get_path (newfile);
-
-        dialog = gtk_message_dialog_new(parent,
-                                        0,
-                                        GTK_MESSAGE_WARNING,
-                                        GTK_BUTTONS_NONE,
-                                        fmt1, displayname);
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                "%s", fmt2);
-//FIXME gtk4        gtk_window_set_skip_taskbar_hint(GTK_WINDOW(dialog), FALSE);
-
-        gnc_gtk_dialog_add_button(dialog, _("Open _Read-Only"),
-                                  "emblem-readonly", RESPONSE_READONLY);
-
-        gnc_gtk_dialog_add_button(dialog, _("Create _New File"),
-                                  "document-new-symbolic", RESPONSE_NEW);
-
-        gnc_gtk_dialog_add_button(dialog, _("Open _Anyway"),
-                                  "document-open-symbolic", RESPONSE_OPEN);
-
-        gnc_gtk_dialog_add_button(dialog, _("Open _Folder"),
-                                  "folder-open-symbolic", RESPONSE_FILE);
-
-        if (shutdown_cb)
-        {
-            gtk_dialog_add_button(GTK_DIALOG(dialog),
-                                  _("_Quit"), RESPONSE_QUIT);
-            gtk_dialog_set_default_response (GTK_DIALOG(dialog), RESPONSE_QUIT);
-        }
-        else
-            gtk_dialog_set_default_response (GTK_DIALOG(dialog), RESPONSE_FILE);
-
-        rc = gnc_dialog_run (GTK_DIALOG(dialog));
-
-        g_free (displayname);
-
-        if (rc == GTK_RESPONSE_DELETE_EVENT)
-        {
-            rc = shutdown_cb ? RESPONSE_QUIT : RESPONSE_FILE;
-        }
-        switch (rc)
-        {
-        case RESPONSE_QUIT:
-            if (shutdown_cb)
-                shutdown_cb(0);
-            g_assert(1);
-            break;
-        case RESPONSE_READONLY:
-            is_readonly = TRUE;
-            /* user told us to open readonly. We do ignore locks (just as before), but now also force the opening. */
-            qof_session_begin (new_session, newfile, SESSION_READ_ONLY);
-            break;
-        case RESPONSE_OPEN:
-            /* user told us to ignore locks. So ignore them. */
-            qof_session_begin (new_session, newfile, SESSION_BREAK_LOCK);
-            break;
-        case RESPONSE_NEW:
-            /* Can't use the given file, so just create a new
-             * database so that the user will get a window that
-             * they can click "Exit" on.
-             */
-            gnc_file_new (parent);
-            break;
-        default:
-            /* Can't use the given file, so open a file browser dialog
-             * so they can choose a different file and get a window that
-             * they can click "Exit" on.
-             */
-            gnc_file_open (parent);
-            break;
-        }
+        gnc_file_locked_open_async (parent, filename, reset_bayes_conversion,
+                                    io_err, newfile);
     }
     /* if the database doesn't exist, ask the user ... */
     else if ((ERR_BACKEND_NO_SUCH_DB == io_err))
@@ -1566,8 +1749,10 @@ gnc_post_file_open (GtkWindow *parent, const char * filename, gboolean is_readon
  *       paths, never db uris.
  */
 static void
-gnc_file_open_selected (GtkWindow *parent, const gchar *filename)
+gnc_file_open_selected (GtkWindow *parent, const gchar *filename,
+                        gpointer user_data)
 {
+    (void)user_data;
     (void)gnc_file_open_request (parent, filename, FALSE, FALSE);
 }
 
@@ -1579,17 +1764,18 @@ gnc_file_open_request_dialog (GtkWindow *parent, const gchar *starting_dir)
                            GNC_FILE_DIALOG_OPEN, gnc_file_open_selected);
 }
 
-/* Starts the native file request after the current session can be closed. The
- * eventual open result is reported by the existing session error UI; callers
- * historically ignore the return value. */
-gboolean
-gnc_file_open (GtkWindow *parent)
+/* Starts the native file request only after the current session has either
+ * been saved or explicitly discarded. */
+static void
+gnc_file_open_after_query (GtkWindow *parent, gboolean can_continue,
+                           gpointer user_data)
 {
     gchar *default_dir;
     gchar *last;
 
-    if (!gnc_file_query_save (parent, TRUE))
-        return FALSE;
+    (void)user_data;
+    if (!can_continue)
+        return;
 
     last = gnc_history_get_last ();
     if (last && gnc_uri_targets_local_fs (last))
@@ -1608,27 +1794,59 @@ gnc_file_open (GtkWindow *parent)
 
     /* Keep a valid empty session if the native chooser is cancelled. */
     gnc_get_current_session ();
+}
+
+gboolean
+gnc_file_open (GtkWindow *parent)
+{
+    gnc_file_query_save_async (parent, TRUE, gnc_file_open_after_query, NULL);
     return TRUE;
 }
-gboolean
-gnc_file_open_file (GtkWindow *parent, const char * newfile, gboolean open_readonly)
+
+typedef struct
 {
-    if (!newfile) return FALSE;
+    gchar *filename;
+    gboolean open_readonly;
+} GncFileOpenAfterQuery;
 
-    if (!gnc_file_query_save (parent, TRUE))
-        return FALSE;
+static void
+gnc_file_open_after_query_file (GtkWindow *parent, gboolean can_continue,
+                                gpointer user_data)
+{
+    GncFileOpenAfterQuery *request = user_data;
 
-    return gnc_file_open_request (parent, newfile, open_readonly,
-                                  /*reset_bayes_conversion*/ TRUE);
+    if (can_continue)
+        (void)gnc_file_open_request (parent, request->filename,
+                                     request->open_readonly,
+                                     /*reset_bayes_conversion*/ TRUE);
+    g_free (request->filename);
+    g_free (request);
 }
 
+gboolean
+gnc_file_open_file (GtkWindow *parent, const char *newfile, gboolean open_readonly)
+{
+    GncFileOpenAfterQuery *request;
+
+    if (!newfile)
+        return FALSE;
+
+    request = g_new0 (GncFileOpenAfterQuery, 1);
+    request->filename = g_strdup (newfile);
+    request->open_readonly = open_readonly;
+    gnc_file_query_save_async (parent, TRUE, gnc_file_open_after_query_file,
+                               request);
+    return TRUE;
+}
 /* Note: this dialog will only be used when dbi is not enabled
  *       paths used in it always refer to files and are
  *       never db uris
  */
 static void
-gnc_file_export_selected (GtkWindow *parent, const gchar *filename)
+gnc_file_export_selected (GtkWindow *parent, const gchar *filename,
+                          gpointer user_data)
 {
+    (void)user_data;
     gnc_file_do_export (parent, filename);
 }
 
@@ -1825,91 +2043,251 @@ gnc_file_do_export(GtkWindow *parent, const char * filename)
 
 static gboolean been_here_before = FALSE;
 
-void
-gnc_file_save (GtkWindow *parent)
+typedef struct
+{
+    GncFileQuerySaveCallback completed;
+    gpointer user_data;
+} GncFileSaveRetry;
+
+static void gnc_file_save_as_with_completion (GtkWindow *parent,
+                                               GncFileQuerySaveCallback completed,
+                                               gpointer user_data);
+
+static void
+gnc_file_save_complete (GtkWindow *parent, GncFileQuerySaveCallback completed,
+                        gpointer user_data, gboolean saved)
+{
+    if (completed)
+        completed (parent, saved, user_data);
+}
+
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    GncFileQuerySaveCallback completed;
+    gpointer user_data;
+} GncFileReadOnlySaveRequest;
+
+static void
+gnc_file_read_only_save_request_free (GncFileReadOnlySaveRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+}
+
+static void
+gnc_file_read_only_save_finished (GObject *source, GAsyncResult *result,
+                                  gpointer user_data)
+{
+    GncFileReadOnlySaveRequest *request = user_data;
+    GError *error = NULL;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    gint response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
+                                                    &error);
+
+    if (request->has_parent && !parent)
+    {
+        g_clear_error (&error);
+        gnc_file_save_complete (NULL, request->completed, request->user_data, FALSE);
+    }
+    else if (!error && response == 0)
+    {
+        gnc_file_save_as_with_completion (parent, request->completed, request->user_data);
+    }
+    else
+    {
+        if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            g_warning ("Read-only save decision failed: %s", error->message);
+        gnc_file_save_complete (parent, request->completed, request->user_data, FALSE);
+    }
+
+    g_clear_error (&error);
+    g_clear_object (&parent);
+    gnc_file_read_only_save_request_free (request);
+}
+
+static void
+gnc_file_read_only_save_as_async (GtkWindow *parent,
+                                  GncFileQuerySaveCallback completed,
+                                  gpointer user_data)
+{
+    const char *buttons[] =
+    {
+        _("Save to a Different Location"),
+        _("Cancel"),
+        NULL
+    };
+    GncFileReadOnlySaveRequest *request;
+    GtkAlertDialog *dialog;
+
+    request = g_new0 (GncFileReadOnlySaveRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->completed = completed;
+    request->user_data = user_data;
+
+    dialog = gtk_alert_dialog_new ("%s", _("The database was opened read-only."));
+    gtk_alert_dialog_set_detail (dialog,
+        _("Do you want to save it to a different location?"));
+    gtk_alert_dialog_set_buttons (dialog, buttons);
+    gtk_alert_dialog_set_default_button (dialog, 1);
+    gtk_alert_dialog_set_cancel_button (dialog, 1);
+    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_file_read_only_save_finished,
+                             request);
+    g_object_unref (dialog);
+}
+
+static void
+gnc_file_save_after_retry (GtkWindow *parent, gboolean saved, gpointer user_data)
+{
+    GncFileSaveRetry *retry = user_data;
+
+    been_here_before = FALSE;
+    gnc_file_save_complete (parent, retry->completed, retry->user_data, saved);
+    g_free (retry);
+}
+
+static void
+gnc_file_save_with_completion (GtkWindow *parent,
+                               GncFileQuerySaveCallback completed,
+                               gpointer user_data)
 {
     QofBackendError io_err;
-    const char * newfile;
+    const char *newfile;
     QofSession *session;
+
     ENTER (" ");
 
     if (!gnc_current_session_exist ())
-        return; //No session means nothing to save.
+    {
+        gnc_file_save_complete (parent, completed, user_data, TRUE);
+        return;
+    }
 
-    /* hack alert -- Somehow make sure all in-progress edits get committed! */
-
-    /* If we don't have a filename/path to save to get one. */
     session = gnc_get_current_session ();
-
     if (!strlen (qof_session_get_url (session)))
     {
-        gnc_file_save_as (parent);
+        gnc_file_save_as_with_completion (parent, completed, user_data);
         return;
     }
 
-    if (qof_book_is_readonly(qof_session_get_book(session)))
+    if (qof_book_is_readonly (qof_session_get_book (session)))
     {
-        gint response = gnc_ok_cancel_dialog(parent,
-                                             GTK_RESPONSE_CANCEL,
-                                             _("The database was opened read-only. "
-                                               "Do you want to save it to a different place?"));
-        if (response == GTK_RESPONSE_OK)
-        {
-            gnc_file_save_as (parent);
-        }
+        gnc_file_read_only_save_as_async (parent, completed, user_data);
         return;
     }
 
-    /* use the current session to save to file */
     save_in_progress++;
     gnc_set_busy_cursor (NULL, TRUE);
-    gnc_window_show_progress(_("Writing file…"), 0.0);
+    gnc_window_show_progress (_("Writing file…"), 0.0);
     qof_session_save (session, gnc_window_show_progress);
-    gnc_window_show_progress(NULL, -1.0);
+    gnc_window_show_progress (NULL, -1.0);
     gnc_unset_busy_cursor (NULL);
     save_in_progress--;
 
-    /* Make sure everything's OK - disk could be full, file could have
-       become read-only etc. */
     io_err = qof_session_get_error (session);
     if (ERR_BACKEND_NO_ERR != io_err)
     {
-        newfile = qof_session_get_url(session);
-        show_session_error (parent, io_err, newfile, GNC_FILE_DIALOG_SAVE);
+        GncFileSaveRetry *retry;
 
-        if (been_here_before) return;
+        newfile = qof_session_get_url (session);
+        show_session_error (parent, io_err, newfile, GNC_FILE_DIALOG_SAVE);
+        if (been_here_before)
+        {
+            gnc_file_save_complete (parent, completed, user_data, FALSE);
+            return;
+        }
+
         been_here_before = TRUE;
-        gnc_file_save_as (parent);   /* been_here prevents infinite recursion */
-        been_here_before = FALSE;
+        retry = g_new0 (GncFileSaveRetry, 1);
+        retry->completed = completed;
+        retry->user_data = user_data;
+        gnc_file_save_as_with_completion (parent, gnc_file_save_after_retry, retry);
         return;
     }
 
-    xaccReopenLog();
+    xaccReopenLog ();
     gnc_add_history (session);
-    gnc_hook_run(HOOK_BOOK_SAVED, session);
+    gnc_hook_run (HOOK_BOOK_SAVED, session);
+    gnc_file_save_complete (parent, completed, user_data, TRUE);
     LEAVE (" ");
 }
 
+void
+gnc_file_save (GtkWindow *parent)
+{
+    gnc_file_save_with_completion (parent, NULL, NULL);
+}
 /* Note: this dialog will only be used when dbi is not enabled
  *       paths used in it always refer to files and are
  *       never db uris. See gnc_file_do_save_as for that.
  */
-static void
-gnc_file_save_as_selected (GtkWindow *parent, const gchar *filename)
+typedef struct
 {
-    gnc_file_do_save_as (parent, filename);
+    GWeakRef parent;
+    gboolean has_parent;
+    GncFileQuerySaveCallback completed;
+    gpointer user_data;
+} GncFileSaveAsRequest;
+
+static void
+gnc_file_save_as_request_free (GncFileSaveAsRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
 }
 
-void
-gnc_file_save_as (GtkWindow *parent)
+static void
+gnc_file_save_as_complete (GncFileSaveAsRequest *request, GtkWindow *parent,
+                           gboolean saved)
+{
+    if (request->has_parent && !parent)
+        saved = FALSE;
+    gnc_file_save_complete (parent, request->completed, request->user_data, saved);
+}
+
+static void
+gnc_file_save_as_selected (GtkWindow *parent, const gchar *filename,
+                           gpointer user_data)
+{
+    GncFileSaveAsRequest *request = user_data;
+    gboolean saved = FALSE;
+
+    if (filename)
+    {
+        gnc_file_do_save_as (parent, filename);
+        saved = gnc_current_session_exist () &&
+                !qof_book_session_not_saved (
+                    qof_session_get_book (gnc_get_current_session ()));
+    }
+    gnc_file_save_as_complete (request, parent, saved);
+}
+
+static void
+gnc_file_save_as_cancelled (GtkWindow *parent, const GError *error,
+                             gpointer user_data)
+{
+    GncFileSaveAsRequest *request = user_data;
+
+    (void)error;
+    gnc_file_save_as_complete (request, parent, FALSE);
+}
+
+static void
+gnc_file_save_as_with_completion (GtkWindow *parent,
+                                  GncFileQuerySaveCallback completed,
+                                  gpointer user_data)
 {
     gchar *default_dir;
     gchar *last;
+    GncFileSaveAsRequest *request;
 
     ENTER (" ");
 
     if (!gnc_current_session_exist ())
     {
+        gnc_file_save_complete (parent, completed, user_data, FALSE);
         LEAVE ("No Session.");
         return;
     }
@@ -1925,14 +2303,28 @@ gnc_file_save_as (GtkWindow *parent)
     else
         default_dir = gnc_get_default_directory (GNC_PREFS_GROUP_OPEN_SAVE);
 
-    gnc_file_select_async (parent, _("Save"),
-                           gnc_file_dialog_get_datafile_filters (), default_dir,
-                           GNC_FILE_DIALOG_SAVE, gnc_file_save_as_selected);
+    request = g_new0 (GncFileSaveAsRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->completed = completed;
+    request->user_data = user_data;
+    gnc_file_select_async_full (parent, _("Save"),
+                                gnc_file_dialog_get_datafile_filters (), default_dir,
+                                GNC_FILE_DIALOG_SAVE, gnc_file_save_as_selected,
+                                gnc_file_save_as_cancelled, request,
+                                (GDestroyNotify)gnc_file_save_as_request_free);
     g_free (last);
     g_free (default_dir);
 
     LEAVE (" ");
 }
+
+void
+gnc_file_save_as (GtkWindow *parent)
+{
+    gnc_file_save_as_with_completion (parent, NULL, NULL);
+}
+
 void
 gnc_file_do_save_as (GtkWindow *parent, const char* filename)
 {

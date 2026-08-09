@@ -769,19 +769,28 @@ gnc_gui_shutdown (void)
 /*  shutdown gnucash.  This function will initiate an orderly
  *  shutdown, and when that has finished it will exit the program.
  */
+static void
+gnc_shutdown_after_save_query (GtkWindow *parent, gboolean can_continue,
+                               gpointer user_data)
+{
+    (void)parent;
+    (void)user_data;
+
+    if (can_continue && !gnome_is_terminating)
+    {
+        gnc_hook_run (HOOK_UI_SHUTDOWN, NULL);
+        gnc_gui_shutdown ();
+    }
+}
+
 void
 gnc_shutdown (int exit_status)
 {
     if (gnucash_ui_is_running())
     {
         if (!gnome_is_terminating)
-        {
-            if (gnc_file_query_save (gnc_ui_get_main_window (NULL), FALSE))
-            {
-                gnc_hook_run(HOOK_UI_SHUTDOWN, NULL);
-                gnc_gui_shutdown();
-            }
-        }
+            gnc_file_query_save_async (gnc_ui_get_main_window (NULL), FALSE,
+                                       gnc_shutdown_after_save_query, NULL);
     }
     else
     {
