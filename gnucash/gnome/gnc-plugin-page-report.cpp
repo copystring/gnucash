@@ -1837,6 +1837,32 @@ gnc_plugin_page_report_save_as_cb (GSimpleAction *simple,
 
 }
 
+typedef struct
+{
+    SCM report_id;
+} GncReportOverwriteRequest;
+
+static void
+gnc_report_overwrite_request_free (GncReportOverwriteRequest *request)
+{
+    scm_gc_unprotect_object (request->report_id);
+    g_free (request);
+}
+
+static void
+gnc_report_overwrite_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    auto request = static_cast<GncReportOverwriteRequest *> (user_data);
+
+    (void)parent;
+    if (response == GTK_RESPONSE_ACCEPT)
+    {
+        SCM save_func = scm_c_eval_string ("gnc:report-to-template-update");
+        (void)scm_call_1 (save_func, request->report_id);
+    }
+    gnc_report_overwrite_request_free (request);
+}
+
 static void
 gnc_plugin_page_report_save_cb (GSimpleAction *simple,
                                 GVariant *parameter,
@@ -1844,8 +1870,7 @@ gnc_plugin_page_report_save_cb (GSimpleAction *simple,
 {
     GncPluginPageReport *report = (GncPluginPageReport*)user_data;
     GncPluginPageReportPrivate *priv;
-    SCM check_func, save_func;
-    SCM rpt_id;
+    SCM check_func;
 
     priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
     if (priv->cur_report == SCM_BOOL_F)
@@ -1857,16 +1882,13 @@ gnc_plugin_page_report_save_cb (GSimpleAction *simple,
         auto report_name_str{priv->cur_odb->lookup_string_option("General", "Report name")};
         auto window{GTK_WINDOW(gnc_plugin_page_get_window (GNC_PLUGIN_PAGE(report)))};
 
-        if (!gnc_action_dialog (window, _("_Overwrite"), false, _("This will update and \
-overwrite the existing saved report named \"%s\"."), report_name_str.c_str()))
-            return;
-
-        /* The current report is already based on a custom report.
-         * Replace the existing one instead of adding a new one
-         */
-        save_func = scm_c_eval_string("gnc:report-to-template-update");
-        rpt_id = scm_call_1(save_func, priv->cur_report);
-        (void)rpt_id;
+        auto request = g_new0 (GncReportOverwriteRequest, 1);
+        request->report_id = priv->cur_report;
+        scm_gc_protect_object (request->report_id);
+        gnc_action_dialog_async (window, _("Overwrite"), false,
+                                 gnc_report_overwrite_finished, request,
+                                 _("This will update and overwrite the existing saved report "
+                                   "named \"%s\"."), report_name_str.c_str());
     }
     else
     {
