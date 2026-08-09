@@ -370,31 +370,35 @@ create_option_widget<GncOptionUIType::COMMODITY> (GncOption& option, GtkGrid *pa
     wrap_widget(option, widget, page_box, row);
 }
 
-static GtkWidget*
-create_multichoice_widget(GncOption& option)
+static GtkStringList *
+create_permissible_values_model (GncOption& option)
 {
-    auto num_values = option.num_permissible_values();
+    auto values = gtk_string_list_new (nullptr);
+    auto count = option.num_permissible_values ();
 
-    g_return_val_if_fail(num_values >= 0, NULL);
-    auto renderer = gtk_cell_renderer_text_new();
-    auto store = gtk_list_store_new(1, G_TYPE_STRING);
-    /* Add values to the list store, entry and tooltip */
-    for (decltype(num_values) i = 0; i < num_values; i++)
+    g_return_val_if_fail (count >= 0, values);
+    for (decltype(count) index = 0; index < count; index++)
     {
-        GtkTreeIter iter;
-        auto itemstring = option.permissible_value_name(i);
-        gtk_list_store_append (store, &iter);
-        gtk_list_store_set(store, &iter, 0,
-                           (itemstring && *itemstring) ? _(itemstring) : "", -1);
-    }
-    /* Create the new Combo with tooltip and add the store */
-    auto widget{GTK_WIDGET(gtk_combo_box_new_with_model(GTK_TREE_MODEL(store)))};
-    gtk_cell_layout_pack_start (GTK_CELL_LAYOUT(widget), renderer, TRUE);
-    gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT(widget),
-                                   renderer, "text", 0);
-    g_object_unref(store);
+        auto value = option.permissible_value_name (index);
 
-    return widget;
+        gtk_string_list_append (values, value && *value ? _(value) : "");
+    }
+
+    return values;
+}
+
+static void
+option_dropdown_selection_changed_cb (GObject *object, GParamSpec *pspec,
+                                      gpointer user_data)
+{
+    gnc_option_changed_widget_cb (GTK_WIDGET (object), user_data);
+}
+
+static GtkWidget *
+create_multichoice_widget (GncOption& option)
+{
+    return gtk_drop_down_new (G_LIST_MODEL (create_permissible_values_model (option)),
+                              nullptr);
 }
 
 class GncGtkMultichoiceUIItem : public GncOptionGtkUIItem
@@ -404,20 +408,26 @@ public:
         GncOptionGtkUIItem{widget, GncOptionUIType::MULTICHOICE} {}
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
-        auto widget{GTK_COMBO_BOX(get_widget())};
-        gtk_combo_box_set_active(widget, option.get_value<uint16_t>());
+        auto widget{GTK_DROP_DOWN(get_widget())};
+        gtk_drop_down_set_selected(widget, option.get_value<uint16_t>());
     }
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-        auto widget{GTK_COMBO_BOX(get_widget())};
-        option.set_value<uint16_t>(static_cast<uint16_t>(gtk_combo_box_get_active(widget)));
+        auto widget{GTK_DROP_DOWN(get_widget())};
+        auto selected{gtk_drop_down_get_selected(widget)};
+
+        if (selected != GTK_INVALID_LIST_POSITION)
+            option.set_value<uint16_t>(static_cast<uint16_t>(selected));
     }
     SCM get_widget_scm_value(const GncOption& option) const override
     {
-        auto widget{GTK_COMBO_BOX(get_widget())};
-        auto id{gtk_combo_box_get_active(widget)};
-        auto value{option.permissible_value(id)};
-        return scm_from_utf8_symbol(value);
+        auto widget{GTK_DROP_DOWN(get_widget())};
+        auto selected{gtk_drop_down_get_selected(widget)};
+
+        if (selected == GTK_INVALID_LIST_POSITION)
+            return SCM_BOOL_F;
+
+        return scm_from_utf8_symbol(option.permissible_value(selected));
     }
 };
 
@@ -429,11 +439,10 @@ create_option_widget<GncOptionUIType::MULTICHOICE> (GncOption& option, GtkGrid *
     auto ui_item{std::make_unique<GncGtkMultichoiceUIItem>(widget)};
     option.set_ui_item(std::move(ui_item));
     option.set_ui_item_from_option();
-    g_signal_connect(G_OBJECT(widget), "changed",
-                     G_CALLBACK(gnc_option_changed_widget_cb), &option);
+    g_signal_connect(G_OBJECT(widget), "notify::selected",
+                     G_CALLBACK(option_dropdown_selection_changed_cb), &option);
     wrap_widget(option, widget, page_box, row);
 }
-
 
 class GncDateEntry
 {
@@ -517,43 +526,27 @@ private:
 
 RelativeDateEntry::RelativeDateEntry(GncOption& option)
 {
-
-    auto renderer = gtk_cell_renderer_text_new();
-    auto store = gtk_list_store_new(1, G_TYPE_STRING);
-    /* Add values to the list store, entry and tooltip */
-    auto num = option.num_permissible_values();
-    for (decltype(num) index = 0; index < num; ++index)
-    {
-        GtkTreeIter  iter;
-        gtk_list_store_append (store, &iter);
-        gtk_list_store_set (store, &iter, 0,
-                            _(option.permissible_value_name(index)), -1);
-    }
-
-    /* Create the new Combo with tooltip and add the store */
-    m_entry = GTK_WIDGET(gtk_combo_box_new_with_model(GTK_TREE_MODEL(store)));
-    gtk_combo_box_set_active(GTK_COMBO_BOX(m_entry), 0);
-    gtk_cell_layout_pack_start (GTK_CELL_LAYOUT(m_entry), renderer, TRUE);
-    gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT(m_entry),
-                                   renderer, "text", 0);
-
-    g_object_unref(store);
-
-    m_handler_id = g_signal_connect(G_OBJECT(m_entry), "changed",
-                                    G_CALLBACK(gnc_option_changed_widget_cb),
-                                    &option);
+    m_entry = gtk_drop_down_new (G_LIST_MODEL (create_permissible_values_model (option)),
+                                 nullptr);
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (m_entry), 0);
+    m_handler_id = g_signal_connect (m_entry, "notify::selected",
+                                     G_CALLBACK (option_dropdown_selection_changed_cb),
+                                     &option);
 }
 
 void
 RelativeDateEntry::set_entry_from_option(GncOption& option)
 {
-    gtk_combo_box_set_active(GTK_COMBO_BOX(m_entry), option.get_value<uint16_t>());
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (m_entry), option.get_value<uint16_t>());
 }
 
 void
 RelativeDateEntry::set_option_from_entry(GncOption& option)
 {
-    option.set_value<uint16_t>(gtk_combo_box_get_active(GTK_COMBO_BOX(m_entry)));
+    auto selected = gtk_drop_down_get_selected (GTK_DROP_DOWN (m_entry));
+
+    if (selected != GTK_INVALID_LIST_POSITION)
+        option.set_value<uint16_t>(static_cast<uint16_t>(selected));
 }
 
 void
