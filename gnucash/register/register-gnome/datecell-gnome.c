@@ -106,14 +106,13 @@ check_readonly_threshold (const gchar *datestr, GDate *d, gboolean warn)
                           "this book. This setting can be changed in "
                           "File->Properties->Accounts, resetting to the threshold.");
             gchar *dialog_title = _("Cannot store a transaction at this date");
-            GtkWidget *dialog = gtk_message_dialog_new(gnc_ui_get_main_window (NULL),
-                                   0,
-                                   GTK_MESSAGE_ERROR,
-                                   GTK_BUTTONS_OK,
-                                   "%s", dialog_title);
-            gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
-                                 "%s", dialog_msg);
-            gnc_dialog_run (GTK_DIALOG(dialog));
+            GtkAlertDialog *dialog = gtk_alert_dialog_new ("%s", dialog_title);
+            gtk_alert_dialog_set_detail (dialog, dialog_msg);
+            gtk_alert_dialog_show (dialog, gnc_ui_get_main_window (NULL));
+            g_object_unref (dialog);
+
+            g_free (dialog_title);
+            g_free (dialog_msg);
 
 //        g_warning("Entered date %s is before the \"auto-read-only threshold\";"
 //              " resetting to the threshold.", datestr);
