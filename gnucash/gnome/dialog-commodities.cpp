@@ -68,6 +68,316 @@ typedef struct
     gboolean is_new;
 } CommoditiesDialog;
 
+namespace
+{
+constexpr const char *RENAME_NAMESPACE_REQUEST_DATA = "gnc-rename-namespace-request";
+
+struct RenameNamespaceRequest
+{
+    GtkWindow *window;
+    GtkEntry *entry;
+    GtkLabel *label;
+    GncGUID book_guid;
+    gchar *old_name;
+};
+
+static void
+rename_namespace_request_free (gpointer user_data)
+{
+    auto request = static_cast<RenameNamespaceRequest *> (user_data);
+
+    g_free (request->old_name);
+    g_free (request);
+}
+
+static gboolean
+rename_namespace_request_matches_current_book (const RenameNamespaceRequest *request)
+{
+    auto book = gnc_get_current_book ();
+
+    return book && guid_equal (qof_instance_get_guid (QOF_INSTANCE (book)),
+                               &request->book_guid);
+}
+
+static void
+rename_namespace_response_cb (GtkWindow *window, gint response, gpointer user_data)
+{
+    auto request = static_cast<RenameNamespaceRequest *> (user_data);
+
+    if (response != GTK_RESPONSE_OK)
+    {
+        gtk_window_destroy (window);
+        return;
+    }
+
+    if (!rename_namespace_request_matches_current_book (request))
+    {
+        gtk_window_destroy (window);
+        return;
+    }
+
+    const auto new_name = gtk_editable_get_text (GTK_EDITABLE (request->entry));
+    if (!new_name || !*new_name)
+    {
+        gtk_label_set_text (request->label, _("No new name"));
+        return;
+    }
+
+    const auto commodity_table = gnc_get_current_commodities ();
+    if (!gnc_commodity_table_rename_namespace (commodity_table, request->old_name,
+                                                new_name))
+    {
+        gtk_label_set_text (request->label,
+                            _("Rename failed, possibly new name exists"));
+        return;
+    }
+
+    qof_book_mark_session_dirty (gnc_get_current_book ());
+    gtk_window_destroy (window);
+}
+
+static void
+rename_namespace_cancel_clicked_cb (GtkButton *, gpointer user_data)
+{
+    auto request = static_cast<RenameNamespaceRequest *> (user_data);
+    rename_namespace_response_cb (request->window, GTK_RESPONSE_CANCEL, request);
+}
+
+static void
+rename_namespace_confirm_clicked_cb (GtkButton *, gpointer user_data)
+{
+    auto request = static_cast<RenameNamespaceRequest *> (user_data);
+    rename_namespace_response_cb (request->window, GTK_RESPONSE_OK, request);
+}
+
+
+constexpr const char *COMMODITIES_DIALOG_DATA = "gnc-commodities-dialog-data";
+constexpr const char *DELETE_COMMODITY_REQUEST_DATA = "gnc-delete-commodity-request";
+
+struct DeleteCommodityRequest
+{
+    GtkWindow *dialog;
+    GtkCheckButton *permanent;
+    GtkCheckButton *temporary;
+    GWeakRef parent;
+    GncGUID book_guid;
+    GncGUID commodity_guid;
+    const gchar *warning;
+    gboolean had_prices;
+};
+
+static void
+commodity_delete_request_free (gpointer user_data)
+{
+    auto request = static_cast<DeleteCommodityRequest *> (user_data);
+
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+}
+
+static gboolean
+commodity_delete_request_matches_current_book (const DeleteCommodityRequest *request)
+{
+    auto book = gnc_get_current_book ();
+
+    return book && guid_equal (qof_instance_get_guid (QOF_INSTANCE (book)),
+                               &request->book_guid);
+}
+
+static gboolean
+commodity_is_used_by_account (QofBook *book, gnc_commodity *commodity)
+{
+    gboolean used = FALSE;
+
+    gnc_account_foreach_descendant (gnc_book_get_root_account (book),
+                                    [commodity, &used] (auto account)
+                                    {
+                                        if (commodity == xaccAccountGetCommodity (account))
+                                            used = TRUE;
+                                    });
+    return used;
+}
+
+static gboolean
+commodity_delete_request_complete (DeleteCommodityRequest *request)
+{
+    auto parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    CommoditiesDialog *commodities_dialog;
+
+    if (!parent)
+        return FALSE;
+
+    commodities_dialog = static_cast<CommoditiesDialog *> (
+        g_object_get_data (G_OBJECT (parent), COMMODITIES_DIALOG_DATA));
+    if (!commodities_dialog ||
+        !commodity_delete_request_matches_current_book (request))
+    {
+        g_object_unref (parent);
+        return FALSE;
+    }
+
+    auto book = gnc_get_current_book ();
+    auto commodity = gnc_commodity_find_commodity_by_guid (&request->commodity_guid, book);
+    if (!commodity || qof_instance_get_destroying (QOF_INSTANCE (commodity)) ||
+        gnc_commodity_is_iso (commodity))
+    {
+        g_object_unref (parent);
+        return FALSE;
+    }
+
+    if (commodity_is_used_by_account (book, commodity))
+    {
+        gnc_warning_dialog (parent, "%s",
+                            _("This commodity is now used by one or more accounts and may not be deleted."));
+        g_object_unref (parent);
+        return FALSE;
+    }
+
+    auto price_db = gnc_pricedb_get_db (book);
+    auto prices = gnc_pricedb_get_prices (price_db, commodity, nullptr);
+    if (!request->had_prices && prices)
+    {
+        gnc_price_list_destroy (prices);
+        gnc_warning_dialog (parent, "%s",
+                            _("This commodity acquired price quotes before deletion. Review it and try again."));
+        g_object_unref (parent);
+        return FALSE;
+    }
+
+    auto commodity_table = gnc_commodity_table_get_table (book);
+    for (auto node = prices; node; node = node->next)
+        gnc_pricedb_remove_price (price_db, GNC_PRICE (node->data));
+    gnc_price_list_destroy (prices);
+
+    gnc_commodity_table_remove (commodity_table, commodity);
+    gnc_commodity_destroy (commodity);
+
+    gtk_tree_selection_unselect_all (gtk_tree_view_get_selection (
+        GTK_TREE_VIEW (commodities_dialog->commodity_tree)));
+    gnc_gui_refresh_all ();
+    g_object_unref (parent);
+    return TRUE;
+}
+
+static gboolean
+commodity_delete_request_complete_idle (gpointer user_data)
+{
+    commodity_delete_request_complete (static_cast<DeleteCommodityRequest *> (user_data));
+    return G_SOURCE_REMOVE;
+}
+
+static void
+commodity_delete_response_cb (GtkWindow *dialog, gint response, gpointer user_data)
+{
+    auto request = static_cast<DeleteCommodityRequest *> (user_data);
+
+    if (response == GTK_RESPONSE_OK)
+    {
+        const auto succeeded = commodity_delete_request_complete (request);
+        if (succeeded && gtk_check_button_get_active (request->permanent))
+            gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_PERM, request->warning,
+                               GTK_RESPONSE_OK);
+        else if (succeeded && gtk_check_button_get_active (request->temporary))
+            gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_TEMP, request->warning,
+                               GTK_RESPONSE_OK);
+    }
+    gtk_window_destroy (dialog);
+}
+
+static void
+commodity_delete_cancel_clicked_cb (GtkButton *, gpointer user_data)
+{
+    auto request = static_cast<DeleteCommodityRequest *> (user_data);
+    commodity_delete_response_cb (request->dialog, GTK_RESPONSE_CANCEL, request);
+}
+
+static void
+commodity_delete_confirm_clicked_cb (GtkButton *, gpointer user_data)
+{
+    auto request = static_cast<DeleteCommodityRequest *> (user_data);
+    commodity_delete_response_cb (request->dialog, GTK_RESPONSE_OK, request);
+}
+
+static void
+commodity_delete_permanent_toggled_cb (GtkCheckButton *permanent, gpointer user_data)
+{
+    auto request = static_cast<DeleteCommodityRequest *> (user_data);
+    const auto is_permanent = gtk_check_button_get_active (permanent);
+
+    gtk_widget_set_sensitive (GTK_WIDGET (request->temporary), !is_permanent);
+    if (is_permanent)
+        gtk_check_button_set_active (request->temporary, FALSE);
+}
+
+static void
+commodity_delete_confirm_async (CommoditiesDialog *cd, gnc_commodity *commodity,
+                                gboolean had_prices, const gchar *message,
+                                const gchar *warning)
+{
+    auto request = g_new0 (DeleteCommodityRequest, 1);
+    request->book_guid = *qof_instance_get_guid (QOF_INSTANCE (cd->book));
+    request->commodity_guid = *qof_instance_get_guid (QOF_INSTANCE (commodity));
+    request->warning = warning;
+    request->had_prices = had_prices;
+    g_weak_ref_init (&request->parent, G_OBJECT (cd->window));
+
+    auto remembered = gnc_prefs_get_int (GNC_PREFS_GROUP_WARNINGS_PERM, warning);
+    if (!remembered)
+        remembered = gnc_prefs_get_int (GNC_PREFS_GROUP_WARNINGS_TEMP, warning);
+    if (remembered)
+    {
+        if (remembered == GTK_RESPONSE_OK)
+            g_idle_add_full (G_PRIORITY_DEFAULT, commodity_delete_request_complete_idle,
+                             request, commodity_delete_request_free);
+        else
+            commodity_delete_request_free (request);
+        return;
+    }
+
+    auto dialog = GTK_WINDOW (gtk_window_new ());
+    auto content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    auto detail = GTK_LABEL (gtk_label_new (message));
+    auto permanent = GTK_CHECK_BUTTON (
+        gtk_check_button_new_with_mnemonic (_("Remember and don't _ask me again.")));
+    auto temporary = GTK_CHECK_BUTTON (
+        gtk_check_button_new_with_mnemonic (_("Remember and don't ask me again this _session.")));
+    auto actions = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    auto cancel = GTK_BUTTON (gtk_button_new_with_mnemonic (_("_Cancel")));
+    auto confirm = GTK_BUTTON (gtk_button_new_with_mnemonic (_("_Delete")));
+
+    request->dialog = dialog;
+    request->permanent = permanent;
+    request->temporary = temporary;
+    gtk_window_set_title (dialog, _("Delete commodity?"));
+    gtk_window_set_modal (dialog, TRUE);
+    gtk_window_set_resizable (dialog, FALSE);
+    gtk_window_set_transient_for (dialog, GTK_WINDOW (cd->window));
+    gtk_widget_set_margin_top (content, 12);
+    gtk_widget_set_margin_bottom (content, 12);
+    gtk_widget_set_margin_start (content, 12);
+    gtk_widget_set_margin_end (content, 12);
+    gtk_label_set_wrap (detail, TRUE);
+    gtk_widget_set_halign (actions, GTK_ALIGN_END);
+    gtk_box_append (GTK_BOX (actions), GTK_WIDGET (cancel));
+    gtk_box_append (GTK_BOX (actions), GTK_WIDGET (confirm));
+    gtk_box_append (GTK_BOX (content), GTK_WIDGET (detail));
+    gtk_box_append (GTK_BOX (content), GTK_WIDGET (permanent));
+    gtk_box_append (GTK_BOX (content), GTK_WIDGET (temporary));
+    gtk_box_append (GTK_BOX (content), actions);
+    gtk_window_set_child (dialog, content);
+    gtk_window_set_default_widget (dialog, GTK_WIDGET (cancel));
+
+    g_object_set_data_full (G_OBJECT (dialog), DELETE_COMMODITY_REQUEST_DATA,
+                            request, commodity_delete_request_free);
+    g_signal_connect (cancel, "clicked", G_CALLBACK (commodity_delete_cancel_clicked_cb),
+                      request);
+    g_signal_connect (confirm, "clicked", G_CALLBACK (commodity_delete_confirm_clicked_cb),
+                      request);
+    g_signal_connect (permanent, "toggled",
+                      G_CALLBACK (commodity_delete_permanent_toggled_cb), request);
+    gtk_window_present (dialog);
+}
+}
 
 void gnc_commodities_window_destroy_cb (GtkWidget *object, CommoditiesDialog *cd);
 
@@ -91,6 +401,7 @@ static gboolean gnc_commodities_window_key_pressed_cb (GtkEventControllerKey *ke
 void
 gnc_commodities_window_destroy_cb (GtkWidget *object,   CommoditiesDialog *cd)
 {
+    g_object_steal_data (G_OBJECT (object), COMMODITIES_DIALOG_DATA);
     gnc_unregister_gui_component_by_data (DIALOG_COMMODITIES_CM_CLASS, cd);
 
     if (cd->window)
@@ -104,8 +415,6 @@ gnc_commodities_window_destroy_cb (GtkWidget *object,   CommoditiesDialog *cd)
 static gboolean
 gnc_commodities_window_close_request_cb (GtkWindow *window, gpointer data)
 {
-    auto cd = static_cast<CommoditiesDialog*>(data);
-
     // This callback allows the window size to be saved on closing with the X.
     gnc_save_window_size (GNC_PREFS_GROUP, window);
     return FALSE;
@@ -159,95 +468,46 @@ void
 gnc_commodities_dialog_remove_clicked (GtkWidget *widget, gpointer data)
 {
     auto cd = static_cast<CommoditiesDialog*>(data);
-    GNCPriceDB *pdb;
-    GList *node;
-    GList *prices;
-    gnc_commodity *commodity;
-    GtkWidget *dialog;
-    const gchar *message, *warning;
-    gint response;
-
-    commodity = gnc_tree_view_commodity_get_selected_commodity (cd->commodity_tree);
-    if (commodity == NULL)
+    auto commodity = gnc_tree_view_commodity_get_selected_commodity (cd->commodity_tree);
+    if (!commodity)
         return;
 
     std::vector<Account*> commodity_accounts;
-
-    gnc_account_foreach_descendant (gnc_book_get_root_account(cd->book),
-                                    [commodity, &commodity_accounts](auto acct)
+    gnc_account_foreach_descendant (gnc_book_get_root_account (cd->book),
+                                    [commodity, &commodity_accounts] (auto account)
                                     {
-                                        if (commodity == xaccAccountGetCommodity (acct))
-                                            commodity_accounts.push_back (acct);
+                                        if (commodity == xaccAccountGetCommodity (account))
+                                            commodity_accounts.push_back (account);
                                     });
 
     /* FIXME check for transaction references */
-
-    if (!commodity_accounts.empty())
+    if (!commodity_accounts.empty ())
     {
-        std::string msg{_("This commodity is currently used by the following accounts. You may "
-                          "not delete it.\n")};
-
-        for (const auto acct : commodity_accounts)
+        std::string message {_("This commodity is currently used by the following accounts. You may "
+                               "not delete it.\n")};
+        for (const auto account : commodity_accounts)
         {
-            auto full_name = gnc_account_get_full_name (acct);
-            msg.append ("\n* ").append (full_name);
+            auto full_name = gnc_account_get_full_name (account);
+            message.append ("\n* ").append (full_name);
             g_free (full_name);
         }
-
-        gnc_warning_dialog (GTK_WINDOW (cd->window), "%s", msg.c_str());
+        gnc_warning_dialog (GTK_WINDOW (cd->window), "%s", message.c_str ());
         return;
     }
 
-    pdb = gnc_pricedb_get_db (cd->book);
-    prices = gnc_pricedb_get_prices (pdb, commodity, NULL);
-    if (prices)
-    {
-        message = _("This commodity has price quotes. Are "
-                    "you sure you want to delete the selected "
-                    "commodity and its price quotes?");
-        warning = GNC_PREF_WARN_PRICE_COMM_DEL_QUOTES;
-    }
-    else
-    {
-        message = _("Are you sure you want to delete the "
-                    "selected commodity?");
-        warning = GNC_PREF_WARN_PRICE_COMM_DEL;
-    }
+    auto price_db = gnc_pricedb_get_db (cd->book);
+    auto prices = gnc_pricedb_get_prices (price_db, commodity, nullptr);
+    const auto had_prices = prices != nullptr;
+    gnc_price_list_destroy (prices);
 
-    dialog = gtk_message_dialog_new (GTK_WINDOW(cd->window),
-                                     GTK_DIALOG_DESTROY_WITH_PARENT,
-                                     GTK_MESSAGE_QUESTION,
-                                     GTK_BUTTONS_NONE,
-                                     "%s", _("Delete commodity?"));
-    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
-                                              "%s", message);
-    gtk_dialog_add_buttons (GTK_DIALOG(dialog),
-                            _("_Cancel"), GTK_RESPONSE_CANCEL,
-                            _("_Delete"), GTK_RESPONSE_OK,
-                            (gchar *)NULL);
-    response = gnc_warning_dialog_run (GTK_DIALOG(dialog), warning);
-    gtk_window_destroy (GTK_WINDOW(dialog));
-
-    if (response == GTK_RESPONSE_OK)
-    {
-        gnc_commodity_table *ct;
-
-        ct = gnc_commodity_table_get_table (cd->book);
-        for (node = prices; node; node = node->next)
-            gnc_pricedb_remove_price(pdb, GNC_PRICE(node->data));
-
-        gnc_commodity_table_remove (ct, commodity);
-        gnc_commodity_destroy (commodity);
-        commodity = NULL;
-
-        // to be consistent, unselect all after remove
-        gtk_tree_selection_unselect_all (gtk_tree_view_get_selection (GTK_TREE_VIEW(cd->commodity_tree)));
-    }
-
-    gnc_price_list_destroy(prices);
-    gnc_gui_refresh_all ();
+    commodity_delete_confirm_async (
+        cd, commodity, had_prices,
+        had_prices
+            ? _("This commodity has price quotes. Are you sure you want to delete the selected "
+                "commodity and its price quotes?")
+            : _("Are you sure you want to delete the selected commodity?"),
+        had_prices ? GNC_PREF_WARN_PRICE_COMM_DEL_QUOTES : GNC_PREF_WARN_PRICE_COMM_DEL);
 }
-
 void
 gnc_commodities_dialog_add_clicked (GtkWidget *widget, gpointer data)
 {
@@ -285,52 +545,59 @@ gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer dat
 
     const auto ns_name = gnc_commodity_namespace_get_name (ns);
 
-    GtkBuilder *builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "dialog-commodities.ui", "rename_namespace_dialog");
+    auto dialog = GTK_WINDOW (gtk_window_new ());
+    auto content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    auto form = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    auto label = GTK_LABEL (gtk_label_new_with_mnemonic (_("New _name:")));
+    auto entry = GTK_ENTRY (gtk_entry_new ());
+    auto feedback = GTK_LABEL (gtk_label_new (nullptr));
+    auto actions = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    auto cancel = GTK_BUTTON (gtk_button_new_with_mnemonic (_("_Cancel")));
+    auto confirm = GTK_BUTTON (gtk_button_new_with_mnemonic (_("_Rename")));
+    auto request = g_new0 (RenameNamespaceRequest, 1);
 
-    GtkDialog *dialog = GTK_DIALOG(gtk_builder_get_object (builder, "rename_namespace_dialog"));
-    GtkWidget *entry = GTK_WIDGET(gtk_builder_get_object (builder, "rename_entry"));
-    GtkWidget *label = GTK_WIDGET(gtk_builder_get_object (builder, "rename_label"));
+    request->window = dialog;
+    request->entry = entry;
+    request->label = feedback;
+    request->book_guid = *qof_instance_get_guid (QOF_INSTANCE (cd->book));
+    request->old_name = g_strdup (ns_name);
 
-    // Set the name for this dialog so it can be easily manipulated with css
-    gtk_widget_set_name (GTK_WIDGET(dialog), "gnc-id-rename-namespace");
-    gnc_widget_style_context_add_class (GTK_WIDGET(dialog), "gnc-class-securities");
+    gtk_window_set_title (dialog, _("Rename Namespace"));
+    gtk_window_set_modal (dialog, TRUE);
+    gtk_window_set_resizable (dialog, FALSE);
+    gtk_window_set_transient_for (dialog, GTK_WINDOW (cd->window));
+    gtk_widget_set_name (GTK_WIDGET (dialog), "gnc-id-rename-namespace");
+    gnc_widget_style_context_add_class (GTK_WIDGET (dialog), "gnc-class-securities");
 
-    // Entry
-    gtk_entry_set_text (GTK_ENTRY(entry), ns_name);
-    gtk_editable_select_region (GTK_EDITABLE(entry), 0, -1);
-    gtk_entry_set_activates_default (GTK_ENTRY(entry), true);
+    gtk_widget_set_margin_top (content, 12);
+    gtk_widget_set_margin_bottom (content, 12);
+    gtk_widget_set_margin_start (content, 12);
+    gtk_widget_set_margin_end (content, 12);
+    gtk_widget_set_hexpand (GTK_WIDGET (entry), TRUE);
+    gtk_label_set_mnemonic_widget (label, GTK_WIDGET (entry));
+    gtk_label_set_wrap (feedback, TRUE);
+    gtk_widget_set_halign (actions, GTK_ALIGN_END);
+    gtk_box_append (GTK_BOX (form), GTK_WIDGET (label));
+    gtk_box_append (GTK_BOX (form), GTK_WIDGET (entry));
+    gtk_box_append (GTK_BOX (actions), GTK_WIDGET (cancel));
+    gtk_box_append (GTK_BOX (actions), GTK_WIDGET (confirm));
+    gtk_box_append (GTK_BOX (content), form);
+    gtk_box_append (GTK_BOX (content), GTK_WIDGET (feedback));
+    gtk_box_append (GTK_BOX (content), actions);
+    gtk_window_set_child (dialog, content);
 
-    // Set our parent
-    gtk_window_set_transient_for (GTK_WINDOW(dialog),
-                                  GTK_WINDOW(gtk_widget_get_toplevel(widget)));
+    gtk_editable_set_text (GTK_EDITABLE (entry), ns_name);
+    gtk_editable_select_region (GTK_EDITABLE (entry), 0, -1);
+    gtk_entry_set_activates_default (entry, TRUE);
+    gtk_window_set_default_widget (dialog, GTK_WIDGET (confirm));
 
-    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, nullptr);
-    g_object_unref (G_OBJECT(builder));
-
-    gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_OK);
-
-    bool rename_ok = false;
-    while (!rename_ok && gnc_dialog_run_non_destructive (GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
-    {
-        const auto commodity_table = gnc_get_current_commodities ();
-        const auto new_ns_name = gtk_entry_get_text (GTK_ENTRY(entry));
-
-        if (new_ns_name && *new_ns_name)
-        {
-            rename_ok = gnc_commodity_table_rename_namespace (commodity_table,
-                                                              ns_name,
-                                                              new_ns_name);
-            if (rename_ok)
-                qof_book_mark_session_dirty (gnc_get_current_book());
-            else
-                gtk_label_set_text (GTK_LABEL(label),
-                                    _("Rename failed, possibly new name exists"));
-        }
-        else
-            gtk_label_set_text (GTK_LABEL(label), _("No new name"));
-    }
-    gtk_window_destroy (GTK_WINDOW(dialog));
+    g_object_set_data_full (G_OBJECT (dialog), RENAME_NAMESPACE_REQUEST_DATA,
+                            request, rename_namespace_request_free);
+    g_signal_connect (cancel, "clicked", G_CALLBACK (rename_namespace_cancel_clicked_cb),
+                      request);
+    g_signal_connect (confirm, "clicked", G_CALLBACK (rename_namespace_confirm_clicked_cb),
+                      request);
+    gtk_window_present (dialog);
 }
 
 static void
@@ -414,6 +681,7 @@ gnc_commodities_dialog_create (GtkWidget * parent, CommoditiesDialog *cd)
     gnc_builder_add_from_file (builder, "dialog-commodities.ui", "securities_window");
 
     cd->window = GTK_WIDGET(gtk_builder_get_object (builder, "securities_window"));
+    g_object_set_data (G_OBJECT (cd->window), COMMODITIES_DIALOG_DATA, cd);
     cd->session = gnc_get_current_session();
     cd->book = qof_session_get_book(cd->session);
     cd->show_currencies = gnc_prefs_get_bool(GNC_PREFS_GROUP, GNC_PREF_INCL_ISO);
@@ -456,7 +724,7 @@ gnc_commodities_dialog_create (GtkWidget * parent, CommoditiesDialog *cd)
 
     /* default to 'close' button */
     button = GTK_WIDGET(gtk_builder_get_object (builder, "close_button"));
-    gtk_widget_grab_default (button);
+    gtk_window_set_default_widget (GTK_WINDOW (cd->window), button);
     gtk_widget_grab_focus (button);
 
     g_signal_connect (cd->window, "destroy",
@@ -553,5 +821,5 @@ gnc_commodities_dialog (GtkWidget * parent)
 
     gtk_widget_grab_focus (GTK_WIDGET(cd->commodity_tree));
 
-    gtk_widget_show (cd->window);
+    gtk_window_present (GTK_WINDOW (cd->window));
 }
