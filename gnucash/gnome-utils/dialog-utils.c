@@ -1127,6 +1127,258 @@ gnc_warning_dialog_run (GtkDialog *dialog, const gchar *pref_name)
     return response;
 }
 
+typedef struct
+{
+    GtkWindow *window;
+    GWeakRef parent;
+    GWeakRef perm;
+    GWeakRef temp;
+    gchar *pref_name;
+    GncWarningDialogResponseCallback completed;
+    gpointer user_data;
+    gulong close_handler;
+    gulong destroy_handler;
+    gulong parent_destroy_handler;
+    gint action_response;
+    gint stored_response;
+} GncWarningDialogRequest;
+
+static void
+gnc_warning_dialog_request_free (GncWarningDialogRequest *request)
+{
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    g_clear_object (&parent);
+    g_clear_object (&request->window);
+    g_weak_ref_clear (&request->parent);
+    g_weak_ref_clear (&request->perm);
+    g_weak_ref_clear (&request->temp);
+    g_free (request->pref_name);
+    g_free (request);
+}
+
+static void
+gnc_warning_dialog_request_complete (GncWarningDialogRequest *request,
+                                     gint response, gboolean destroy_window)
+{
+    GtkWindow *parent;
+
+    if (request->close_handler)
+    {
+        g_signal_handler_disconnect (request->window, request->close_handler);
+        request->close_handler = 0;
+    }
+    if (request->destroy_handler)
+    {
+        g_signal_handler_disconnect (request->window, request->destroy_handler);
+        request->destroy_handler = 0;
+    }
+    parent = g_weak_ref_get (&request->parent);
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    request->parent_destroy_handler = 0;
+    g_clear_object (&parent);
+
+    if (destroy_window)
+        gtk_window_destroy (request->window);
+
+    request->completed (response, request->user_data);
+    gnc_warning_dialog_request_free (request);
+}
+
+static void
+gnc_warning_dialog_save_response (GncWarningDialogRequest *request,
+                                  gint response)
+{
+    GtkWidget *perm = g_weak_ref_get (&request->perm);
+    GtkWidget *temp = g_weak_ref_get (&request->temp);
+
+    if (response != GTK_RESPONSE_CANCEL && perm &&
+        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (perm)))
+        gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_PERM, request->pref_name,
+                           response);
+    else if (response != GTK_RESPONSE_CANCEL && temp &&
+             gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (temp)))
+        gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_TEMP, request->pref_name,
+                           response);
+    g_clear_object (&perm);
+    g_clear_object (&temp);
+}
+
+static void
+gnc_warning_dialog_respond (GncWarningDialogRequest *request, gint response)
+{
+    gnc_warning_dialog_save_response (request, response);
+    gnc_warning_dialog_request_complete (request, response, TRUE);
+}
+
+static void
+gnc_warning_dialog_cancel_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_warning_dialog_respond (user_data, GTK_RESPONSE_CANCEL);
+}
+
+static void
+gnc_warning_dialog_action_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    GncWarningDialogRequest *request = user_data;
+
+    (void)button;
+    gnc_warning_dialog_respond (request, request->action_response);
+}
+
+static gboolean
+gnc_warning_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    gnc_warning_dialog_respond (user_data, GTK_RESPONSE_CANCEL);
+    return TRUE;
+}
+
+static void
+gnc_warning_dialog_destroyed_cb (GtkWidget *window, gpointer user_data)
+{
+    GncWarningDialogRequest *request = user_data;
+
+    (void)window;
+    request->destroy_handler = 0;
+    gnc_warning_dialog_request_complete (request, GTK_RESPONSE_CANCEL, FALSE);
+}
+
+static void
+gnc_warning_dialog_parent_destroyed_cb (GtkWidget *parent, gpointer user_data)
+{
+    GncWarningDialogRequest *request = user_data;
+
+    (void)parent;
+    request->parent_destroy_handler = 0;
+    gnc_warning_dialog_request_complete (request, GTK_RESPONSE_CANCEL, TRUE);
+}
+
+static gboolean
+gnc_warning_dialog_stored_response_cb (gpointer user_data)
+{
+    GncWarningDialogRequest *request = user_data;
+
+    request->completed (request->stored_response, request->user_data);
+    return G_SOURCE_REMOVE;
+}
+
+void
+gnc_warning_dialog_async (GtkWindow *parent, const gchar *pref_name,
+                          const gchar *title, const gchar *message,
+                          const gchar *action, gint action_response,
+                          gboolean action_is_default,
+                          GncWarningDialogResponseCallback completed,
+                          gpointer user_data)
+{
+    GncWarningDialogRequest *request;
+    GtkWidget *content;
+    GtkWidget *label;
+    GtkWidget *perm;
+    GtkWidget *temp;
+    GtkWidget *button_box;
+    GtkWidget *cancel_button;
+    GtkWidget *action_button;
+    gint response;
+
+    g_return_if_fail (!parent || GTK_IS_WINDOW (parent));
+    g_return_if_fail (pref_name != NULL);
+    g_return_if_fail (title != NULL);
+    g_return_if_fail (message != NULL);
+    g_return_if_fail (action != NULL);
+    g_return_if_fail (completed != NULL);
+
+    request = g_new0 (GncWarningDialogRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    g_weak_ref_init (&request->perm, NULL);
+    g_weak_ref_init (&request->temp, NULL);
+    request->pref_name = g_strdup (pref_name);
+    request->completed = completed;
+    request->user_data = user_data;
+    request->action_response = action_response;
+
+    response = gnc_prefs_get_int (GNC_PREFS_GROUP_WARNINGS_PERM, pref_name);
+    if (response == 0)
+        response = gnc_prefs_get_int (GNC_PREFS_GROUP_WARNINGS_TEMP, pref_name);
+    if (response != 0)
+    {
+        request->stored_response = response;
+        g_idle_add_full (G_PRIORITY_DEFAULT, gnc_warning_dialog_stored_response_cb,
+                         request, (GDestroyNotify)gnc_warning_dialog_request_free);
+        return;
+    }
+
+    request->window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_title (request->window, title);
+    gtk_window_set_modal (request->window, TRUE);
+    gtk_window_set_resizable (request->window, FALSE);
+    if (parent)
+    {
+        gtk_window_set_transient_for (request->window, parent);
+        request->parent_destroy_handler = g_signal_connect (
+            parent, "destroy", G_CALLBACK (gnc_warning_dialog_parent_destroyed_cb), request);
+    }
+
+    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start (content, 18);
+    gtk_widget_set_margin_end (content, 18);
+    gtk_widget_set_margin_top (content, 18);
+    gtk_widget_set_margin_bottom (content, 18);
+    gtk_window_set_child (request->window, content);
+
+    label = gtk_label_new (title);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_widget_add_css_class (label, "title-2");
+    gtk_box_append (GTK_BOX (content), label);
+    gtk_widget_set_visible (label, TRUE);
+
+    label = gtk_label_new (message);
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_max_width_chars (GTK_LABEL (label), 72);
+    gtk_box_append (GTK_BOX (content), label);
+    gtk_widget_set_visible (label, TRUE);
+
+    perm = gtk_check_button_new_with_mnemonic (_("Remember and don't _ask me again."));
+    temp = gtk_check_button_new_with_mnemonic (
+        _("Remember and don't ask me again this _session."));
+    gtk_box_append (GTK_BOX (content), perm);
+    gtk_box_append (GTK_BOX (content), temp);
+    gtk_widget_set_visible (perm, TRUE);
+    gtk_widget_set_visible (temp, TRUE);
+    g_weak_ref_set (&request->perm, perm);
+    g_weak_ref_set (&request->temp, temp);
+    g_signal_connect (perm, "clicked", G_CALLBACK (gnc_perm_button_cb), temp);
+
+    button_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign (button_box, GTK_ALIGN_END);
+    cancel_button = gtk_button_new_with_mnemonic (_("_Cancel"));
+    action_button = gtk_button_new_with_mnemonic (action);
+    gtk_box_append (GTK_BOX (button_box), cancel_button);
+    gtk_box_append (GTK_BOX (button_box), action_button);
+    gtk_box_append (GTK_BOX (content), button_box);
+    gtk_widget_set_visible (cancel_button, TRUE);
+    gtk_widget_set_visible (action_button, TRUE);
+    gtk_widget_set_visible (button_box, TRUE);
+    gtk_widget_set_visible (content, TRUE);
+
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (gnc_warning_dialog_cancel_clicked_cb), request);
+    g_signal_connect (action_button, "clicked",
+                      G_CALLBACK (gnc_warning_dialog_action_clicked_cb), request);
+    request->close_handler = g_signal_connect (
+        request->window, "close-request", G_CALLBACK (gnc_warning_dialog_close_request_cb), request);
+    request->destroy_handler = g_signal_connect (
+        request->window, "destroy", G_CALLBACK (gnc_warning_dialog_destroyed_cb), request);
+    gtk_window_set_default_widget (request->window,
+                                   action_is_default ? action_button : cancel_button);
+    gtk_window_present (request->window);
+}
+
 gint
 gnc_dialog_run (GtkDialog *dialog)
 {

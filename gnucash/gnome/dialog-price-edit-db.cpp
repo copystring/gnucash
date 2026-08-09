@@ -95,6 +95,53 @@ struct PricesDialog
     int          remove_source;
 };
 
+constexpr const char *PRICE_DIALOG_DATA = "gnc-price-edit-dialog";
+
+struct PriceDeleteRequest
+{
+    GWeakRef window;
+    GPtrArray *price_guids;
+};
+
+static void
+price_delete_request_free (PriceDeleteRequest *request)
+{
+    g_weak_ref_clear (&request->window);
+    g_ptr_array_unref (request->price_guids);
+    g_free (request);
+}
+
+static void
+price_delete_finished (gint response, gpointer user_data)
+{
+    auto request = static_cast<PriceDeleteRequest *> (user_data);
+    auto window = GTK_WIDGET (g_weak_ref_get (&request->window));
+
+    if (response == GTK_RESPONSE_YES && window)
+    {
+        auto pdb_dialog = static_cast<PricesDialog *> (
+            g_object_get_data (G_OBJECT (window), PRICE_DIALOG_DATA));
+
+        if (pdb_dialog && pdb_dialog->book == gnc_get_current_book () &&
+            pdb_dialog->price_db && !qof_book_shutting_down (pdb_dialog->book))
+        {
+            for (guint index = 0; index < request->price_guids->len; index++)
+            {
+                auto guid = static_cast<GncGUID *> (
+                    g_ptr_array_index (request->price_guids, index));
+                auto price = gnc_price_lookup (guid, pdb_dialog->book);
+
+                if (price)
+                    gnc_pricedb_remove_price (pdb_dialog->price_db, price);
+            }
+            gnc_gui_refresh_all ();
+        }
+    }
+
+    g_clear_object (&window);
+    price_delete_request_free (request);
+}
+
 
 void
 gnc_prices_dialog_destroy_cb (GtkWidget *object, gpointer data)
@@ -102,6 +149,7 @@ gnc_prices_dialog_destroy_cb (GtkWidget *object, gpointer data)
     auto pdb_dialog = static_cast<PricesDialog *> (data);
 
     ENTER(" ");
+    g_object_set_data (G_OBJECT (object), PRICE_DIALOG_DATA, nullptr);
     gnc_unregister_gui_component_by_data (DIALOG_PRICE_DB_CM_CLASS, pdb_dialog);
 
     if (pdb_dialog->window)
@@ -173,13 +221,6 @@ gnc_prices_dialog_edit_clicked (GtkWidget *widget, gpointer data)
 }
 
 
-static void
-remove_helper(GNCPrice *price, GNCPriceDB *pdb)
-{
-    gnc_pricedb_remove_price (pdb, price);
-}
-
-
 void
 gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
 {
@@ -193,48 +234,30 @@ gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
         return;
     }
 
-    gint response;
-    auto length = g_list_length(price_list);
-    if (length > 0)
+    auto request = g_new0 (PriceDeleteRequest, 1);
+    auto length = g_list_length (price_list);
+    request->price_guids = g_ptr_array_new_with_free_func (g_free);
+    g_weak_ref_init (&request->window, pdb_dialog->window);
+    for (auto node = price_list; node; node = g_list_next (node))
     {
-        gchar *message;
+        auto guid = g_new (GncGUID, 1);
+        *guid = *gnc_price_get_guid (static_cast<GNCPrice *> (node->data));
+        g_ptr_array_add (request->price_guids, guid);
+    }
+    g_list_free (price_list);
 
-        message = g_strdup_printf
-                  (/* Translators: %d is the number of prices. This is a ngettext(3) message. */
-                      ngettext("Are you sure you want to delete the selected price?",
-                               "Are you sure you want to delete the %d selected prices?",
-                               length),
-                      length);
-        auto dialog = gtk_message_dialog_new (GTK_WINDOW(pdb_dialog->window),
-                                              GTK_DIALOG_DESTROY_WITH_PARENT,
-                                              GTK_MESSAGE_QUESTION,
-                                              GTK_BUTTONS_NONE,
-                                              "%s", _("Delete prices?"));
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                "%s", message);
-        g_free(message);
-        gtk_dialog_add_buttons(GTK_DIALOG(dialog),
-                               _("_Cancel"), GTK_RESPONSE_CANCEL,
-                               _("_Delete"), GTK_RESPONSE_YES,
-                               (gchar *)NULL);
-        gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
-        response = gnc_warning_dialog_run(GTK_DIALOG(dialog), GNC_PREF_WARN_PRICE_QUOTES_DEL);
-        gtk_window_destroy (GTK_WINDOW(dialog));
-    }
-    else
-    {
-        response = GTK_RESPONSE_YES;
-    }
-
-    if (response == GTK_RESPONSE_YES)
-    {
-        g_list_foreach(price_list, (GFunc)remove_helper, pdb_dialog->price_db);
-    }
-    g_list_free(price_list);
-    gnc_gui_refresh_all ();
+    auto message = g_strdup_printf
+        (/* Translators: %d is the number of prices. This is a ngettext(3) message. */
+         ngettext("Are you sure you want to delete the selected price?",
+                  "Are you sure you want to delete the %d selected prices?", length),
+         length);
+    gnc_warning_dialog_async (GTK_WINDOW (pdb_dialog->window),
+                              GNC_PREF_WARN_PRICE_QUOTES_DEL,
+                              _("Delete prices?"), message, _("_Delete"),
+                              GTK_RESPONSE_YES, TRUE, price_delete_finished, request);
+    g_free (message);
     LEAVE(" ");
 }
-
 
 namespace
 {
@@ -859,6 +882,7 @@ gnc_prices_dialog_create (GtkWidget * parent, PricesDialog *pdb_dialog)
 
     window = GTK_WIDGET(gtk_builder_get_object (builder, "prices_window"));
     pdb_dialog->window = window;
+    g_object_set_data (G_OBJECT (window), PRICE_DIALOG_DATA, pdb_dialog);
 
     // Set the name for this dialog so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(window), "gnc-id-price-edit");

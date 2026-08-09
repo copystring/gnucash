@@ -175,6 +175,27 @@ void gnc_gtk_dialog_add_button (GtkWidget *dialog,
 gint
 gnc_warning_dialog_run (GtkDialog *dialog, const gchar *pref_key);
 
+/** Receives a response from a non-blocking warning dialog. */
+typedef void (*GncWarningDialogResponseCallback) (gint response,
+                                                  gpointer user_data);
+
+/**
+ * Present a non-blocking warning window without running a nested main loop.
+ *
+ * This preserves gnc_warning_dialog_run()'s permanent and session warning
+ * preferences. The response callback is invoked exactly once, including when
+ * the parent or warning window is destroyed.
+ */
+void gnc_warning_dialog_async (GtkWindow *parent,
+                               const gchar *pref_key,
+                               const gchar *title,
+                               const gchar *message,
+                               const gchar *action,
+                               gint action_response,
+                               gboolean action_is_default,
+                               GncWarningDialogResponseCallback completed,
+                               gpointer user_data);
+
 /** Note: This dialog is modal!
  */
 gint
