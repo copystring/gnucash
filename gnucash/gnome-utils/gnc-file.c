@@ -65,6 +65,353 @@ static QofLogModule log_module = GNC_MOD_GUI;
 static GNCShutdownCB shutdown_cb = NULL;
 static gint save_in_progress = 0;
 
+
+struct _GncFileDialogRequest
+{
+    GObject parent_instance;
+    GWeakRef parent;
+    gchar *title;
+    gchar *starting_dir;
+    GListStore *filters;
+    GtkFileFilter *default_filter;
+    GNCFileDialogType type;
+};
+
+G_DEFINE_FINAL_TYPE (GncFileDialogRequest, gnc_file_dialog_request, G_TYPE_OBJECT)
+
+static gboolean
+file_dialog_type_is_valid (GNCFileDialogType type)
+{
+    return type >= GNC_FILE_DIALOG_OPEN && type <= GNC_FILE_DIALOG_EXPORT;
+}
+
+static gboolean
+file_dialog_type_is_open (GNCFileDialogType type)
+{
+    return type == GNC_FILE_DIALOG_OPEN || type == GNC_FILE_DIALOG_IMPORT;
+}
+
+static const gchar *
+file_dialog_default_title (GNCFileDialogType type)
+{
+    switch (type)
+    {
+    case GNC_FILE_DIALOG_OPEN:
+        return _("Open");
+    case GNC_FILE_DIALOG_IMPORT:
+        return _("Import");
+    case GNC_FILE_DIALOG_SAVE:
+        return _("Save");
+    case GNC_FILE_DIALOG_EXPORT:
+        return _("Export");
+    }
+
+    g_assert_not_reached ();
+    return NULL;
+}
+
+static const gchar *
+file_dialog_accept_label (GNCFileDialogType type)
+{
+    switch (type)
+    {
+    case GNC_FILE_DIALOG_OPEN:
+        return _("Open");
+    case GNC_FILE_DIALOG_IMPORT:
+        return _("Import");
+    case GNC_FILE_DIALOG_SAVE:
+        return _("Save");
+    case GNC_FILE_DIALOG_EXPORT:
+        return _("Export");
+    }
+
+    g_assert_not_reached ();
+    return NULL;
+}
+
+static void
+file_dialog_request_finalize (GObject *object)
+{
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (object);
+
+    g_weak_ref_clear (&request->parent);
+    g_clear_pointer (&request->title, g_free);
+    g_clear_pointer (&request->starting_dir, g_free);
+    g_clear_object (&request->default_filter);
+    g_clear_object (&request->filters);
+
+    G_OBJECT_CLASS (gnc_file_dialog_request_parent_class)->finalize (object);
+}
+
+static void
+file_dialog_request_class_init (GncFileDialogRequestClass *klass)
+{
+    GObjectClass *object_class = G_OBJECT_CLASS (klass);
+
+    object_class->finalize = file_dialog_request_finalize;
+}
+
+static void
+file_dialog_request_init (GncFileDialogRequest *request)
+{
+    g_weak_ref_init (&request->parent, NULL);
+}
+
+static void
+file_dialog_request_take_filters (GncFileDialogRequest *request, GList *filters)
+{
+    GtkFileFilter *all_filter;
+
+    if (!filters)
+        return;
+
+    request->filters = g_list_store_new (GTK_TYPE_FILE_FILTER);
+    for (GList *node = filters; node; node = node->next)
+    {
+        GtkFileFilter *filter = GTK_FILE_FILTER (node->data);
+
+        if (!GTK_IS_FILE_FILTER (filter))
+        {
+            g_warning ("Ignoring invalid file filter in dialog request");
+            continue;
+        }
+
+        g_list_store_append (request->filters, filter);
+        if (!request->default_filter)
+            request->default_filter = g_object_ref (filter);
+        g_object_unref (filter);
+    }
+    g_list_free (filters);
+
+    all_filter = gtk_file_filter_new ();
+    gtk_file_filter_set_name (all_filter, _("All files"));
+    gtk_file_filter_add_pattern (all_filter, "*");
+    g_list_store_append (request->filters, all_filter);
+    g_object_unref (all_filter);
+}
+
+GncFileDialogRequest *
+gnc_file_dialog_request_new (GtkWindow *parent, const gchar *title,
+                             GList *filters, const gchar *starting_dir,
+                             GNCFileDialogType type)
+{
+    GncFileDialogRequest *request;
+
+    g_return_val_if_fail (!parent || GTK_IS_WINDOW (parent), NULL);
+    g_return_val_if_fail (file_dialog_type_is_valid (type), NULL);
+
+    request = g_object_new (GNC_TYPE_FILE_DIALOG_REQUEST, NULL);
+    g_weak_ref_set (&request->parent, parent);
+    request->title = g_strdup (title ? title : file_dialog_default_title (type));
+    request->starting_dir = g_strdup (starting_dir);
+    request->type = type;
+    file_dialog_request_take_filters (request, filters);
+
+    return request;
+}
+
+static GtkFileDialog *
+file_dialog_request_create_dialog (GncFileDialogRequest *request)
+{
+    GtkFileDialog *dialog = gtk_file_dialog_new ();
+
+    gtk_file_dialog_set_title (dialog, request->title);
+    gtk_file_dialog_set_accept_label (dialog,
+                                      file_dialog_accept_label (request->type));
+    if (request->starting_dir && *request->starting_dir)
+    {
+        GFile *folder = g_file_new_for_path (request->starting_dir);
+
+        gtk_file_dialog_set_initial_folder (dialog, folder);
+        g_object_unref (folder);
+    }
+    if (request->filters)
+    {
+        gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (request->filters));
+        gtk_file_dialog_set_default_filter (dialog, request->default_filter);
+    }
+
+    return dialog;
+}
+
+static void
+file_dialog_request_return_invalid_operation (GncFileDialogRequest *request,
+                                              GCancellable *cancellable,
+                                              GAsyncReadyCallback callback,
+                                              gpointer user_data,
+                                              const gchar *operation)
+{
+    GTask *task = g_task_new (request, cancellable, callback, user_data);
+
+    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                             "%s is incompatible with this file dialog type",
+                             operation);
+    g_object_unref (task);
+}
+
+static void
+file_dialog_request_open_finished (GObject *source, GAsyncResult *result,
+                                   gpointer user_data)
+{
+    GTask *task = G_TASK (user_data);
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_open_finish (GTK_FILE_DIALOG (source), result,
+                                               &error);
+
+    if (file)
+        g_task_return_pointer (task, file, g_object_unref);
+    else if (error)
+        g_task_return_error (task, error);
+    else
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "The file dialog returned no selected file");
+    g_object_unref (task);
+}
+
+static void
+file_dialog_request_save_finished (GObject *source, GAsyncResult *result,
+                                   gpointer user_data)
+{
+    GTask *task = G_TASK (user_data);
+    GError *error = NULL;
+    GFile *file = gtk_file_dialog_save_finish (GTK_FILE_DIALOG (source), result,
+                                               &error);
+
+    if (file)
+        g_task_return_pointer (task, file, g_object_unref);
+    else if (error)
+        g_task_return_error (task, error);
+    else
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "The file dialog returned no selected file");
+    g_object_unref (task);
+}
+
+static void
+file_dialog_request_open_multiple_finished (GObject *source,
+                                            GAsyncResult *result,
+                                            gpointer user_data)
+{
+    GTask *task = G_TASK (user_data);
+    GError *error = NULL;
+    GListModel *files = gtk_file_dialog_open_multiple_finish (
+        GTK_FILE_DIALOG (source), result, &error);
+
+    if (files)
+        g_task_return_pointer (task, files, g_object_unref);
+    else if (error)
+        g_task_return_error (task, error);
+    else
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "The file dialog returned no selected files");
+    g_object_unref (task);
+}
+
+void
+gnc_file_dialog_request_open_async (GncFileDialogRequest *request,
+                                    GCancellable *cancellable,
+                                    GAsyncReadyCallback callback,
+                                    gpointer user_data)
+{
+    GtkFileDialog *dialog;
+    GtkWindow *parent;
+    GTask *task;
+
+    g_return_if_fail (GNC_IS_FILE_DIALOG_REQUEST (request));
+    if (!file_dialog_type_is_open (request->type))
+    {
+        file_dialog_request_return_invalid_operation (request, cancellable,
+                                                      callback, user_data,
+                                                      "Opening files");
+        return;
+    }
+
+    dialog = file_dialog_request_create_dialog (request);
+    parent = g_weak_ref_get (&request->parent);
+    task = g_task_new (request, cancellable, callback, user_data);
+    gtk_file_dialog_open (dialog, parent, cancellable,
+                          file_dialog_request_open_finished, task);
+    g_clear_object (&parent);
+    g_object_unref (dialog);
+}
+
+void
+gnc_file_dialog_request_save_async (GncFileDialogRequest *request,
+                                    GCancellable *cancellable,
+                                    GAsyncReadyCallback callback,
+                                    gpointer user_data)
+{
+    GtkFileDialog *dialog;
+    GtkWindow *parent;
+    GTask *task;
+
+    g_return_if_fail (GNC_IS_FILE_DIALOG_REQUEST (request));
+    if (file_dialog_type_is_open (request->type))
+    {
+        file_dialog_request_return_invalid_operation (request, cancellable,
+                                                      callback, user_data,
+                                                      "Saving files");
+        return;
+    }
+
+    dialog = file_dialog_request_create_dialog (request);
+    parent = g_weak_ref_get (&request->parent);
+    task = g_task_new (request, cancellable, callback, user_data);
+    gtk_file_dialog_save (dialog, parent, cancellable,
+                          file_dialog_request_save_finished, task);
+    g_clear_object (&parent);
+    g_object_unref (dialog);
+}
+
+void
+gnc_file_dialog_request_open_multiple_async (GncFileDialogRequest *request,
+                                             GCancellable *cancellable,
+                                             GAsyncReadyCallback callback,
+                                             gpointer user_data)
+{
+    GtkFileDialog *dialog;
+    GtkWindow *parent;
+    GTask *task;
+
+    g_return_if_fail (GNC_IS_FILE_DIALOG_REQUEST (request));
+    if (!file_dialog_type_is_open (request->type))
+    {
+        file_dialog_request_return_invalid_operation (request, cancellable,
+                                                      callback, user_data,
+                                                      "Opening multiple files");
+        return;
+    }
+
+    dialog = file_dialog_request_create_dialog (request);
+    parent = g_weak_ref_get (&request->parent);
+    task = g_task_new (request, cancellable, callback, user_data);
+    gtk_file_dialog_open_multiple (dialog, parent, cancellable,
+                                   file_dialog_request_open_multiple_finished,
+                                   task);
+    g_clear_object (&parent);
+    g_object_unref (dialog);
+}
+
+GFile *
+gnc_file_dialog_request_finish (GncFileDialogRequest *request,
+                                GAsyncResult *result, GError **error)
+{
+    g_return_val_if_fail (GNC_IS_FILE_DIALOG_REQUEST (request), NULL);
+    g_return_val_if_fail (g_task_is_valid (result, request), NULL);
+
+    return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+GListModel *
+gnc_file_dialog_request_finish_multiple (GncFileDialogRequest *request,
+                                         GAsyncResult *result, GError **error)
+{
+    g_return_val_if_fail (GNC_IS_FILE_DIALOG_REQUEST (request), NULL);
+    g_return_val_if_fail (g_task_is_valid (result, request), NULL);
+
+    return g_task_propagate_pointer (G_TASK (result), error);
+}
+
 typedef bool (*CharToBool)(const char*);
 
 static bool datafile_filter (const GtkFileFilterInfo* info, CharToBool checker)

@@ -131,6 +131,55 @@ typedef enum
     GNC_FILE_DIALOG_EXPORT
 } GNCFileDialogType;
 
+#define GNC_TYPE_FILE_DIALOG_REQUEST (gnc_file_dialog_request_get_type ())
+G_DECLARE_FINAL_TYPE (GncFileDialogRequest, gnc_file_dialog_request, GNC,
+                      FILE_DIALOG_REQUEST, GObject)
+
+/**
+ * gnc_file_dialog_request_new:
+ * @parent: (nullable): transient parent for the native chooser
+ * @title: (nullable): chooser title; the dialog type supplies the default
+ * @filters: (transfer full) (nullable): #GtkFileFilter list to offer
+ * @starting_dir: (nullable): local directory to show initially
+ * @type: the requested GnuCash file operation
+ *
+ * Creates an immutable description of a GTK4 file chooser.  The request
+ * consumes both the list and its filter references.  A caller may unref the
+ * request after starting an operation; it stays alive through its completion
+ * callback.
+ *
+ * The operation must match @type: use open or open_multiple for OPEN and
+ * IMPORT, and save for SAVE and EXPORT.
+ */
+GncFileDialogRequest *gnc_file_dialog_request_new (GtkWindow *parent,
+                                                    const gchar *title,
+                                                    GList *filters,
+                                                    const gchar *starting_dir,
+                                                    GNCFileDialogType type);
+
+void gnc_file_dialog_request_open_async (GncFileDialogRequest *request,
+                                         GCancellable *cancellable,
+                                         GAsyncReadyCallback callback,
+                                         gpointer user_data);
+
+void gnc_file_dialog_request_save_async (GncFileDialogRequest *request,
+                                         GCancellable *cancellable,
+                                         GAsyncReadyCallback callback,
+                                         gpointer user_data);
+
+void gnc_file_dialog_request_open_multiple_async (GncFileDialogRequest *request,
+                                                  GCancellable *cancellable,
+                                                  GAsyncReadyCallback callback,
+                                                  gpointer user_data);
+
+GFile *gnc_file_dialog_request_finish (GncFileDialogRequest *request,
+                                       GAsyncResult *result,
+                                       GError **error);
+
+GListModel *gnc_file_dialog_request_finish_multiple (GncFileDialogRequest *request,
+                                                      GAsyncResult *result,
+                                                      GError **error);
+
 void gnc_file_new (GtkWindow *parent);
 gboolean gnc_file_open (GtkWindow *parent);
 void gnc_file_export(GtkWindow *parent);

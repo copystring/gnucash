@@ -27,4 +27,15 @@ gnc_add_scheme_test_targets(scm-test-load-gnome-utils-module
 gnc_add_scheme_tests(test-load-gnome-utils-module.scm)
 
 
-set_dist_list(test_gnome_utils_DIST CMakeLists.txt test-load-gnome-utils-module.scm)
+set (test_gnc_file_dialog_SOURCES
+  test-gnc-file-dialog.c
+)
+
+gnc_add_test (test-gnc-file-dialog "${test_gnc_file_dialog_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
+set_dist_list(test_gnome_utils_DIST
+  CMakeLists.txt
+  test-load-gnome-utils-module.scm
+  ${test_gnc_file_dialog_SOURCES}
+)
