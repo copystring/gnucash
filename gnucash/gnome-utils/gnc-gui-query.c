@@ -568,36 +568,50 @@ gnc_input_dialog_with_entry (GtkWidget *parent, const gchar *title,
 void
 gnc_info2_dialog (GtkWidget *parent, const gchar *title, const gchar *msg)
 {
+    GtkWindow *window;
+    GtkWidget *content;
     GtkWidget *view;
+    GtkWidget *scrolled_window;
+    GtkWidget *close_button;
     GtkTextBuffer *buffer;
-    gint width, height;
+    gint width;
+    gint height;
 
-    /* Create the widgets */
-    GtkWidget* dialog = gtk_dialog_new_with_buttons (title,
-                                                     GTK_WINDOW(parent),
-                                                     GTK_DIALOG_MODAL |
-                                                     GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                     _("_OK"), GTK_RESPONSE_ACCEPT,
-                                                     NULL);
-    GtkWidget* content_area = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
-
-    // add a scroll area
-    GtkWidget* scrolled_window = gtk_scrolled_window_new ();
-    gtk_box_append (GTK_BOX(content_area), GTK_WIDGET(scrolled_window));
-
-    // add a textview
-    view = gtk_text_view_new ();
-    gtk_text_view_set_editable (GTK_TEXT_VIEW(view), FALSE);
-    buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW(view));
-    gtk_text_buffer_set_text (buffer, msg, -1);
-    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(scrolled_window),
-                                   GTK_WIDGET(view));
-
-    // run the dialog
-    if (parent)
+    window = GTK_WINDOW (gtk_window_new ());
+    gtk_window_set_title (window, title);
+    gtk_window_set_modal (window, TRUE);
+    if (GTK_IS_WINDOW (parent))
     {
-        gtk_window_get_default_size (GTK_WINDOW(parent), &width, &height);
-        gtk_window_set_default_size (GTK_WINDOW(dialog), width, height);
+        gtk_window_set_transient_for (window, GTK_WINDOW (parent));
+        gtk_window_get_default_size (GTK_WINDOW (parent), &width, &height);
+        gtk_window_set_default_size (window, width, height);
     }
-    gnc_dialog_run (GTK_DIALOG(dialog));
+    else
+    {
+        gtk_window_set_default_size (window, 600, 400);
+    }
+
+    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start (content, 12);
+    gtk_widget_set_margin_end (content, 12);
+    gtk_widget_set_margin_top (content, 12);
+    gtk_widget_set_margin_bottom (content, 12);
+    gtk_window_set_child (window, content);
+
+    scrolled_window = gtk_scrolled_window_new ();
+    gtk_widget_set_vexpand (scrolled_window, TRUE);
+    gtk_box_append (GTK_BOX (content), scrolled_window);
+
+    view = gtk_text_view_new ();
+    gtk_text_view_set_editable (GTK_TEXT_VIEW (view), FALSE);
+    buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+    gtk_text_buffer_set_text (buffer, msg, -1);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled_window), view);
+
+    close_button = gtk_button_new_with_mnemonic (_("_Close"));
+    gtk_widget_set_halign (close_button, GTK_ALIGN_END);
+    gtk_box_append (GTK_BOX (content), close_button);
+    g_signal_connect_swapped (close_button, "clicked", G_CALLBACK (gtk_window_destroy),
+                              window);
+    gtk_window_present (window);
 }

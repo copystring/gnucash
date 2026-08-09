@@ -2497,30 +2497,56 @@ gnc_file_do_save_as (GtkWindow *parent, const char* filename)
     LEAVE (" ");
 }
 
+typedef struct
+{
+    QofBook *book;
+    gchar *fileurl;
+    gboolean open_readonly;
+} GncFileRevertRequest;
+
+static void
+gnc_file_revert_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    GncFileRevertRequest *request = user_data;
+
+    if (response == GTK_RESPONSE_YES && gnc_current_session_exist () &&
+        qof_session_get_book (gnc_get_current_session ()) == request->book)
+    {
+        qof_book_mark_session_saved (request->book);
+        gnc_file_open_file (parent, request->fileurl, request->open_readonly);
+    }
+    g_free (request->fileurl);
+    g_free (request);
+}
+
 void
 gnc_file_revert (GtkWindow *parent)
 {
     QofSession *session;
-    const gchar *fileurl, *filename, *tmp;
-    const gchar *title = _("Reverting will discard all unsaved changes to %s. Are you sure you want to proceed?");
+    const gchar *fileurl;
+    const gchar *filename;
+    const gchar *tmp;
+    GncFileRevertRequest *request;
+    const gchar *title = _("Reverting will discard all unsaved changes to %s. "
+                           "Are you sure you want to proceed?");
 
-    if (!gnc_main_window_all_finish_pending())
+    if (!gnc_main_window_all_finish_pending ())
         return;
 
-    session = gnc_get_current_session();
-    fileurl = qof_session_get_url(session);
+    session = gnc_get_current_session ();
+    fileurl = qof_session_get_url (session);
     if (!strlen (fileurl))
         fileurl = _("<unknown>");
-    if ((tmp = strrchr(fileurl, '/')) != NULL)
-        filename = tmp + 1;
-    else
-        filename = fileurl;
+    tmp = strrchr (fileurl, '/');
+    filename = tmp ? tmp + 1 : fileurl;
 
-    if (!gnc_verify_dialog (parent, FALSE, title, filename))
-        return;
-
-    qof_book_mark_session_saved (qof_session_get_book (session));
-    gnc_file_open_file (parent, fileurl, qof_book_is_readonly(gnc_get_current_book()));}
+    request = g_new0 (GncFileRevertRequest, 1);
+    request->book = qof_session_get_book (session);
+    request->fileurl = g_strdup (fileurl);
+    request->open_readonly = qof_book_is_readonly (request->book);
+    gnc_verify_dialog_async (parent, FALSE, gnc_file_revert_finished, request,
+                             title, filename);
+}
 
 void
 gnc_file_quit (void)
