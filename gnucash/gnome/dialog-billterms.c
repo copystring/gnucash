@@ -663,6 +663,75 @@ billterms_new_term_cb (GtkButton *button, BillTermsWindow *btw)
     new_billterm_dialog (btw, NULL, NULL);
 }
 
+typedef struct
+{
+    BillTermsWindow *btw;
+    GWeakRef window;
+    gulong destroy_handler;
+    GncGUID term_guid;
+} BillTermDeleteRequest;
+
+static void
+billterm_delete_request_destroyed (GtkWidget *window, BillTermDeleteRequest *request)
+{
+    (void)window;
+    request->btw = NULL;
+    request->destroy_handler = 0;
+}
+
+static void
+billterm_delete_request_free (BillTermDeleteRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+billterm_delete_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    BillTermDeleteRequest *request = user_data;
+    GncBillTerm *term = NULL;
+
+    (void)parent;
+    if (response == GTK_RESPONSE_YES && request->btw &&
+        !qof_book_shutting_down (request->btw->book))
+        term = gncBillTermLookup (request->btw->book, &request->term_guid);
+
+    if (term && gncBillTermGetRefcount (term) == 0)
+    {
+        gnc_suspend_gui_refresh ();
+        gncBillTermBeginEdit (term);
+        gncBillTermDestroy (term);
+        if (request->btw->current_term == term)
+            request->btw->current_term = NULL;
+        gnc_resume_gui_refresh ();
+    }
+
+    billterm_delete_request_free (request);
+}
+
+static void
+billterm_delete_request (BillTermsWindow *btw)
+{
+    BillTermDeleteRequest *request = g_new0 (BillTermDeleteRequest, 1);
+
+    request->btw = btw;
+    g_weak_ref_init (&request->window, btw->window);
+    request->destroy_handler = g_signal_connect (btw->window, "destroy",
+                                                 G_CALLBACK (billterm_delete_request_destroyed),
+                                                 request);
+    request->term_guid = *gncBillTermGetGUID (btw->current_term);
+    gnc_verify_dialog_async (GTK_WINDOW (btw->window), FALSE,
+                             billterm_delete_finished, request,
+                             _("Are you sure you want to delete \"%s\"?"),
+                             gncBillTermGetName (btw->current_term));
+}
+
 void
 billterms_delete_term_cb (GtkButton *button, BillTermsWindow *btw)
 {
@@ -679,17 +748,7 @@ billterms_delete_term_cb (GtkButton *button, BillTermsWindow *btw)
         return;
     }
 
-    if (gnc_verify_dialog (GTK_WINDOW(btw->window), FALSE,
-                           _("Are you sure you want to delete \"%s\"?"),
-                           gncBillTermGetName (btw->current_term)))
-    {
-        /* Ok, let's remove it */
-        gnc_suspend_gui_refresh ();
-        gncBillTermBeginEdit (btw->current_term);
-        gncBillTermDestroy (btw->current_term);
-        btw->current_term = NULL;
-        gnc_resume_gui_refresh ();
-    }
+    billterm_delete_request (btw);
 }
 
 void

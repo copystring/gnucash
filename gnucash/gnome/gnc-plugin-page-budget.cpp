@@ -1016,6 +1016,41 @@ gnc_plugin_page_budget_cmd_view_options (GSimpleAction *simple,
 }
 
 
+typedef struct
+{
+    QofBook *book;
+    GncGUID budget_guid;
+} GncBudgetDeleteRequest;
+
+static void
+budget_delete_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    auto request = static_cast<GncBudgetDeleteRequest *> (user_data);
+
+    (void)parent;
+    if (response == GTK_RESPONSE_YES && gnc_current_session_exist () &&
+        gnc_get_current_book () == request->book)
+    {
+        auto budget = gnc_budget_lookup (&request->budget_guid, request->book);
+
+        if (budget)
+        {
+            gnc_suspend_gui_refresh ();
+            gnc_budget_destroy (budget);
+
+            if (qof_collection_count (qof_book_get_collection (request->book,
+                                                                GNC_ID_BUDGET)) == 0)
+            {
+                gnc_features_set_unused (request->book, GNC_FEATURE_BUDGET_UNREVERSED);
+                PWARN ("No budgets left. Removing feature BUDGET_UNREVERSED.");
+            }
+            /* Views close themselves because the component manager notifies them. */
+            gnc_resume_gui_refresh ();
+        }
+    }
+    g_free (request);
+}
+
 void
 gnc_budget_gui_delete_budget (GncBudget *budget)
 {
@@ -1026,21 +1061,11 @@ gnc_budget_gui_delete_budget (GncBudget *budget)
     if (!name)
         name = _("Unnamed Budget");
 
-    if (gnc_verify_dialog (NULL, FALSE, _("Delete %s?"), name))
-    {
-        QofBook* book = gnc_get_current_book ();
-
-        gnc_suspend_gui_refresh ();
-        gnc_budget_destroy (budget);
-
-        if (qof_collection_count (qof_book_get_collection (book, GNC_ID_BUDGET)) == 0)
-        {
-            gnc_features_set_unused (book, GNC_FEATURE_BUDGET_UNREVERSED);
-            PWARN ("No budgets left. Removing feature BUDGET_UNREVERSED.");
-        }
-        // Views should close themselves because the CM will notify them.
-        gnc_resume_gui_refresh ();
-    }
+    auto request = g_new0 (GncBudgetDeleteRequest, 1);
+    request->book = gnc_get_current_book ();
+    request->budget_guid = gnc_budget_return_guid (budget);
+    gnc_verify_dialog_async (NULL, FALSE, budget_delete_finished, request,
+                             _("Delete %s?"), name);
 }
 
 /*******************************/
