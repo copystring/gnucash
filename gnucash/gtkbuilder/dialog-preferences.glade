@@ -37,33 +37,14 @@
     <property name="step-increment">1</property>
     <property name="page-increment">4</property>
   </object>
-  <object class="GtkListStore" id="date_formats">
-    <columns>
-      <column type="gchararray" />
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes" comments="Date format label for 07/31/2013">US</col>
-        <col id="1" comments="Translation is futile here">07/31/2013</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes" comments="Date format label for 31/07/2013">UK</col>
-        <col id="1">31/07/2013</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes" comments="Date format label for 31.07.2013">Europe</col>
-        <col id="1">31.07.2013</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes" comments="Date format label for 2013-07-31">ISO</col>
-        <col id="1">2013-07-31</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes" comments="Label for locale settings of formats, …">Locale</col>
-        <col id="1" comments="Because it will be overwritten no translation is required">(dummy)</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="date_formats">
+    <items>
+      <item translatable="yes" comments="Date format label and example for 07/31/2013">US  07/31/2013</item>
+      <item translatable="yes" comments="Date format label and example for 31/07/2013">UK  31/07/2013</item>
+      <item translatable="yes" comments="Date format label and example for 31.07.2013">Europe  31.07.2013</item>
+      <item translatable="yes" comments="Date format label and example for 2013-07-31">ISO  2013-07-31</item>
+      <item translatable="yes" comments="Label for locale settings of formats">Locale</item>
+    </items>
   </object>
   <object class="GtkAdjustment" id="default_zoom_adj">
     <property name="lower">1</property>
@@ -960,24 +941,12 @@ many months before the current month</property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="pref/general/date-format">
+                      <object class="GtkDropDown" id="pref/general/date-format">
                         <property name="has-tooltip">1</property>
                         <property name="tooltip-markup">Use the date format specified by the system locale.</property>
                         <property name="tooltip-text" translatable="1">Use the date format specified by the system locale.</property>
                         <property name="model">date_formats</property>
-                        <property name="active">3</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="format_renderer" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
-                        <child>
-                          <object class="GtkCellRendererText" id="example_renderer" />
-                          <attributes>
-                            <attribute name="text">1</attribute>
-                          </attributes>
-                        </child>
+                        <property name="selected">3</property>
                         <layout>
                           <property name="column">0</property>
                           <property name="row">7</property>
