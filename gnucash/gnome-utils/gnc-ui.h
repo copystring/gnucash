@@ -111,6 +111,19 @@ typedef void (*GncGuiQueryResponseCallback) (GtkWindow *parent,
                                              gint response,
                                              gpointer user_data);
 
+/** Receives an index from a non-blocking GTK4 option dialog, or -1 on cancel. */
+typedef void (*GncGuiChoiceCallback) (GtkWindow *parent,
+                                      gint choice,
+                                      gpointer user_data);
+
+void gnc_choose_option_dialog_async (GtkWindow *parent,
+                                     const gchar *title,
+                                     const gchar *message,
+                                     GList *choices,
+                                     gint default_choice,
+                                     GncGuiChoiceCallback completed,
+                                     gpointer user_data);
+
 void gnc_ok_cancel_dialog_async (GtkWindow *parent,
                                  gint default_result,
                                  GncGuiQueryResponseCallback completed,

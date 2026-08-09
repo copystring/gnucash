@@ -159,6 +159,93 @@ gnc_action_dialog_async (GtkWindow *parent, const gchar *action,
     va_end (args);
 }
 
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    GncGuiChoiceCallback completed;
+    gpointer user_data;
+    gchar **buttons;
+    guint n_buttons;
+} GncGuiChoiceRequest;
+
+static void
+gnc_gui_choice_request_free (GncGuiChoiceRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_strfreev (request->buttons);
+    g_free (request);
+}
+
+static void
+gnc_gui_choice_finished (GObject *source, GAsyncResult *result,
+                         gpointer user_data)
+{
+    GncGuiChoiceRequest *request = user_data;
+    GError *error = NULL;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    gint choice = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
+                                                  &error);
+
+    if (error || choice < 0 || choice >= request->n_buttons ||
+        (request->has_parent && !parent))
+        choice = -1;
+
+    if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_warning ("Option dialog failed: %s", error->message);
+
+    request->completed (parent, choice, request->user_data);
+    g_clear_error (&error);
+    g_clear_object (&parent);
+    gnc_gui_choice_request_free (request);
+}
+
+void
+gnc_choose_option_dialog_async (GtkWindow *parent, const gchar *title,
+                                const gchar *message, GList *choices,
+                                gint default_choice,
+                                GncGuiChoiceCallback completed,
+                                gpointer user_data)
+{
+    GncGuiChoiceRequest *request;
+    GtkAlertDialog *dialog;
+    GList *node;
+    guint index;
+
+    g_return_if_fail (title != NULL);
+    g_return_if_fail (message != NULL);
+    g_return_if_fail (choices != NULL);
+    g_return_if_fail (completed != NULL);
+
+    if (!parent)
+        parent = gnc_ui_get_main_window (NULL);
+
+    for (node = choices; node; node = node->next)
+        g_return_if_fail (node->data != NULL);
+
+    index = g_list_length (choices);
+    g_return_if_fail (index > 0);
+
+    request = g_new0 (GncGuiChoiceRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->completed = completed;
+    request->user_data = user_data;
+    request->n_buttons = index;
+    request->buttons = g_new0 (gchar *, request->n_buttons + 1);
+
+    for (node = choices, index = 0; node; node = node->next, index++)
+        request->buttons[index] = g_strdup (node->data);
+
+    dialog = gtk_alert_dialog_new ("%s", title);
+    gtk_alert_dialog_set_detail (dialog, message);
+    gtk_alert_dialog_set_buttons (dialog, (const char * const *)request->buttons);
+    gtk_alert_dialog_set_default_button (
+        dialog, CLAMP (default_choice, 0, (gint)request->n_buttons - 1));
+    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_gui_choice_finished, request);
+    g_object_unref (dialog);
+}
+
 /********************************************************************\
  * gnc_ok_cancel_dialog                                             *
  *   display a message, and asks the user to press "Ok" or "Cancel" *

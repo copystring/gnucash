@@ -1516,75 +1516,6 @@ gnc_plugin_page_report_stop_cb (GSimpleAction *simple,
     gnc_html_cancel(priv->html);
 }
 
-/* Returns SCM_BOOL_F if cancel. Returns SCM_BOOL_T if html.
- * Otherwise returns pair from export_types. */
-static SCM
-gnc_get_export_type_choice (SCM export_types, GtkWindow *parent)
-{
-    GList * choices = nullptr;
-    gboolean bad = FALSE;
-    GList * node;
-    int choice;
-    SCM tail;
-
-    if (!scm_is_list (export_types))
-        return SCM_BOOL_F;
-
-    for (tail = export_types; !scm_is_null (tail); tail = SCM_CDR (tail))
-    {
-        SCM pair = SCM_CAR (tail);
-        char * name;
-        SCM scm;
-
-        if (!scm_is_pair (pair))
-        {
-            g_warning ("unexpected list element");
-            bad = TRUE;
-            break;
-        }
-
-        scm = SCM_CAR (pair);
-        if (!scm_is_string (scm))
-        {
-            g_warning ("unexpected pair element");
-            bad = TRUE;
-            break;
-        }
-
-        name = gnc_scm_to_utf8_string (scm);
-        choices = g_list_prepend (choices, name);
-    }
-
-    if (!bad)
-    {
-        choices = g_list_reverse (choices);
-
-        choices = g_list_prepend (choices, g_strdup (_("HTML")));
-
-        choice = gnc_choose_radio_option_dialog
-            (GTK_WIDGET (parent), _("Choose export format"),
-             _("Choose the export format for this report:"),
-             nullptr, 0, choices);
-    }
-    else
-        choice = -1;
-
-    for (node = choices; node; node = node->next)
-        g_free (node->data);
-    g_list_free (choices);
-
-    if (choice < 0)
-        return SCM_BOOL_F;
-
-    if (choice == 0)
-        return SCM_BOOL_T;
-
-    choice--;
-    if (choice >= scm_ilength (export_types))
-        return SCM_BOOL_F;
-
-    return scm_list_ref (export_types, scm_from_int  (choice));
-}
 
 static gchar *
 gnc_report_export_type (SCM choice)
@@ -1851,6 +1782,152 @@ gnc_report_export_file_selected (GObject *source, GAsyncResult *result,
     if (!waiting_for_overwrite_confirmation)
         gnc_report_export_data_free (data);
 }
+
+static void
+gnc_report_export_begin (GncPluginPageReport *report, SCM report_id,
+                         SCM choice, SCM export_thunk)
+{
+    GncReportExportData *data = g_new0 (GncReportExportData, 1);
+    GncFileDialogRequest *request;
+    GtkWindow *parent = GTK_WINDOW (gnc_plugin_page_get_window (
+        GNC_PLUGIN_PAGE (report)));
+    gchar *title = gnc_report_export_title (choice);
+    gchar *default_dir = gnc_get_default_directory (GNC_PREFS_GROUP_REPORT);
+
+    g_weak_ref_init (&data->page, report);
+    data->report_id = report_id;
+    data->choice = choice;
+    data->export_thunk = export_thunk;
+    scm_gc_protect_object (data->report_id);
+    scm_gc_protect_object (data->choice);
+    scm_gc_protect_object (data->export_thunk);
+
+    request = gnc_file_dialog_request_new (parent, title, nullptr, default_dir,
+                                           GNC_FILE_DIALOG_EXPORT);
+    gnc_file_dialog_request_save_async (request, nullptr,
+                                        gnc_report_export_file_selected, data);
+    g_object_unref (request);
+    g_free (title);
+    g_free (default_dir);
+}
+
+typedef struct
+{
+    GWeakRef page;
+    SCM report_id;
+    SCM export_types;
+    SCM export_thunk;
+} GncReportExportFormatRequest;
+
+static void
+gnc_report_export_format_request_free (GncReportExportFormatRequest *request)
+{
+    scm_gc_unprotect_object (request->report_id);
+    scm_gc_unprotect_object (request->export_types);
+    scm_gc_unprotect_object (request->export_thunk);
+    g_weak_ref_clear (&request->page);
+    g_free (request);
+}
+
+static SCM
+gnc_report_export_choice_for_index (SCM export_types, gint choice)
+{
+    if (choice < 0)
+        return SCM_BOOL_F;
+    if (choice == 0)
+        return SCM_BOOL_T;
+
+    choice--;
+    if (choice >= scm_ilength (export_types))
+        return SCM_BOOL_F;
+
+    return scm_list_ref (export_types, scm_from_int (choice));
+}
+
+static void
+gnc_report_export_format_selected (GtkWindow *parent, gint choice,
+                                   gpointer user_data)
+{
+    auto request = static_cast<GncReportExportFormatRequest *> (user_data);
+    SCM export_choice = gnc_report_export_choice_for_index (
+        request->export_types, choice);
+    auto report = static_cast<GncPluginPageReport *> (
+        g_weak_ref_get (&request->page));
+
+    (void)parent;
+    if (report && export_choice != SCM_BOOL_F)
+        gnc_report_export_begin (report, request->report_id, export_choice,
+                                 request->export_thunk);
+
+    g_clear_object (&report);
+    gnc_report_export_format_request_free (request);
+}
+
+static void
+gnc_report_export_choose_format (GncPluginPageReport *report, SCM report_id,
+                                 SCM export_types, SCM export_thunk)
+{
+    GList *choices = nullptr;
+    GList *node;
+    SCM tail;
+    gboolean bad = FALSE;
+    GtkWindow *parent;
+
+    for (tail = export_types; !scm_is_null (tail); tail = SCM_CDR (tail))
+    {
+        SCM pair = SCM_CAR (tail);
+        SCM value;
+
+        if (!scm_is_pair (pair))
+        {
+            g_warning ("unexpected list element");
+            bad = TRUE;
+            break;
+        }
+
+        value = SCM_CAR (pair);
+        if (!scm_is_string (value))
+        {
+            g_warning ("unexpected pair element");
+            bad = TRUE;
+            break;
+        }
+
+        choices = g_list_prepend (choices, gnc_scm_to_utf8_string (value));
+    }
+
+    if (bad)
+    {
+        g_list_free_full (choices, g_free);
+        return;
+    }
+
+    choices = g_list_reverse (choices);
+    choices = g_list_prepend (choices, g_strdup (_("HTML")));
+
+    {
+        auto request = g_new0 (GncReportExportFormatRequest, 1);
+
+        g_weak_ref_init (&request->page, report);
+        request->report_id = report_id;
+        request->export_types = export_types;
+        request->export_thunk = export_thunk;
+        scm_gc_protect_object (request->report_id);
+        scm_gc_protect_object (request->export_types);
+        scm_gc_protect_object (request->export_thunk);
+
+        parent = GTK_WINDOW (gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (report)));
+        gnc_choose_option_dialog_async (
+            parent, _("Choose export format"),
+            _("Choose the export format for this report:"), choices, 0,
+            gnc_report_export_format_selected, request);
+    }
+
+    for (node = choices; node; node = node->next)
+        g_free (node->data);
+    g_list_free (choices);
+}
+
 static void
 gnc_plugin_page_report_edit_tax_cb (GSimpleAction *simple,
                                     GVariant *parameter,
@@ -1967,45 +2044,17 @@ gnc_plugin_page_report_export_cb (GSimpleAction *simple,
 {
     auto report = static_cast<GncPluginPageReport *> (user_data);
     auto priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE (report);
-    auto parent = GTK_WINDOW (gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (report)));
     SCM export_types = scm_call_1 (scm_c_eval_string ("gnc:report-export-types"),
                                    priv->cur_report);
     SCM export_thunk = scm_call_1 (scm_c_eval_string ("gnc:report-export-thunk"),
                                    priv->cur_report);
-    SCM choice;
 
     if (scm_is_list (export_types) && scm_is_procedure (export_thunk))
-        choice = gnc_get_export_type_choice (export_types, parent);
+        gnc_report_export_choose_format (report, priv->cur_report, export_types,
+                                         export_thunk);
     else
-        choice = SCM_BOOL_T;
-
-    if (choice == SCM_BOOL_F)
-        return;
-
-    {
-        GncReportExportData *data = g_new0 (GncReportExportData, 1);
-        GncFileDialogRequest *request;
-        gchar *title = gnc_report_export_title (choice);
-        gchar *default_dir = gnc_get_default_directory (GNC_PREFS_GROUP_REPORT);
-
-        g_weak_ref_init (&data->page, report);
-        data->report_id = priv->cur_report;
-        data->choice = choice;
-        data->export_thunk = export_thunk;
-        scm_gc_protect_object (data->report_id);
-        scm_gc_protect_object (data->choice);
-        scm_gc_protect_object (data->export_thunk);
-
-        request = gnc_file_dialog_request_new (parent, title, nullptr,
-                                               default_dir,
-                                               GNC_FILE_DIALOG_EXPORT);
-        gnc_file_dialog_request_save_async (request, nullptr,
-                                            gnc_report_export_file_selected,
-                                            data);
-        g_object_unref (request);
-        g_free (title);
-        g_free (default_dir);
-    }
+        gnc_report_export_begin (report, priv->cur_report, SCM_BOOL_T,
+                                 export_thunk);
 
     (void)simple;
     (void)parameter;
