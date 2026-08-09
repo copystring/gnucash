@@ -887,7 +887,7 @@ bal_accountinfo_cb (AB_IMEXPORTER_ACCOUNTINFO *element, gpointer user_data)
     gdouble booked_value, noted_value;
     gnc_numeric value;
     time64 booked_tt = 0;
-    GtkWidget *dialog;
+    GtkAlertDialog *dialog;
     gboolean show_recn_window = FALSE;
 
     g_return_val_if_fail (element && data, NULL);
@@ -992,11 +992,7 @@ bal_accountinfo_cb (AB_IMEXPORTER_ACCOUNTINFO *element, gpointer user_data)
                                    GNC_HOW_RND_ROUND_HALF_UP);
     if (noted_value == 0.0 && booked_value == 0.0)
     {
-        dialog = gtk_message_dialog_new (
-                     GTK_WINDOW(data->parent),
-                     GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                     GTK_MESSAGE_INFO,
-                     GTK_BUTTONS_OK,
+        dialog = gtk_alert_dialog_new (
                      "%s",
                      /* Translators: Strings from this file are needed only in
                         countries that have one of aqbanking's Online Banking
@@ -1012,7 +1008,8 @@ bal_accountinfo_cb (AB_IMEXPORTER_ACCOUNTINFO *element, gpointer user_data)
                        "Online Banking version number in the Online Banking "
                        "(AqBanking or HBCI) Setup. After that, try again to "
                        "download the Online Banking Balance."));
-        gnc_dialog_run (GTK_DIALOG(dialog));
+        gtk_alert_dialog_show (dialog, GTK_WINDOW (data->parent));
+        g_object_unref (dialog);
     }
     else
     {
@@ -1035,14 +1032,12 @@ bal_accountinfo_cb (AB_IMEXPORTER_ACCOUNTINFO *element, gpointer user_data)
             const gchar *message3 =
                 _("The booked balance is identical to the current "
                   "reconciled balance of the account.");
-            dialog = gtk_message_dialog_new (
-                         GTK_WINDOW(data->parent),
-                         GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                         GTK_MESSAGE_INFO,
-                         GTK_BUTTONS_OK,
-                         "%s\n%s\n%s",
-                         message1, message2, message3);
-            gnc_dialog_run (GTK_DIALOG(dialog));
+            gchar *detail = g_strdup_printf ("%s\n%s", message2, message3);
+            dialog = gtk_alert_dialog_new ("%s", message1);
+            gtk_alert_dialog_set_detail (dialog, detail);
+            gtk_alert_dialog_show (dialog, GTK_WINDOW (data->parent));
+            g_object_unref (dialog);
+            g_free (detail);
         }
         else
         {
