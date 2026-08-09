@@ -842,16 +842,75 @@ gnc_invoice_window_cancelCB (GtkWidget *widget, gpointer data)
     gnc_entry_ledger_cancel_cursor_changes (iw->ledger);
 }
 
+typedef struct
+{
+    GWeakRef window;
+    GncGUID book_guid;
+    GncGUID invoice_guid;
+    GncGUID entry_guid;
+} InvoiceDeleteRequest;
+
+static void
+invoice_delete_request_free (InvoiceDeleteRequest *request)
+{
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+invoice_delete_response_cb (GObject *source, GAsyncResult *result,
+                            gpointer user_data)
+{
+    InvoiceDeleteRequest *request = user_data;
+    GError *error = NULL;
+    gint response;
+    GtkWidget *window;
+    QofBook *book;
+    GncInvoice *invoice;
+    InvoiceWindow *iw;
+    GncEntry *entry;
+
+    response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source),
+                                               result, &error);
+    window = g_weak_ref_get (&request->window);
+    book = gnc_get_current_book ();
+    if (error || response != 1 || !window || !book ||
+        !guid_equal (&request->book_guid,
+                     qof_instance_get_guid (QOF_INSTANCE (book))))
+        goto cleanup;
+
+    invoice = gncInvoiceLookup (book, &request->invoice_guid);
+    iw = invoice ? gnc_plugin_page_invoice_get_window (invoice) : NULL;
+    if (!iw || iw_get_window (iw) != window || !iw->ledger)
+        goto cleanup;
+
+    entry = gnc_entry_ledger_get_current_entry (iw->ledger);
+    if (entry && guid_equal (gncEntryGetGUID (entry), &request->entry_guid))
+        gnc_entry_ledger_delete_current_entry (iw->ledger);
+
+cleanup:
+    g_clear_error (&error);
+    g_clear_object (&window);
+    invoice_delete_request_free (request);
+}
+
 void
 gnc_invoice_window_deleteCB (GtkWidget *widget, gpointer data)
 {
     InvoiceWindow *iw = data;
     GncEntry *entry;
+    GtkWidget *window;
+    InvoiceDeleteRequest *request;
+    const char *message = _("Are you sure you want to delete the selected entry?");
+    const char *order_warn = _("This entry is attached to an order and "
+                               "will be deleted from that as well!");
+    const char *buttons[] = { _("_Cancel"), _("_Delete"), NULL };
+    char *detail;
+    GtkAlertDialog *alert;
 
-    if (!iw || !iw->ledger)
+    if (!iw || !iw->ledger || !(window = iw_get_window (iw)))
         return;
 
-    /* get the current entry based on cursor position */
     entry = gnc_entry_ledger_get_current_entry (iw->ledger);
     if (!entry)
     {
@@ -859,37 +918,29 @@ gnc_invoice_window_deleteCB (GtkWidget *widget, gpointer data)
         return;
     }
 
-    /* deleting the blank entry just cancels */
     if (entry == gnc_entry_ledger_get_blank_entry (iw->ledger))
     {
         gnc_entry_ledger_cancel_cursor_changes (iw->ledger);
         return;
     }
 
-    /* Verify that the user really wants to delete this entry */
-    {
-        const char *message = _("Are you sure you want to delete the "
-                                "selected entry?");
-        const char *order_warn = _("This entry is attached to an order and "
-                                   "will be deleted from that as well!");
-        char *msg;
-        gboolean result;
+    request = g_new0 (InvoiceDeleteRequest, 1);
+    request->book_guid = *qof_instance_get_guid (QOF_INSTANCE (iw->book));
+    request->invoice_guid = iw->invoice_guid;
+    request->entry_guid = *gncEntryGetGUID (entry);
+    g_weak_ref_init (&request->window, window);
 
-        if (gncEntryGetOrder (entry))
-            msg = g_strconcat (message, "\n\n", order_warn, (char *)NULL);
-        else
-            msg = g_strdup (message);
-
-        result = gnc_verify_dialog (GTK_WINDOW (iw_get_window(iw)), FALSE, "%s", msg);
-        g_free (msg);
-
-        if (!result)
-            return;
-    }
-
-    /* Yep, let's delete */
-    gnc_entry_ledger_delete_current_entry (iw->ledger);
-    return;
+    detail = gncEntryGetOrder (entry) ? g_strdup (order_warn) : NULL;
+    alert = gtk_alert_dialog_new ("%s", message);
+    gtk_alert_dialog_set_detail (alert, detail);
+    gtk_alert_dialog_set_buttons (alert, buttons);
+    gtk_alert_dialog_set_cancel_button (alert, 0);
+    gtk_alert_dialog_set_default_button (alert, 0);
+    gtk_alert_dialog_choose (alert, GTK_WINDOW (window), NULL,
+                             invoice_delete_response_cb, request);
+    g_object_unref (alert);
+    g_free (detail);
+    (void)widget;
 }
 
 void
