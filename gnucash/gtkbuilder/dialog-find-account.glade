@@ -1,17 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkListStore" id="list-store">
-    <columns>
-      <column type="gchararray" />
-      <column type="gpointer" />
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gchararray" />
-    </columns>
-  </object>
+
   <object class="GtkWindow" id="find_account_window">
     <property name="title" translatable="1">Search the Account List</property>
     <property name="default-width">600</property>
@@ -79,25 +69,8 @@
                 <property name="vexpand">1</property>
                 <property name="focusable">1</property>
                 <property name="child">
-                  <object class="GtkTreeView" id="treeview">
+                  <object class="GtkColumnView" id="treeview">
                     <property name="focusable">1</property>
-                    <property name="model">list-store</property>
-                    <property name="search-column">0</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" />
-                    </child>
-                    <child>
-                      <object class="GtkTreeViewColumn" id="account_full_name">
-                        <property name="resizable">1</property>
-                        <property name="title" translatable="1">Account Full Name</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
-                      </object>
-                    </child>
                   </object>
                 </property>
               </object>
