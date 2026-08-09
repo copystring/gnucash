@@ -63,7 +63,6 @@ namespace
 constexpr char error_404_format[] = "<html><body><h3>%s</h3><p>%s</body></html>";
 constexpr char error_404_title[] = N_("Not found");
 constexpr char error_404_body[] = N_("The specified URL could not be loaded.");
-constexpr char temporary_report_name[] = "gnc-report-XXXXXX";
 constexpr char default_zoom_pref[] = "default-zoom";
 
 static void impl_wkwebview_show_url (GncHtml *html, URLType type,
@@ -361,8 +360,14 @@ wkwebview_navigate_report (GncHtmlWKWebView *self)
 
     auto report_uri = [[NSURL alloc] initWithString:
                        [NSString stringWithUTF8String:priv->temporary_report_uri]];
+    const gchar *root = gnc_html_get_report_document_root ();
+    if (!root)
+    {
+        [report_uri release];
+        return;
+    }
     auto access_uri = [[NSURL alloc] initFileURLWithPath:
-                       [NSString stringWithUTF8String:g_get_tmp_dir ()] isDirectory:YES];
+                       [NSString stringWithUTF8String:root] isDirectory:YES];
     if (report_uri && access_uri)
         [priv->web_view loadFileURL:report_uri allowingReadAccessToURL:access_uri];
     [report_uri release];
@@ -572,15 +577,15 @@ impl_wkwebview_show_data (GncHtml *html, const gchar *data, int datalen)
 {
     auto self = GNC_HTML_WKWEBVIEW (html);
     auto priv = priv_for (self);
-    auto filename = g_build_filename (g_get_tmp_dir (), temporary_report_name, nullptr);
-    const auto descriptor = g_mkstemp (filename);
-    if (descriptor == -1)
+    GError *error = nullptr;
+    auto filename = gnc_html_create_report_document (&error);
+    if (!filename)
     {
-        PERR ("Unable to create the temporary report file: %s", g_strerror (errno));
-        g_free (filename);
+        PERR ("Unable to create the temporary report file: %s",
+              error ? error->message : "unknown error");
+        g_clear_error (&error);
         return;
     }
-    close (descriptor);
 
     g_free (priv->html_string);
     priv->html_string = g_strndup (data, datalen);
@@ -595,7 +600,6 @@ impl_wkwebview_show_data (GncHtml *html, const gchar *data, int datalen)
     g_clear_pointer (&priv->temporary_report, g_free);
     g_clear_pointer (&priv->temporary_report_uri, g_free);
     priv->temporary_report = filename;
-    GError *error = nullptr;
     auto uri = g_filename_to_uri (filename, nullptr, &error);
     if (!uri)
     {

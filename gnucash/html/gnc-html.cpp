@@ -65,6 +65,36 @@ GHashTable* gnc_html_stream_handlers = nullptr;
 /* hashes handlers for handling different URLType data */
 GHashTable* gnc_html_url_handlers = nullptr;
 
+static GMutex report_document_root_lock;
+static gchar *report_document_root = nullptr;
+
+static const gchar *
+ensure_report_document_root (GError **error)
+{
+    GError *local_error = nullptr;
+    const gchar *root;
+
+    g_mutex_lock (&report_document_root_lock);
+    if (!report_document_root)
+        report_document_root = g_dir_make_tmp ("gnucash-report-XXXXXX",
+                                               &local_error);
+    root = report_document_root;
+    g_mutex_unlock (&report_document_root_lock);
+
+    if (root)
+        return root;
+
+    if (!local_error)
+        g_set_error_literal (&local_error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                             "Unable to create private report directory.");
+
+    if (error)
+        g_propagate_error (error, local_error);
+    else
+        g_clear_error (&local_error);
+    return nullptr;
+}
+
 /* hashes an HTML <object classid="ID"> classid to a handler function */
 extern GHashTable* gnc_html_object_handlers;
 
@@ -648,9 +678,62 @@ gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
     return handled;
 }
 
-void
-gnc_html_initialize( void ) noexcept
+const gchar *
+gnc_html_get_report_document_root (void) noexcept
 {
+    GError *error = nullptr;
+    const gchar *root = ensure_report_document_root (&error);
+
+    if (!root)
+    {
+        PERR ("Unable to create private report directory: %s",
+              error ? error->message : "unknown error");
+        g_clear_error (&error);
+    }
+    return root;
+}
+
+gchar *
+gnc_html_create_report_document (GError **error) noexcept
+{
+    const gchar *root = ensure_report_document_root (error);
+    gchar *filename;
+    gint descriptor;
+
+    if (!root)
+        return nullptr;
+
+    filename = g_build_filename (root, "report-XXXXXX", nullptr);
+    descriptor = g_mkstemp (filename);
+    if (descriptor == -1)
+    {
+        if (error)
+            g_set_error (error, G_FILE_ERROR,
+                         g_file_error_from_errno (errno),
+                         "Unable to create temporary report document: %s",
+                         g_strerror (errno));
+        g_free (filename);
+        return nullptr;
+    }
+
+    if (close (descriptor) == -1)
+    {
+        const auto saved_errno = errno;
+
+        g_remove (filename);
+        if (error)
+            g_set_error (error, G_FILE_ERROR,
+                         g_file_error_from_errno (saved_errno),
+                         "Unable to close temporary report document: %s",
+                         g_strerror (saved_errno));
+        g_free (filename);
+        return nullptr;
+    }
+    return filename;
+}
+
+void
+gnc_html_initialize( void ) noexcept{
     static struct
     {
         URLType	type;

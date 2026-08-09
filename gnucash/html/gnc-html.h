@@ -131,6 +131,18 @@ gboolean gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
  */
 void gnc_html_initialize( void ) NOEXCEPT;
 
+/**
+ * Returns the private directory used exclusively for generated report
+ * documents. Renderers must not use the process-wide temporary directory.
+ */
+const gchar* gnc_html_get_report_document_root (void) NOEXCEPT;
+
+/**
+ * Creates an empty report document inside the private report directory.
+ * The caller owns the returned filename and must remove it after use.
+ */
+gchar* gnc_html_create_report_document (GError **error) NOEXCEPT;
+
 #ifdef __cplusplus
 }
 #endif

@@ -118,9 +118,26 @@ static void impl_webkit_cancel( GncHtml* self );
 static void impl_webkit_set_parent( GncHtml* self, GtkWindow* parent );
 static void impl_webkit_default_zoom_changed(gpointer prefs, gchar *pref, gpointer user_data);
 
+static void
+gnc_html_webkit_configure_report_sandbox (void)
+{
+    static gsize configured = 0;
+
+    if (g_once_init_enter (&configured))
+    {
+        const gchar *root = gnc_html_get_report_document_root ();
+
+        if (root)
+            webkit_web_context_add_path_to_sandbox
+                (webkit_web_context_get_default (), root, TRUE);
+        g_once_init_leave (&configured, 1);
+    }
+}
+
 static GtkWidget*
 gnc_html_webkit_webview_new (void)
 {
+     gnc_html_webkit_configure_report_sandbox ();
      GtkWidget *view = webkit_web_view_new ();
      WebKitSettings *webkit_settings = nullptr;
      const char *default_font_family = nullptr;
@@ -133,7 +150,6 @@ gnc_html_webkit_webview_new (void)
      webkit_settings = webkit_web_view_get_settings (WEBKIT_WEB_VIEW (view));
      g_object_set (G_OBJECT(webkit_settings),
                    "default-charset", "utf-8",
-                   "allow-file-access-from-file-urls", TRUE,
                    "allow-universal-access-from-file-urls", FALSE,
                    "enable-java", FALSE,
                    "enable-page-cache", FALSE,
@@ -756,31 +772,22 @@ gnc_html_open_scm( GncHtmlWebkit* self, const gchar * location,
 static void
 impl_webkit_show_data( GncHtml* self, const gchar* data, int datalen )
 {
-     constexpr char TEMPLATE_REPORT_FILE_NAME[] = "gnc-report-XXXXXX";
      g_return_if_fail( self != nullptr );
      g_return_if_fail( GNC_IS_HTML_WEBKIT(self) );
 
      ENTER( "datalen %d, data %20.20s", datalen, data );
 
      auto priv = GNC_HTML_WEBKIT_GET_PRIVATE(self);
-
-     /* Export the HTML to a file and load the file URI.   On Linux, this seems to get around some
-        security problems (otherwise, it can complain that embedded images aren't permitted to be
-        viewed because they are local resources).  On Windows, this allows the embedded images to
-        be viewed (maybe for the same reason as on Linux, but I haven't found where it puts those
-        messages. */
-     gchar *filename = g_build_filename(g_get_tmp_dir(), TEMPLATE_REPORT_FILE_NAME,
-                                        (gchar *)nullptr);
-     int fd = g_mkstemp( filename );
      GError *error = nullptr;
+     gchar *filename = gnc_html_create_report_document (&error);
 
-     if (fd == -1)
+     if (!filename)
      {
-          PERR ("Unable to create the temporary report file: %s", g_strerror (errno));
-          g_free (filename);
+          PERR ("Unable to create the temporary report file: %s",
+                error ? error->message : "unknown error");
+          g_clear_error (&error);
           return;
      }
-     close( fd );
 
      g_free (priv->html_string);
      priv->html_string = g_strndup (data, datalen);
