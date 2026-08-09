@@ -627,6 +627,27 @@ gnc_html_urltype_is_internal (URLType type) noexcept
            !g_strcmp0 (type, URL_TYPE_BUDGET);
 }
 
+gboolean
+gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
+                              gboolean new_window_hint) noexcept
+{
+    gchar *location = nullptr;
+    gchar *label = nullptr;
+
+    g_return_val_if_fail (html != nullptr, FALSE);
+    g_return_val_if_fail (GNC_IS_HTML (html), FALSE);
+    g_return_val_if_fail (url != nullptr, FALSE);
+
+    const auto type = gnc_html_parse_url (html, url, &location, &label);
+    const auto handled = gnc_html_urltype_is_internal (type);
+    if (handled)
+        gnc_html_show_url (html, type, location, label, new_window_hint);
+
+    g_free (location);
+    g_free (label);
+    return handled;
+}
+
 void
 gnc_html_initialize( void ) noexcept
 {

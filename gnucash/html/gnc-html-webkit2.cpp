@@ -565,19 +565,18 @@ load_to_stream( GncHtmlWebkit* self, URLType type,
 }
 
 static gboolean
-is_current_document_navigation (WebKitWebView *web_view, const gchar *uri)
+documents_match (const gchar *first, const gchar *second)
 {
-     const gchar *current_uri = webkit_web_view_get_uri (web_view);
      gchar *current_document;
      gchar *requested_document;
      gchar *fragment;
      gboolean matches;
 
-     if (!current_uri || !uri)
+     if (!first || !second)
           return FALSE;
 
-     current_document = g_strdup (current_uri);
-     requested_document = g_strdup (uri);
+     current_document = g_strdup (first);
+     requested_document = g_strdup (second);
      fragment = strchr (current_document, '#');
      if (fragment)
           *fragment = '\0';
@@ -591,48 +590,53 @@ is_current_document_navigation (WebKitWebView *web_view, const gchar *uri)
 }
 
 static gboolean
+is_current_document_navigation (WebKitWebView *web_view,
+                                GncHtmlWebkitPrivate *priv, const gchar *uri)
+{
+     const gchar *current_uri = webkit_web_view_get_uri (web_view);
+     gchar *report_uri = nullptr;
+     gboolean matches = documents_match (current_uri, uri);
+
+     if (!matches && !g_strcmp0 (uri, BASE_URI_NAME))
+          matches = TRUE;
+     if (!matches && priv->temporary_report)
+          report_uri = g_filename_to_uri (priv->temporary_report, nullptr, nullptr);
+     if (!matches)
+          matches = documents_match (report_uri, uri);
+     g_free (report_uri);
+     return matches;
+}
+
+static gboolean
 perform_navigation_policy (WebKitWebView *web_view,
                WebKitNavigationPolicyDecision *decision,
                GncHtml *self, gboolean new_window)
 {
-     gchar *location = nullptr, *label = nullptr;
      WebKitNavigationAction *action =
       webkit_navigation_policy_decision_get_navigation_action (decision);
-     if (webkit_navigation_action_get_navigation_type (action) !=
-         WEBKIT_NAVIGATION_TYPE_LINK_CLICKED)
-     {
-          webkit_policy_decision_use ((WebKitPolicyDecision*)decision);
-          return TRUE;
-     }
      auto req = webkit_navigation_action_get_request (action);
      const gchar *uri = webkit_uri_request_get_uri (req);
-     const gchar *scheme =  gnc_html_parse_url (self, uri, &location, &label);
-     if (gnc_html_urltype_is_internal (scheme))
+     auto priv = GNC_HTML_WEBKIT_GET_PRIVATE (self);
+     if (gnc_html_handle_internal_url (self, uri, new_window))
      {
           /* GnuCash actions never cross the renderer boundary directly.
            * This is also used for target=_blank, which remains in this
            * controller instead of creating an unmanaged WebKit window. */
-          impl_webkit_show_url (self, scheme, location, label, new_window);
      }
-     else if (!new_window && is_current_document_navigation (web_view, uri))
+     else if (!new_window && is_current_document_navigation (web_view, priv, uri))
      {
-          /* Fragment links within the generated report are safe and must
-           * remain renderer-native so that scrolling reaches the anchor. */
+          /* Initial loads, reloads, and fragment links within the generated
+           * report are safe and remain renderer-native. */
           webkit_policy_decision_use ((WebKitPolicyDecision *)decision);
-          g_free (location);
-          g_free (label);
           return TRUE;
      }
      else
      {
           PWARN ("Blocked report navigation to '%s'", uri ? uri : "(null)");
      }
-     g_free (location);
-     g_free (label);
      webkit_policy_decision_ignore ((WebKitPolicyDecision*)decision);
      return TRUE;
 }
-
 static gboolean
 webkit_decide_policy_cb (WebKitWebView *web_view,
              WebKitPolicyDecision *decision,

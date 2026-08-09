@@ -338,17 +338,9 @@ namespace
 static void
 route_internal_url (GncHtmlWKWebView *self, const gchar *uri, gboolean new_window)
 {
-    gchar *location = nullptr;
-    gchar *label = nullptr;
-    const auto type = gnc_html_parse_url (GNC_HTML (self), uri, &location, &label);
-    if (gnc_html_urltype_is_internal (type))
-        gnc_html_show_url (GNC_HTML (self), type, location, label, new_window);
-    else
+    if (!gnc_html_handle_internal_url (GNC_HTML (self), uri, new_window))
         PWARN ("Blocked report navigation to '%s'", uri ? uri : "(null)");
-    g_free (location);
-    g_free (label);
 }
-
 static void
 wkwebview_apply_zoom (GncHtmlWKWebView *self)
 {

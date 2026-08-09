@@ -116,6 +116,17 @@ gboolean gnc_html_register_urltype( URLType type, const gchar* protocol ) NOEXCE
 gboolean gnc_html_urltype_is_internal (URLType type) NOEXCEPT;
 
 /**
+ * Parses @url and, if it identifies a GnuCash action, dispatches it through
+ * gnc_html_show_url(). Report renderers must use this function for every
+ * navigation that leaves the active temporary report document.
+ *
+ * @return %TRUE if @url was a handled GnuCash action; %FALSE if it is not an
+ *         allowed internal URL.
+ */
+gboolean gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
+                                       gboolean new_window_hint) NOEXCEPT;
+
+/**
  * Initializes the html subsystem
  */
 void gnc_html_initialize( void ) NOEXCEPT;

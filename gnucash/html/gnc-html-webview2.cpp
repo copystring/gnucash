@@ -460,17 +460,9 @@ load_to_stream (GncHtmlWebView2 *self, URLType type, const gchar *location,
 static void
 route_internal_url (GncHtmlWebView2 *self, const gchar *uri, gboolean new_window)
 {
-    gchar *location = nullptr;
-    gchar *label = nullptr;
-    const auto type = gnc_html_parse_url (GNC_HTML (self), uri, &location, &label);
-    if (gnc_html_urltype_is_internal (type))
-        gnc_html_show_url (GNC_HTML (self), type, location, label, new_window);
-    else
+    if (!gnc_html_handle_internal_url (GNC_HTML (self), uri, new_window))
         PWARN ("Blocked report navigation to '%s'", uri ? uri : "(null)");
-    g_free (location);
-    g_free (label);
 }
-
 HRESULT
 EnvironmentCompletedHandler::Invoke (HRESULT error, ICoreWebView2Environment *environment)
 {
