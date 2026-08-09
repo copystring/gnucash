@@ -62,7 +62,7 @@ typedef struct FileAccessWindow
     GtkWidget           *file_name_label;
     gchar               *file_name;
     gchar               *starting_dir;
-    GtkComboBoxText     *cb_uri_type;
+    GtkDropDown         *cb_uri_type;
     GtkEntry            *tf_host;
     GtkEntry            *tf_database;
     GtkEntry            *tf_username;
@@ -71,9 +71,21 @@ typedef struct FileAccessWindow
 } FileAccessWindow;
 
 void gnc_ui_file_access_response_cb( GtkDialog *, gint, GtkDialog * );
-static void cb_uri_type_changed_cb( GtkComboBoxText* cb );
+static void cb_uri_type_changed_cb (GtkDropDown *drop_down, GParamSpec *pspec,
+                                        gpointer user_data);
 static void port_insert_text_cb( GtkEditable *editable, const gchar *text,
                                  gint length, gint *position, gpointer data );
+
+static const gchar*
+get_active_uri_type (FileAccessWindow *faw)
+{
+    GObject *item;
+
+    item = gtk_drop_down_get_selected_item (faw->cb_uri_type);
+    if (!item)
+        return NULL;
+    return gtk_string_object_get_string (GTK_STRING_OBJECT (item));
+}
 
 static gchar*
 geturl( FileAccessWindow* faw )
@@ -82,19 +94,20 @@ geturl( FileAccessWindow* faw )
     const gchar* host = NULL;
     const gchar* username = NULL;
     const gchar* password = NULL;
-    /* Not const as return value of gtk_combo_box_text_get_active_text must be freed */
-    gchar* type = NULL;
+    const gchar* type;
     gchar* path = NULL;
     gint32 port = 0;
     const gchar* port_text = NULL;
 
-    type = gtk_combo_box_text_get_active_text (faw->cb_uri_type);
+    type = get_active_uri_type (faw);
+    if (!type)
+        return NULL;
+
     if (gnc_uri_is_file_scheme (type))
     {
         path = g_strdup (faw->file_name);
         if ( !path ) /* file protocol was chosen but no filename was set */
         {
-            g_free (type);
             return NULL;
         }
     }
@@ -113,7 +126,6 @@ geturl( FileAccessWindow* faw )
 
     url = gnc_uri_create_uri (type, host, port, username, password, path);
 
-    g_free (type);
     g_free (path);
 
     return url;
@@ -343,25 +355,26 @@ port_insert_text_cb( GtkEditable *editable, const gchar *text, gint length,
 }
 
 static void
-cb_uri_type_changed_cb (GtkComboBoxText *cb)
+cb_uri_type_changed_cb (GtkDropDown *drop_down, GParamSpec *pspec,
+                        gpointer user_data)
 {
     GtkRoot *root;
     FileAccessWindow *faw;
-    gchar *type;
+    const gchar *type;
 
-    g_return_if_fail (cb != NULL);
+    g_return_if_fail (GTK_IS_DROP_DOWN (drop_down));
 
-    root = gtk_widget_get_root (GTK_WIDGET (cb));
+    root = gtk_widget_get_root (GTK_WIDGET (drop_down));
     g_return_if_fail (GTK_IS_WINDOW (root));
     faw = g_object_get_data (G_OBJECT (root), "FileAccessWindow");
     g_return_if_fail (faw != NULL);
 
-    type = gtk_combo_box_text_get_active_text (cb);
+    type = get_active_uri_type (faw);
     if (type)
         set_widget_sensitivity_for_uri_type (faw, type);
-    g_free (type);
+    (void)pspec;
+    (void)user_data;
 }
-
 static const char*
 get_default_database( void )
 {
@@ -491,12 +504,12 @@ gnc_ui_file_access (GtkWindow *parent, int type)
         faw->starting_dir = gnc_get_default_directory(settings_section);
 
     uri_type_container = GTK_WIDGET(gtk_builder_get_object (builder, "vb_uri_type_container" ));
-    faw->cb_uri_type = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
-    gnc_box_append_full (GTK_BOX(uri_type_container), GTK_WIDGET(faw->cb_uri_type),
+    faw->cb_uri_type = GTK_DROP_DOWN (gtk_drop_down_new (
+        G_LIST_MODEL (gtk_string_list_new (NULL)), NULL));
+    gnc_box_append_full (GTK_BOX(uri_type_container), GTK_WIDGET (faw->cb_uri_type),
                          TRUE, FALSE, 0);
-    g_object_connect( G_OBJECT(faw->cb_uri_type),
-                      "signal::changed", cb_uri_type_changed_cb, NULL,
-                      NULL );
+    g_signal_connect (faw->cb_uri_type, "notify::selected",
+                      G_CALLBACK (cb_uri_type_changed_cb), NULL);
 
     /* Autoconnect signals */
     gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, faw);
@@ -548,27 +561,27 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     access_method_index = -1;
     if ( need_access_method_file )
     {
-        gtk_combo_box_text_append_text( faw->cb_uri_type, "file" );
+        gtk_string_list_append (GTK_STRING_LIST (gtk_drop_down_get_model (faw->cb_uri_type)), "file" );
         active_access_method_index = ++access_method_index;
     }
     if ( need_access_method_mysql )
     {
-        gtk_combo_box_text_append_text( faw->cb_uri_type, "mysql" );
+        gtk_string_list_append (GTK_STRING_LIST (gtk_drop_down_get_model (faw->cb_uri_type)), "mysql" );
         ++access_method_index;
     }
     if ( need_access_method_postgres )
     {
-        gtk_combo_box_text_append_text( faw->cb_uri_type, "postgres" );
+        gtk_string_list_append (GTK_STRING_LIST (gtk_drop_down_get_model (faw->cb_uri_type)), "postgres" );
         ++access_method_index;
     }
     if ( need_access_method_sqlite3 )
     {
-        gtk_combo_box_text_append_text( faw->cb_uri_type, "sqlite3" );
+        gtk_string_list_append (GTK_STRING_LIST (gtk_drop_down_get_model (faw->cb_uri_type)), "sqlite3" );
         active_access_method_index = ++access_method_index;
     }
     if ( need_access_method_xml )
     {
-        gtk_combo_box_text_append_text( faw->cb_uri_type, "xml" );
+        gtk_string_list_append (GTK_STRING_LIST (gtk_drop_down_get_model (faw->cb_uri_type)), "xml" );
         ++access_method_index;
 
         // Set XML as default if it is offered (which mean we are in
@@ -584,8 +597,8 @@ gnc_ui_file_access (GtkWindow *parent, int type)
 
     /* Hide the frame that's not required for the active access method so either only
      * the File or only the Database frame are presented. */
-    gtk_combo_box_set_active(GTK_COMBO_BOX(faw->cb_uri_type), active_access_method_index );
-    set_widget_sensitivity_for_uri_type( faw, gtk_combo_box_text_get_active_text( faw->cb_uri_type ));
+    gtk_drop_down_set_selected (faw->cb_uri_type, active_access_method_index);
+    set_widget_sensitivity_for_uri_type (faw, get_active_uri_type (faw));
 }
 
 void
