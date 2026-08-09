@@ -819,58 +819,55 @@ If 0, all previous days included</property>
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="void_transaction_dialog">
-<property name="title" translatable="1">Void Transaction</property>
+  <object class="GtkWindow" id="void_transaction_window">
+    <property name="title" translatable="1">Void Transaction</property>
     <property name="modal">1</property>
-    <child internal-child="content_area">
-      <object class="GtkBox" id="dialog-vbox16">
+    <property name="resizable">0</property>
+    <child>
+      <object class="GtkBox" id="void_transaction_content">
         <property name="orientation">vertical</property>
-        <property name="spacing">6</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
-          <object class="GtkBox" id="vbox100">
-            <property name="vexpand">1</property>
+          <object class="GtkBox" id="void_transaction_reason_box">
             <property name="orientation">vertical</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkLabel" id="label847671">
-                <property name="valign">center</property>
                 <property name="halign">start</property>
                 <property name="label" translatable="1">Reason for voiding transaction</property>
-                <property name="justify">center</property>
               </object>
             </child>
             <child>
               <object class="GtkEntry" id="reason">
-                <property name="valign">center</property>
                 <property name="focusable">1</property>
                 <property name="activates-default">1</property>
               </object>
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton1</action-widget>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area18">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="cancelbutton1">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
+          <object class="GtkBox" id="void_transaction_actions">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkButton" id="cancelbutton1">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="okbutton1">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="okbutton1">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
         </child>
       </object>
     </child>
