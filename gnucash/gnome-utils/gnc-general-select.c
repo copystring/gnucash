@@ -49,14 +49,58 @@ static void gnc_general_select_finalize (GObject *object);
 
 static guint general_select_signals[LAST_SIGNAL];
 
+typedef struct
+{
+    GWeakRef select;
+    GCancellable *cancellable;
+} GNCGeneralSelectRequest;
+
+static void
+select_request_free (GNCGeneralSelectRequest *request)
+{
+    g_weak_ref_clear (&request->select);
+    g_clear_object (&request->cancellable);
+    g_free (request);
+}
+
+static void
+gnc_general_select_cancel_selection (GNCGeneralSelect *gsl)
+{
+    GCancellable *cancellable;
+
+    cancellable = gsl->selection_cancellable;
+    gsl->selection_cancellable = NULL;
+    if (!cancellable)
+        return;
+
+    g_cancellable_cancel (cancellable);
+    g_object_unref (cancellable);
+}
+
+static void
+gnc_general_select_selection_done (gpointer selection, gpointer user_data)
+{
+    GNCGeneralSelectRequest *request = user_data;
+    GNCGeneralSelect *gsl = g_weak_ref_get (&request->select);
+
+    if (gsl && !gsl->disposed &&
+        gsl->selection_cancellable == request->cancellable)
+    {
+        g_clear_object (&gsl->selection_cancellable);
+        if (!g_cancellable_is_cancelled (request->cancellable) && selection)
+            gnc_general_select_set_selected (gsl, selection);
+    }
+
+    g_clear_object (&gsl);
+    select_request_free (request);
+}
+
 G_DEFINE_TYPE (GNCGeneralSelect, gnc_general_select, GTK_TYPE_BOX)
 
 static void
 gnc_general_select_class_init (GNCGeneralSelectClass *klass)
 {
     GObjectClass *object_class = (GObjectClass *) klass;
-    GtkBoxClass *box_class = (GtkBoxClass *) klass;
-
     object_class = (GObjectClass*) klass;
 
     general_select_signals[SELECTION_CHANGED] =
@@ -85,6 +129,7 @@ gnc_general_select_init (GNCGeneralSelect *gsl)
 
     gsl->disposed = FALSE;
     gsl->selected_item = NULL;
+    gsl->selection_cancellable = NULL;
 }
 
 static void
@@ -110,6 +155,7 @@ gnc_general_select_dispose (GObject *object)
         return;
 
     gsl->disposed = TRUE;
+    gnc_general_select_cancel_selection (gsl);
 
     gtk_box_remove (GTK_BOX(gsl), GTK_WIDGET(gsl->entry));
     gsl->entry = NULL;
@@ -124,19 +170,27 @@ static void
 select_cb (GtkButton *button, gpointer user_data)
 {
     GNCGeneralSelect *gsl = user_data;
-    gpointer new_selection;
-    GtkRoot *toplevel;
+    GNCGeneralSelectRequest *request;
+    GtkRoot *root;
+    GtkWidget *parent = NULL;
 
-    toplevel = gtk_widget_get_root (GTK_WIDGET(button));
-
-    new_selection = (gsl->new_select)(gsl->cb_arg, gsl->selected_item,
-                                      GTK_WIDGET(toplevel));
-
-    /* NULL return means cancel; no change */
-    if (new_selection == NULL)
+    if (gsl->disposed)
         return;
 
-    gnc_general_select_set_selected (gsl, new_selection);
+    root = gtk_widget_get_root (GTK_WIDGET (button));
+    if (root && GTK_IS_WIDGET (root))
+        parent = GTK_WIDGET (root);
+
+    gnc_general_select_cancel_selection (gsl);
+    gsl->selection_cancellable = g_cancellable_new ();
+
+    request = g_new0 (GNCGeneralSelectRequest, 1);
+    g_weak_ref_init (&request->select, gsl);
+    request->cancellable = g_object_ref (gsl->selection_cancellable);
+
+    gsl->new_select (gsl->cb_arg, gsl->selected_item, parent,
+                     gsl->selection_cancellable,
+                     gnc_general_select_selection_done, request);
 }
 
 static void
@@ -220,8 +274,9 @@ gnc_general_select_set_selected (GNCGeneralSelect *gsl, gpointer selection)
     const char *text;
 
     g_return_if_fail (gsl != NULL);
-    g_return_if_fail (GNC_IS_GENERAL_SELECT(gsl));
+    g_return_if_fail (GNC_IS_GENERAL_SELECT (gsl));
 
+    gnc_general_select_cancel_selection (gsl);
     gsl->selected_item = selection;
 
     if (selection == NULL)

@@ -62,153 +62,88 @@ typedef enum
                                        anything. */
 } dialog_commodity_mode;
 
+typedef void (*GncCommoditySelectionCallback) (gnc_commodity *commodity,
+                                                gpointer user_data);
 
 /** @name Commodity Selection */
 /** @{ */
 
-/** Ask the user to select a commodity from the existing set of
- *  commodities.  Arguments to this function determine the message
- *  placed at the top of the dialog but force no restriction on the
- *  commodities that may be chosen.  The user will also have the
- *  option of creating a new commodity from this dialog box..  If the
- *  user decides to create a new one, those provided values are used
- *  as default values for the new commodity.
- *
- *  @param orig_sel A pointer to a commodity that should initially be
- *  selected in the dialog box.
- *
- *  @param parent The parent window of the new dialog.
- *
- *  @param user_message A string that will be installed in the top of
- *  the dialog box as an instruction to the user.  If NULL, a generic
- *  instruction will be used.
- *
- *  @param cusip If present, a note will be added to the user
- *  instruction providing this exchange specific code, and this will
- *  be the default exchange specific data for any newly created
- *  commodities.
- *
- *  @param fullname If present, a note will be added to the user
- *  instruction providing this commodity's full name, and this will be
- *  the default fullname for any newly created commodities.
- *
- *  @param mnemonic If present, a note will be added to the user
- *  instruction providing this commodity's mnemonic, and this will be
- *  the default mnemonic for any newly created commodities.
- *
- *  @param mode Determines which namespaces the user may select a
- *  commodity from.
- *
- *  @return The commodity selected.  May or may not be a newly created
- *  commodity.
- */
-gnc_commodity *
-gnc_ui_select_commodity_modal_full (gnc_commodity *orig_sel,
+/** Launch commodity selection without running a nested event loop. The
+ * completion callback receives NULL when the user cancels or the supplied
+ * cancellable is cancelled. */
+void gnc_ui_select_commodity_async_full (gnc_commodity *orig_sel,
+                                         GtkWidget *parent,
+                                         dialog_commodity_mode mode,
+                                         const char *user_message,
+                                         const char *cusip,
+                                         const char *fullname,
+                                         const char *mnemonic,
+                                         GCancellable *cancellable,
+                                         GncCommoditySelectionCallback callback,
+                                         gpointer user_data);
+void gnc_ui_select_commodity_async (gnc_commodity *orig_sel,
                                     GtkWidget *parent,
                                     dialog_commodity_mode mode,
-                                    const char *user_message,
-                                    const char *cusip,
-                                    const char *fullname,
-                                    const char *mnemonic);
+                                    GCancellable *cancellable,
+                                    GncCommoditySelectionCallback callback,
+                                    gpointer user_data);
 
-
-/** Ask the user to select a commodity from the existing set of
- *  commodities.  The user will also have the
- *  option of creating a new commodity from this dialog box..  If the
- *  user decides to create a new one, those provided values are used
- *  as default values for the new commodity.
- *
- *  @param orig_sel A pointer to a commodity that should initially be
- *  selected in the dialog box.
- *
- *  @param parent The parent window for this new selection window.
- *
- *  @param mode Determines which namespaces the user may select a
- *  commodity from.
- *
- *  @return The commodity selected.  May or may not be a newly created
- *  commodity.
- */
-gnc_commodity *
-gnc_ui_select_commodity_modal (gnc_commodity *orig_sel,
-                               GtkWidget *parent,
-                               dialog_commodity_mode mode);
+/* These synchronous wrappers are retained only for the import matcher’s
+ * transitive, synchronous data flow. New GTK4 UI code must use the async
+ * entry points above. */
+gnc_commodity *gnc_ui_select_commodity_modal_full (gnc_commodity *orig_sel,
+                                                    GtkWidget *parent,
+                                                    dialog_commodity_mode mode,
+                                                    const char *user_message,
+                                                    const char *cusip,
+                                                    const char *fullname,
+                                                    const char *mnemonic);
+gnc_commodity *gnc_ui_select_commodity_modal (gnc_commodity *orig_sel,
+                                               GtkWidget *parent,
+                                               dialog_commodity_mode mode);
 /** @} */
-
 
 /** @name Commodity Creation or Modification */
 /** @{ */
 
-/** Ask the user to provide the information necessary to create a new
- *  commodity.
- *
- *  @param namespace If present, this will be the default namespace
- *  for the new commodity.  This value will be ignored if it is the
- *  namespace for ISO 4217 currencies.
- *
- *  @param parent The parent window of the new dialog.
- *
- *  @param cusip If present, this will be the default exchange
- *  specific data for the new commodity.
- *
- *  @param fullname If present, this will be the default fullname for
- *  the new commodity.
- *
- *  @param mnemonic If present, this will be the default mnemonic for
- *  the new commodity.
- *
- *  @param user_symbol If present, this will be the default user symbol
- *  for the new commodity.
- *
- *  @param fraction If present, this will be the default fraction for
- *  the new commodity.  If absent, a default of 1000 will be used.
- *
- *  @return The newly created commodity, or NULL if the user cancelled.
- */
-gnc_commodity *
-gnc_ui_new_commodity_modal_full (const char *name_space,
-                                 GtkWidget  *parent,
-                                 const char *cusip,
-                                 const char *fullname,
-                                 const char *mnemonic,
-                                 const char *user_symbol,
-                                 int         fraction);
+/** Launch commodity creation or editing without running a nested event loop.
+ * The callback receives NULL when the operation is cancelled. Validation
+ * errors keep the window open. */
+void gnc_ui_new_commodity_async_full (const char *name_space,
+                                      GtkWidget *parent,
+                                      const char *cusip,
+                                      const char *fullname,
+                                      const char *mnemonic,
+                                      const char *user_symbol,
+                                      int fraction,
+                                      GCancellable *cancellable,
+                                      GncCommoditySelectionCallback callback,
+                                      gpointer user_data);
+void gnc_ui_new_commodity_async (const char *default_namespace,
+                                 GtkWidget *parent,
+                                 GCancellable *cancellable,
+                                 GncCommoditySelectionCallback callback,
+                                 gpointer user_data);
+void gnc_ui_edit_commodity_async (gnc_commodity *commodity,
+                                  GtkWidget *parent,
+                                  GCancellable *cancellable,
+                                  GncCommoditySelectionCallback callback,
+                                  gpointer user_data);
 
-/** Ask the user to provide the information necessary to create a new
- *  commodity.
- *
- *  @param default_namespace If present, this will be the default namespace
- *  for the new commodity.  This value will be ignored if it is the
- *  namespace for ISO 4217 currencies.
- *
- *  @param parent The parent window of the new dialog.
- *
- *  @return The newly created commodity, or NULL if the user cancelled.
- */
-gnc_commodity *
-gnc_ui_new_commodity_modal (const char *default_namespace,
-                            GtkWidget *parent);
-
-/** Allow the user to edit the information about a commodity.  For
- *  currencies, only the price quote information may be changed.  For
- *  any other commodity, all aspects of the commodity information may
- *  be changed except that the namespace may not be changed to
- *  indicate a currency.  The new information overwrites any old
- *  information, so this routine may not be used to create new
- *  commodities.
- *
- *  @param commodity The commodity to edit.
- *
- *  @param parent The parent window of the new dialog.
- *
- *  @return The newly created commodity, or NULL if the user cancelled.
- */
-gboolean
-gnc_ui_edit_commodity_modal (gnc_commodity *commodity,
-                             GtkWidget *parent);
+/* Synchronous compatibility entry points. GTK4 callers must use the async
+ * operations above. */
+gnc_commodity *gnc_ui_new_commodity_modal_full (const char *name_space,
+                                                 GtkWidget *parent,
+                                                 const char *cusip,
+                                                 const char *fullname,
+                                                 const char *mnemonic,
+                                                 const char *user_symbol,
+                                                 int fraction);
+gnc_commodity *gnc_ui_new_commodity_modal (const char *default_namespace,
+                                            GtkWidget *parent);
+gboolean gnc_ui_edit_commodity_modal (gnc_commodity *commodity,
+                                      GtkWidget *parent);
 /** @} */
-
-
 /** @name Auxiliary Dialog Functions */
 /** @{ */
 

@@ -252,8 +252,6 @@ commodity_delete_request_complete (DeleteCommodityRequest *request)
     gnc_commodity_table_remove (commodity_table, commodity);
     gnc_commodity_destroy (commodity);
 
-    gtk_tree_selection_unselect_all (gtk_tree_view_get_selection (
-        GTK_TREE_VIEW (commodities_dialog->commodity_tree)));
     gnc_gui_refresh_all ();
     g_object_unref (parent);
     return TRUE;
@@ -377,7 +375,91 @@ commodity_delete_confirm_async (CommoditiesDialog *cd, gnc_commodity *commodity,
                       G_CALLBACK (commodity_delete_permanent_toggled_cb), request);
     gtk_window_present (dialog);
 }
+
+struct CommodityDialogRequest
+{
+    GWeakRef parent;
+    GncGUID book_guid;
+    gboolean refresh;
+};
+
+static void
+commodity_dialog_request_free (gpointer user_data)
+{
+    auto request = static_cast<CommodityDialogRequest *> (user_data);
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
 }
+
+static void
+commodity_dialog_operation_finished (gnc_commodity *commodity, gpointer user_data)
+{
+    auto request = static_cast<CommodityDialogRequest *> (user_data);
+    auto parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    if (!parent)
+    {
+        commodity_dialog_request_free (request);
+        return;
+    }
+
+    auto dialog = static_cast<CommoditiesDialog *> (
+        g_object_get_data (G_OBJECT (parent), COMMODITIES_DIALOG_DATA));
+    auto book = gnc_get_current_book ();
+    if (dialog && commodity && book &&
+        guid_equal (qof_instance_get_guid (QOF_INSTANCE (book)), &request->book_guid) &&
+        !qof_instance_get_destroying (QOF_INSTANCE (commodity)))
+    {
+        auto commodity_guid = *qof_instance_get_guid (QOF_INSTANCE (commodity));
+        auto current_commodity = gnc_commodity_find_commodity_by_guid (&commodity_guid, book);
+        if (current_commodity)
+        {
+            gnc_tree_view_commodity_select_commodity (dialog->commodity_tree,
+                                                       current_commodity);
+            if (request->refresh)
+                gnc_gui_refresh_all ();
+        }
+    }
+
+    g_object_unref (parent);
+    commodity_dialog_request_free (request);
+}
+
+static CommodityDialogRequest *
+commodity_dialog_request_new (CommoditiesDialog *dialog, gboolean refresh)
+{
+    auto book = gnc_get_current_book ();
+    if (!book)
+        return nullptr;
+
+    auto request = g_new0 (CommodityDialogRequest, 1);
+    g_weak_ref_init (&request->parent, G_OBJECT (dialog->window));
+    request->book_guid = *qof_instance_get_guid (QOF_INSTANCE (book));
+    request->refresh = refresh;
+    return request;
+}
+
+static void
+commodity_dialog_edit_async (CommoditiesDialog *dialog, gnc_commodity *commodity)
+{
+    auto request = commodity_dialog_request_new (dialog, TRUE);
+    if (!request)
+        return;
+
+    gnc_ui_edit_commodity_async (commodity, dialog->window, nullptr,
+                                 commodity_dialog_operation_finished, request);
+}
+
+static void
+commodity_dialog_add_async (CommoditiesDialog *dialog, const char *name_space)
+{
+    auto request = commodity_dialog_request_new (dialog, FALSE);
+    if (!request)
+        return;
+
+    gnc_ui_new_commodity_async (name_space, dialog->window, nullptr,
+                                commodity_dialog_operation_finished, request);
+}}
 
 void gnc_commodities_window_destroy_cb (GtkWidget *object, CommoditiesDialog *cd);
 
@@ -430,11 +512,8 @@ gnc_commodities_dialog_edit_clicked (GtkWidget *widget, gpointer data)
     if (commodity == NULL)
         return;
 
-    if (gnc_ui_edit_commodity_modal (commodity, cd->window))
-    {
-        gnc_tree_view_commodity_select_commodity (cd->commodity_tree, commodity);
-        gnc_gui_refresh_all ();
-    }
+    commodity_dialog_edit_async (cd, commodity);
+
 }
 
 static void
@@ -512,18 +591,10 @@ void
 gnc_commodities_dialog_add_clicked (GtkWidget *widget, gpointer data)
 {
     auto cd = static_cast<CommoditiesDialog*>(data);
-    gnc_commodity *commodity;
-    gnc_commodity *ret_commodity;
-    const char *name_space;
+    auto commodity = gnc_tree_view_commodity_get_selected_commodity (cd->commodity_tree);
+    auto name_space = commodity ? gnc_commodity_get_namespace (commodity) : nullptr;
 
-    commodity = gnc_tree_view_commodity_get_selected_commodity (cd->commodity_tree);
-    if (commodity)
-        name_space = gnc_commodity_get_namespace (commodity);
-    else
-        name_space = NULL;
-
-    ret_commodity = gnc_ui_new_commodity_modal (name_space, cd->window);
-    gnc_tree_view_commodity_select_commodity (cd->commodity_tree, ret_commodity);
+    commodity_dialog_add_async (cd, name_space);
 }
 
 void

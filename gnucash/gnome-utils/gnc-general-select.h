@@ -30,6 +30,8 @@
 #ifndef GNC_GENERAL_SELECT_H
 #define GNC_GENERAL_SELECT_H
 
+#include <gtk/gtk.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,7 +42,13 @@ extern "C" {
 #define GNC_IS_GENERAL_SELECT(obj)       G_TYPE_CHECK_INSTANCE_TYPE (obj, gnc_general_select_get_type ())
 
 typedef const char * (*GNCGeneralSelectGetStringCB) (gpointer);
-typedef gpointer (*GNCGeneralSelectNewSelectCB) (gpointer cbarg, gpointer default_selection, GtkWidget *parent);
+typedef void (*GNCGeneralSelectSelectionCB) (gpointer selection, gpointer user_data);
+typedef void (*GNCGeneralSelectNewSelectCB) (gpointer cbarg,
+                                              gpointer default_selection,
+                                              GtkWidget *parent,
+                                              GCancellable *cancellable,
+                                              GNCGeneralSelectSelectionCB completion_cb,
+                                              gpointer completion_data);
 
 typedef enum
 {
@@ -61,6 +69,7 @@ typedef struct
     GNCGeneralSelectGetStringCB get_string;
     GNCGeneralSelectNewSelectCB new_select;
     gpointer cb_arg;
+    GCancellable *selection_cancellable;
 
     int disposed; /* private */
 } GNCGeneralSelect;

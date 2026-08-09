@@ -399,7 +399,7 @@
                 <property name="hexpand">true</property>
                 <property name="label" translatable="yes">_Help</property>
                 <property name="use-underline">1</property>
-                <signal name="clicked" handler="gnc_ui_commodity_response_cb"/>
+
               </object>
             </child>
             <child>
@@ -408,7 +408,7 @@
                 <property name="halign">end</property>
                 <property name="label" translatable="yes">_Cancel</property>
                 <property name="use-underline">1</property>
-                <signal name="clicked" handler="gnc_ui_commodity_response_cb"/>
+
               </object>
             </child>
             <child>
@@ -417,7 +417,7 @@
                 <property name="halign">end</property>
                 <property name="label" translatable="yes">_OK</property>
                 <property name="use-underline">1</property>
-                <signal name="clicked" handler="gnc_ui_commodity_response_cb"/>
+
               </object>
             </child>
           </object>
@@ -507,7 +507,7 @@
                 <property name="hexpand">true</property>
                 <property name="label" translatable="yes">_New</property>
                 <property name="use-underline">1</property>
-                <signal name="clicked" handler="gnc_ui_select_commodity_response_cb"/>
+
               </object>
             </child>
             <child>
@@ -517,7 +517,7 @@
                 <property name="label" translatable="yes">_Cancel</property>
                 <property name="receives-default">1</property>
                 <property name="use-underline">1</property>
-                <signal name="clicked" handler="gnc_ui_select_commodity_response_cb"/>
+
               </object>
             </child>
             <child>
@@ -526,7 +526,7 @@
                 <property name="halign">end</property>
                 <property name="label" translatable="yes">_OK</property>
                 <property name="use-underline">1</property>
-                <signal name="clicked" handler="gnc_ui_select_commodity_response_cb"/>
+
               </object>
             </child>
           </object>
