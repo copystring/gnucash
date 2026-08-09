@@ -352,13 +352,8 @@
                         <property name="focusable">1</property>
                         <property name="vexpand">1</property>
 <property name="child">
-                          <object class="GtkTreeView" id="terms_view">
+                          <object class="GtkColumnView" id="terms_view">
                             <property name="focusable">1</property>
-                            <property name="headers-visible">0</property>
-
-                            <child internal-child="selection">
-                              <object class="GtkTreeSelection" />
-                            </child>
                           </object>
                         </property>
                       </object>
@@ -568,18 +563,11 @@
       </object>
     </property>
   </object>
-  <object class="GtkListStore" id="type_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Days</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Proximo</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="type_model">
+    <items>
+      <item translatable="yes">Days</item>
+      <item translatable="yes">Proximo</item>
+    </items>
   </object>
   <object class="GtkDialog" id="edit_term_dialog">
     <property name="modal">1</property>
@@ -622,16 +610,10 @@
               </object>
             </child>
             <child>
-              <object class="GtkComboBox" id="type_combo">
+              <object class="GtkDropDown" id="type_combo">
                 <property name="hexpand">1</property>
-                <property name="model">type_liststore</property>
-                <signal name="changed" handler="billterms_type_combobox_changed" swapped="no" />
-                <child>
-                  <object class="GtkCellRendererText" id="cellrenderertext3" />
-                  <attributes>
-                    <attribute name="text">0</attribute>
-                  </attributes>
-                </child>
+                <property name="model">type_model</property>
+                <signal name="notify::selected" handler="billterms_type_dropdown_changed" swapped="no" />
                 <layout>
                   <property name="column">1</property>
                   <property name="row">2</property>
@@ -800,16 +782,10 @@
               </object>
             </child>
             <child>
-              <object class="GtkComboBox" id="type_combobox">
+              <object class="GtkDropDown" id="type_combobox">
                 <property name="hexpand">1</property>
-                <property name="model">type_liststore</property>
-                <signal name="changed" handler="billterms_type_combobox_changed" swapped="no" />
-                <child>
-                  <object class="GtkCellRendererText" id="cellrenderertext1" />
-                  <attributes>
-                    <attribute name="text">0</attribute>
-                  </attributes>
-                </child>
+                <property name="model">type_model</property>
+                <signal name="notify::selected" handler="billterms_type_dropdown_changed" swapped="no" />
                 <layout>
                   <property name="column">1</property>
                   <property name="row">4</property>
