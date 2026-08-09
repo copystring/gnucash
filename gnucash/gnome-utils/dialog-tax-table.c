@@ -722,6 +722,115 @@ tax_table_rename_table_cb (GtkButton *button, TaxTableWindow *ttw)
 }
 
 
+typedef enum
+{
+    TAX_TABLE_DELETE,
+    TAX_TABLE_ENTRY_DELETE
+} TaxTableDeleteKind;
+
+typedef struct
+{
+    TaxTableWindow *ttw;
+    GWeakRef dialog;
+    gulong destroy_handler;
+    GncGUID table_guid;
+    GncTaxTableEntry *entry;
+    TaxTableDeleteKind kind;
+} TaxTableDeleteRequest;
+
+static void
+tax_table_delete_request_destroyed (GtkWidget *dialog,
+                                    TaxTableDeleteRequest *request)
+{
+    (void)dialog;
+    request->ttw = NULL;
+    request->destroy_handler = 0;
+}
+
+static void
+tax_table_delete_request_free (TaxTableDeleteRequest *request)
+{
+    GtkWidget *dialog = g_weak_ref_get (&request->dialog);
+
+    if (dialog && request->destroy_handler)
+        g_signal_handler_disconnect (dialog, request->destroy_handler);
+    g_clear_object (&dialog);
+    g_weak_ref_clear (&request->dialog);
+    g_free (request);
+}
+
+static void
+tax_table_delete_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    TaxTableDeleteRequest *request = user_data;
+    GncTaxTable *table = NULL;
+
+    (void)parent;
+    if (response == GTK_RESPONSE_YES && request->ttw &&
+        !qof_book_shutting_down (request->ttw->book))
+        table = gncTaxTableLookup (request->ttw->book, &request->table_guid);
+
+    if (table && request->kind == TAX_TABLE_DELETE &&
+        gncTaxTableGetRefcount (table) == 0)
+    {
+        gnc_suspend_gui_refresh ();
+        gncTaxTableBeginEdit (table);
+        gncTaxTableDestroy (table);
+        if (request->ttw->current_table == table)
+        {
+            request->ttw->current_table = NULL;
+            request->ttw->current_entry = NULL;
+        }
+        gnc_resume_gui_refresh ();
+    }
+    else if (table && request->kind == TAX_TABLE_ENTRY_DELETE && request->entry &&
+             g_list_length (gncTaxTableGetEntries (table)) > 1 &&
+             g_list_find (gncTaxTableGetEntries (table), request->entry))
+    {
+        gnc_suspend_gui_refresh ();
+        gncTaxTableBeginEdit (table);
+        gncTaxTableRemoveEntry (table, request->entry);
+        gncTaxTableEntryDestroy (request->entry);
+        gncTaxTableChanged (table);
+        gncTaxTableCommitEdit (table);
+        if (request->ttw->current_entry == request->entry)
+            request->ttw->current_entry = NULL;
+        gnc_resume_gui_refresh ();
+    }
+
+    tax_table_delete_request_free (request);
+}
+
+static void
+tax_table_delete_request (TaxTableWindow *ttw, TaxTableDeleteKind kind)
+{
+    TaxTableDeleteRequest *request;
+
+    request = g_new0 (TaxTableDeleteRequest, 1);
+    request->ttw = ttw;
+    g_weak_ref_init (&request->dialog, ttw->dialog);
+    request->destroy_handler = g_signal_connect (ttw->dialog, "destroy",
+                                                 G_CALLBACK (tax_table_delete_request_destroyed),
+                                                 request);
+    request->table_guid = gncTaxTableRetGUID (ttw->current_table);
+    request->entry = kind == TAX_TABLE_ENTRY_DELETE ? ttw->current_entry : NULL;
+    request->kind = kind;
+
+    if (kind == TAX_TABLE_DELETE)
+    {
+        gnc_verify_dialog_async (GTK_WINDOW (ttw->dialog), FALSE,
+                                 tax_table_delete_finished, request,
+                                 _("Are you sure you want to delete \"%s\"?"),
+                                 gncTaxTableGetName (ttw->current_table));
+    }
+    else
+    {
+        gnc_verify_dialog_async (GTK_WINDOW (ttw->dialog), FALSE,
+                                 tax_table_delete_finished, request, "%s",
+                                 _("Are you sure you want to delete this entry?"));
+    }
+}
+
 void
 tax_table_delete_table_cb (GtkButton *button, TaxTableWindow *ttw)
 {
@@ -740,18 +849,7 @@ tax_table_delete_table_cb (GtkButton *button, TaxTableWindow *ttw)
         return;
     }
 
-    if (gnc_verify_dialog (GTK_WINDOW(ttw->dialog), FALSE,
-                           _("Are you sure you want to delete \"%s\"?"),
-                           gncTaxTableGetName (ttw->current_table)))
-    {
-        /* Ok, let's remove it */
-        gnc_suspend_gui_refresh ();
-        gncTaxTableBeginEdit (ttw->current_table);
-        gncTaxTableDestroy (ttw->current_table);
-        ttw->current_table = NULL;
-        ttw->current_entry = NULL;
-        gnc_resume_gui_refresh ();
-    }
+    tax_table_delete_request (ttw, TAX_TABLE_DELETE);
 }
 
 void
@@ -787,19 +885,7 @@ tax_table_delete_entry_cb (GtkButton *button, TaxTableWindow *ttw)
         return;
     }
 
-    if (gnc_verify_dialog (GTK_WINDOW(ttw->dialog), FALSE, "%s",
-                           _("Are you sure you want to delete this entry?")))
-    {
-        /* Ok, let's remove it */
-        gnc_suspend_gui_refresh ();
-        gncTaxTableBeginEdit (ttw->current_table);
-        gncTaxTableRemoveEntry (ttw->current_table, ttw->current_entry);
-        gncTaxTableEntryDestroy (ttw->current_entry);
-        gncTaxTableChanged (ttw->current_table);
-        gncTaxTableCommitEdit (ttw->current_table);
-        ttw->current_entry = NULL;
-        gnc_resume_gui_refresh ();
-    }
+    tax_table_delete_request (ttw, TAX_TABLE_ENTRY_DELETE);
 }
 
 static void
