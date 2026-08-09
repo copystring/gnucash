@@ -60,9 +60,30 @@ Lastly, for repeated imports the preview page has buttons to Load and Save the s
               <object class="GtkLabel" id="label7">
                 <property name="valign">center</property>
                 <property name="label" translatable="1">
-Select location and file name for the Import, then click "Next"…
+Choose the file for the import, then click "Next"…
 </property>
                 <property name="wrap">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkBox" id="file_selection_box">
+                <property name="spacing">6</property>
+                <property name="margin-top">6</property>
+                <child>
+                  <object class="GtkButton" id="file_select_button">
+                    <property name="label" translatable="1">_Choose File…</property>
+                    <property name="use-underline">1</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="file_name_label">
+                    <property name="label" translatable="1">No file selected</property>
+                    <property name="ellipsize">middle</property>
+                    <property name="hexpand">1</property>
+                    <property name="halign">start</property>
+                    <property name="selectable">1</property>
+                  </object>
+                </child>
               </object>
             </child>
           </object>

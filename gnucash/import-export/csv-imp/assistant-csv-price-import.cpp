@@ -39,6 +39,7 @@
 #include "gnc-ui.h"
 #include "gnc-uri.hpp"
 #include "gnc-ui-util.h"
+#include "gnc-file.h"
 #include "dialog-utils.h"
 
 #include "gnc-component-manager.h"
@@ -97,8 +98,7 @@ public:
     void assist_finish ();
     void assist_compmgr_close ();
 
-    void file_activated_cb ();
-    void file_selection_changed_cb ();
+    void select_file_cb ();
 
     void preview_settings_delete ();
     void preview_settings_save ();
@@ -123,14 +123,21 @@ public:
     void preview_validate_settings ();
 
 private:
-    /* helper function to check for a valid filename as opposed to a directory */
-    bool check_for_valid_filename ();
+    struct FileDialogData
+    {
+        GWeakRef assistant;
+    };
+
+    static void file_dialog_finished_cb (GObject *source, GAsyncResult *result,
+                                         gpointer user_data);
+    bool set_selected_file (GFile *file);
 
     GtkAssistant    *csv_imp_asst;
 
     GtkWidget       *file_page;                     /**< Assistant file page widget */
-    GtkWidget       *file_chooser;                  /**< The widget for the file chooser */
-    std::string      m_fc_file_name;                /**< The file name currently selected in the file chooser */
+    GtkWidget       *file_select_button;            /**< Opens the native file dialog */
+    GtkWidget       *file_name_label;               /**< Displays the selected import file */
+    std::string      m_fc_file_name;                /**< The file currently selected for import */
     std::string      m_final_file_name;             /**< The name of the import file effectively to use */
 
     GtkWidget       *preview_page;                  /**< Assistant preview page widget */
@@ -182,8 +189,7 @@ extern "C"
 void csv_price_imp_assist_prepare_cb (GtkAssistant  *assistant, GtkWidget *page, CsvImpPriceAssist* info);
 void csv_price_imp_assist_close_cb (GtkAssistant *gtkassistant, CsvImpPriceAssist* info);
 void csv_price_imp_assist_finish_cb (GtkAssistant *gtkassistant, CsvImpPriceAssist* info);
-void csv_price_imp_file_activated_changed_cb (GtkFileChooser *chooser, CsvImpPriceAssist *info);
-void csv_price_imp_file_selection_changed_cb (GtkFileChooser *chooser, CsvImpPriceAssist *info);
+void csv_price_imp_select_file_cb (GtkButton *button, CsvImpPriceAssist *info);
 void csv_price_imp_preview_del_settings_cb (GtkWidget *button, CsvImpPriceAssist *info);
 void csv_price_imp_preview_save_settings_cb (GtkWidget *button, CsvImpPriceAssist *info);
 void csv_price_imp_preview_settings_sel_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec,
@@ -222,14 +228,10 @@ csv_price_imp_assist_finish_cb (GtkAssistant *assistant, CsvImpPriceAssist* info
     info->assist_finish ();
 }
 
-void csv_price_imp_file_activated_changed_cb (GtkFileChooser *chooser, CsvImpPriceAssist *info)
+void csv_price_imp_select_file_cb (GtkButton *button, CsvImpPriceAssist *info)
 {
-    info->file_activated_cb();
-}
-
-void csv_price_imp_file_selection_changed_cb (GtkFileChooser *chooser, CsvImpPriceAssist *info)
-{
-    info->file_selection_changed_cb();
+    info->select_file_cb ();
+    (void)button;
 }
 
 void csv_price_imp_preview_del_settings_cb (GtkWidget *button, CsvImpPriceAssist *info)
@@ -481,6 +483,7 @@ CsvImpPriceAssist::CsvImpPriceAssist ()
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "end_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "CSV Price Assistant");
     csv_imp_asst = GTK_ASSISTANT(gtk_builder_get_object (builder, "CSV Price Assistant"));
+    g_object_set_data (G_OBJECT (csv_imp_asst), "gnc-csv-price-import-assistant-owner", this);
 
     // Set the name for this assistant so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(csv_imp_asst), "gnc-id-assistant-csv-price-import");
@@ -503,19 +506,14 @@ CsvImpPriceAssist::CsvImpPriceAssist ()
                                      GTK_WIDGET(gtk_builder_get_object (builder, "summary_page")),
                                      true);
 
-    /* File chooser Page */
-    file_page = GTK_WIDGET(gtk_builder_get_object (builder, "file_page"));
-    file_chooser = gtk_file_chooser_widget_new (GTK_FILE_CHOOSER_ACTION_OPEN);
-
-    g_signal_connect (G_OBJECT(file_chooser), "selection-changed",
-                      G_CALLBACK(csv_price_imp_file_selection_changed_cb), this);
-    g_signal_connect (G_OBJECT(file_chooser), "file-activated",
-                      G_CALLBACK(csv_price_imp_file_activated_changed_cb), this);
-
-    auto box = GTK_WIDGET(gtk_builder_get_object (builder, "file_page"));
-    gtk_box_append (GTK_BOX(box), GTK_WIDGET(file_chooser));
-    gtk_box_set_spacing (GTK_BOX(box), 6);
-    gtk_widget_set_visible (GTK_WIDGET(file_chooser), true);
+    /* File selection page */
+    file_page = GTK_WIDGET (gtk_builder_get_object (builder, "file_page"));
+    file_select_button = GTK_WIDGET (gtk_builder_get_object (
+        builder, "file_select_button"));
+    file_name_label = GTK_WIDGET (gtk_builder_get_object (
+        builder, "file_name_label"));
+    g_signal_connect (file_select_button, "clicked",
+                      G_CALLBACK (csv_price_imp_select_file_cb), this);
 
     /* Preview Settings Page */
     {
@@ -681,21 +679,19 @@ gnc_builder_connect_signals (builder, this);
  *******************************************************/
 CsvImpPriceAssist::~CsvImpPriceAssist ()
 {
+    g_object_set_data (G_OBJECT (csv_imp_asst),
+                       "gnc-csv-price-import-assistant-owner", nullptr);
     gtk_window_destroy (GTK_WINDOW(csv_imp_asst));
 }
 
 /**************************************************
- * Code related to the file chooser page
+ * Code related to the file selection page
  **************************************************/
 
-/* check_for_valid_filename for a valid file to activate the "Next" button
- */
 bool
-CsvImpPriceAssist::check_for_valid_filename ()
+CsvImpPriceAssist::set_selected_file (GFile *file)
 {
-    GFile *file = gtk_file_chooser_get_file (GTK_FILE_CHOOSER(file_chooser));
     auto file_name = g_file_get_path (file);
-    g_object_unref (file);
 
     if (!file_name || g_file_test (file_name, G_FILE_TEST_IS_DIR))
     {
@@ -709,44 +705,72 @@ CsvImpPriceAssist::check_for_valid_filename ()
     m_fc_file_name = file_name;
     gnc_set_default_directory (GNC_PREFS_GROUP, starting_dir);
 
-    DEBUG("file_name selected is %s", m_fc_file_name.c_str());
-    DEBUG("starting directory is %s", starting_dir);
+    DEBUG ("file_name selected is %s", m_fc_file_name.c_str());
+    DEBUG ("starting directory is %s", starting_dir);
 
     g_free (file_name);
     g_free (starting_dir);
-
     return true;
 }
 
-/* csv_price_imp_file_activated_cb
- *
- * call back for file chooser widget
- */
 void
-CsvImpPriceAssist::file_activated_cb ()
+CsvImpPriceAssist::file_dialog_finished_cb (GObject *source, GAsyncResult *result,
+                                            gpointer user_data)
 {
-    gtk_assistant_set_page_complete (csv_imp_asst, file_page, false);
+    auto data = static_cast<FileDialogData *> (user_data);
+    auto request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = nullptr;
+    auto file = gnc_file_dialog_request_finish (request, result, &error);
+    auto assistant = GTK_WIDGET (g_weak_ref_get (&data->assistant));
+    auto info = assistant ? static_cast<CsvImpPriceAssist *> (
+        g_object_get_data (G_OBJECT (assistant),
+                           "gnc-csv-price-import-assistant-owner")) : nullptr;
 
-    /* Test for a valid filename and not a directory */
-    if (check_for_valid_filename ())
+    if (file && info)
     {
-        gtk_assistant_set_page_complete (csv_imp_asst, file_page, true);
-        gtk_assistant_next_page (csv_imp_asst);
+        if (info->set_selected_file (file))
+        {
+            gtk_label_set_text (GTK_LABEL (info->file_name_label),
+                                info->m_fc_file_name.c_str());
+            gtk_assistant_set_page_complete (info->csv_imp_asst, info->file_page,
+                                             true);
+            gtk_assistant_next_page (info->csv_imp_asst);
+        }
+        else
+        {
+            gnc_error_dialog (GTK_WINDOW (assistant), "%s",
+                              _("Please select a local file, not a folder."));
+        }
     }
+    else if (info && error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    {
+        gnc_error_dialog (GTK_WINDOW (assistant), "%s", error->message);
+    }
+
+    g_clear_object (&file);
+    g_clear_error (&error);
+    g_clear_object (&assistant);
+    g_weak_ref_clear (&data->assistant);
+    delete data;
 }
 
-/* csv_price_imp_file_selection_changed_cb
- *
- * call back for file chooser widget
- */
 void
-CsvImpPriceAssist::file_selection_changed_cb ()
+CsvImpPriceAssist::select_file_cb ()
 {
-    /* Enable the "Next" button based on a valid filename */
-    gtk_assistant_set_page_complete (csv_imp_asst, file_page,
-        check_for_valid_filename ());
+    auto starting_dir = m_fc_file_name.empty ()
+                        ? gnc_get_default_directory (GNC_PREFS_GROUP)
+                        : g_path_get_dirname (m_fc_file_name.c_str());
+    auto data = new FileDialogData{};
+    g_weak_ref_init (&data->assistant, csv_imp_asst);
+    auto request = gnc_file_dialog_request_new (
+        GTK_WINDOW (csv_imp_asst), _("Select CSV Import File"), nullptr,
+        starting_dir, GNC_FILE_DIALOG_IMPORT);
+    gnc_file_dialog_request_open_async (request, nullptr,
+                                        file_dialog_finished_cb, data);
+    g_object_unref (request);
+    g_free (starting_dir);
 }
-
 
 /**************************************************
  * Code related to the preview page
@@ -1463,28 +1487,12 @@ void CsvImpPriceAssist::preview_validate_settings ()
 void
 CsvImpPriceAssist::assist_file_page_prepare ()
 {
-    /* Disable the "Next" Assistant Button */
-    gtk_assistant_set_page_complete (csv_imp_asst, file_page, false);
+    gtk_label_set_text (GTK_LABEL (file_name_label),
+                        m_fc_file_name.empty () ? _("No file selected")
+                                               : m_fc_file_name.c_str());
+    gtk_assistant_set_page_complete (csv_imp_asst, file_page,
+                                     !m_fc_file_name.empty ());
     gtk_assistant_set_page_complete (csv_imp_asst, preview_page, false);
-
-    /* Set the default directory */
-    if (!m_final_file_name.empty())
-    {
-        GFile *file = g_file_new_for_path (m_final_file_name.c_str());
-        gtk_file_chooser_set_file (GTK_FILE_CHOOSER(file_chooser), file, nullptr);
-        g_object_unref (file);
-    }
-    else
-    {
-        auto starting_dir = gnc_get_default_directory (GNC_PREFS_GROUP);
-        if (starting_dir)
-        {
-            GFile *file = g_file_new_for_path (starting_dir);
-            gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(file_chooser), file, NULL);
-            g_object_unref (file);
-            g_free (starting_dir);
-        }
-    }
 }
 
 void
