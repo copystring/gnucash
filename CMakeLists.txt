@@ -245,12 +245,23 @@ pkg_check_modules (LIBXSLT REQUIRED libxslt)
 if (WITH_GNUCASH)
   if (WIN32)
     find_path (WEBVIEW2_INCLUDE_DIR NAMES WebView2.h
-      HINTS "${CMAKE_PREFIX_PATH}/include" REQUIRED)
+      HINTS ${CMAKE_PREFIX_PATH} PATH_SUFFIXES include REQUIRED)
     # The loader is loaded explicitly so that the packaged runtime can be
     # selected at startup. MinGW's WebView2 package intentionally ships only
     # this DLL, not an import library.
     find_file (WEBVIEW2_LOADER_DLL NAMES WebView2Loader.dll
-      HINTS "${CMAKE_PREFIX_PATH}/bin" REQUIRED)
+      HINTS ${CMAKE_PREFIX_PATH} PATH_SUFFIXES bin REQUIRED)
+    unset (GNC_REPORT_WEBVIEW2_FIXED_RUNTIME CACHE)
+    set (WEBVIEW2_FIXED_RUNTIME_DIR "" CACHE PATH
+      "Path to a WebView2 Fixed Version Runtime to bundle with GnuCash")
+    if (WEBVIEW2_FIXED_RUNTIME_DIR)
+      find_file (WEBVIEW2_RUNTIME_EXECUTABLE NAMES msedgewebview2.exe
+        HINTS "${WEBVIEW2_FIXED_RUNTIME_DIR}" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+      get_filename_component (WEBVIEW2_FIXED_RUNTIME_DIR
+        "${WEBVIEW2_RUNTIME_EXECUTABLE}" DIRECTORY)
+      set (GNC_REPORT_WEBVIEW2_FIXED_RUNTIME 1 CACHE INTERNAL
+        "WebView2 Fixed Version Runtime is bundled")
+    endif()
     set(GNC_REPORT_WEBVIEW2 1 CACHE INTERNAL "WebView2 report backend")
   elseif (APPLE)
     find_library (WEBKIT_FRAMEWORK WebKit REQUIRED)
@@ -471,6 +482,8 @@ endif()
 
 if(APPLE)
   set(GNC_PLATFORM_COCOA 1)
+  set(MAC_INTEGRATION 1)
+  add_compile_definitions(MAC_INTEGRATION)
   find_library(COCOA_LIBRARY Cocoa REQUIRED)
   find_library(SECURITY_LIBRARY Security REQUIRED)
   find_library(CARBON_LIBRARY Carbon REQUIRED)

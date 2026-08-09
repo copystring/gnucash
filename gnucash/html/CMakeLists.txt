@@ -68,6 +68,7 @@ target_link_libraries(gnc-html
 
 target_compile_definitions(gnc-html PRIVATE -DG_LOG_DOMAIN=\"gnc.html\"
     $<$<BOOL:${GNC_REPORT_WEBVIEW2}>:GNC_REPORT_WEBVIEW2>
+    $<$<BOOL:${GNC_REPORT_WEBVIEW2_FIXED_RUNTIME}>:GNC_REPORT_WEBVIEW2_FIXED_RUNTIME>
     $<$<BOOL:${GNC_REPORT_WKWEBVIEW}>:GNC_REPORT_WKWEBVIEW>)
 
 if (GNC_REPORT_WEBVIEW2)
@@ -75,7 +76,8 @@ if (GNC_REPORT_WEBVIEW2)
 endif()
 
 if (GNC_REPORT_WKWEBVIEW)
-  target_link_libraries(gnc-html PRIVATE PkgConfig::GTK4MACOS)
+  target_compile_options(gnc-html PRIVATE ${OSX_EXTRA_COMPILE_FLAGS})
+  target_link_libraries(gnc-html PRIVATE PkgConfig::GTK4MACOS ${OSX_EXTRA_LIBRARIES})
 endif()
 
 
@@ -103,6 +105,10 @@ install(TARGETS gnc-html
 
 if (GNC_REPORT_WEBVIEW2)
   install(FILES "${WEBVIEW2_LOADER_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+  if (GNC_REPORT_WEBVIEW2_FIXED_RUNTIME)
+    install(DIRECTORY "${WEBVIEW2_FIXED_RUNTIME_DIR}/"
+      DESTINATION "${CMAKE_INSTALL_BINDIR}/WebView2Runtime")
+  endif()
 endif()
 
 install(FILES ${html_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/gnucash)

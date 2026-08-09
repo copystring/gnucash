@@ -34,6 +34,7 @@
 #include <regex.h>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 #include "gnc-engine.h"
 #include "gnc-gui-query.h"
@@ -137,6 +138,65 @@ to_utf8 (LPCWSTR value)
         return nullptr;
     return g_utf16_to_utf8 (reinterpret_cast<const gunichar2 *> (value), -1,
                              nullptr, nullptr, nullptr);
+}
+
+static std::wstring
+webview2_application_directory ()
+{
+    std::vector<wchar_t> path (32768);
+    const auto length = GetModuleFileNameW (nullptr, path.data (),
+                                            static_cast<DWORD> (path.size ()));
+    if (!length || length == path.size ())
+    {
+        PERR ("Could not determine the GnuCash executable directory for WebView2.");
+        return {};
+    }
+
+    std::wstring directory (path.data (), length);
+    const auto separator = directory.find_last_of (L"\\/");
+    if (separator == std::wstring::npos)
+    {
+        PERR ("Could not determine the GnuCash executable directory for WebView2.");
+        return {};
+    }
+    directory.resize (separator);
+    return directory;
+}
+
+static std::wstring
+webview2_user_data_directory ()
+{
+    auto path = g_build_filename (g_get_user_cache_dir (), "GnuCash", "WebView2", nullptr);
+    if (g_mkdir_with_parents (path, 0700) != 0)
+    {
+        PERR ("Could not create the WebView2 user-data directory: %s", g_strerror (errno));
+        g_free (path);
+        return {};
+    }
+
+    auto directory = to_utf16 (path);
+    g_free (path);
+    return directory;
+}
+
+static std::wstring
+webview2_fixed_runtime_directory ()
+{
+#if defined(GNC_REPORT_WEBVIEW2_FIXED_RUNTIME)
+    auto directory = webview2_application_directory ();
+    if (directory.empty ())
+        return {};
+    directory += L"\\WebView2Runtime";
+    const auto attributes = GetFileAttributesW (directory.c_str ());
+    if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        PERR ("The bundled WebView2 Fixed Version Runtime is missing.");
+        return {};
+    }
+    return directory;
+#else
+    return {};
+#endif
 }
 
 static void
@@ -761,10 +821,16 @@ webview2_start (GncHtmlWebView2 *self)
         return;
     }
 
-    priv->loader_module = LoadLibraryW (L"WebView2Loader.dll");
+    const auto application_directory = webview2_application_directory ();
+    if (application_directory.empty ())
+        return;
+    const auto loader_path = application_directory + L"\\WebView2Loader.dll";
+    priv->loader_module = LoadLibraryExW (loader_path.c_str (), nullptr,
+                                          LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+                                          LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!priv->loader_module)
     {
-        PERR ("WebView2Loader.dll could not be loaded from the application directory.");
+        PERR ("WebView2Loader.dll could not be loaded from the GnuCash installation.");
         return;
     }
     auto create_environment = reinterpret_cast<CreateEnvironmentWithOptionsFn> (
@@ -775,8 +841,17 @@ webview2_start (GncHtmlWebView2 *self)
         return;
     }
 
+    const auto runtime_directory = webview2_fixed_runtime_directory ();
+#if defined(GNC_REPORT_WEBVIEW2_FIXED_RUNTIME)
+    if (runtime_directory.empty ())
+        return;
+#endif
+    const auto user_data_directory = webview2_user_data_directory ();
+    if (user_data_directory.empty ())
+        return;
     auto handler = new EnvironmentCompletedHandler (self);
-    result = create_environment (nullptr, nullptr, nullptr, handler);
+    result = create_environment (runtime_directory.empty () ? nullptr : runtime_directory.c_str (),
+                                 user_data_directory.c_str (), nullptr, handler);
     handler->Release ();
     if (FAILED (result))
         log_hresult ("environment request", result);

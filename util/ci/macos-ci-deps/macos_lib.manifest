@@ -3,8 +3,6 @@ glib-2.0
 guile
 libaqbanking.44.dylib
 libaqbanking.dylib
-libatk-1.0.0.dylib
-libatk-1.0.dylib
 libboost_atomic.dylib
 libboost_chrono.dylib
 libboost_date_time.dylib
@@ -53,6 +51,8 @@ libgc.1.dylib
 libgc.dylib
 libgcrypt.20.dylib
 libgcrypt.dylib
+libgdk-4.1.dylib
+libgdk-4.dylib
 libgdk_pixbuf-2.0.0.dylib
 libgdk_pixbuf-2.0.dylib
 libgettextlib-0.21.dylib
@@ -95,6 +95,8 @@ libgwenhywfar.79.dylib
 libgwenhywfar.dylib
 libharfbuzz-gobject.0.dylib
 libharfbuzz-gobject.dylib
+libgsk-4.1.dylib
+libgsk-4.dylib
 libharfbuzz-icu.0.dylib
 libharfbuzz-icu.dylib
 libharfbuzz-subset.0.dylib
