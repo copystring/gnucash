@@ -267,15 +267,8 @@ gnc_column_view_edit_apply_cb(GncOptionsDialog *dlg, gpointer user_data)
     auto results = gnc_option_db_commit (dlg->get_option_db());
     for (auto iter = results; iter; iter = iter->next)
     {
-        GtkWidget *dialog =
-            gtk_message_dialog_new(GTK_WINDOW(dlg->get_widget()),
-                                   GTK_DIALOG_MODAL,
-                                   GTK_MESSAGE_ERROR,
-                                   GTK_BUTTONS_OK,
-                                   "%s",
-                                   (char*)iter->data);
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
+        gnc_error_dialog (GTK_WINDOW (dlg->get_widget()), "%s",
+                          static_cast<char *> (iter->data));
         g_free (iter->data);
     }
     g_list_free (results);

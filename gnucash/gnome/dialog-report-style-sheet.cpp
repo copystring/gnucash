@@ -117,14 +117,7 @@ gnc_style_sheet_options_apply_cb (GncOptionsDialog * propertybox,
     results = gnc_option_db_commit (ssi->odb);
     for (iter = results; iter; iter = iter->next)
     {
-        GtkWidget *dialog = gtk_message_dialog_new(nullptr,
-                                                   GTK_DIALOG_MODAL,
-                                                   GTK_MESSAGE_ERROR,
-                                                   GTK_BUTTONS_OK,
-                                                   "%s",
-                                                   (char*)iter->data);
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
+        gnc_error_dialog (nullptr, "%s", static_cast<char *> (iter->data));
         g_free (iter->data);
     }
     g_list_free (results);
