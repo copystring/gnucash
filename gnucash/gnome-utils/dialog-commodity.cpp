@@ -1311,20 +1311,6 @@ gnc_ui_commodity_update_quote_info(CommodityWindow *win,
 }
 
 
-struct SynchronousCommodityResult
-{
-    GMainLoop *loop;
-    gnc_commodity *commodity;
-};
-
-static void
-synchronous_commodity_finished (gnc_commodity *commodity, gpointer user_data)
-{
-    auto result = static_cast<SynchronousCommodityResult *> (user_data);
-    result->commodity = commodity;
-    g_main_loop_quit (result->loop);
-}
-
 static void
 gnc_ui_common_commodity_async (gnc_commodity *commodity,
                                GtkWidget *parent,
@@ -1437,83 +1423,6 @@ gnc_ui_edit_commodity_async (gnc_commodity *commodity,
                                    user_data);
 }
 
-/* Compatibility for the importer’s transitive synchronous flow. GTK4 UI
- * callers use the async entry points above and never enter this loop. */
-static gnc_commodity *
-gnc_ui_common_commodity_modal (gnc_commodity *commodity,
-                               GtkWidget *parent,
-                               const char *name_space,
-                               const char *cusip,
-                               const char *fullname,
-                               const char *mnemonic,
-                               const char *user_symbol,
-                               int fraction)
-{
-    SynchronousCommodityResult result = { g_main_loop_new (nullptr, FALSE), nullptr };
-
-    gnc_ui_common_commodity_async (commodity, parent, name_space, cusip, fullname,
-                                   mnemonic, user_symbol, fraction, nullptr,
-                                   synchronous_commodity_finished, &result);
-    g_main_loop_run (result.loop);
-    g_main_loop_unref (result.loop);
-    return result.commodity;
-}
-
-gnc_commodity *
-gnc_ui_select_commodity_modal_full (gnc_commodity *orig_sel,
-                                    GtkWidget *parent,
-                                    dialog_commodity_mode mode,
-                                    const char *user_message,
-                                    const char *cusip,
-                                    const char *fullname,
-                                    const char *mnemonic)
-{
-    SynchronousCommodityResult result = { g_main_loop_new (nullptr, FALSE), nullptr };
-
-    gnc_ui_select_commodity_async_full (orig_sel, parent, mode, user_message, cusip,
-                                        fullname, mnemonic, nullptr,
-                                        synchronous_commodity_finished, &result);
-    g_main_loop_run (result.loop);
-    g_main_loop_unref (result.loop);
-    return result.commodity;
-}
-
-gnc_commodity *
-gnc_ui_select_commodity_modal (gnc_commodity *orig_sel,
-                               GtkWidget *parent,
-                               dialog_commodity_mode mode)
-{
-    return gnc_ui_select_commodity_modal_full (orig_sel, parent, mode, nullptr,
-                                                nullptr, nullptr, nullptr);
-}
-
-gnc_commodity *
-gnc_ui_new_commodity_modal_full (const char *name_space,
-                                 GtkWidget *parent,
-                                 const char *cusip,
-                                 const char *fullname,
-                                 const char *mnemonic,
-                                 const char *user_symbol,
-                                 int fraction)
-{
-    return gnc_ui_common_commodity_modal (nullptr, parent, name_space, cusip,
-                                           fullname, mnemonic, user_symbol,
-                                           fraction);
-}
-
-gnc_commodity *
-gnc_ui_new_commodity_modal (const char *default_namespace, GtkWidget *parent)
-{
-    return gnc_ui_common_commodity_modal (nullptr, parent, default_namespace,
-                                           nullptr, nullptr, nullptr, nullptr, 0);
-}
-
-gboolean
-gnc_ui_edit_commodity_modal (gnc_commodity *commodity, GtkWidget *parent)
-{
-    return gnc_ui_common_commodity_modal (commodity, parent, nullptr, nullptr,
-                                           nullptr, nullptr, nullptr, 0) != nullptr;
-}
 /********************************************************************
  * gnc_ui_commodity_dialog_to_object()
  ********************************************************************/

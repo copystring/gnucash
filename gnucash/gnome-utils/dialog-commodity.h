@@ -88,19 +88,6 @@ void gnc_ui_select_commodity_async (gnc_commodity *orig_sel,
                                     GncCommoditySelectionCallback callback,
                                     gpointer user_data);
 
-/* These synchronous wrappers are retained only for the import matcher’s
- * transitive, synchronous data flow. New GTK4 UI code must use the async
- * entry points above. */
-gnc_commodity *gnc_ui_select_commodity_modal_full (gnc_commodity *orig_sel,
-                                                    GtkWidget *parent,
-                                                    dialog_commodity_mode mode,
-                                                    const char *user_message,
-                                                    const char *cusip,
-                                                    const char *fullname,
-                                                    const char *mnemonic);
-gnc_commodity *gnc_ui_select_commodity_modal (gnc_commodity *orig_sel,
-                                               GtkWidget *parent,
-                                               dialog_commodity_mode mode);
 /** @} */
 
 /** @name Commodity Creation or Modification */
@@ -130,19 +117,6 @@ void gnc_ui_edit_commodity_async (gnc_commodity *commodity,
                                   GncCommoditySelectionCallback callback,
                                   gpointer user_data);
 
-/* Synchronous compatibility entry points. GTK4 callers must use the async
- * operations above. */
-gnc_commodity *gnc_ui_new_commodity_modal_full (const char *name_space,
-                                                 GtkWidget *parent,
-                                                 const char *cusip,
-                                                 const char *fullname,
-                                                 const char *mnemonic,
-                                                 const char *user_symbol,
-                                                 int fraction);
-gnc_commodity *gnc_ui_new_commodity_modal (const char *default_namespace,
-                                            GtkWidget *parent);
-gboolean gnc_ui_edit_commodity_modal (gnc_commodity *commodity,
-                                      GtkWidget *parent);
 /** @} */
 /** @name Auxiliary Dialog Functions */
 /** @{ */
