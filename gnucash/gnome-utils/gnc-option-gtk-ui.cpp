@@ -1574,27 +1574,40 @@ create_option_widget<GncOptionUIType::PIXMAP> (GncOption& option,
 #endif
 }
 
-static void
-radiobutton_set_cb(GtkWidget *w, gpointer data)
+static GtkCheckButton *
+radiobutton_get_button (GtkWidget *frame, guint index)
 {
-    GncOption* option = static_cast<decltype(option)>(data);
-    gpointer _current, _new_value;
-    gint current, new_value;
+    auto buttons = static_cast<GPtrArray *> (
+        g_object_get_data (G_OBJECT (frame), "gnc-radiobutton-buttons"));
 
-    auto widget = option_get_gtk_widget(option);
+    if (!buttons || index >= buttons->len)
+        return nullptr;
 
-    _current = g_object_get_data(G_OBJECT(widget), "gnc_radiobutton_index");
-    current = GPOINTER_TO_INT (_current);
+    return GTK_CHECK_BUTTON (g_ptr_array_index (buttons, index));
+}
 
-    _new_value = g_object_get_data (G_OBJECT(w), "gnc_radiobutton_index");
-    new_value = GPOINTER_TO_INT (_new_value);
+static void
+radiobutton_button_array_free (gpointer data)
+{
+    g_ptr_array_unref (static_cast<GPtrArray *> (data));
+}
 
-    if (current == new_value)
+static void
+radiobutton_set_cb (GtkCheckButton *button, gpointer data)
+{
+    auto option = static_cast<GncOption *>(data);
+    auto frame = option_get_gtk_widget (option);
+    const auto index = GPOINTER_TO_UINT (
+        g_object_get_data (G_OBJECT (button), "gnc_radiobutton_index"));
+    const auto current = GPOINTER_TO_UINT (
+        g_object_get_data (G_OBJECT (frame), "gnc_radiobutton_index"));
+
+    if (!gtk_check_button_get_active (button) || current == index)
         return;
 
-    g_object_set_data (G_OBJECT(widget), "gnc_radiobutton_index",
-                       GINT_TO_POINTER(new_value));
-    gnc_option_changed_widget_cb(widget, option);
+    g_object_set_data (G_OBJECT (frame), "gnc_radiobutton_index",
+                       GUINT_TO_POINTER (index));
+    gnc_option_changed_widget_cb (frame, option);
 }
 
 class GncGtkRadioButtonUIItem : public GncOptionGtkUIItem
@@ -1604,96 +1617,79 @@ public:
         GncOptionGtkUIItem{widget, GncOptionUIType::RADIOBUTTON} {}
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
-        auto index{option.get_value<uint16_t>()};
-//FIXME gtk4        auto list{gtk_container_get_children(GTK_CONTAINER(get_widget()))};
-//        auto box{GTK_WIDGET(list->data)};
-//        g_list_free(list);
+        auto index = option.get_value<uint16_t>();
+        auto button = radiobutton_get_button (get_widget(), index);
 
-//FIXME gtk4        list = gtk_container_get_children(GTK_CONTAINER(box));
-//        auto node{g_list_nth(list, index)};
-//        GtkButton* button{};
-//        if (node)
-//        {
-//            button = GTK_BUTTON(node->data);
-//        }
-//        else
-//        {
-//            PERR("Invalid Radio Button Selection %hu", index);
-//            g_list_free(list);
-//            return;
+        if (!button)
+        {
+            PERR("Invalid Radio Button Selection %hu", index);
+            return;
         }
-//        g_list_free(list);
-//        auto val{g_object_get_data (G_OBJECT (button),
-//                                    "gnc_radiobutton_index")};
-//        g_return_if_fail (GPOINTER_TO_UINT (val) == index);
 
-//        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (button), TRUE);
-//    }
+        g_signal_handlers_block_by_func (button, (gpointer)radiobutton_set_cb, &option);
+        gtk_check_button_set_active (button, TRUE);
+        g_signal_handlers_unblock_by_func (button, (gpointer)radiobutton_set_cb, &option);
+        g_object_set_data (G_OBJECT (get_widget()), "gnc_radiobutton_index",
+                           GUINT_TO_POINTER (index));
+    }
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-        auto index{g_object_get_data(G_OBJECT(get_widget()),
-                                     "gnc_radiobutton_index")};
-        option.set_value<uint16_t>(GPOINTER_TO_INT(index));
+        auto index = GPOINTER_TO_UINT (g_object_get_data (
+            G_OBJECT (get_widget()), "gnc_radiobutton_index"));
+        option.set_value<uint16_t>(static_cast<uint16_t>(index));
     }
 };
 
 static GtkWidget *
 create_radiobutton_widget(char *name, GncOption& option)
 {
-    GtkWidget *frame, *box;
-    GtkWidget *widget = NULL;
+    auto frame = gtk_frame_new (name);
+    auto box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
+    auto buttons = g_ptr_array_new ();
+    GtkCheckButton *first_button = nullptr;
+    auto count = option.num_permissible_values ();
 
-    auto num_values{option.num_permissible_values()};
-
-    g_return_val_if_fail(num_values >= 0, NULL);
-
-    /* Create our button frame */
-    frame = gtk_frame_new (name);
-
-    /* Create the button box */
-    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
+    g_return_val_if_fail (count >= 0, nullptr);
     gtk_box_set_homogeneous (GTK_BOX (box), FALSE);
-    gtk_frame_set_child (GTK_FRAME(frame), GTK_WIDGET(box));
+    gtk_frame_set_child (GTK_FRAME (frame), box);
+    g_object_set_data_full (G_OBJECT (frame), "gnc-radiobutton-buttons", buttons,
+                            radiobutton_button_array_free);
 
-    option.set_ui_item(std::make_unique<GncGtkPixmapUIItem>(frame));
-    option.set_ui_item_from_option();
-
-    /* Iterate over the options and create a radio button for each one */
-    for (decltype(num_values) i = 0; i < num_values; i++)
+    for (decltype(count) index = 0; index < count; index++)
     {
-        auto label = option.permissible_value_name(i);
+        auto label = option.permissible_value_name (index);
+        auto button = GTK_CHECK_BUTTON (gtk_check_button_new_with_label (
+            label && *label ? _(label) : ""));
 
-//FIXME gtk4        widget =
-//            gtk_radio_button_new_with_label_from_widget (widget ?
-//                                                         GTK_RADIO_BUTTON (widget) :
-//                                                         NULL,
-//                                                         label && *label ? _(label) : "");
+        if (first_button)
+            gtk_check_button_set_group (button, first_button);
+        else
+            first_button = button;
 
-        widget = gtk_check_button_new_with_label (label && *label ? _(label) : "");
-//        gtk_check_button_set_group (GTK_CHECK_BUTTON(first_rb), GTK_CHECK_BUTTON(rbutton));
-
-        g_object_set_data (G_OBJECT (widget), "gnc_radiobutton_index",
-                           GINT_TO_POINTER (i));
-        g_signal_connect(G_OBJECT(widget), "toggled",
-                         G_CALLBACK(radiobutton_set_cb), &option);
-        gtk_box_append (GTK_BOX(box), GTK_WIDGET(widget));
+        g_object_set_data (G_OBJECT (button), "gnc_radiobutton_index",
+                           GUINT_TO_POINTER (index));
+        g_signal_connect (button, "toggled", G_CALLBACK (radiobutton_set_cb), &option);
+        g_ptr_array_add (buttons, button);
+        gtk_box_append (GTK_BOX (box), GTK_WIDGET (button));
     }
 
+    option.set_ui_item (std::make_unique<GncGtkRadioButtonUIItem> (frame));
+    option.set_ui_item_from_option ();
     return frame;
 }
 
 template<> void
-create_option_widget<GncOptionUIType::RADIOBUTTON> (GncOption& option, GtkGrid *page_box, int row)
- {
-     auto enclosing = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
-     gtk_box_set_homogeneous (GTK_BOX (enclosing), FALSE);
-     set_name_label(option, page_box, row, true);
-     set_tool_tip(option, enclosing);
-     auto widget = create_radiobutton_widget(NULL, option);
-     gtk_box_append (GTK_BOX(enclosing), GTK_WIDGET(widget));
-//FIXME gtk4     gtk_widget_show_all(enclosing);
-     grid_attach_widget(page_box, enclosing, row);
- }
+create_option_widget<GncOptionUIType::RADIOBUTTON> (GncOption& option,
+                                                     GtkGrid *page_box, int row)
+{
+    auto enclosing = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+
+    gtk_box_set_homogeneous (GTK_BOX (enclosing), FALSE);
+    set_name_label (option, page_box, row, true);
+    set_tool_tip (option, enclosing);
+    gtk_box_append (GTK_BOX (enclosing), create_radiobutton_widget (nullptr, option));
+    grid_attach_widget (page_box, enclosing, row);
+}
 
 class GncGtkDateFormatUIItem : public GncOptionGtkUIItem
 {
