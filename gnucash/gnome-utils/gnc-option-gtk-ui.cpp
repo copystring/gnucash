@@ -1452,51 +1452,103 @@ create_option_widget<GncOptionUIType::FONT> (GncOption& option, GtkGrid *page_bo
                      G_CALLBACK(gnc_option_changed_widget_cb), &option);
     wrap_widget(option, widget, page_box, row);
 }
-/* A pointer to the last selected filename */
-#define LAST_SELECTION "last-selection"
+static constexpr const char* PIXMAP_PATH_DATA{"gnc-pixmap-path"};
+static constexpr const char* PIXMAP_ENTRY_DATA{"gnc-pixmap-entry"};
+static constexpr const char* PIXMAP_IMAGE_DATA{"gnc-pixmap-image"};
+static constexpr const char* PIXMAP_OPTION_DATA{"gnc-pixmap-option"};
+
+struct PixmapOpenContext
+{
+    GWeakRef root;
+    GncOption *option;
+    GtkFileDialog *dialog;
+};
 
 static void
-update_preview_cb (GtkFileChooser *chooser, void* data)
+pixmap_open_context_free (PixmapOpenContext *context)
 {
-    g_return_if_fail(chooser != NULL);
-
-    ENTER("chooser %p", chooser);
-//FIXME gtk4    auto filename = gtk_file_chooser_get_preview_filename(chooser);
-auto filename = nullptr;
-    DEBUG("chooser preview name is %s.", filename ? filename : "(null)");
-    if (filename == nullptr)
-    {
-//FIXME gtk4        filename = g_strdup(static_cast<const char*>(g_object_get_data(G_OBJECT(chooser), LAST_SELECTION)));
-        DEBUG("using last selection of %s", filename ? filename : "(null)");
-        if (filename == nullptr)
-        {
-            LEAVE("no usable name");
-            return;
-        }
-    }
-
-//FIXME gtk4    auto image = GTK_IMAGE(gtk_file_chooser_get_preview_widget(chooser));
-//    auto pixbuf = gdk_pixbuf_new_from_file_at_size(filename, 128, 128, NULL);
-    g_free(filename);
-//    auto have_preview = (pixbuf != NULL);
-
-//    gtk_image_set_from_pixbuf(image, pixbuf);
-//    if (pixbuf)
-//        g_object_unref(pixbuf);
-
-//FIXME gtk4    gtk_file_chooser_set_preview_widget_active(chooser, have_preview);
-//    LEAVE("preview visible is %d", have_preview);
+    g_clear_object (&context->dialog);
+    g_weak_ref_clear (&context->root);
+    g_free (context);
 }
 
 static void
-change_image_cb (GtkFileChooser *chooser, void* data)
+pixmap_set_path (GtkWidget *root, const char *path)
 {
-//FIXME gtk4
-//    auto filename{gtk_file_chooser_get_preview_filename(chooser)};
-auto filename = nullptr;
-//    if (!filename)
-        return;
-    g_object_set_data_full(G_OBJECT(chooser), LAST_SELECTION, filename, g_free);
+    auto entry = GTK_ENTRY (g_object_get_data (G_OBJECT (root), PIXMAP_ENTRY_DATA));
+    auto image = GTK_IMAGE (g_object_get_data (G_OBJECT (root), PIXMAP_IMAGE_DATA));
+
+    g_object_set_data_full (G_OBJECT (root), PIXMAP_PATH_DATA, g_strdup (path), g_free);
+    gtk_editable_set_text (GTK_EDITABLE (entry), path ? path : "");
+    gtk_image_set_from_file (image, path && *path ? path : nullptr);
+}
+
+static void
+pixmap_dialog_open_cb (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    auto context = static_cast<PixmapOpenContext *> (user_data);
+    auto root = GTK_WIDGET (g_weak_ref_get (&context->root));
+    GError *error = nullptr;
+    auto file = gtk_file_dialog_open_finish (GTK_FILE_DIALOG (source), result, &error);
+
+    if (file && root)
+    {
+        auto path = g_file_get_path (file);
+        if (path)
+        {
+            pixmap_set_path (root, path);
+            gnc_option_changed_widget_cb (root, context->option);
+            g_free (path);
+        }
+        else
+            PERR ("Image selections must be local files.");
+    }
+    else if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        PERR ("Unable to select an image file: %s", error->message);
+
+    g_clear_error (&error);
+    g_clear_object (&file);
+    if (root)
+        g_object_unref (root);
+    pixmap_open_context_free (context);
+}
+
+static void
+pixmap_choose_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    auto root = GTK_WIDGET (user_data);
+    auto option = static_cast<GncOption *> (
+        g_object_get_data (G_OBJECT (root), PIXMAP_OPTION_DATA));
+    auto dialog = gtk_file_dialog_new ();
+    auto path = static_cast<const char *> (g_object_get_data (G_OBJECT (root), PIXMAP_PATH_DATA));
+    auto context = g_new0 (PixmapOpenContext, 1);
+    auto window_root = gtk_widget_get_root (root);
+
+    gtk_file_dialog_set_title (dialog, _("Select image"));
+    if (path && *path)
+    {
+        auto file = g_file_new_for_path (path);
+        gtk_file_dialog_set_initial_file (dialog, file);
+        g_object_unref (file);
+    }
+
+    context->option = option;
+    context->dialog = GTK_FILE_DIALOG (g_object_ref (dialog));
+    g_weak_ref_init (&context->root, root);
+    gtk_file_dialog_open (dialog, GTK_IS_WINDOW (window_root) ? GTK_WINDOW (window_root) : nullptr,
+                          nullptr, pixmap_dialog_open_cb, context);
+    g_object_unref (dialog);
+}
+
+static void
+pixmap_clear_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    auto root = GTK_WIDGET (user_data);
+    auto option = static_cast<GncOption *> (
+        g_object_get_data (G_OBJECT (root), PIXMAP_OPTION_DATA));
+
+    pixmap_set_path (root, nullptr);
+    gnc_option_changed_widget_cb (root, option);
 }
 
 class GncGtkPixmapUIItem : public GncOptionGtkUIItem
@@ -1506,31 +1558,16 @@ public:
         GncOptionGtkUIItem{widget, GncOptionUIType::PIXMAP} {}
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
-        auto string{option.get_value<std::string>()};
-        if (!string.empty())
-        {
-            DEBUG("string = %s", string.c_str());
-            auto chooser{GTK_FILE_CHOOSER(get_widget())};
-//FIXME gtk4            gtk_file_chooser_select_filename(chooser, string.c_str());
-//            auto filename{gtk_file_chooser_get_filename(chooser)};
-auto filename = nullptr;
-            g_object_set_data_full(G_OBJECT(chooser), LAST_SELECTION,
-                                   g_strdup(string.c_str()), g_free);
-            DEBUG("Set %s, retrieved %s", string.c_str(),
-                  filename ? filename : "(null)");
-            update_preview_cb(chooser, &option);
-        }
+        auto value = option.get_value<std::string> ();
+
+        pixmap_set_path (get_widget (), value.empty () ? nullptr : value.c_str ());
     }
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-//FIXME gtk4        auto string = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(get_widget()));
-auto string = nullptr;
-        DEBUG("filename %s", string ? string : "(null)");
-        if (string)
-        {
-            option.set_value(std::string{string});
-            g_free(string);
-        }
+        auto path = static_cast<const char *> (
+            g_object_get_data (G_OBJECT (get_widget ()), PIXMAP_PATH_DATA));
+
+        option.set_value (std::string {path ? path : ""});
     }
 };
 
@@ -1538,42 +1575,37 @@ template<> void
 create_option_widget<GncOptionUIType::PIXMAP> (GncOption& option,
                                                GtkGrid *page_box, int row)
 {
-    auto enclosing{gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5)};
-    gtk_box_set_homogeneous(GTK_BOX(enclosing), FALSE);
-//FIXME gtk4
-#ifdef skip
-    auto button{gtk_button_new_with_label(_("Clear"))};
-    gtk_widget_set_tooltip_text(button, _("Clear any selected image file."));
-    auto widget{ gtk_file_chooser_button_new(_("Select image"),
-                                             GTK_FILE_CHOOSER_ACTION_OPEN)};
-    gtk_widget_set_tooltip_text(widget, _("Select an image file."));
-    g_object_set(G_OBJECT(widget),
-                 "width-chars", 30,
-                 "preview-widget", gtk_image_new(),
-                 (char *)NULL);
-    option.set_ui_item(std::make_unique<GncGtkPixmapUIItem>(widget));
-    option.set_ui_item_from_option();
+    auto enclosing = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    auto image = gtk_image_new ();
+    auto entry = gtk_entry_new ();
+    auto choose = gtk_button_new_with_label (_("Select image"));
+    auto clear = gtk_button_new_with_label (_("Clear"));
 
-    g_signal_connect(G_OBJECT (widget), "selection-changed",
-                     G_CALLBACK(gnc_option_changed_widget_cb), &option);
-    g_signal_connect(G_OBJECT (widget), "selection-changed",
-                     G_CALLBACK(change_image_cb), &option);
-    g_signal_connect(G_OBJECT (widget), "update-preview",
-                     G_CALLBACK(update_preview_cb), &option);
-    g_signal_connect_swapped(G_OBJECT (button), "clicked",
-                             G_CALLBACK(gtk_file_chooser_unselect_all), widget);
+    gtk_box_set_homogeneous (GTK_BOX (enclosing), FALSE);
+    gtk_image_set_pixel_size (GTK_IMAGE (image), 128);
+    gtk_widget_set_size_request (image, 128, 128);
+    gtk_editable_set_editable (GTK_EDITABLE (entry), FALSE);
+    gtk_widget_set_hexpand (entry, TRUE);
+    gtk_widget_set_tooltip_text (choose, _("Select an image file."));
+    gtk_widget_set_tooltip_text (clear, _("Clear any selected image file."));
+    g_object_set_data (G_OBJECT (enclosing), PIXMAP_ENTRY_DATA, entry);
+    g_object_set_data (G_OBJECT (enclosing), PIXMAP_IMAGE_DATA, image);
+    g_object_set_data (G_OBJECT (enclosing), PIXMAP_OPTION_DATA, &option);
 
-    gtk_box_append (GTK_BOX(enclosing), GTK_WIDGET(widget));
-    gtk_box_append (GTK_BOX(enclosing), GTK_WIDGET(button));
+    gtk_box_append (GTK_BOX (enclosing), image);
+    gtk_box_append (GTK_BOX (enclosing), entry);
+    gtk_box_append (GTK_BOX (enclosing), choose);
+    gtk_box_append (GTK_BOX (enclosing), clear);
+    option.set_ui_item (std::make_unique<GncGtkPixmapUIItem> (enclosing));
+    option.set_ui_item_from_option ();
 
-    gtk_widget_set_visible (GTK_WIDGET(widget), true);
-    set_name_label(option, page_box, row, false);
-    set_tool_tip(option, enclosing);
-    gtk_widget_set_visible (GTK_WIDGET(enclosing), true);
-    grid_attach_widget(page_box, enclosing, row);
-#endif
+    g_signal_connect (choose, "clicked", G_CALLBACK (pixmap_choose_clicked_cb), enclosing);
+    g_signal_connect (clear, "clicked", G_CALLBACK (pixmap_clear_clicked_cb), enclosing);
+    set_name_label (option, page_box, row, false);
+    set_tool_tip (option, enclosing);
+    grid_attach_widget (page_box, enclosing, row);
+    gtk_widget_set_visible (enclosing, true);
 }
-
 static GtkCheckButton *
 radiobutton_get_button (GtkWidget *frame, guint index)
 {
