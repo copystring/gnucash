@@ -189,18 +189,20 @@ GNCPrice* gnc_price_edit_by_guid (GtkWidget * parent, const GncGUID * guid);
 void     gnc_prices_dialog (GtkWidget *parent);
 void     gnc_commodities_dialog (GtkWidget *parent);
 
-/* Open a dialog asking for username and password. The heading and
- * either 'initial_*' arguments may be NULL. If the dialog returns
- * TRUE, the user pressed OK and the entered strings are stored in the
- * output variables. They should be g_freed when no longer needed. If
- * the dialog returns FALSE, the user pressed CANCEL and NULL was
- * stored in username and password. */
-gboolean gnc_get_username_password (GtkWidget *parent,
-                                    const char *heading,
-                                    const char *initial_username,
-                                    const char *initial_password,
-                                    char **username,
-                                    char **password);
+/* Opens a native GTK4 username/password window. The completion returns
+ * owned username and password strings after OK, or G_IO_ERROR_CANCELLED on
+ * Cancel, close, parent destruction, or cancellation. */
+void gnc_get_username_password_async (GtkWindow *parent,
+                                      const gchar *heading,
+                                      const gchar *initial_username,
+                                      const gchar *initial_password,
+                                      GCancellable *cancellable,
+                                      GAsyncReadyCallback callback,
+                                      gpointer user_data);
+gboolean gnc_get_username_password_finish (GAsyncResult *result,
+                                           gchar **username,
+                                           gchar **password,
+                                           GError **error);
 
 /* Managing the GUI Windows *****************************************/
 

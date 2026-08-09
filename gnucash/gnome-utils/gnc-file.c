@@ -1220,6 +1220,71 @@ static gboolean gnc_post_file_open (GtkWindow *parent, const char *filename,
                                     gboolean is_readonly,
                                     gboolean reset_bayes_conversion,
                                     gboolean break_lock);
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    gchar *scheme;
+    gchar *hostname;
+    gint32 port;
+    gchar *path;
+    gboolean is_readonly;
+    gboolean reset_bayes_conversion;
+    gboolean break_lock;
+} GncFilePasswordRequest;
+
+static void
+gnc_file_password_request_free (GncFilePasswordRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_free (request->scheme);
+    g_free (request->hostname);
+    g_free (request->path);
+    g_free (request);
+}
+
+static void
+gnc_file_open_after_keyring_password (GObject *source, GAsyncResult *result,
+                                      gpointer user_data)
+{
+    GncFilePasswordRequest *request = user_data;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    gchar *username = NULL;
+    gchar *password = NULL;
+    gchar *uri = NULL;
+    GError *error = NULL;
+
+    (void)source;
+    if (request->has_parent && !parent)
+        goto out;
+
+    if (gnc_keyring_get_password_finish (result, &username, &password, &error))
+    {
+        uri = gnc_uri_create_uri (request->scheme, request->hostname,
+                                  request->port, username, password,
+                                  request->path);
+        if (uri)
+            (void)gnc_post_file_open (parent, uri, request->is_readonly,
+                                      request->reset_bayes_conversion,
+                                      request->break_lock);
+        else
+            gnc_error_dialog (parent, "%s",
+                              _("The database connection URI is invalid."));
+    }
+    else if (error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        gnc_error_dialog (parent, "%s", error->message);
+
+out:
+    g_clear_error (&error);
+    g_free (uri);
+    g_free (username);
+    g_free (password);
+    g_clear_object (&parent);
+    gnc_file_password_request_free (request);
+}
+
+
 
 static void
 gnc_file_open_request_free (GncFileOpenRequest *request)
@@ -1458,7 +1523,7 @@ gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonl
     gint32 port = 0;
 
 
-    ENTER("filename %s", filename);
+    ENTER("opening requested file");
     if (!filename || (*filename == '\0')) return FALSE;
 
     /* Convert user input into a normalized uri
@@ -1485,16 +1550,29 @@ gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonl
      */
     if (!gnc_uri_is_file_scheme (scheme) && !password)
     {
-        gboolean have_valid_pw = FALSE;
-        have_valid_pw = gnc_keyring_get_password ( NULL, scheme, hostname, port,
-                        path, &username, &password );
-        if (!have_valid_pw)
-            return FALSE;
+        GncFilePasswordRequest *request = g_new0 (GncFilePasswordRequest, 1);
 
-        /* Got password. Recreate the uri to use internally. */
-        g_free ( newfile );
-        newfile = gnc_uri_create_uri ( scheme, hostname, port,
-                                       username, password, path);
+        g_weak_ref_init (&request->parent, parent);
+        request->has_parent = parent != NULL;
+        request->scheme = g_strdup (scheme);
+        request->hostname = g_strdup (hostname);
+        request->port = port;
+        request->path = g_strdup (path);
+        request->is_readonly = is_readonly;
+        request->reset_bayes_conversion = reset_bayes_conversion;
+        request->break_lock = break_lock;
+        gnc_keyring_get_password_async (parent, request->scheme,
+                                        request->hostname, request->port,
+                                        request->path, username, NULL,
+                                        gnc_file_open_after_keyring_password,
+                                        request);
+        g_free (scheme);
+        g_free (hostname);
+        g_free (username);
+        g_free (password);
+        g_free (path);
+        g_free (newfile);
+        return TRUE;
     }
 
     /* For file based uri's, remember the directory as the default. */

@@ -1,30 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
-  <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="username_password_dialog">
+  <requires lib="gtk" version="4.0"/>
+  <object class="GtkWindow" id="username_password_dialog">
     <property name="title" translatable="1">Username and Password</property>
-<child internal-child="content_area">
-      <object class="GtkBox" id="dialog-vbox16">
+    <property name="resizable">False</property>
+    <child>
+      <object class="GtkBox" id="dialog_vbox">
         <property name="orientation">vertical</property>
-        <property name="spacing">8</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">18</property>
+        <property name="margin-bottom">18</property>
+        <property name="margin-start">18</property>
+        <property name="margin-end">18</property>
         <child>
           <object class="GtkLabel" id="heading_label">
             <property name="valign">center</property>
             <property name="label" translatable="1">Enter your username and password</property>
             <property name="justify">center</property>
+            <property name="wrap">True</property>
           </object>
         </child>
         <child>
           <object class="GtkGrid" id="table1">
-            <property name="vexpand">1</property>
-<property name="row-spacing">3</property>
-            <property name="column-spacing">6</property>
+            <property name="row-spacing">6</property>
+            <property name="column-spacing">12</property>
             <child>
               <object class="GtkLabel" id="label847713">
                 <property name="halign">end</property>
                 <property name="label" translatable="1">_Username</property>
                 <property name="use-underline">1</property>
-                <property name="justify">center</property>
                 <property name="mnemonic-widget">username_entry</property>
                 <layout>
                   <property name="column">0</property>
@@ -37,7 +41,6 @@
                 <property name="halign">end</property>
                 <property name="label" translatable="1">_Password</property>
                 <property name="use-underline">1</property>
-                <property name="justify">center</property>
                 <property name="mnemonic-widget">password_entry</property>
                 <layout>
                   <property name="column">0</property>
@@ -48,6 +51,7 @@
             <child>
               <object class="GtkEntry" id="username_entry">
                 <property name="focusable">1</property>
+                <property name="hexpand">True</property>
                 <property name="activates-default">1</property>
                 <layout>
                   <property name="column">1</property>
@@ -68,30 +72,27 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area1">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="cancel_button">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
+          <object class="GtkBox" id="dialog_action_area1">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <property name="margin-top">6</property>
+            <child>
+              <object class="GtkButton" id="cancel_button">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="ok_button">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="ok_button">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
         </child>
       </object>
     </child>
