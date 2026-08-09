@@ -578,13 +578,6 @@ create_dialog (GtkWidget *parent, ImapDialog *dialog)
 }
 
 void
-gnc_imap_dialog_window_destroy_cb (GtkWidget *object, gpointer user_data) { destroy_cb (object, user_data); }
-void
-gnc_imap_dialog_close_cb (GtkDialog *dialog, gpointer user_data) { gnc_close_gui_component_by_data (DIALOG_IMAP_CM_CLASS, user_data); (void)dialog; }
-void
-gnc_imap_dialog_response_cb (GtkDialog *dialog, gint response_id, gpointer user_data) { if (response_id == GTK_RESPONSE_APPLY) imap_delete_selected (user_data); else gnc_close_gui_component_by_data (DIALOG_IMAP_CM_CLASS, user_data); (void)dialog; }
-
-void
 gnc_imap_dialog (GtkWidget *parent)
 {
     ImapDialog *dialog; gint component_id;
