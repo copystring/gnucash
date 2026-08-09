@@ -1606,12 +1606,15 @@ gnc_report_export_title (SCM choice)
 }
 
 static gchar *
-gnc_report_export_filepath (GFile *file, SCM choice, GtkWindow *parent)
+gnc_report_export_filepath (GFile *file, SCM choice, GtkWindow *parent,
+                            gboolean *needs_overwrite_confirmation)
 {
     gchar *filepath = g_file_get_path (file);
     GStatBuf statbuf;
     gchar *type;
     gint rc;
+
+    *needs_overwrite_confirmation = FALSE;
 
     if (!filepath)
     {
@@ -1656,16 +1659,7 @@ gnc_report_export_filepath (GFile *file, SCM choice, GtkWindow *parent)
     }
 
     if (rc == 0)
-    {
-        const char *format = _("The file %s already exists. "
-                               "Are you sure you want to overwrite it?");
-
-        if (!gnc_verify_dialog (parent, FALSE, format, filepath))
-        {
-            g_free (filepath);
-            return nullptr;
-        }
-    }
+        *needs_overwrite_confirmation = TRUE;
 
     return filepath;
 }
@@ -1686,6 +1680,20 @@ gnc_report_export_data_free (GncReportExportData *data)
     scm_gc_unprotect_object (data->export_thunk);
     g_weak_ref_clear (&data->page);
     g_free (data);
+}
+
+typedef struct
+{
+    GncReportExportData *data;
+    gchar *filepath;
+} GncReportExportOverwriteRequest;
+
+static void
+gnc_report_export_overwrite_request_free (GncReportExportOverwriteRequest *request)
+{
+    g_free (request->filepath);
+    gnc_report_export_data_free (request->data);
+    g_free (request);
 }
 
 static void
@@ -1754,6 +1762,38 @@ gnc_plugin_page_report_export_to_file (GncPluginPageReport *report,
 }
 
 static void
+gnc_report_export_data_to_file (GncReportExportData *data,
+                                const gchar *filepath)
+{
+    auto report = static_cast<GncPluginPageReport *> (
+        g_weak_ref_get (&data->page));
+
+    if (report)
+    {
+        auto parent = GTK_WINDOW (gnc_plugin_page_get_window (
+            GNC_PLUGIN_PAGE (report)));
+
+        gnc_plugin_page_report_export_to_file (report, data->report_id,
+                                               data->choice, data->export_thunk,
+                                               parent, filepath);
+        g_object_unref (report);
+    }
+}
+
+static void
+gnc_report_export_overwrite_finished (GtkWindow *parent, gint response,
+                                      gpointer user_data)
+{
+    auto request = static_cast<GncReportExportOverwriteRequest *> (user_data);
+
+    (void)parent;
+    if (response == GTK_RESPONSE_ACCEPT)
+        gnc_report_export_data_to_file (request->data, request->filepath);
+
+    gnc_report_export_overwrite_request_free (request);
+}
+
+static void
 gnc_report_export_file_selected (GObject *source, GAsyncResult *result,
                                  gpointer user_data)
 {
@@ -1762,6 +1802,7 @@ gnc_report_export_file_selected (GObject *source, GAsyncResult *result,
     GError *error = nullptr;
     GFile *file = gnc_file_dialog_request_finish (request, result, &error);
     auto report = static_cast<GncPluginPageReport *> (g_weak_ref_get (&data->page));
+    gboolean waiting_for_overwrite_confirmation = FALSE;
 
     if (report)
     {
@@ -1769,14 +1810,32 @@ gnc_report_export_file_selected (GObject *source, GAsyncResult *result,
 
         if (file)
         {
-            gchar *filepath = gnc_report_export_filepath (file, data->choice,
-                                                           parent);
+            gboolean needs_overwrite_confirmation;
+            gchar *filepath = gnc_report_export_filepath (
+                file, data->choice, parent, &needs_overwrite_confirmation);
+
             if (filepath)
             {
-                gnc_plugin_page_report_export_to_file (
-                    report, data->report_id, data->choice, data->export_thunk,
-                    parent, filepath);
-                g_free (filepath);
+                if (needs_overwrite_confirmation)
+                {
+                    const char *format = _("The file %s already exists. "
+                                           "Are you sure you want to overwrite it?");
+                    auto overwrite = g_new0 (GncReportExportOverwriteRequest, 1);
+
+                    overwrite->data = data;
+                    overwrite->filepath = filepath;
+                    gnc_verify_dialog_async (
+                        parent, FALSE, gnc_report_export_overwrite_finished,
+                        overwrite, format, filepath);
+                    waiting_for_overwrite_confirmation = TRUE;
+                }
+                else
+                {
+                    gnc_plugin_page_report_export_to_file (
+                        report, data->report_id, data->choice,
+                        data->export_thunk, parent, filepath);
+                    g_free (filepath);
+                }
             }
         }
         else if (error &&
@@ -1789,7 +1848,8 @@ gnc_report_export_file_selected (GObject *source, GAsyncResult *result,
     g_clear_object (&file);
     g_clear_error (&error);
     g_clear_object (&report);
-    gnc_report_export_data_free (data);
+    if (!waiting_for_overwrite_confirmation)
+        gnc_report_export_data_free (data);
 }
 static void
 gnc_plugin_page_report_edit_tax_cb (GSimpleAction *simple,
