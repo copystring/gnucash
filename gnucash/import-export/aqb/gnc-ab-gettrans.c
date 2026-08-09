@@ -69,26 +69,14 @@ gettrans_data_free (GetTransData *data)
 }
 
 static void
-gettrans_no_transactions_response (GtkDialog *dialog, gint response,
-                                   gpointer user_data)
-{
-    (void)response;
-    (void)user_data;
-    gtk_window_destroy (GTK_WINDOW (dialog));
-}
-
-static void
 gettrans_show_no_transactions (GtkWidget *parent)
 {
-    GtkWidget *dialog = gtk_message_dialog_new (
-        GTK_WINDOW (parent), GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-        GTK_MESSAGE_INFO, GTK_BUTTONS_OK, "%s",
-        _("The Online Banking import returned no transactions "
-          "for the selected time period."));
+    GtkAlertDialog *dialog = gtk_alert_dialog_new (
+        "%s", _("The Online Banking import returned no transactions "
+                 "for the selected time period."));
 
-    g_signal_connect (dialog, "response",
-                      G_CALLBACK (gettrans_no_transactions_response), NULL);
-    gtk_window_present (GTK_WINDOW (dialog));
+    gtk_alert_dialog_show (dialog, GTK_WINDOW (parent));
+    g_object_unref (dialog);
 }
 
 static void
