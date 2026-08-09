@@ -76,273 +76,315 @@ txn_created_cb(Transaction *trans, gpointer user_data)
     *trans_loc = trans;
 }
 
+typedef struct
+{
+    AB_BANKING *api;
+    GNC_AB_ACCOUNT_SPEC *ab_acc;
+    GWeakRef parent;
+    Account *gnc_acc;
+    GncABTransType trans_type;
+    GncABTransDialog *td;
+} TransferData;
+
+static void transfer_request_input (TransferData *data);
+
+static void
+transfer_data_free (TransferData *data)
+{
+    if (!data)
+        return;
+
+    if (data->td)
+        gnc_ab_trans_dialog_free (data->td);
+    g_weak_ref_clear (&data->parent);
+    if (data->api)
+        gnc_AB_BANKING_fini (data->api);
+    g_free (data);
+}
+
+static void
+transfer_set_xfer_dialog_title (XferDialog *xfer_dialog,
+                                GncABTransType trans_type)
+{
+    switch (trans_type)
+    {
+    case SINGLE_DEBITNOTE:
+        gnc_xfer_dialog_set_title (xfer_dialog,
+                                   _("Online Banking Direct Debit Note"));
+        gnc_xfer_dialog_lock_to_account_tree (xfer_dialog);
+        break;
+    case SINGLE_INTERNAL_TRANSFER:
+        gnc_xfer_dialog_set_title (
+            xfer_dialog, _("Online Banking Bank-Internal Transfer"));
+        gnc_xfer_dialog_lock_from_account_tree (xfer_dialog);
+        break;
+    case SEPA_TRANSFER:
+        gnc_xfer_dialog_set_title (
+            xfer_dialog, _("Online Banking European (SEPA) Transfer"));
+        gnc_xfer_dialog_lock_from_account_tree (xfer_dialog);
+        break;
+#if (AQBANKING_VERSION_INT >= 60400)
+    case SEPA_INTERNAL_TRANSFER:
+        gnc_xfer_dialog_set_title (
+            xfer_dialog,
+            _("Online Banking European (SEPA) Internal Transfer"));
+        gnc_xfer_dialog_lock_from_account_tree (xfer_dialog);
+        break;
+#endif
+    case SEPA_DEBITNOTE:
+        gnc_xfer_dialog_set_title (
+            xfer_dialog, _("Online Banking European (SEPA) Debit Note"));
+        gnc_xfer_dialog_lock_to_account_tree (xfer_dialog);
+        break;
+    case SINGLE_TRANSFER:
+    default:
+        gnc_xfer_dialog_set_title (xfer_dialog, _("Online Banking Transaction"));
+        gnc_xfer_dialog_lock_from_account_tree (xfer_dialog);
+    }
+}
+
+static gboolean
+transfer_create_gnucash_transaction (TransferData *data, GtkWidget *parent,
+                                     const AB_TRANSACTION *ab_trans,
+                                     Transaction **gnc_trans)
+{
+    XferDialog *xfer_dialog;
+    gnc_numeric amount;
+    gchar *description;
+    gchar *memo;
+
+    xfer_dialog = gnc_xfer_dialog (parent, data->gnc_acc);
+    transfer_set_xfer_dialog_title (xfer_dialog, data->trans_type);
+    gnc_xfer_dialog_set_to_show_button_active (xfer_dialog, TRUE);
+
+    amount = double_to_gnc_numeric (
+        AB_Value_GetValueAsDouble (AB_Transaction_GetValue (ab_trans)),
+        xaccAccountGetCommoditySCU (data->gnc_acc), GNC_HOW_RND_ROUND_HALF_UP);
+    gnc_xfer_dialog_set_amount (xfer_dialog, amount);
+    gnc_xfer_dialog_set_amount_sensitive (xfer_dialog, FALSE);
+    gnc_xfer_dialog_set_date_sensitive (xfer_dialog, FALSE);
+
+    description = gnc_ab_description_to_gnc (ab_trans, FALSE);
+    gnc_xfer_dialog_set_description (xfer_dialog, description);
+    g_free (description);
+
+    memo = gnc_ab_memo_to_gnc (ab_trans);
+    gnc_xfer_dialog_set_memo (xfer_dialog, memo);
+    g_free (memo);
+
+    gnc_xfer_dialog_set_txn_cb (xfer_dialog, txn_created_cb, gnc_trans);
+    return gnc_xfer_dialog_run_until_done (xfer_dialog);
+}
+
+static void
+transfer_dialog_finished (GObject *source, GAsyncResult *result,
+                          gpointer user_data)
+{
+    TransferData *data = user_data;
+    GtkWidget *parent;
+    GError *error = NULL;
+    gint response;
+    GNC_AB_JOB *job = NULL;
+    GNC_AB_JOB_LIST2 *job_list = NULL;
+    const AB_TRANSACTION *ab_trans;
+    GncGWENGui *gui = NULL;
+    AB_IMEXPORTER_CONTEXT *context = NULL;
+    GncABImExContextImport *ieci = NULL;
+    Transaction *gnc_trans = NULL;
+    GNC_AB_JOB_STATUS job_status;
+    gboolean successful = FALSE;
+    gboolean retry = FALSE;
+
+    (void)source;
+    if (!gnc_ab_trans_dialog_run_finish (result, &response, &error))
+    {
+        if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            g_warning ("AqBanking transfer dialog: %s", error->message);
+        g_clear_error (&error);
+        transfer_data_free (data);
+        return;
+    }
+
+    parent = g_weak_ref_get (&data->parent);
+    if (!parent)
+    {
+        transfer_data_free (data);
+        return;
+    }
+
+#if (AQBANKING_VERSION_INT >= 60400)
+    {
+        gboolean changed;
+        GList *templates = gnc_ab_trans_dialog_get_templ (data->td, &changed);
+
+        if (data->trans_type != SEPA_INTERNAL_TRANSFER && changed)
+            save_templates (parent, data->gnc_acc, templates,
+                            response == GNC_RESPONSE_NOW);
+        g_list_free (templates);
+    }
+#endif
+
+    if (response != GNC_RESPONSE_NOW && response != GNC_RESPONSE_LATER)
+        goto cleanup;
+
+    ab_trans = gnc_ab_trans_dialog_get_ab_trans (data->td);
+    job = gnc_ab_trans_dialog_get_job (data->td);
+    if (!job || !AB_AccountSpec_GetTransactionLimitsForCommand (
+            data->ab_acc, AB_Transaction_GetCommand (job)))
+    {
+        if (gnc_verify_dialog (
+                GTK_WINDOW (parent), FALSE, "%s",
+                _("The backend found an error during the preparation "
+                  "of the job. It is not possible to execute this job.\n"
+                  "\n"
+                  "Most probable the bank does not support your chosen "
+                  "job or your Online Banking account does not have the permission "
+                  "to execute this job. More error messages might be "
+                  "visible on your console log.\n"
+                  "\n"
+                  "Do you want to enter the job again?")))
+            retry = TRUE;
+        goto cleanup;
+    }
+
+    job_list = AB_Transaction_List2_new ();
+    AB_Transaction_List2_PushBack (job_list, job);
+    if (!transfer_create_gnucash_transaction (data, parent, ab_trans,
+                                              &gnc_trans))
+        goto cleanup;
+
+    if (!gnc_trans)
+        goto cleanup;
+
+    if (response == GNC_RESPONSE_LATER)
+    {
+        successful = TRUE;
+        goto cleanup;
+    }
+
+    context = AB_ImExporterContext_new ();
+    gui = gnc_GWEN_Gui_get (parent);
+    if (!gui)
+    {
+        g_warning ("gnc_ab_maketrans: Couldn't initialize Gwenhywfar GUI");
+        goto cleanup;
+    }
+
+    AB_Banking_SendCommands (data->api, job_list, context);
+    job_status = AB_Transaction_GetStatus (job);
+    if (job_status != AB_Transaction_StatusAccepted
+        && job_status != AB_Transaction_StatusPending)
+    {
+        if (gnc_verify_dialog (
+                GTK_WINDOW (parent), FALSE, "%s",
+                _("An error occurred while executing the job. Please check "
+                  "the log window for the exact error message.\n"
+                  "\n"
+                  "Do you want to enter the job again?")))
+            retry = TRUE;
+        goto cleanup;
+    }
+
+    successful = TRUE;
+    ieci = gnc_ab_import_context (context, 0, FALSE, NULL, parent);
+
+cleanup:
+    if (gnc_trans && !successful)
+    {
+        xaccTransBeginEdit (gnc_trans);
+        xaccTransDestroy (gnc_trans);
+        xaccTransCommitEdit (gnc_trans);
+    }
+    if (ieci)
+        g_free (ieci);
+    if (context)
+        AB_ImExporterContext_free (context);
+    if (gui)
+        gnc_GWEN_Gui_release (gui);
+    if (job_list)
+        AB_Transaction_List2_free (job_list);
+    if (job)
+        AB_Transaction_free (job);
+    g_object_unref (parent);
+
+    if (retry)
+        transfer_request_input (data);
+    else
+        transfer_data_free (data);
+}
+
+static void
+transfer_request_input (TransferData *data)
+{
+    gnc_ab_trans_dialog_run_async (data->td, NULL, transfer_dialog_finished,
+                                   data);
+}
+
 void
-gnc_ab_maketrans(GtkWidget *parent, Account *gnc_acc,
-                 GncABTransType trans_type)
+gnc_ab_maketrans (GtkWidget *parent, Account *gnc_acc,
+                  GncABTransType trans_type)
 {
     AB_BANKING *api;
     GNC_AB_ACCOUNT_SPEC *ab_acc;
     GList *templates = NULL;
-    GncABTransDialog *td = NULL;
-    gboolean successful = FALSE;
-    gboolean aborted = FALSE;
+    GncABTransDialog *td;
+    TransferData *data;
 
-    g_return_if_fail(parent && gnc_acc);
+    g_return_if_fail (parent && gnc_acc);
 
-    /* Get the API */
-    api = gnc_AB_BANKING_new();
+    api = gnc_AB_BANKING_new ();
     if (!api)
     {
-        g_warning("gnc_ab_maketrans: Couldn't get AqBanking API");
+        g_warning ("gnc_ab_maketrans: Couldn't get AqBanking API");
         return;
     }
-    /* Get the AqBanking Account */
-    ab_acc = gnc_ab_get_ab_account(api, gnc_acc);
+
+    ab_acc = gnc_ab_get_ab_account (api, gnc_acc);
     if (!ab_acc)
     {
-        g_warning("gnc_ab_gettrans: No AqBanking account found");
-        gnc_error_dialog (GTK_WINDOW (parent), _("No valid online banking account assigned."));
-        goto cleanup;
+        g_warning ("gnc_ab_gettrans: No AqBanking account found");
+        gnc_error_dialog (GTK_WINDOW (parent),
+                          _("No valid online banking account assigned."));
+        gnc_AB_BANKING_fini (api);
+        return;
     }
 
 #if (AQBANKING_VERSION_INT >= 60400)
     if (trans_type == SEPA_INTERNAL_TRANSFER)
     {
-        /* Generate list of template transactions from the reference accounts*/
         templates = gnc_ab_trans_templ_list_new_from_ref_accounts (ab_acc);
-        if (templates == NULL)
+        if (!templates)
         {
             g_warning ("gnc_ab_gettrans: No reference accounts found");
-            gnc_error_dialog (GTK_WINDOW (parent), _("No reference accounts found."));
-            goto cleanup;
+            gnc_error_dialog (GTK_WINDOW (parent),
+                              _("No reference accounts found."));
+            gnc_AB_BANKING_fini (api);
+            return;
         }
     }
     else
 #endif
     {
-    /* Get list of template transactions */
-        templates = gnc_ab_trans_templ_list_new_from_book(
-             gnc_account_get_book(gnc_acc));
+        templates = gnc_ab_trans_templ_list_new_from_book (
+            gnc_account_get_book (gnc_acc));
     }
 
-    /* Create new ABTransDialog */
-    td = gnc_ab_trans_dialog_new(parent, ab_acc,
-                                 xaccAccountGetCommoditySCU(gnc_acc),
-                                 trans_type, templates);
-    templates = NULL;
-
-    /* Repeat until AqBanking action was successful or user pressed cancel */
-    do
+    td = gnc_ab_trans_dialog_new (parent, ab_acc,
+                                  xaccAccountGetCommoditySCU (gnc_acc),
+                                  trans_type, templates);
+    if (!td)
     {
-        GncGWENGui *gui = NULL;
-        gint result;
-        const AB_TRANSACTION *ab_trans;
-        GNC_AB_JOB *job = NULL;
-        GNC_AB_JOB_LIST2 *job_list = NULL;
-        XferDialog *xfer_dialog = NULL;
-        gnc_numeric amount;
-        gchar *description;
-        gchar *memo;
-        Transaction *gnc_trans = NULL;
-        AB_IMEXPORTER_CONTEXT *context = NULL;
-        GNC_AB_JOB_STATUS job_status;
-        GncABImExContextImport *ieci = NULL;
-
-
-        /* Let the user enter the values */
-        result = gnc_ab_trans_dialog_run_until_ok(td);
-
-#if (AQBANKING_VERSION_INT >= 60400)
-        gboolean changed;
-        templates = gnc_ab_trans_dialog_get_templ(td, &changed);
-        if (trans_type != SEPA_INTERNAL_TRANSFER && changed)
-        {
-           /* Save the templates */
-            save_templates(parent, gnc_acc, templates,
-                           (result == GNC_RESPONSE_NOW));
-        }
-        g_list_free(templates);
-        templates = NULL;
-#endif
-
-        if (result != GNC_RESPONSE_NOW && result != GNC_RESPONSE_LATER)
-        {
-            aborted = TRUE;
-            goto repeat;
-        }
-
-        /* Get a job and enqueue it */
-        ab_trans = gnc_ab_trans_dialog_get_ab_trans(td);
-        job = gnc_ab_trans_dialog_get_job(td);
-        if (!job || AB_AccountSpec_GetTransactionLimitsForCommand(ab_acc, AB_Transaction_GetCommand(job))==NULL)
-        {
-            if (!gnc_verify_dialog (
-                        GTK_WINDOW (parent), FALSE, "%s",
-                        _("The backend found an error during the preparation "
-                          "of the job. It is not possible to execute this job.\n"
-                          "\n"
-                          "Most probable the bank does not support your chosen "
-                          "job or your Online Banking account does not have the permission "
-                          "to execute this job. More error messages might be "
-                          "visible on your console log.\n"
-                          "\n"
-                          "Do you want to enter the job again?")))
-                aborted = TRUE;
-            goto repeat;
-        }
-        job_list = AB_Transaction_List2_new();
-        AB_Transaction_List2_PushBack(job_list, job);
-        /* Setup a Transfer Dialog for the GnuCash transaction */
-        xfer_dialog = gnc_xfer_dialog(gnc_ab_trans_dialog_get_parent(td),
-                                      gnc_acc);
-        switch (trans_type)
-        {
-        case SINGLE_DEBITNOTE:
-            gnc_xfer_dialog_set_title(
-                xfer_dialog, _("Online Banking Direct Debit Note"));
-            gnc_xfer_dialog_lock_to_account_tree(xfer_dialog);
-            break;
-        case SINGLE_INTERNAL_TRANSFER:
-            gnc_xfer_dialog_set_title(
-                xfer_dialog, _("Online Banking Bank-Internal Transfer"));
-            gnc_xfer_dialog_lock_from_account_tree(xfer_dialog);
-            break;
-        case SEPA_TRANSFER:
-            gnc_xfer_dialog_set_title(
-                xfer_dialog, _("Online Banking European (SEPA) Transfer"));
-            gnc_xfer_dialog_lock_from_account_tree(xfer_dialog);
-            break;
-#if (AQBANKING_VERSION_INT >= 60400)
-        case SEPA_INTERNAL_TRANSFER:
-            gnc_xfer_dialog_set_title (
-                xfer_dialog, _("Online Banking European (SEPA) Internal Transfer"));
-            gnc_xfer_dialog_lock_from_account_tree (xfer_dialog);
-            break;
-#endif
-        case SEPA_DEBITNOTE:
-            gnc_xfer_dialog_set_title(
-                xfer_dialog, _("Online Banking European (SEPA) Debit Note"));
-            gnc_xfer_dialog_lock_to_account_tree(xfer_dialog);
-            break;
-        case SINGLE_TRANSFER:
-        default:
-            gnc_xfer_dialog_set_title(
-                xfer_dialog, _("Online Banking Transaction"));
-            gnc_xfer_dialog_lock_from_account_tree(xfer_dialog);
-        }
-        gnc_xfer_dialog_set_to_show_button_active(xfer_dialog, TRUE);
-
-        amount = double_to_gnc_numeric(
-                     AB_Value_GetValueAsDouble(AB_Transaction_GetValue(ab_trans)),
-                     xaccAccountGetCommoditySCU(gnc_acc),
-                     GNC_HOW_RND_ROUND_HALF_UP);
-        gnc_xfer_dialog_set_amount(xfer_dialog, amount);
-        gnc_xfer_dialog_set_amount_sensitive(xfer_dialog, FALSE);
-        gnc_xfer_dialog_set_date_sensitive(xfer_dialog, FALSE);
-
-        /* OFX doesn't do transfers. */
-        description = gnc_ab_description_to_gnc(ab_trans, FALSE);
-        gnc_xfer_dialog_set_description(xfer_dialog, description);
-        g_free(description);
-
-        memo = gnc_ab_memo_to_gnc(ab_trans);
-        gnc_xfer_dialog_set_memo(xfer_dialog, memo);
-        g_free(memo);
-
-        gnc_xfer_dialog_set_txn_cb(xfer_dialog, txn_created_cb, &gnc_trans);
-
-        /* And run it */
-        successful = gnc_xfer_dialog_run_until_done(xfer_dialog);
-
-        /* On cancel, go back to the AB transaction dialog */
-        if (!successful || !gnc_trans)
-        {
-            successful = FALSE;
-            goto repeat;
-        }
-
-        if (result == GNC_RESPONSE_NOW)
-        {
-            /* Create a context to store possible results */
-            context = AB_ImExporterContext_new();
-
-            gui = gnc_GWEN_Gui_get(parent);
-            if (!gui)
-            {
-                g_warning("gnc_ab_maketrans: Couldn't initialize Gwenhywfar GUI");
-                aborted = TRUE;
-                goto repeat;
-            }
-
-            /* Finally, execute the job */
-            AB_Banking_SendCommands(api, job_list, context);
-            /* Ignore the return value of AB_Banking_ExecuteJobs(), as the job's
-             * status always describes better whether the job was actually
-             * transferred to and accepted by the bank.  See also
-             * https://lists.gnucash.org/pipermail/gnucash-de/2008-September/006389.html
-             */
-            job_status = AB_Transaction_GetStatus(job);
-            if (job_status != AB_Transaction_StatusAccepted
-                && job_status != AB_Transaction_StatusPending)
-            {
-                successful = FALSE;
-                if (!gnc_verify_dialog (
-                            GTK_WINDOW (parent), FALSE, "%s",
-                            _("An error occurred while executing the job. Please check "
-                              "the log window for the exact error message.\n"
-                              "\n"
-                              "Do you want to enter the job again?")))
-                {
-                    aborted = TRUE;
-                }
-            }
-            else
-            {
-                successful = TRUE;
-            }
-
-            if (successful)
-            {
-                /* Import the results, awaiting nothing */
-                ieci = gnc_ab_import_context(context, 0, FALSE, NULL, parent);
-            }
-        }
-        /* Simply ignore any other case */
-
-repeat:
-        /* Clean up */
-        if (gnc_trans && !successful)
-        {
-            xaccTransBeginEdit(gnc_trans);
-            xaccTransDestroy(gnc_trans);
-            xaccTransCommitEdit(gnc_trans);
-            gnc_trans = NULL;
-        }
-        if (ieci)
-            g_free(ieci);
-        if (context)
-            AB_ImExporterContext_free(context);
-        if (job_list)
-        {
-            AB_Transaction_List2_free(job_list);
-            job_list = NULL;
-        }
-        if (job)
-        {
-            AB_Transaction_free(job);
-            job = NULL;
-        }
-        if (gui)
-        {
-            gnc_GWEN_Gui_release(gui);
-            gui = NULL;
-        }
-
+        gnc_ab_trans_templ_list_free (templates);
+        gnc_AB_BANKING_fini (api);
+        return;
     }
-    while (!successful && !aborted);
 
-cleanup:
-    if (td)
-        gnc_ab_trans_dialog_free(td);
-    gnc_AB_BANKING_fini(api);
+    data = g_new0 (TransferData, 1);
+    data->api = api;
+    data->ab_acc = ab_acc;
+    data->gnc_acc = gnc_acc;
+    data->trans_type = trans_type;
+    data->td = td;
+    g_weak_ref_init (&data->parent, parent);
+    transfer_request_input (data);
 }

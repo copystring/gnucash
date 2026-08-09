@@ -36,116 +36,199 @@
 /* This static indicates the debugging module that this .o belongs to.  */
 static QofLogModule log_module = G_LOG_DOMAIN;
 
-typedef struct _DaterangeInfo DaterangeInfo;
-
-void ddr_toggled_cb(GtkToggleButton *button, gpointer user_data);
-
-struct _DaterangeInfo
+typedef struct
 {
+    GtkWidget *dialog;
+    GtkBuilder *builder;
+    GTask *task;
     GtkWidget *enter_from_button;
     GtkWidget *enter_to_button;
     GtkWidget *from_dateedit;
     GtkWidget *to_dateedit;
-};
-
-gboolean
-gnc_ab_enter_daterange(GtkWidget *parent,
-                       const char *heading,
-                       time64 *from_date,
-                       gboolean *last_retv_date,
-                       gboolean *first_possible_date,
-                       time64 *to_date,
-                       gboolean *to_now)
-{
-    GtkBuilder *builder;
-    GtkWidget *dialog;
-    GtkWidget *heading_label;
     GtkWidget *first_button;
     GtkWidget *last_retrieval_button;
     GtkWidget *now_button;
-    DaterangeInfo info;
-    gint result;
+} DaterangeInfo;
 
-    ENTER("");
+void ddr_toggled_cb (GtkToggleButton *button, gpointer user_data);
 
-    builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(&info));
-    gnc_builder_add_from_file (builder, "dialog-ab.glade", "aqbanking_date_range_dialog");
+static void daterange_complete (DaterangeInfo *info, gboolean accepted);
 
-    dialog = GTK_WIDGET(gtk_builder_get_object (builder, "aqbanking_date_range_dialog"));
-
-    /* Connect the signals */
-    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, &info );
-
-    if (parent)
-        gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(parent));
-
-    heading_label  = GTK_WIDGET(gtk_builder_get_object (builder, "date_heading_label"));
-    first_button  = GTK_WIDGET(gtk_builder_get_object (builder, "first_button"));
-    last_retrieval_button  = GTK_WIDGET(gtk_builder_get_object (builder, "last_retrieval_button"));
-    info.enter_from_button  = GTK_WIDGET(gtk_builder_get_object (builder, "enter_from_button"));
-    now_button  = GTK_WIDGET(gtk_builder_get_object (builder, "now_button"));
-    info.enter_to_button  = GTK_WIDGET(gtk_builder_get_object (builder, "enter_to_button"));
-
-    info.from_dateedit = gnc_date_edit_new (*from_date, FALSE, FALSE);
-    gtk_box_prepend (GTK_BOX(gtk_builder_get_object (builder, "enter_from_box")), GTK_WIDGET(info.from_dateedit));
-    gtk_widget_set_visible (GTK_WIDGET(info.from_dateedit), TRUE);
-
-    info.to_dateedit = gnc_date_edit_new (*to_date, FALSE, FALSE);
-    gtk_box_prepend (GTK_BOX(gtk_builder_get_object (builder, "enter_to_box")), GTK_WIDGET(info.to_dateedit));
-    gtk_widget_set_visible (GTK_WIDGET(info.to_dateedit), TRUE);
-    if (*last_retv_date)
-    {
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(last_retrieval_button),
-                                     TRUE);
-    }
-    else
-    {
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(first_button), TRUE);
-        gtk_widget_set_sensitive(last_retrieval_button, FALSE);
-    }
-
-    gtk_widget_set_sensitive(info.from_dateedit, FALSE);
-    gtk_widget_set_sensitive(info.to_dateedit, FALSE);
-
-    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
-
-    if (heading)
-        gtk_label_set_text(GTK_LABEL(heading_label), heading);
-
-    result = gnc_dialog_run_non_destructive (GTK_DIALOG(dialog));
-
-    if (result == GTK_RESPONSE_OK)
-    {
-        *from_date = gnc_date_edit_get_date(GNC_DATE_EDIT(info.from_dateedit));
-        *last_retv_date = gtk_toggle_button_get_active(
-                              GTK_TOGGLE_BUTTON(last_retrieval_button));
-        *first_possible_date = gtk_toggle_button_get_active(
-                                   GTK_TOGGLE_BUTTON(first_button));
-        *to_date = gnc_date_edit_get_date (GNC_DATE_EDIT(info.to_dateedit));
-        *to_now = gtk_toggle_button_get_active(
-                      GTK_TOGGLE_BUTTON(now_button));
-    }
-
-    g_object_unref(G_OBJECT(builder));
-
-    gtk_window_destroy (GTK_WINDOW(dialog));
-
-    LEAVE("");
-    return result == GTK_RESPONSE_OK;
+static void
+daterange_dialog_response (GtkDialog *dialog, gint response, gpointer user_data)
+{
+    (void)dialog;
+    daterange_complete (user_data, response == GTK_RESPONSE_OK);
 }
 
-void
-ddr_toggled_cb(GtkToggleButton *button, gpointer user_data)
+static void
+daterange_dialog_destroyed (GtkWidget *widget, gpointer user_data)
 {
     DaterangeInfo *info = user_data;
 
-    g_return_if_fail(info);
+    if (info->dialog == widget)
+        info->dialog = NULL;
+    daterange_complete (info, FALSE);
+}
 
-    gtk_widget_set_sensitive(info->from_dateedit,
-                             gtk_toggle_button_get_active(
-                                 GTK_TOGGLE_BUTTON(info->enter_from_button)));
-    gtk_widget_set_sensitive(info->to_dateedit,
-                             gtk_toggle_button_get_active(
-                                 GTK_TOGGLE_BUTTON(info->enter_to_button)));
+static void
+daterange_complete (DaterangeInfo *info, gboolean accepted)
+{
+    GTask *task;
+    GncABDateRange *range = NULL;
+
+    if (!info || !info->task)
+        return;
+
+    task = g_steal_pointer (&info->task);
+    if (accepted)
+    {
+        range = g_new0 (GncABDateRange, 1);
+        range->from_date = gnc_date_edit_get_date (
+            GNC_DATE_EDIT (info->from_dateedit));
+        range->last_retrieval_date = gtk_toggle_button_get_active (
+            GTK_TOGGLE_BUTTON (info->last_retrieval_button));
+        range->first_possible_date = gtk_toggle_button_get_active (
+            GTK_TOGGLE_BUTTON (info->first_button));
+        range->to_date = gnc_date_edit_get_date (
+            GNC_DATE_EDIT (info->to_dateedit));
+        range->to_now = gtk_toggle_button_get_active (
+            GTK_TOGGLE_BUTTON (info->now_button));
+    }
+
+    if (info->dialog)
+        gtk_window_destroy (GTK_WINDOW (info->dialog));
+    g_clear_object (&info->builder);
+    g_task_return_pointer (task, range, g_free);
+    g_object_unref (task);
+    g_free (info);
+}
+
+void
+gnc_ab_enter_daterange_async (GtkWidget *parent, const char *heading,
+                              const GncABDateRange *initial,
+                              GCancellable *cancellable,
+                              GAsyncReadyCallback callback, gpointer user_data)
+{
+    DaterangeInfo *info;
+    GtkWidget *heading_label;
+
+    g_return_if_fail (!parent || GTK_IS_WIDGET (parent));
+    g_return_if_fail (initial);
+
+    info = g_new0 (DaterangeInfo, 1);
+    info->task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (info->task, gnc_ab_enter_daterange_async);
+    info->builder = gtk_builder_new ();
+    gnc_builder_add_from_file (info->builder, "dialog-ab.glade",
+                               "aqbanking_date_range_dialog");
+    info->dialog = GTK_WIDGET (gtk_builder_get_object (
+        info->builder, "aqbanking_date_range_dialog"));
+    if (!info->dialog)
+    {
+        g_task_return_new_error (info->task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "Could not create AqBanking date range dialog");
+        g_object_unref (info->task);
+        g_clear_object (&info->builder);
+        g_free (info);
+        return;
+    }
+
+    gnc_builder_connect_signals_full (info->builder, gnc_builder_connect_full_func,
+                                      info);
+    g_signal_connect (info->dialog, "response",
+                      G_CALLBACK (daterange_dialog_response), info);
+    g_signal_connect (info->dialog, "destroy",
+                      G_CALLBACK (daterange_dialog_destroyed), info);
+
+    if (parent)
+        gtk_window_set_transient_for (GTK_WINDOW (info->dialog),
+                                      GTK_WINDOW (parent));
+
+    heading_label = GTK_WIDGET (gtk_builder_get_object (info->builder,
+                                                         "date_heading_label"));
+    info->first_button = GTK_WIDGET (gtk_builder_get_object (info->builder,
+                                                             "first_button"));
+    info->last_retrieval_button = GTK_WIDGET (gtk_builder_get_object (
+        info->builder, "last_retrieval_button"));
+    info->enter_from_button = GTK_WIDGET (gtk_builder_get_object (info->builder,
+                                                                   "enter_from_button"));
+    info->now_button = GTK_WIDGET (gtk_builder_get_object (info->builder,
+                                                           "now_button"));
+    info->enter_to_button = GTK_WIDGET (gtk_builder_get_object (info->builder,
+                                                                 "enter_to_button"));
+
+    info->from_dateedit = gnc_date_edit_new (initial->from_date, FALSE, FALSE);
+    gtk_box_prepend (GTK_BOX (gtk_builder_get_object (info->builder,
+                                                      "enter_from_box")),
+                     info->from_dateedit);
+    gtk_widget_set_visible (info->from_dateedit, TRUE);
+
+    info->to_dateedit = gnc_date_edit_new (initial->to_date, FALSE, FALSE);
+    gtk_box_prepend (GTK_BOX (gtk_builder_get_object (info->builder,
+                                                      "enter_to_box")),
+                     info->to_dateedit);
+    gtk_widget_set_visible (info->to_dateedit, TRUE);
+
+    if (initial->last_retrieval_date)
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (
+                                          info->last_retrieval_button), TRUE);
+    else if (initial->first_possible_date)
+    {
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (info->first_button), TRUE);
+        gtk_widget_set_sensitive (info->last_retrieval_button, FALSE);
+    }
+    else
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (
+                                          info->enter_from_button), TRUE);
+
+    if (!initial->to_now)
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (info->enter_to_button),
+                                      TRUE);
+
+    gtk_widget_set_sensitive (info->from_dateedit,
+                              !initial->last_retrieval_date
+                              && !initial->first_possible_date);
+    gtk_widget_set_sensitive (info->to_dateedit, !initial->to_now);
+    gtk_window_set_default_widget (
+        GTK_WINDOW (info->dialog),
+        GTK_WIDGET (gtk_builder_get_object (info->builder, "ok_button")));
+
+    if (heading)
+        gtk_label_set_text (GTK_LABEL (heading_label), heading);
+    gtk_window_present (GTK_WINDOW (info->dialog));
+}
+
+gboolean
+gnc_ab_enter_daterange_finish (GAsyncResult *result, GncABDateRange *range,
+                               GError **error)
+{
+    GncABDateRange *selection;
+
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    g_return_val_if_fail (range, FALSE);
+
+    selection = g_task_propagate_pointer (G_TASK (result), error);
+    if (!selection)
+        return FALSE;
+
+    *range = *selection;
+    g_free (selection);
+    return TRUE;
+}
+
+void
+ddr_toggled_cb (GtkToggleButton *button, gpointer user_data)
+{
+    DaterangeInfo *info = user_data;
+
+    (void)button;
+    g_return_if_fail (info);
+
+    gtk_widget_set_sensitive (info->from_dateedit,
+                              gtk_toggle_button_get_active (
+                                  GTK_TOGGLE_BUTTON (info->enter_from_button)));
+    gtk_widget_set_sensitive (info->to_dateedit,
+                              gtk_toggle_button_get_active (
+                                  GTK_TOGGLE_BUTTON (info->enter_to_button)));
 }
