@@ -1,8 +1,11 @@
 include(CheckSymbolExists)
 
+add_subdirectory(test)
+
 set (register_gnome_SOURCES
   combocell-gnome.c
   completioncell-gnome.c
+  gnc-completion-model.c
   datecell-gnome.c
   formulacell-gnome.c
   gnucash-color.c
@@ -22,6 +25,7 @@ set (register_gnome_SOURCES
 
 set (register_gnome_noinst_HEADERS
   formulacell-gnome.h
+  gnc-completion-model.h
   gnucash-color.h
   gnucash-cursor.h
   gnucash-date-picker.h

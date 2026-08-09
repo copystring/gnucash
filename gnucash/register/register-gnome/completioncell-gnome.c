@@ -38,6 +38,7 @@
 
 #include "completioncell.h"
 #include "gnc-prefs.h"
+#include "gnc-completion-model.h"
 #include "gnucash-item-edit.h"
 #include "gnucash-item-list.h"
 #include "gnucash-sheet.h"
@@ -52,8 +53,8 @@ typedef struct _PopBox
     GncItemEdit*  item_edit;
     GncItemList*  item_list;
 
-    GHashTable*   item_hash; // the item hash table
-    GtkListStore* item_store; // the item list store
+    GncCompletionModel *completion_model; // the logical menu entries
+    GtkListStore* item_store; // temporary GTK3 bridge until the popover port
 
     gchar*        newval; // string value to find
     gint          newval_len; // length of string value to find
@@ -69,7 +70,6 @@ typedef struct _PopBox
     gboolean      strict; // text entry must be in the list
     gboolean      in_list_select; // item selected in the list
 
-    gint          occurrence; // the position in the list
 
 } PopBox;
 
@@ -132,9 +132,8 @@ gnc_completion_cell_init (CompletionCell* cell)
 
     box->strict = FALSE;
     box->in_list_select = FALSE;
-    box->occurrence = 0;
 
-    box->item_hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+    box->completion_model = gnc_completion_model_new ();
 }
 
 static void
@@ -363,31 +362,13 @@ gnc_completion_cell_destroy (BasicCell* bcell)
 
     if (box)
     {
-        if (box->item_hash)
-            g_hash_table_destroy (box->item_hash);
+        g_clear_object (&box->completion_model);
 
         g_free (box);
         cell->cell.gui_private = NULL;
     }
     cell->cell.gui_private = NULL;
     cell->cell.gui_realize = NULL;
-}
-
-static gint
-sort_func (GtkTreeModel* model, GtkTreeIter* iter_a, GtkTreeIter* iter_b, gpointer user_data)
-{
-    gint a_weight, b_weight;
-    gint ret = 0;
-
-    gtk_tree_model_get (model, iter_a, WEIGHT_COL, &a_weight, -1);
-    gtk_tree_model_get (model, iter_b, WEIGHT_COL, &b_weight, -1);
-
-    if (a_weight < b_weight)
-        ret = -1;
-    else if (a_weight > b_weight)
-        ret = 1;
-
-    return ret;
 }
 
 void
@@ -399,20 +380,6 @@ gnc_completion_cell_set_sort_enabled (CompletionCell* cell,
 
     PopBox* box = cell->cell.gui_private;
     box->sort_enabled = enabled;
-}
-
-static void
-set_sort_column_enabled (PopBox* box, gboolean enable)
-{
-    if (enable)
-    {
-        gtk_tree_sortable_set_sort_func (GTK_TREE_SORTABLE(box->item_list->list_store),
-                                         WEIGHT_COL, sort_func, box->item_list, NULL);
-
-        gnc_item_list_set_sort_column (box->item_list, WEIGHT_COL);
-    }
-    else
-        gnc_item_list_set_sort_column (box->item_list, GTK_TREE_SORTABLE_UNSORTED_SORT_COLUMN_ID);
 }
 
 static void
@@ -428,13 +395,7 @@ item_store_clear (CompletionCell* cell)
 
     block_list_signals (cell);
 
-    if (box->sort_enabled) // if sorting, disable it
-        set_sort_column_enabled (box, FALSE);
-
     gtk_list_store_clear (box->item_store);
-
-    if (box->sort_enabled) // if sorting, enable it
-        set_sort_column_enabled (box, TRUE);
 
     unblock_list_signals (cell);
 
@@ -447,49 +408,31 @@ item_store_clear (CompletionCell* cell)
 void
 gnc_completion_cell_clear_menu (CompletionCell* cell)
 {
+    PopBox* box;
+
     if (!cell)
         return;
 
-    PopBox* box = cell->cell.gui_private;
+    box = cell->cell.gui_private;
     if (!box)
         return;
 
+    gnc_completion_model_clear (box->completion_model);
     if (box->item_list)
-    {
-        g_hash_table_remove_all (box->item_hash);
         item_store_clear (cell);
-        box->occurrence = 0;
-    }
 }
 
 void
 gnc_completion_cell_add_menu_item (CompletionCell* cell,
                                    const char* menustr)
 {
+    PopBox* box;
+
     if (!cell || !menustr)
         return;
 
-    PopBox* box = cell->cell.gui_private;
-
-    if (box->item_hash)
-    {
-        gpointer value = g_hash_table_lookup (box->item_hash, menustr);
-        gboolean update = FALSE;
-        if (value)
-        {
-            if (!box->register_is_reversed)
-                update = TRUE;
-        }
-        else
-            update = TRUE;
-
-        if (update)
-        {
-            g_hash_table_insert (box->item_hash, g_strdup (menustr),
-                                 GINT_TO_POINTER(box->occurrence));
-        }
-        box->occurrence++;
-    }
+    box = cell->cell.gui_private;
+    gnc_completion_model_add_menu_item (box->completion_model, menustr);
 }
 
 void
@@ -502,8 +445,8 @@ gnc_completion_cell_set_value (CompletionCell* cell, const char* str)
 }
 
 static inline void
-list_store_append (GtkListStore *store, char* string,
-                   char* markup, gint weight, gint found_location)
+list_store_append (GtkListStore *store, const gchar *string,
+                   const gchar *markup, gint weight, gint found_location)
 {
     GtkTreeIter iter;
 
@@ -517,92 +460,6 @@ list_store_append (GtkListStore *store, char* string,
                                       TEXT_MARKUP_COL, markup,
                                       WEIGHT_COL, weight,
                                       FOUND_LOCATION_COL, found_location, -1);
-}
-
-static gint
-test_and_add (PopBox* box, const gchar *text, gint start_pos,
-              gpointer key, gint occurrence_difference)
-{
-    gint ret_value = -1;
-    gint text_length = g_utf8_strlen (text, -1);
-
-    if (start_pos >= text_length)
-       return ret_value;
-
-    gchar *sub_text = g_utf8_substring (text, start_pos, text_length);
-    int pos = 0, len = 0;
-    if (gnc_unicode_has_substring_base_chars (box->newval, sub_text, &pos, &len))
-    {
-        gchar *markup = NULL, *prefix = NULL, *match = NULL, *suffix = NULL;
-        gint found_location = start_pos + pos;
-        gboolean have_boundary = FALSE;
-        gint prefix_length;
-        gint weight;
-
-        if (found_location > 0)
-            prefix = g_utf8_substring (text, 0, found_location);
-        else
-            prefix = g_strdup ("");
-
-        prefix_length = g_utf8_strlen (prefix, -1);
-
-        match = g_utf8_substring (text, found_location, found_location + len);
-
-        if (pos >= 1)
-        {
-            gunichar prev = g_utf8_get_char (g_utf8_offset_to_pointer (sub_text, pos - 1));
-            if (prev && (g_unichar_isspace (prev) || g_unichar_ispunct (prev)))
-                have_boundary = TRUE;
-            else
-                ret_value = found_location + 1;
-        }
-
-        suffix = g_utf8_substring (text, found_location + len, text_length);
-
-        markup = g_markup_printf_escaped ("%s<b>%s</b>%s%s", prefix, match, suffix, " ");
-
-        if ((prefix_length == 0 ) || have_boundary)
-        {
-            weight = occurrence_difference; // sorted by recent first
-
-            if (gnc_unicode_compare_base_chars (sub_text, box->newval) == 0) // exact match
-                weight = 1;
-
-            list_store_append (box->item_store, key, markup, weight, found_location);
-        }
-        g_free (markup);
-        g_free (prefix);
-        g_free (match);
-        g_free (suffix);
-    }
-    g_free (sub_text);
-    return ret_value;
-}
-
-static void
-add_item (gpointer key, gpointer value, gpointer user_data)
-{
-    PopBox* box = user_data;
-    gchar *hash_entry = g_strdup (key);
-
-    if (hash_entry && *hash_entry)
-    {
-        gint start_pos = 0;
-        gint occurrence_difference;
-        gnc_utf8_strip_invalid_and_controls (hash_entry);
-
-        if (box->register_is_reversed)
-            occurrence_difference = GPOINTER_TO_INT(value) + 1;
-        else
-            occurrence_difference = box->occurrence - GPOINTER_TO_INT(value);
-
-        do
-        {
-            start_pos = test_and_add (box, hash_entry, start_pos, key, occurrence_difference);
-        }
-        while (start_pos != -1);
-    }
-    g_free (hash_entry);
 }
 
 static void
@@ -633,62 +490,55 @@ static void
 populate_list_store (CompletionCell* cell, gchar* str)
 {
     PopBox* box = cell->cell.gui_private;
+    GListModel *suggestions;
+    guint n_suggestions;
 
     box->in_list_select = FALSE;
     box->item_edit->popup_allocation_height = -1;
 
-    if (str && *str)
-        box->newval = g_strdup(str);
-    else
+    if (!str || !*str)
         return;
 
+    g_free (box->newval);
+    box->newval = g_strdup (str);
     box->newval_len = g_utf8_strlen (str, -1);
+    suggestions = gnc_completion_model_build_suggestions (
+        box->completion_model, box->newval, DONT_TEXT, box->sort_enabled);
+    n_suggestions = g_list_model_get_n_items (suggestions);
 
-    // disconnect list store from tree view
+    // Disconnect the store while its visible contents are replaced.
     gnc_item_list_disconnect_store (box->item_list);
-
     block_list_signals (cell);
-
-    if (box->sort_enabled) // if sorting, disable it
-        set_sort_column_enabled (box, FALSE);
-
     gtk_list_store_clear (box->item_store);
 
-    // add the don't first entry
-    gchar *markup = g_markup_printf_escaped ("<i>%s</i>", DONT_TEXT);
-    list_store_append (box->item_store, DONT_TEXT, markup, 0, 0);
-    g_free (markup);
+    for (guint i = 0; i < n_suggestions; i++)
+    {
+        GncSuggestionItem *item = g_list_model_get_item (suggestions, i);
 
-    // add to the list store
-    g_hash_table_foreach (box->item_hash, add_item, box);
-
-    if (box->sort_enabled) // if sorting, enable it
-        set_sort_column_enabled (box, TRUE);
+        list_store_append (box->item_store,
+                           gnc_suggestion_item_get_text (item),
+                           gnc_suggestion_item_get_markup (item),
+                           gnc_suggestion_item_get_weight (item),
+                           gnc_suggestion_item_get_found_location (item));
+        g_object_unref (item);
+    }
 
     unblock_list_signals (cell);
-
-    // reconnect list store to tree view
     gnc_item_list_connect_store (box->item_list, box->item_store);
+    gtk_tree_view_column_queue_resize (
+        gtk_tree_view_get_column (box->item_list->tree_view, TEXT_COL));
+    g_object_unref (suggestions);
 
-    // reset horizontal scrolling
-    gtk_tree_view_column_queue_resize (gtk_tree_view_get_column (
-                                       box->item_list->tree_view, TEXT_COL));
-
-    // if no entries, do not show popup
-    if (gtk_tree_model_iter_n_children (GTK_TREE_MODEL(box->item_store), NULL) == 1)
-    {
+    if (n_suggestions == 1)
         hide_popup (box);
-    }
     else
         gnc_item_edit_show_popup (box->item_edit);
 
-    block_list_signals (cell); // Prevent recursion, select first entry
+    block_list_signals (cell);
     select_first_entry_in_list (box);
     unblock_list_signals (cell);
-
-    g_free (box->newval);
+    g_clear_pointer (&box->newval, g_free);
 }
-
 static void
 gnc_completion_cell_modify_verify (BasicCell* bcell,
                                    const char* change,
@@ -732,21 +582,15 @@ gnc_completion_cell_modify_verify (BasicCell* bcell,
 }
 
 static char*
-get_entry_from_hash_if_size_is_one (CompletionCell* cell)
+get_entry_from_model_if_size_is_one (CompletionCell* cell)
 {
+    PopBox* box;
+
     if (!cell)
         return NULL;
 
-    PopBox* box = cell->cell.gui_private;
-
-    if (box->item_hash && (g_hash_table_size (box->item_hash) == 1))
-    {
-        GList *keys = g_hash_table_get_keys (box->item_hash);
-        char *ret = g_strdup (keys->data);
-        g_list_free (keys);
-        return ret;
-    }
-    return NULL;
+    box = cell->cell.gui_private;
+    return gnc_completion_model_dup_only_item (box->completion_model);
 }
 
 static gboolean
@@ -782,7 +626,7 @@ gnc_completion_cell_direct_update (BasicCell* bcell,
         {
             if (input->modifiers & GNC_REGISTER_MODIFIER_CONTROL)
             {
-                char* hash_string = get_entry_from_hash_if_size_is_one (cell);
+                char* hash_string = get_entry_from_model_if_size_is_one (cell);
 
                 if (hash_string)
                 {
@@ -818,17 +662,19 @@ gnc_completion_cell_direct_update (BasicCell* bcell,
 void
 gnc_completion_cell_reverse_sort (CompletionCell* cell, gboolean is_reversed)
 {
+    PopBox* box;
+
     if (!cell)
         return;
 
-    PopBox* box = cell->cell.gui_private;
+    box = cell->cell.gui_private;
+    if (is_reversed == box->register_is_reversed)
+        return;
 
-    if (is_reversed != box->register_is_reversed)
-    {
-        gnc_completion_cell_clear_menu (cell);
-        box->register_is_reversed = is_reversed;
-        box->occurrence = 0;
-    }
+    gnc_completion_model_set_reversed (box->completion_model, is_reversed);
+    if (box->item_list)
+        item_store_clear (cell);
+    box->register_is_reversed = is_reversed;
 }
 
 static void
@@ -845,10 +691,6 @@ gnc_completion_cell_gui_realize (BasicCell* bcell, gpointer data)
     box->item_store = gtk_list_store_new (4, G_TYPE_STRING, G_TYPE_STRING,
                                              G_TYPE_INT, G_TYPE_INT);
     box->item_list = GNC_ITEM_LIST(gnc_item_list_new (box->item_store));
-
-    block_list_signals (cell);
-    set_sort_column_enabled (box, FALSE);
-    unblock_list_signals (cell);
 
     gtk_widget_set_visible (GTK_WIDGET(box->item_list), TRUE);
     g_object_ref_sink (box->item_list);
