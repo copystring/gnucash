@@ -414,7 +414,7 @@ gboolean     gnc_table_direct_update(Table *table,
                                      int *cursor_position,
                                      int *start_selection,
                                      int *end_selection,
-                                     gpointer gui_data);
+                                     const GncRegisterInput *input);
 
 gboolean     gnc_table_traverse_update(Table *table,
                                        VirtualLocation virt_loc,

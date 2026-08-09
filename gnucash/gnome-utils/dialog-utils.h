@@ -27,6 +27,7 @@
 #define DIALOG_UTILS_H
 
 #include <gtk/gtk.h>
+#include "gnc-register-input.h"
 #include "qof.h"
 
 #ifdef __cplusplus
@@ -116,6 +117,14 @@ gboolean gnc_draw_arrow_cb (GtkWidget *widget, cairo_t *cr, gpointer direction);
 
 gboolean gnc_gdate_in_valid_range (GDate *test_date, gboolean warn);
 
+void gnc_register_input_from_keyval (GncRegisterInput *input,
+                                      guint keyval,
+                                      GdkModifierType state);
+gboolean gnc_register_input_from_event (GdkEvent *event,
+                                        GncRegisterInput *input);
+gboolean gnc_handle_date_accelerator_input (const GncRegisterInput *input,
+                                             struct tm *tm,
+                                             const char *date_str);
 gboolean gnc_handle_date_accelerator (GdkEvent *event,
                                       struct tm *tm,
                                       const char *date_str);

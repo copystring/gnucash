@@ -86,7 +86,7 @@ static gboolean gnc_date_cell_direct_update (BasicCell *bcell,
         int *cursor_position,
         int *start_selection,
         int *end_selection,
-        void *gui_data);
+        const GncRegisterInput *input);
 static gboolean gnc_date_cell_enter (BasicCell *bcell,
                                      int *cursor_position,
                                      int *start_selection,
@@ -491,14 +491,13 @@ gnc_date_cell_direct_update (BasicCell *bcell,
                              int *cursor_position,
                              int *start_selection,
                              int *end_selection,
-                             void *gui_data)
+                             const GncRegisterInput *input)
 {
     DateCell *cell = (DateCell *) bcell;
     PopBox *box = cell->cell.gui_private;
-    GdkEventKey *event = gui_data;
     char buff[DATE_BUF];
 
-    if (event->keyval == GDK_KEY_Escape)
+    if (input->key == GNC_REGISTER_KEY_ESCAPE)
     {
         if (bcell->changed)
         {
@@ -514,7 +513,7 @@ gnc_date_cell_direct_update (BasicCell *bcell,
         return FALSE;
     }
 
-    if (!gnc_handle_date_accelerator (event, &(box->date), bcell->value))
+    if (!gnc_handle_date_accelerator_input (input, &(box->date), bcell->value))
         return FALSE;
 
     qof_print_date_dmy_buff (buff, MAX_DATE_LENGTH,

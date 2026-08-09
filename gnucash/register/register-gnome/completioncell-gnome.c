@@ -754,18 +754,17 @@ gnc_completion_cell_direct_update (BasicCell* bcell,
                                    int* cursor_position,
                                    int* start_selection,
                                    int* end_selection,
-                                   void* gui_data)
+                                   const GncRegisterInput *input)
 {
     CompletionCell* cell = (CompletionCell*) bcell;
     PopBox* box = cell->cell.gui_private;
-    GdkEventKey* event = gui_data;
 
-    if (event->type != GDK_KEY_PRESS)
+    if (!input->pressed)
         return FALSE;
 
-    switch (event->keyval)
+    switch (input->key)
     {
-    case GDK_KEY_Escape:
+    case GNC_REGISTER_KEY_ESCAPE:
         if (bcell->changed)
         {
             const char *value = gnc_table_get_model_entry (box->sheet->table, bcell->cell_name);
@@ -778,10 +777,10 @@ gnc_completion_cell_direct_update (BasicCell* bcell,
             return TRUE;
         }
         break;
-    case GDK_KEY_Tab:
-    case GDK_KEY_ISO_Left_Tab:
+    case GNC_REGISTER_KEY_TAB:
+    case GNC_REGISTER_KEY_LEFT_TAB:
         {
-            if (event->state & GDK_CONTROL_MASK)
+            if (input->modifiers & GNC_REGISTER_MODIFIER_CONTROL)
             {
                 char* hash_string = get_entry_from_hash_if_size_is_one (cell);
 

@@ -74,6 +74,7 @@ set (gnome_utils_SOURCES
   gnc-icons.c
   gnc-keyring.c
   gnc-main-window.cpp
+  gnc-register-input.c
   gnc-menu-extensions.c
   gnc-option-gtk-ui.cpp
   gnc-plugin-file-history.c
@@ -155,6 +156,7 @@ set (gnome_utils_HEADERS
   gnc-recurrence.h
   gnc-general-select.h
   gnc-gnome-utils.h
+  gnc-register-input.h
   gnc-gui-query.h
   gnc-icons.h
   gnc-keyring.h

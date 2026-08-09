@@ -1303,7 +1303,7 @@ gnc_table_direct_update (Table *table,
                          int *cursor_position,
                          int *start_selection,
                          int *end_selection,
-                         gpointer gui_data)
+                         const GncRegisterInput *input)
 {
     gboolean result;
     BasicCell *cell;
@@ -1346,7 +1346,7 @@ gnc_table_direct_update (Table *table,
         return FALSE;
     }
 
-    result = du (cell, cursor_position, start_selection, end_selection, gui_data);
+    result = du (cell, cursor_position, start_selection, end_selection, input);
 
     if (g_strcmp0 (old_value, cell->value) != 0)
     {

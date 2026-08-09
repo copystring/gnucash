@@ -451,28 +451,23 @@ gnc_gdate_in_valid_range (GDate *test_date, gboolean warn)
 
 
 gboolean
-gnc_handle_date_accelerator (GdkEvent *event,
-                             struct tm *tm,
-                             const char *date_str)
+gnc_handle_date_accelerator_input (const GncRegisterInput *input,
+                                    struct tm *tm,
+                                    const char *date_str)
 {
     GDate gdate;
-    guint keyval;
-    GdkModifierType state;
+    gunichar character;
 
-    g_return_val_if_fail (event != NULL, FALSE);
+    g_return_val_if_fail (input != NULL, FALSE);
     g_return_val_if_fail (tm != NULL, FALSE);
     g_return_val_if_fail (date_str != NULL, FALSE);
 
-    if (gdk_event_get_event_type (event) != GDK_KEY_PRESS)
+    if (!input->pressed)
         return FALSE;
-
-    keyval = gdk_key_event_get_keyval (event);
-    state = gdk_event_get_modifier_state (event);
 
     if ((tm->tm_mday <= 0) || (tm->tm_mon == -1) || (tm->tm_year == -1))
         return FALSE;
 
-    // Make sure we have a valid date before we proceed
     if (!g_date_valid_dmy (tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900))
         return FALSE;
 
@@ -481,21 +476,17 @@ gnc_handle_date_accelerator (GdkEvent *event,
                     tm->tm_mon + 1,
                     tm->tm_year + 1900);
 
-    /*
-     * Check those keys where the code does different things depending
-     * upon the modifiers.
-     */
-    switch (keyval)
+    switch (input->key)
     {
-    case GDK_KEY_KP_Add:
-    case GDK_KEY_plus:
-    case GDK_KEY_equal:
-    case GDK_KEY_semicolon: // See https://bugs.gnucash.org/show_bug.cgi?id=798386
-         if (state & GDK_SHIFT_MASK)
+    case GNC_REGISTER_KEY_KEYPAD_ADD:
+    case GNC_REGISTER_KEY_PLUS:
+    case GNC_REGISTER_KEY_EQUAL:
+    case GNC_REGISTER_KEY_SEMICOLON:
+        if (input->modifiers & GNC_REGISTER_MODIFIER_SHIFT)
             g_date_add_days (&gdate, 7);
-        else if (state & GDK_MOD1_MASK)
+        else if (input->modifiers & GNC_REGISTER_MODIFIER_ALT)
             g_date_add_months (&gdate, 1);
-        else if (state & GDK_CONTROL_MASK)
+        else if (input->modifiers & GNC_REGISTER_MODIFIER_CONTROL)
             g_date_add_years (&gdate, 1);
         else
             g_date_add_days (&gdate, 1);
@@ -504,34 +495,30 @@ gnc_handle_date_accelerator (GdkEvent *event,
             g_date_to_struct_tm (&gdate, tm);
         return TRUE;
 
-    case GDK_KEY_minus:
-    case GDK_KEY_KP_Subtract:
-    case GDK_KEY_underscore:
+    case GNC_REGISTER_KEY_MINUS:
+    case GNC_REGISTER_KEY_KEYPAD_SUBTRACT:
+    case GNC_REGISTER_KEY_UNDERSCORE:
         if ((strlen (date_str) != 0) && (dateSeparator () == '-'))
         {
-            const char *c;
-            gunichar uc;
-            int count = 0;
+            const char *cursor = date_str;
+            gint separators = 0;
 
-            /* rough check for existing date */
-            c = date_str;
-            while (*c)
+            while (*cursor)
             {
-                uc = g_utf8_get_char (c);
-                if (uc == '-')
-                    count++;
-                c = g_utf8_next_char (c);
+                if (g_utf8_get_char (cursor) == '-')
+                    separators++;
+                cursor = g_utf8_next_char (cursor);
             }
 
-            if (count < 2)
+            if (separators < 2)
                 return FALSE;
         }
 
-        if (state & GDK_SHIFT_MASK)
+        if (input->modifiers & GNC_REGISTER_MODIFIER_SHIFT)
             g_date_subtract_days (&gdate, 7);
-        else if (state & GDK_MOD1_MASK)
+        else if (input->modifiers & GNC_REGISTER_MODIFIER_ALT)
             g_date_subtract_months (&gdate, 1);
-        else if (state & GDK_CONTROL_MASK)
+        else if (input->modifiers & GNC_REGISTER_MODIFIER_CONTROL)
             g_date_subtract_years (&gdate, 1);
         else
             g_date_subtract_days (&gdate, 1);
@@ -544,75 +531,70 @@ gnc_handle_date_accelerator (GdkEvent *event,
         break;
     }
 
-    /*
-     * Control and Alt key combinations should be ignored by this
-     * routine so that the menu system gets to handle them.  This
-     * prevents weird behavior of the menu accelerators (i.e. work in
-     * some widgets but not others.)
-     */
-    if (state & (GDK_MODIFIER_INTENT_DEFAULT_MOD_MASK))
+    if (input->modifiers & GNC_REGISTER_MODIFIER_DEFAULT)
         return FALSE;
 
-    /* Now check for the remaining keystrokes. */
-    switch (keyval)
+    switch (input->key)
     {
-    case GDK_KEY_braceright:
-    case GDK_KEY_bracketright:
-        /* increment month */
+    case GNC_REGISTER_KEY_RIGHT_BRACKET:
+    case GNC_REGISTER_KEY_RIGHT_BRACE:
         g_date_add_months (&gdate, 1);
         break;
-
-    case GDK_KEY_braceleft:
-    case GDK_KEY_bracketleft:
-        /* decrement month */
+    case GNC_REGISTER_KEY_LEFT_BRACKET:
+    case GNC_REGISTER_KEY_LEFT_BRACE:
         g_date_subtract_months (&gdate, 1);
         break;
-
-    case GDK_KEY_M:
-    case GDK_KEY_m:
-        /* beginning of month */
-        g_date_set_day (&gdate, 1);
+    case GNC_REGISTER_KEY_OTHER:
+        character = g_unichar_tolower (input->unicode_value);
+        switch (character)
+        {
+        case 'm':
+            g_date_set_day (&gdate, 1);
+            break;
+        case 'h':
+            g_date_set_day (&gdate, 1);
+            g_date_add_months (&gdate, 1);
+            g_date_subtract_days (&gdate, 1);
+            break;
+        case 'y':
+            g_date_set_day (&gdate, 1);
+            g_date_set_month (&gdate, 1);
+            break;
+        case 'r':
+            g_date_set_day (&gdate, 1);
+            g_date_set_month (&gdate, 1);
+            g_date_add_years (&gdate, 1);
+            g_date_subtract_days (&gdate, 1);
+            break;
+        case 't':
+            gnc_gdate_set_today (&gdate);
+            break;
+        default:
+            return FALSE;
+        }
         break;
-
-    case GDK_KEY_H:
-    case GDK_KEY_h:
-        /* end of month */
-        g_date_set_day (&gdate, 1);
-        g_date_add_months (&gdate, 1);
-        g_date_subtract_days (&gdate, 1);
-        break;
-
-    case GDK_KEY_Y:
-    case GDK_KEY_y:
-        /* beginning of year */
-        g_date_set_day (&gdate, 1);
-        g_date_set_month (&gdate, 1);
-        break;
-
-    case GDK_KEY_R:
-    case GDK_KEY_r:
-        /* end of year */
-        g_date_set_day (&gdate, 1);
-        g_date_set_month (&gdate, 1);
-        g_date_add_years (&gdate, 1);
-        g_date_subtract_days (&gdate, 1);
-        break;
-
-    case GDK_KEY_T:
-    case GDK_KEY_t:
-        /* today */
-        gnc_gdate_set_today (&gdate);
-        break;
-
     default:
         return FALSE;
     }
+
     if (gnc_gdate_in_valid_range (&gdate, FALSE))
         g_date_to_struct_tm (&gdate, tm);
 
     return TRUE;
 }
 
+gboolean
+gnc_handle_date_accelerator (GdkEvent *event,
+                             struct tm *tm,
+                             const char *date_str)
+{
+    GncRegisterInput input;
+
+    if (!gnc_register_input_from_event (event, &input))
+        return FALSE;
+
+    return gnc_handle_date_accelerator_input (&input, tm, date_str);
+}
 
 /*--------------------------------------------------------------------------
  *   GtkBuilder support functions

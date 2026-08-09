@@ -718,11 +718,10 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
                               int* cursor_position,
                               int* start_selection,
                               int* end_selection,
-                              void* gui_data)
+                              const GncRegisterInput *input)
 {
     ComboCell* cell = (ComboCell*) bcell;
     PopBox* box = cell->cell.gui_private;
-    GdkEventKey* event = gui_data;
     gboolean keep_on_going = FALSE;
     gboolean extra_colon;
     gunichar unicode_value;
@@ -732,13 +731,13 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
     int find_pos;
     int new_pos;
 
-    if (event->type != GDK_KEY_PRESS)
+    if (!input->pressed)
         return FALSE;
 
-    unicode_value = gdk_keyval_to_unicode (event->keyval);
-    switch (event->keyval)
+    unicode_value = input->unicode_value;
+    switch (input->key)
     {
-    case GDK_KEY_Escape:
+    case GNC_REGISTER_KEY_ESCAPE:
         if (bcell->changed)
         {
             const char *value = gnc_table_get_model_entry (box->sheet->table, bcell->cell_name);
@@ -759,8 +758,8 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
             return TRUE;
         }
         break;
-    case GDK_KEY_slash:
-        if (! (event->state & GDK_MOD1_MASK))
+    case GNC_REGISTER_KEY_SLASH:
+        if (! (input->modifiers & GNC_REGISTER_MODIFIER_ALT))
         {
             if (unicode_value == box->complete_char)
                 break;
@@ -769,8 +768,8 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
         }
         keep_on_going = TRUE;
     /* fall through */
-    case GDK_KEY_Tab:
-    case GDK_KEY_ISO_Left_Tab:
+    case GNC_REGISTER_KEY_TAB:
+    case GNC_REGISTER_KEY_LEFT_TAB:
         if (gnc_item_list_using_temp (box->item_list))
         {
             char* string = gnc_item_list_get_selection (box->item_list);
@@ -779,7 +778,7 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
             g_free (string);
             return FALSE;
         }
-        if (! (event->state & GDK_CONTROL_MASK) && !keep_on_going)
+        if (! (input->modifiers & GNC_REGISTER_MODIFIER_CONTROL) && !keep_on_going)
             return FALSE;
 
         match = gnc_quickfill_get_string_len_match
@@ -820,7 +819,7 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
     if (unicode_value != box->complete_char)
         return FALSE;
 
-    if (event->state & (GDK_CONTROL_MASK | GDK_MOD1_MASK))
+    if (input->modifiers & (GNC_REGISTER_MODIFIER_CONTROL | GNC_REGISTER_MODIFIER_ALT))
         return FALSE;
 
     if ((*cursor_position < bcell->value_chars) &&

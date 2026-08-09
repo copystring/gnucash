@@ -923,6 +923,10 @@ gnucash_sheet_direct_event (GnucashSheet *sheet, GdkEvent *event)
     char *new_text = NULL;
     int cursor_position, start_sel, end_sel;
     int new_position, new_start, new_end;
+    GncRegisterInput input;
+
+    if (!gnc_register_input_from_event (event, &input))
+        return FALSE;
 
     gnucash_cursor_get_virt (GNUCASH_CURSOR(sheet->cursor), &virt_loc);
 
@@ -944,7 +948,7 @@ gnucash_sheet_direct_event (GnucashSheet *sheet, GdkEvent *event)
                                       &new_text,
                                       &new_position,
                                       &new_start, &new_end,
-                                      event);
+                                      &input);
     if (result)
     {
         DEBUG("%s", new_text ? new_text : "nothing");
