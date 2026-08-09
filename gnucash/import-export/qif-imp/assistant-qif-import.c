@@ -651,7 +651,7 @@ qif_account_mapping_add_column (QIFAccountMappingView *mapping,
     gtk_column_view_column_set_expand (column, expand);
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_append_column (mapping->view, column);
-    g_object_unref (factory);
+    g_object_unref (column);
 }
 
 static void
@@ -824,12 +824,12 @@ create_file_view (QIFFileView *file_view, GtkWidget *container,
     column = gtk_column_view_column_new ("", factory);
     gtk_column_view_column_set_expand (column, TRUE);
     gtk_column_view_append_column (file_view->view, column);
+    g_object_unref (column);
     gtk_column_view_set_show_column_separators (file_view->view, FALSE);
     gtk_column_view_set_show_row_separators (file_view->view, FALSE);
     gtk_box_append (file_view->container, GTK_WIDGET (file_view->view));
     g_signal_connect (file_view->selection, "selection-changed",
                       G_CALLBACK (qif_file_selection_changed), file_view);
-    g_object_unref (factory);
 }
 
 static void
@@ -970,7 +970,7 @@ qif_transaction_view_add_column (QIFTransactionView *transaction_view,
         g_object_unref (sorter);
     }
     gtk_column_view_append_column (transaction_view->view, column);
-    g_object_unref (factory);
+    g_object_unref (column);
     return column;
 }
 

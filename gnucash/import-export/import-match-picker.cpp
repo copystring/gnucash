@@ -226,6 +226,7 @@ add_text_column (GtkColumnView *view, const gchar *title, guint column,
     gtk_column_view_column_set_resizable (view_column, TRUE);
     gtk_column_view_column_set_expand (view_column, expand);
     gtk_column_view_append_column (view, view_column);
+    g_object_unref (view_column);
 }
 
 static void
@@ -459,6 +460,7 @@ init_match_picker_gui (GtkWidget *parent, GNCImportMatchPicker *matcher)
     g_signal_connect (confidence_factory, "bind", G_CALLBACK (confidence_item_bind), nullptr);
     gtk_column_view_column_set_resizable (confidence_column, TRUE);
     gtk_column_view_append_column (matcher->match_view, confidence_column);
+    g_object_unref (confidence_column);
     add_text_column (matcher->match_view, _("Date"), 0, G_CALLBACK (match_item_bind), FALSE);
     add_text_column (matcher->match_view, _("Amount"), 1, G_CALLBACK (match_item_bind), FALSE);
     add_text_column (matcher->match_view, _("Description"), 2, G_CALLBACK (match_item_bind), TRUE);

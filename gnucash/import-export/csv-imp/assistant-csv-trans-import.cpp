@@ -503,6 +503,7 @@ csv_tximp_account_match_add_column (GtkColumnView *view, const gchar *title, gui
                       GUINT_TO_POINTER (column));
     gtk_column_view_column_set_resizable (view_column, TRUE);
     gtk_column_view_append_column (view, view_column);
+    g_object_unref (view_column);
 }
 
 static void
@@ -1353,6 +1354,7 @@ csv_tximp_preview_add_column (GtkColumnView *view, const gchar *title, guint col
     auto view_column = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_resizable (view_column, column != G_MAXUINT);
     gtk_column_view_append_column (view, view_column);
+    g_object_unref (view_column);
 }
 
 static void

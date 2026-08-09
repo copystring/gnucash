@@ -269,6 +269,7 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
     g_object_unref (sorter_date);
 
     gtk_column_view_append_column (GTK_COLUMN_VIEW(view), column);
+    g_object_unref (column);
     gtk_column_view_sort_by_column (GTK_COLUMN_VIEW(view), column, GTK_SORT_ASCENDING);
 
 
@@ -277,6 +278,7 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
     g_signal_connect (G_OBJECT(factory_id), "bind", G_CALLBACK(factory_id_bind), NULL);
     column = gtk_column_view_column_new (_("Id"), factory_id);
     gtk_column_view_append_column (GTK_COLUMN_VIEW(view), column);
+    g_object_unref (column);
     g_object_set_data (G_OBJECT(view), "id-column", column);
 
     GtkSorter *sorter_id = GTK_SORTER(gtk_string_sorter_new (
@@ -291,6 +293,7 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
     g_signal_connect (G_OBJECT(factory_type), "bind", G_CALLBACK(factory_type_bind), NULL);
     column = gtk_column_view_column_new (_("Type"), factory_type);
     gtk_column_view_append_column (GTK_COLUMN_VIEW(view), column);
+    g_object_unref (column);
     g_object_set_data (G_OBJECT(view), "type-column", column);
 
     GtkSorter *sorter_type = GTK_SORTER(gtk_string_sorter_new (
@@ -305,6 +308,7 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
     g_signal_connect (G_OBJECT(factory_ld), "bind", G_CALLBACK(factory_ld_bind), NULL);
     column = gtk_column_view_column_new (_("Linked Document"), factory_ld);
     gtk_column_view_append_column (GTK_COLUMN_VIEW(view), column);
+    g_object_unref (column);
     gtk_column_view_column_set_expand (column, TRUE);
 
     GtkSorter *sorter_ld = GTK_SORTER(gtk_string_sorter_new (
@@ -319,6 +323,7 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
     g_signal_connect (G_OBJECT(factory_av), "bind", G_CALLBACK(factory_av_bind), NULL);
     column = gtk_column_view_column_new (_("Available"), factory_av);
     gtk_column_view_append_column (GTK_COLUMN_VIEW(view), column);
+    g_object_unref (column);
 
     GtkSorter *sorter_avail = GTK_SORTER(gtk_string_sorter_new (
                                          gtk_property_expression_new (DOCLINKVIEW_TYPE_ITEM, NULL, "available")));
@@ -331,6 +336,7 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
     g_signal_connect (G_OBJECT(factory_rel), "bind", G_CALLBACK(factory_rel_bind), NULL);
     column = gtk_column_view_column_new (_("Relative"), factory_rel);
     gtk_column_view_append_column (GTK_COLUMN_VIEW(view), column);
+    g_object_unref (column);
 
     GtkSorter *sorter_rel = GTK_SORTER(gtk_numeric_sorter_new (
                                        gtk_property_expression_new (DOCLINKVIEW_TYPE_ITEM, NULL, "uri-relative")));

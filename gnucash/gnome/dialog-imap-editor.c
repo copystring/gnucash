@@ -455,8 +455,11 @@ imap_add_column (ImapDialog *dialog, const gchar *title, guint column, gboolean 
     g_signal_connect (factory, "setup", G_CALLBACK (imap_cell_setup), GUINT_TO_POINTER (column));
     g_signal_connect (factory, "bind", G_CALLBACK (imap_cell_bind), GUINT_TO_POINTER (column));
     view_column = gtk_column_view_column_new (title, factory);
-    gtk_column_view_column_set_resizable (view_column, TRUE); gtk_column_view_column_set_expand (view_column, expand);
-    gtk_column_view_append_column (dialog->view, view_column); g_object_unref (factory); return view_column;
+    gtk_column_view_column_set_resizable (view_column, TRUE);
+    gtk_column_view_column_set_expand (view_column, expand);
+    gtk_column_view_append_column (dialog->view, view_column);
+    g_object_unref (view_column);
+    return view_column;
 }
 
 static void

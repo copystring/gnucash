@@ -1707,6 +1707,7 @@ matcher_add_text_column (GNCImportMainMatcher *info, const gchar *title, gint co
     auto view_column = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_resizable (view_column, TRUE);
     gtk_column_view_append_column (info->view, view_column);
+    g_object_unref (view_column);
     return view_column;
 }
 
@@ -1723,6 +1724,7 @@ matcher_add_toggle_column (GNCImportMainMatcher *info, const gchar *title,
     if (tooltip_text)
         g_object_set_data_full (G_OBJECT (column), "gnc-import-matcher-tooltip", g_strdup (tooltip_text), g_free);
     gtk_column_view_append_column (info->view, column);
+    g_object_unref (column);
     return column;
 }
 
@@ -1757,7 +1759,9 @@ gnc_gen_trans_init_view (GNCImportMainMatcher *info,
     auto info_factory = gtk_signal_list_item_factory_new ();
     g_signal_connect (info_factory, "setup", G_CALLBACK (matcher_info_setup_cb), nullptr);
     g_signal_connect (info_factory, "bind", G_CALLBACK (matcher_info_bind_cb), nullptr);
-    gtk_column_view_append_column (info->view, gtk_column_view_column_new (_("Additional Comments"), info_factory));
+    auto info_column = gtk_column_view_column_new (_("Additional Comments", info_factory);
+    gtk_column_view_append_column (info->view, info_column);
+    g_object_unref (info_column);
 
     g_signal_connect (info->view, "activate", G_CALLBACK (gnc_gen_trans_row_activated_cb), info);
     g_signal_connect (info->selection, "selection-changed", G_CALLBACK (gnc_gen_trans_row_changed_cb), info);

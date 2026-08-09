@@ -163,12 +163,14 @@ create_selection_view (GtkStringList *list, GtkSingleSelection **selection_out,
     g_signal_connect (name_factory, "bind", G_CALLBACK (text_factory_bind), NULL);
     column = gtk_column_view_column_new (first_title, name_factory);
     gtk_column_view_append_column (GTK_COLUMN_VIEW (view), column);
+    g_object_unref (column);
 
     g_signal_connect (description_factory, "setup", G_CALLBACK (text_factory_setup), NULL);
     g_signal_connect (description_factory, "bind", G_CALLBACK (text_factory_bind), GINT_TO_POINTER (1));
     column = gtk_column_view_column_new (_("Description"), description_factory);
     gtk_column_view_column_set_expand (column, TRUE);
     gtk_column_view_append_column (GTK_COLUMN_VIEW (view), column);
+    g_object_unref (column);
 
     *selection_out = selection;
     return view;

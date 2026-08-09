@@ -1003,7 +1003,7 @@ csv_export_assistant_create (CsvExportInfo *info)
         gtk_column_view_column_set_expand (column, TRUE);
         gtk_column_view_column_set_resizable (column, TRUE);
         gtk_column_view_append_column (account_view, column);
-        g_object_unref (factory);
+        g_object_unref (column);
         g_signal_connect (info->csva.account_selection, "selection-changed",
                           G_CALLBACK (csv_export_account_changed_cb), info);
 

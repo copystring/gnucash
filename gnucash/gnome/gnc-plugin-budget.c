@@ -368,6 +368,7 @@ gnc_budget_create_select_gui (GtkWindow *parent, QofBook *book)
                                               budget_list_item_factory_new (FALSE));
     gtk_column_view_column_set_sorter (name_column, name_sorter);
     gtk_column_view_append_column (view, name_column);
+    g_object_unref (name_column);
     g_object_unref (name_sorter);
 
     description_sorter = GTK_SORTER (gtk_custom_sorter_new (budget_description_sort_cb,
@@ -376,6 +377,7 @@ gnc_budget_create_select_gui (GtkWindow *parent, QofBook *book)
                                                       budget_list_item_factory_new (TRUE));
     gtk_column_view_column_set_sorter (description_column, description_sorter);
     gtk_column_view_append_column (view, description_column);
+    g_object_unref (description_column);
     g_object_unref (description_sorter);
 
     gtk_sort_list_model_set_sorter (sorted_model, gtk_column_view_get_sorter (view));

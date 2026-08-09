@@ -124,6 +124,7 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
     column = gtk_column_view_column_new (_("Object"), factory);
     gtk_column_view_column_set_expand (column, TRUE);
     gtk_column_view_append_column (listview, column);
+    g_object_unref (column);
 
     box = GTK_WIDGET(gtk_builder_get_object (builder, "hbox_list" ));
     gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(listview));

@@ -168,7 +168,7 @@ picker_add_column (QIFAccountPickerDialog *picker, const gchar *title,
     gtk_column_view_column_set_resizable (view_column, TRUE);
     gtk_column_view_column_set_expand (view_column, expand);
     gtk_column_view_append_column (picker->view, view_column);
-    g_object_unref (factory);
+    g_object_unref (view_column);
 }
 
 static void

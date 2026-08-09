@@ -1097,7 +1097,7 @@ gnc_ui_billterms_window_new (GtkWindow *parent, QofBook *book)
     gtk_column_view_column_set_expand (column, TRUE);
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_append_column (btw->terms_view, column);
-    g_object_unref (factory);
+    g_object_unref (column);
     g_signal_connect (btw->terms_view, "activate",
                       G_CALLBACK (billterm_selection_activated), btw);
     g_signal_connect (btw->term_selection, "selection-changed",

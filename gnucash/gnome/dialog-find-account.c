@@ -473,7 +473,7 @@ find_account_add_column (FindAccountDialog *facc_dialog, const gchar *title,
     gtk_column_view_column_set_resizable (view_column, TRUE);
     gtk_column_view_column_set_expand (view_column, expand);
     gtk_column_view_append_column (facc_dialog->view, view_column);
-    g_object_unref (factory);
+    g_object_unref (view_column);
 }
 
 static void

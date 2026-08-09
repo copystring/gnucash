@@ -515,6 +515,7 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     template_column = gtk_column_view_column_new (_("Template Name"), template_factory);
     gtk_column_view_column_set_expand (template_column, TRUE);
     gtk_column_view_append_column (td->template_view, template_column);
+    g_object_unref (template_column);
     gtk_scrolled_window_set_child (template_scrolledwindow, GTK_WIDGET (td->template_view));
     g_signal_connect (td->template_view, "activate",
                       G_CALLBACK (gnc_ab_trans_dialog_templ_list_row_activated_cb), td);

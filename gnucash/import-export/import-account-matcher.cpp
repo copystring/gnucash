@@ -254,6 +254,7 @@ picker_add_column (AccountPicker *picker, const gchar *title, gboolean full_name
     auto column = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_append_column (picker->view, column);
+    g_object_unref (column);
 }
 
 static void

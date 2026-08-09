@@ -202,6 +202,7 @@ account_view_add_column (GtkColumnView *view, const gchar *title, gint column, g
     result = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_expand (result, expand);
     gtk_column_view_append_column (view, result);
+    g_object_unref (result);
     return result;
 }
 
