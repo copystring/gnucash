@@ -106,6 +106,30 @@ gnc_action_dialog (GtkWindow *parent,
                    gboolean action_default,
                    const gchar *format, ...) G_GNUC_PRINTF (4, 5);
 
+/** Receives a response from a non-blocking GTK4 decision dialog. */
+typedef void (*GncGuiQueryResponseCallback) (GtkWindow *parent,
+                                             gint response,
+                                             gpointer user_data);
+
+void gnc_ok_cancel_dialog_async (GtkWindow *parent,
+                                 gint default_result,
+                                 GncGuiQueryResponseCallback completed,
+                                 gpointer user_data,
+                                 const gchar *format, ...) G_GNUC_PRINTF (5, 6);
+
+void gnc_verify_dialog_async (GtkWindow *parent,
+                              gboolean yes_is_default,
+                              GncGuiQueryResponseCallback completed,
+                              gpointer user_data,
+                              const gchar *format, ...) G_GNUC_PRINTF (5, 6);
+
+void gnc_action_dialog_async (GtkWindow *parent,
+                              const gchar *action,
+                              gboolean action_default,
+                              GncGuiQueryResponseCallback completed,
+                              gpointer user_data,
+                              const gchar *format, ...) G_GNUC_PRINTF (6, 7);
+
 extern void
 gnc_warning_dialog (GtkWindow *parent,
                     const char *format, ...) G_GNUC_PRINTF (2, 3);

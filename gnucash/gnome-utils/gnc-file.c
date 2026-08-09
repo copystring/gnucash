@@ -2063,48 +2063,21 @@ gnc_file_save_complete (GtkWindow *parent, GncFileQuerySaveCallback completed,
 
 typedef struct
 {
-    GWeakRef parent;
-    gboolean has_parent;
     GncFileQuerySaveCallback completed;
     gpointer user_data;
 } GncFileReadOnlySaveRequest;
 
 static void
-gnc_file_read_only_save_request_free (GncFileReadOnlySaveRequest *request)
-{
-    g_weak_ref_clear (&request->parent);
-    g_free (request);
-}
-
-static void
-gnc_file_read_only_save_finished (GObject *source, GAsyncResult *result,
+gnc_file_read_only_save_finished (GtkWindow *parent, gint response,
                                   gpointer user_data)
 {
     GncFileReadOnlySaveRequest *request = user_data;
-    GError *error = NULL;
-    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
-    gint response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
-                                                    &error);
 
-    if (request->has_parent && !parent)
-    {
-        g_clear_error (&error);
-        gnc_file_save_complete (NULL, request->completed, request->user_data, FALSE);
-    }
-    else if (!error && response == 0)
-    {
+    if (response == GTK_RESPONSE_OK)
         gnc_file_save_as_with_completion (parent, request->completed, request->user_data);
-    }
     else
-    {
-        if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-            g_warning ("Read-only save decision failed: %s", error->message);
         gnc_file_save_complete (parent, request->completed, request->user_data, FALSE);
-    }
-
-    g_clear_error (&error);
-    g_clear_object (&parent);
-    gnc_file_read_only_save_request_free (request);
+    g_free (request);
 }
 
 static void
@@ -2112,30 +2085,14 @@ gnc_file_read_only_save_as_async (GtkWindow *parent,
                                   GncFileQuerySaveCallback completed,
                                   gpointer user_data)
 {
-    const char *buttons[] =
-    {
-        _("Save to a Different Location"),
-        _("Cancel"),
-        NULL
-    };
-    GncFileReadOnlySaveRequest *request;
-    GtkAlertDialog *dialog;
+    GncFileReadOnlySaveRequest *request = g_new0 (GncFileReadOnlySaveRequest, 1);
 
-    request = g_new0 (GncFileReadOnlySaveRequest, 1);
-    g_weak_ref_init (&request->parent, parent);
-    request->has_parent = parent != NULL;
     request->completed = completed;
     request->user_data = user_data;
-
-    dialog = gtk_alert_dialog_new ("%s", _("The database was opened read-only."));
-    gtk_alert_dialog_set_detail (dialog,
-        _("Do you want to save it to a different location?"));
-    gtk_alert_dialog_set_buttons (dialog, buttons);
-    gtk_alert_dialog_set_default_button (dialog, 1);
-    gtk_alert_dialog_set_cancel_button (dialog, 1);
-    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_file_read_only_save_finished,
-                             request);
-    g_object_unref (dialog);
+    gnc_ok_cancel_dialog_async (parent, GTK_RESPONSE_CANCEL,
+                                gnc_file_read_only_save_finished, request,
+                                "%s", _("The database was opened read-only. "
+                                        "Do you want to save it to a different location?"));
 }
 
 static void

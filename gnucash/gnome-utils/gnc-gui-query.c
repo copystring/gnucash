@@ -34,6 +34,131 @@
 /* This static indicates the debugging module that this .o belongs to.  */
 /* static short module = MOD_GUI; */
 
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    GncGuiQueryResponseCallback completed;
+    gpointer user_data;
+    gchar **buttons;
+    gint responses[2];
+    gint cancel_response;
+} GncGuiQueryRequest;
+
+static void
+gnc_gui_query_request_free (GncGuiQueryRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_strfreev (request->buttons);
+    g_free (request);
+}
+
+static void
+gnc_gui_query_finished (GObject *source, GAsyncResult *result,
+                        gpointer user_data)
+{
+    GncGuiQueryRequest *request = user_data;
+    GError *error = NULL;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    gint choice = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
+                                                  &error);
+    gint response = request->cancel_response;
+
+    if (!error && choice >= 0 && choice < 2)
+        response = request->responses[choice];
+    else if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_warning ("Decision dialog failed: %s", error->message);
+    if (request->has_parent && !parent)
+        response = request->cancel_response;
+
+    request->completed (parent, response, request->user_data);
+    g_clear_error (&error);
+    g_clear_object (&parent);
+    gnc_gui_query_request_free (request);
+}
+
+static void
+gnc_gui_query_async_va (GtkWindow *parent, const gchar *first_button,
+                        const gchar *second_button, gint first_response,
+                        gint second_response, gint default_button,
+                        GncGuiQueryResponseCallback completed, gpointer user_data,
+                        const gchar *format, va_list args)
+{
+    GncGuiQueryRequest *request;
+    GtkAlertDialog *dialog;
+    gchar *message;
+
+    g_return_if_fail (completed != NULL);
+    if (!parent)
+        parent = gnc_ui_get_main_window (NULL);
+
+    request = g_new0 (GncGuiQueryRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->completed = completed;
+    request->user_data = user_data;
+    request->buttons = g_new0 (gchar *, 3);
+    request->buttons[0] = g_strdup (first_button);
+    request->buttons[1] = g_strdup (second_button);
+    request->responses[0] = first_response;
+    request->responses[1] = second_response;
+    request->cancel_response = second_response;
+
+    message = g_strdup_vprintf (format, args);
+    dialog = gtk_alert_dialog_new ("%s", message);
+    gtk_alert_dialog_set_buttons (dialog, (const char * const *)request->buttons);
+    gtk_alert_dialog_set_default_button (dialog, default_button);
+    gtk_alert_dialog_set_cancel_button (dialog, 1);
+    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_gui_query_finished, request);
+    g_object_unref (dialog);
+    g_free (message);
+}
+
+void
+gnc_ok_cancel_dialog_async (GtkWindow *parent, gint default_result,
+                            GncGuiQueryResponseCallback completed,
+                            gpointer user_data, const gchar *format, ...)
+{
+    va_list args;
+
+    va_start (args, format);
+    gnc_gui_query_async_va (parent, _("Cancel"), _("OK"), GTK_RESPONSE_CANCEL,
+                            GTK_RESPONSE_OK,
+                            default_result == GTK_RESPONSE_OK ? 1 : 0,
+                            completed, user_data, format, args);
+    va_end (args);
+}
+
+void
+gnc_verify_dialog_async (GtkWindow *parent, gboolean yes_is_default,
+                         GncGuiQueryResponseCallback completed, gpointer user_data,
+                         const gchar *format, ...)
+{
+    va_list args;
+
+    va_start (args, format);
+    gnc_gui_query_async_va (parent, _("No"), _("Yes"), GTK_RESPONSE_NO,
+                            GTK_RESPONSE_YES, yes_is_default ? 1 : 0,
+                            completed, user_data, format, args);
+    va_end (args);
+}
+
+void
+gnc_action_dialog_async (GtkWindow *parent, const gchar *action,
+                         gboolean action_default,
+                         GncGuiQueryResponseCallback completed, gpointer user_data,
+                         const gchar *format, ...)
+{
+    va_list args;
+
+    g_return_if_fail (action != NULL);
+    va_start (args, format);
+    gnc_gui_query_async_va (parent, action, _("Cancel"), GTK_RESPONSE_ACCEPT,
+                            GTK_RESPONSE_CANCEL, action_default ? 0 : 1,
+                            completed, user_data, format, args);
+    va_end (args);
+}
+
 /********************************************************************\
  * gnc_ok_cancel_dialog                                             *
  *   display a message, and asks the user to press "Ok" or "Cancel" *
@@ -165,26 +290,21 @@ static void
 gnc_message_dialog_common (GtkWindow *parent, const gchar *format,
                            GtkMessageType msg_type, va_list args)
 {
-    GtkWidget *dialog = NULL;
+    GtkAlertDialog *dialog;
     gchar *buffer;
 
     if (!parent)
         parent = gnc_ui_get_main_window (NULL);
 
     buffer = g_strdup_vprintf (format, args);
-    dialog = gtk_message_dialog_new (parent,
-                                     GTK_DIALOG_MODAL |
-                                     GTK_DIALOG_DESTROY_WITH_PARENT,
-                                     msg_type,
-                                     GTK_BUTTONS_CLOSE,
-                                     "%s",
-                                     buffer);
+    dialog = gtk_alert_dialog_new ("%s", buffer);
+    gtk_alert_dialog_show (dialog, parent);
+    g_object_unref (dialog);
     g_free (buffer);
 
-//FIXME gtk4    if (!parent)
-//        gtk_window_set_skip_taskbar_hint(GTK_WINDOW(dialog), FALSE);
-
-    gnc_dialog_run (GTK_DIALOG(dialog));
+    /* GtkAlertDialog deliberately has no message-type property. The caller's
+     * distinction remains semantic; the native platform controls presentation. */
+    (void)msg_type;
 }
 
 /********************************************************************\
