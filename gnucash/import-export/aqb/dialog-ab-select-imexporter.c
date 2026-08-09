@@ -35,6 +35,8 @@
 
 __attribute__((unused)) static QofLogModule log_module = G_LOG_DOMAIN;
 
+typedef struct _ImExDialogRunData ImExDialogRunData;
+
 struct _GncABSelectImExDlg
 {
     GtkWidget *dialog;
@@ -46,8 +48,21 @@ struct _GncABSelectImExDlg
     GtkWidget *select_imexporter;
     GtkWidget *select_profile;
     GtkWidget *ok_button;
+    ImExDialogRunData *run_data;
 
     AB_BANKING* abi;
+};
+
+typedef struct
+{
+    gchar *imexporter;
+    gchar *profile;
+} ImExDialogResult;
+
+struct _ImExDialogRunData
+{
+    GTask *task;
+    GncABSelectImExDlg *imexd;
 };
 
 // Expose the selection handlers to GtkBuilder.
@@ -56,11 +71,38 @@ static void imexporter_changed (GtkSelectionModel *selection, guint position,
 static void profile_changed (GtkSelectionModel *selection, guint position,
                              guint n_items, gpointer data);
 
+static void imex_dialog_complete (ImExDialogRunData *data, gboolean accepted);
+
 static void
 clear_widget_pointer (GtkWidget *widget, gpointer data)
 {
     (void)widget;
     *((GtkWidget**)data) = NULL;
+}
+
+static void
+imex_dialog_result_free (ImExDialogResult *result)
+{
+    if (!result)
+        return;
+
+    g_free (result->imexporter);
+    g_free (result->profile);
+    g_free (result);
+}
+
+static void
+imex_dialog_response (GtkDialog *dialog, gint response, gpointer user_data)
+{
+    (void)dialog;
+    imex_dialog_complete (user_data, response == GTK_RESPONSE_OK);
+}
+
+static void
+imex_dialog_destroyed (GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    imex_dialog_complete (user_data, FALSE);
 }
 
 enum
@@ -179,8 +221,9 @@ gnc_ab_select_imex_dlg_new (GtkWidget* parent, AB_BANKING* abi)
     g_list_free (imexporters);
     g_object_unref (G_OBJECT (builder));
 
-    gtk_window_set_transient_for (GTK_WINDOW (imexd->dialog),
-                                  GTK_WINDOW (imexd->parent));
+    if (imexd->parent)
+        gtk_window_set_transient_for (GTK_WINDOW (imexd->dialog),
+                                      GTK_WINDOW (imexd->parent));
 
     return imexd;
 }
@@ -188,17 +231,27 @@ gnc_ab_select_imex_dlg_new (GtkWidget* parent, AB_BANKING* abi)
 void
 gnc_ab_select_imex_dlg_destroy (GncABSelectImExDlg* imexd)
 {
+    if (!imexd)
+        return;
+
+    if (imexd->run_data)
+    {
+        imex_dialog_complete (imexd->run_data, FALSE);
+        return;
+    }
 
     if (imexd->imexporter_list)
         gtk_string_list_splice (imexd->imexporter_list, 0,
-                                g_list_model_get_n_items (G_LIST_MODEL (imexd->imexporter_list)), NULL);
+                                g_list_model_get_n_items (
+                                    G_LIST_MODEL (imexd->imexporter_list)), NULL);
 
     if (imexd->profile_list)
         gtk_string_list_splice (imexd->profile_list, 0,
-                                g_list_model_get_n_items (G_LIST_MODEL (imexd->profile_list)), NULL);
+                                g_list_model_get_n_items (
+                                    G_LIST_MODEL (imexd->profile_list)), NULL);
 
     if (imexd->dialog)
-        gtk_window_destroy (GTK_WINDOW(imexd->dialog));
+        gtk_window_destroy (GTK_WINDOW (imexd->dialog));
 
     g_free (imexd);
 }
@@ -253,12 +306,83 @@ profile_changed (GtkSelectionModel *selection, guint, guint, gpointer data)
                               != GTK_INVALID_LIST_POSITION);
 }
 
-gboolean
-gnc_ab_select_imex_dlg_run (GncABSelectImExDlg* imexd)
+static void
+imex_dialog_complete (ImExDialogRunData *data, gboolean accepted)
 {
-    int response = gnc_dialog_run_non_destructive (GTK_DIALOG (imexd->dialog));
+    GncABSelectImExDlg *imexd;
+    ImExDialogResult *result = NULL;
 
-    return response == GTK_RESPONSE_OK ? TRUE : FALSE;
+    if (!data || !data->imexd || data->imexd->run_data != data)
+        return;
+
+    imexd = data->imexd;
+    imexd->run_data = NULL;
+    if (accepted)
+    {
+        result = g_new0 (ImExDialogResult, 1);
+        result->imexporter = gnc_ab_select_imex_dlg_get_imexporter_name (imexd);
+        result->profile = gnc_ab_select_imex_dlg_get_profile_name (imexd);
+    }
+
+    gnc_ab_select_imex_dlg_destroy (imexd);
+    g_task_return_pointer (data->task, result,
+                           (GDestroyNotify)imex_dialog_result_free);
+    g_object_unref (data->task);
+    g_free (data);
+}
+
+void
+gnc_ab_select_imex_dlg_run_async (GncABSelectImExDlg *imexd,
+                                  GCancellable *cancellable,
+                                  GAsyncReadyCallback callback,
+                                  gpointer user_data)
+{
+    ImExDialogRunData *data;
+    GTask *task;
+
+    g_return_if_fail (imexd);
+    if (imexd->run_data || !imexd->dialog)
+    {
+        task = g_task_new (NULL, cancellable, callback, user_data);
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "The import format dialog is not available");
+        g_object_unref (task);
+        return;
+    }
+
+    data = g_new0 (ImExDialogRunData, 1);
+    data->task = g_task_new (NULL, cancellable, callback, user_data);
+    data->imexd = imexd;
+    imexd->run_data = data;
+    g_task_set_source_tag (data->task, gnc_ab_select_imex_dlg_run_async);
+    g_signal_connect (imexd->dialog, "response", G_CALLBACK (imex_dialog_response),
+                      data);
+    g_signal_connect (imexd->dialog, "destroy", G_CALLBACK (imex_dialog_destroyed),
+                      data);
+    gtk_window_present (GTK_WINDOW (imexd->dialog));
+}
+
+gboolean
+gnc_ab_select_imex_dlg_run_finish (GAsyncResult *result,
+                                   gchar **imexporter, gchar **profile,
+                                   GError **error)
+{
+    ImExDialogResult *selection;
+
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    g_return_val_if_fail (imexporter, FALSE);
+    g_return_val_if_fail (profile, FALSE);
+
+    *imexporter = NULL;
+    *profile = NULL;
+    selection = g_task_propagate_pointer (G_TASK (result), error);
+    if (!selection)
+        return FALSE;
+
+    *imexporter = g_steal_pointer (&selection->imexporter);
+    *profile = g_steal_pointer (&selection->profile);
+    imex_dialog_result_free (selection);
+    return TRUE;
 }
 
 static char*

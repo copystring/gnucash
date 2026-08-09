@@ -540,6 +540,8 @@ gnc_ui_qif_import_assistant_destroy (GtkWidget *object, gpointer user_data)
 {
     QIFImportWindow * wind = user_data;
 
+    g_object_set_data (G_OBJECT (object), "gnc-qif-import-window", NULL);
+
     /* Destroy the progress dialog helpers. */
     gnc_progress_dialog_destroy (wind->load_progress);
 
@@ -1959,6 +1961,65 @@ gnc_ui_qif_import_load_file_complete (GtkAssistant  *assistant,
     return FALSE;
 }
 
+typedef struct
+{
+    GWeakRef window;
+} QIFFileDialogData;
+
+static void
+qif_file_dialog_data_free (QIFFileDialogData *data)
+{
+    g_weak_ref_clear (&data->window);
+    g_free (data);
+}
+
+static void
+qif_file_dialog_finished (GObject *source, GAsyncResult *result,
+                          gpointer user_data)
+{
+    QIFFileDialogData *data = user_data;
+    GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
+    GError *error = NULL;
+    GFile *file;
+    GtkWidget *window;
+    QIFImportWindow *wind = NULL;
+
+    file = gnc_file_dialog_request_finish (request, result, &error);
+    window = g_weak_ref_get (&data->window);
+    if (window)
+        wind = g_object_get_data (G_OBJECT (window), "gnc-qif-import-window");
+
+    if (file)
+    {
+        gchar *filename = g_file_get_path (file);
+
+        if (wind && filename)
+        {
+            gchar *default_dir = g_path_get_dirname (filename);
+            GtkAssistant *assistant = GTK_ASSISTANT (wind->window);
+
+            gnc_set_default_directory (GNC_PREFS_GROUP, default_dir);
+            g_free (default_dir);
+            gnc_entry_set_text (GTK_ENTRY (wind->filename_entry), filename);
+            mark_page_complete (
+                assistant,
+                gnc_ui_qif_import_load_file_complete (assistant, wind));
+        }
+        else if (wind)
+            gnc_error_dialog (GTK_WINDOW (window), "%s",
+                              _("The selected file has no local path."));
+        g_free (filename);
+        g_object_unref (file);
+    }
+    else if (wind && error &&
+             !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        gnc_error_dialog (GTK_WINDOW (window), "%s", error->message);
+
+    g_clear_error (&error);
+    g_clear_object (&window);
+    qif_file_dialog_data_free (data);
+}
+
 
 /********************************************************************
  * gnc_ui_qif_import_load_file_prepare
@@ -1993,55 +2054,30 @@ gnc_ui_qif_import_load_file_prepare (GtkAssistant *assistant, gpointer user_data
  * fields describing how to parse the file.
  ********************************************************************/
 void
-gnc_ui_qif_import_select_file_cb (GtkButton * button,
-                                  gpointer user_data)
+gnc_ui_qif_import_select_file_cb (GtkButton *button, gpointer user_data)
 {
-    QIFImportWindow * wind = user_data;
-
-    GtkAssistant *assistant = GTK_ASSISTANT(wind->window);
-
+    QIFImportWindow *wind = user_data;
+    QIFFileDialogData *data;
+    GncFileDialogRequest *request;
     GtkFileFilter *filter;
-    char * new_file_name;
-    char *file_name, *default_dir;
-
-    /* Default to whatever's already present */
-    default_dir = gnc_get_default_directory (GNC_PREFS_GROUP);
+    GList *filters;
+    gchar *default_dir;
 
     filter = gtk_file_filter_new ();
     gtk_file_filter_set_name (filter, "*.qif");
     gtk_file_filter_add_pattern (filter, "*.[Qq][Ii][Ff]");
-    new_file_name = gnc_file_dialog (gnc_ui_get_gtk_window (GTK_WIDGET(button)),
-                                     _("Select QIF File"),
-                                     g_list_prepend (NULL, filter),
-                                     default_dir,
-                                     GNC_FILE_DIALOG_IMPORT);
-    /* If NULL then the user cancelled the file dialog. */
-    if (new_file_name == NULL)
-    {
-        g_free (default_dir);
-        return;
-    }
-    else if (!g_path_is_absolute (new_file_name))
-    {
-        file_name = g_build_filename (default_dir, new_file_name, NULL);
-        g_free (new_file_name);
-    }
-    else
-    {
-        file_name = new_file_name;
-        /* Update the working directory */
-        g_free (default_dir);
-        default_dir = g_path_get_dirname (file_name);
-        gnc_set_default_directory (GNC_PREFS_GROUP, default_dir);
-    }
+    filters = g_list_prepend (NULL, filter);
+    default_dir = gnc_get_default_directory (GNC_PREFS_GROUP);
+    request = gnc_file_dialog_request_new (
+        gnc_ui_get_gtk_window (GTK_WIDGET (button)), _("Select QIF File"),
+        filters, default_dir, GNC_FILE_DIALOG_IMPORT);
     g_free (default_dir);
 
-    /* set the filename entry for what was selected */
-    gnc_entry_set_text (GTK_ENTRY(wind->filename_entry), file_name);
-    g_free (file_name);
-
-    mark_page_complete (assistant,
-                        gnc_ui_qif_import_load_file_complete (assistant, user_data));
+    data = g_new0 (QIFFileDialogData, 1);
+    g_weak_ref_init (&data->window, wind->window);
+    gnc_file_dialog_request_open_async (request, NULL,
+                                        qif_file_dialog_finished, data);
+    g_object_unref (request);
 }
 
 
@@ -4047,6 +4083,8 @@ gnc_ui_qif_import_assistant_make (QIFImportWindow *qif_win)
     gnc_restore_window_size (GNC_PREFS_GROUP,
                              GTK_WINDOW(qif_win->window), gnc_ui_get_main_window (NULL));
 
+    g_object_set_data (G_OBJECT (qif_win->window), "gnc-qif-import-window",
+                       qif_win);
     g_signal_connect (qif_win->window, "destroy",
                       G_CALLBACK(gnc_ui_qif_import_assistant_destroy), qif_win);
 

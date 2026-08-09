@@ -41,7 +41,7 @@ typedef struct
 {
     GtkWidget    *assistant;
 
-    GtkWidget    *file_chooser;
+    GtkWidget    *file_button;
     GtkColumnView *preview_view;
     GListStore    *store;
     GString      *regexp;
