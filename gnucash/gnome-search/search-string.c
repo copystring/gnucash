@@ -35,6 +35,7 @@
 #include "search-core-utils.h"
 #include "qof.h"
 #include "dialog-utils.h"
+#include "gnc-ui.h"
 
 #define d(x)
 
@@ -154,15 +155,8 @@ gncs_validate (GNCSearchCoreType *fe)
 
     if (!fi->value || *(fi->value) == '\0')
     {
-        GtkWidget *dialog;
-        dialog = gtk_message_dialog_new (GTK_WINDOW(fi->parent),
-                                         GTK_DIALOG_MODAL,
-                                         GTK_MESSAGE_ERROR,
-                                         GTK_BUTTONS_OK,
-                                         "%s",
-                                         _("You need to enter some search text."));
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
+        gnc_error_dialog (fi->parent, "%s",
+                          _("You need to enter some search text."));
         return FALSE;
     }
 
@@ -179,7 +173,6 @@ gncs_validate (GNCSearchCoreType *fe)
         regerr = regcomp (&regexpat, fi->value, flags);
         if (regerr)
         {
-            GtkWidget *dialog;
             gchar *regmsg, *errmsg;
             size_t reglen;
 
@@ -193,13 +186,7 @@ gncs_validate (GNCSearchCoreType *fe)
                                       fi->value, regmsg);
             g_free (regmsg);
 
-            dialog = gtk_message_dialog_new (GTK_WINDOW(fi->parent),
-                                             GTK_DIALOG_MODAL,
-                                             GTK_MESSAGE_ERROR,
-                                             GTK_BUTTONS_OK,
-                                             "%s", errmsg);
-            gnc_dialog_run (GTK_DIALOG (dialog));
-
+            gnc_error_dialog (fi->parent, "%s", errmsg);
             g_free (errmsg);
             valid = FALSE;
         }

@@ -33,6 +33,7 @@
 #include "gnc-string-utils.h"
 #include "gnc-ui-util.h"
 #include "dialog-utils.h"
+#include "gnc-ui.h"
 #include <regex.h>
 #include "Account.h"
 #include "gnc-component-manager.h"
@@ -154,19 +155,13 @@ csv_import_read_file (GtkWindow *window, const gchar *filename,
         g_regex_new (parser_regexp, G_REGEX_OPTIMIZE, 0, &err);
     if (err != NULL)
     {
-        GtkWidget *dialog;
         gchar *errmsg;
 
         errmsg = g_strdup_printf (_("Error in regular expression '%s':\n%s"),
                                   parser_regexp, err->message);
         g_error_free (err);
 
-        dialog = gtk_message_dialog_new (window,
-                                         GTK_DIALOG_MODAL,
-                                         GTK_MESSAGE_ERROR,
-                                         GTK_BUTTONS_OK, "%s", errmsg);
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
+        gnc_error_dialog (window, "%s", errmsg);
         g_free (errmsg);
         g_free (contents);
 

@@ -140,7 +140,6 @@ gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp
     regexpat = g_regex_new (parser_regexp, G_REGEX_EXTENDED | G_REGEX_OPTIMIZE | G_REGEX_DUPNAMES, 0, &err);
     if (err != NULL)
     {
-        GtkWidget *dialog;
         gchar *errmsg;
 
         errmsg = g_strdup_printf (_("Error in regular expression '%s':\n%s"),
@@ -148,13 +147,7 @@ gnc_customer_import_read_file (const gchar *filename, const gchar *parser_regexp
         g_error_free (err);
         err = NULL;
 
-        dialog = gtk_message_dialog_new (NULL,
-                                         GTK_DIALOG_MODAL,
-                                         GTK_MESSAGE_ERROR,
-                                         GTK_BUTTONS_OK,
-                                         "%s", errmsg);
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
+        gnc_error_dialog (NULL, "%s", errmsg);
         g_free (errmsg);
         errmsg = 0;
 
