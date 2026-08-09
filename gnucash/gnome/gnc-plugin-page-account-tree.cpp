@@ -1990,7 +1990,7 @@ gnc_plugin_page_account_tree_cmd_scrub (GSimpleAction *simple,
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(window), event_controller);
-    scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-press-event",
+    scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-pressed",
                                             G_CALLBACK(scrub_kp_handler), nullptr);
     gnc_window_set_progressbar_window (window);
 
@@ -2024,7 +2024,7 @@ gnc_plugin_page_account_tree_cmd_scrub_sub (GSimpleAction *simple,
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(window), event_controller);
-    scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-press-event",
+    scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-pressed",
                                             G_CALLBACK(scrub_kp_handler), NULL);
     gnc_window_set_progressbar_window (window);
 
@@ -2055,7 +2055,7 @@ gnc_plugin_page_account_tree_cmd_scrub_all (GSimpleAction *simple,
     window = GNC_WINDOW(GNC_PLUGIN_PAGE (page)->window);
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(window), event_controller);
-    scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-press-event",
+    scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-pressed",
                                             G_CALLBACK(scrub_kp_handler), NULL);
     gnc_window_set_progressbar_window (window);
 

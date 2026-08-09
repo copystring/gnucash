@@ -1399,7 +1399,7 @@ gdv_editing_started_cb (GtkCellRenderer *cr, GtkCellEditable *editable,
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(editable), event_controller);
-    g_signal_connect (G_OBJECT(event_controller), "key-press-event",
+    g_signal_connect (G_OBJECT(event_controller), "key-pressed",
                       G_CALLBACK(gbv_key_press_cb), user_data);
 }
 

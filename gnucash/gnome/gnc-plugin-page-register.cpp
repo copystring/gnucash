@@ -3590,28 +3590,25 @@ gnc_plugin_page_register_cmd_scrub_current (GSimpleAction *simple,
 }
 
 static gboolean
-scrub_kp_handler (GtkWidget *widget, GdkEventKey *event, gpointer data)
+scrub_kp_handler (GtkEventControllerKey *key, guint keyval,
+                  guint keycode, GdkModifierType state,
+                  gpointer user_data)
 {
-    if (event->length == 0) return FALSE;
+    GtkWidget *widget;
 
-    switch (event->keyval)
-    {
-    case GDK_KEY_Escape:
-        {
-            auto abort_scrub = gnc_verify_dialog (GTK_WINDOW(widget), false,
-                                                  "%s", _(check_repair_abort_YN));
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
 
-            if (abort_scrub)
-                gnc_set_abort_scrub (TRUE);
+    widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (key));
+    if (gnc_verify_dialog (GTK_WINDOW (widget), FALSE,
+                           "%s", _(check_repair_abort_YN)))
+        gnc_set_abort_scrub (TRUE);
 
-            return TRUE;
-        }
-    default:
-        break;
-    }
-    return FALSE;
+    (void)keycode;
+    (void)state;
+    (void)user_data;
+    return TRUE;
 }
-
 static void
 gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
                                         GVariant      *paramter,
@@ -3623,6 +3620,7 @@ gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
     GncWindow* window;
     GList* node, *splits;
     gint split_count = 0, curr_split_no = 0;
+    GtkEventController *scrub_key_controller;
     gulong scrub_kp_handler_ID;
     const char* message = _ ("Checking splits in current register: %u of %u");
 
@@ -3642,7 +3640,9 @@ gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
     is_scrubbing = TRUE;
     gnc_set_abort_scrub (FALSE);
     window = GNC_WINDOW (GNC_PLUGIN_PAGE (page)->window);
-    scrub_kp_handler_ID = g_signal_connect (G_OBJECT (window), "key-press-event",
+    scrub_key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (GTK_WIDGET (window), scrub_key_controller);
+    scrub_kp_handler_ID = g_signal_connect (scrub_key_controller, "key-pressed",
                                             G_CALLBACK (scrub_kp_handler), NULL);
     gnc_window_set_progressbar_window (window);
 
@@ -3670,7 +3670,7 @@ gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
         }
     }
 
-    g_signal_handler_disconnect (G_OBJECT(window), scrub_kp_handler_ID);
+    g_signal_handler_disconnect (scrub_key_controller, scrub_kp_handler_ID);
     gnc_window_show_progress (NULL, -1.0);
     is_scrubbing = FALSE;
     show_abort_verify = TRUE;

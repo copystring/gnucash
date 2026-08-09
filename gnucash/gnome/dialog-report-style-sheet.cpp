@@ -528,7 +528,7 @@ gnc_style_sheet_select_dialog_create (GtkWindow *parent)
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(ss->toplevel), event_controller);
-    g_signal_connect (G_OBJECT(event_controller), "key-press-event",
+    g_signal_connect (G_OBJECT(event_controller), "key-pressed",
                       G_CALLBACK(gnc_style_sheet_select_dialog_check_escape_cb), ss);
 
     gnc_style_sheet_select_dialog_fill (ss);

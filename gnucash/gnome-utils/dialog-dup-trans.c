@@ -210,13 +210,13 @@ gnc_dup_trans_dialog_create (GtkWidget * parent, DupTransDialog *dt_dialog,
 
     GtkEventController *event_controller1 = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(dt_dialog->num_edit), event_controller1);
-    g_signal_connect (G_OBJECT(event_controller1), "key-press-event",
+    g_signal_connect (G_OBJECT(event_controller1), "key-pressed",
                       G_CALLBACK(gnc_dup_key_press_event_cb),
                       dt_dialog);
 
     GtkEventController *event_controller2 = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(dt_dialog->tnum_edit), event_controller2);
-    g_signal_connect (G_OBJECT(event_controller2), "key-press-event",
+    g_signal_connect (G_OBJECT(event_controller2), "key-pressed",
                       G_CALLBACK(gnc_dup_key_press_event_cb),
                       dt_dialog);
 
