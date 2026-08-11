@@ -1542,8 +1542,7 @@ gnc_split_reg_delete_trans_cb(GtkWidget *widget, gpointer data)
 void
 gsr_default_dup_handler( GNCSplitReg *gsr, gpointer data )
 {
-    gnc_split_register_duplicate_current
-    (gnc_ledger_display_get_split_register( gsr->ledger ));
+    gnc_split_register_duplicate_current_async (gnc_ledger_display_get_split_register (gsr->ledger), G_OBJECT (gsr));
 }
 
 /**

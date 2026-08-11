@@ -4040,72 +4040,83 @@ pay_invoice_cb (GtkWindow *dialog, gpointer *invoice_p, gpointer user_data)
     pay_invoice_direct (dialog, *invoice_p, user_data);
 }
 
-struct multi_duplicate_invoice_data
+typedef struct
 {
-    GDate date;
-    GtkWindow *parent;
-};
+    GWeakRef parent;
+    QofBook *book;
+    GList *invoice_guids;
+} MultiDuplicateInvoiceRequest;
 
-static void multi_duplicate_invoice_one(gpointer data, gpointer user_data)
+static void
+multi_duplicate_invoice_request_free (MultiDuplicateInvoiceRequest *request)
 {
-    GncInvoice *old_invoice = data;
-    struct multi_duplicate_invoice_data *dup_user_data = user_data;
+    g_weak_ref_clear (&request->parent);
+    g_list_free_full (request->invoice_guids, g_free);
+    g_free (request);
+}
 
-    g_assert(dup_user_data);
-    if (old_invoice)
+static void
+multi_duplicate_invoice_date_finished (GncDupTransResult *result,
+                                       gpointer user_data)
+{
+    MultiDuplicateInvoiceRequest *request = user_data;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    if (result && parent && request->book == gnc_get_current_book ())
     {
-        GncInvoice *new_invoice;
-        // In this simplest form, we just use the existing duplication
-        // algorithm, only without opening the "edit invoice" window for editing
-        // the number etc. for each of the invoices.
-        InvoiceWindow *iw = gnc_ui_invoice_duplicate(dup_user_data->parent, old_invoice, FALSE, &dup_user_data->date);
-        // FIXME: Now we could use this invoice and manipulate further data.
-        g_assert(iw);
-        new_invoice = iw_get_invoice(iw);
-        g_assert(new_invoice);
+        for (GList *node = request->invoice_guids; node; node = node->next)
+        {
+            GncInvoice *invoice = gncInvoiceLookup (request->book, node->data);
+            if (invoice)
+                gnc_ui_invoice_duplicate (parent, invoice, FALSE, &result->gdate);
+        }
     }
+
+    g_clear_object (&parent);
+    gnc_dup_trans_result_free (result);
+    multi_duplicate_invoice_request_free (request);
 }
 
 static void
 multi_duplicate_invoice_cb (GtkWindow *dialog, GList *invoice_list, gpointer user_data)
 {
+    (void)user_data;
     g_return_if_fail (invoice_list);
-    switch (g_list_length(invoice_list))
+    switch (g_list_length (invoice_list))
     {
     case 0:
         return;
     case 1:
-    {
-        // Duplicate exactly one invoice
-        GncInvoice *old_invoice = invoice_list->data;
-        gnc_ui_invoice_duplicate(dialog, old_invoice, TRUE, NULL);
+        gnc_ui_invoice_duplicate (dialog, invoice_list->data, TRUE, NULL);
         return;
-    }
     default:
     {
-        // Duplicate multiple invoices. We ask for a date first.
-        struct multi_duplicate_invoice_data dup_user_data;
-        gboolean dialog_ok;
+        GDate initial_date;
+        MultiDuplicateInvoiceRequest *request = g_new0 (MultiDuplicateInvoiceRequest, 1);
 
-        // Default date: Today
-        gnc_gdate_set_time64(&dup_user_data.date, gnc_time (NULL));
-        dup_user_data.parent = dialog;
-        dialog_ok = gnc_dup_date_dialog (GTK_WIDGET(dialog), _("Date of duplicated entries"), &dup_user_data.date);
-        if (!dialog_ok)
+        gnc_gdate_set_time64 (&initial_date, gnc_time (NULL));
+        request->book = gnc_get_current_book ();
+        g_weak_ref_init (&request->parent, dialog);
+        for (GList *node = invoice_list; node; node = node->next)
         {
-            // User pressed cancel, so don't duplicate anything here.
+            GncInvoice *invoice = node->data;
+            if (invoice && gncInvoiceGetBook (invoice) == request->book)
+                request->invoice_guids = g_list_append (
+                    request->invoice_guids, g_memdup2 (gncInvoiceGetGUID (invoice),
+                                                       sizeof (GncGUID)));
+        }
+        if (!request->invoice_guids)
+        {
+            multi_duplicate_invoice_request_free (request);
             return;
         }
-
-        // Note: If we want to have a more sophisticated duplication, we might want
-        // to ask for particular data right here, then insert this data upon
-        // duplication.
-        g_list_foreach(invoice_list, multi_duplicate_invoice_one, &dup_user_data);
+        gnc_dup_date_dialog_async (dialog, _("Date of duplicated entries"),
+                                   &initial_date,
+                                   multi_duplicate_invoice_date_finished, request);
         return;
     }
     }
 }
-
 static void gnc_invoice_is_posted(gpointer inv, gpointer test_value)
 {
     GncInvoice *invoice = inv;

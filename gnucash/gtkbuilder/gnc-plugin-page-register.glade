@@ -471,144 +471,49 @@ If 0, all previous days included</property>
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="duplicate_transaction_dialog">
-<property name="title" translatable="1" comments="Duplicate Transaction Dialog">Duplicate Transaction</property>
+  <object class="GtkWindow" id="duplicate_transaction_dialog">
+    <property name="title" translatable="1" comments="Duplicate Transaction Dialog">Duplicate Transaction</property>
     <property name="resizable">0</property>
     <property name="modal">1</property>
-<child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="dialog-vbox15">
         <property name="orientation">vertical</property>
-        <property name="spacing">6</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkLabel" id="duplicate_title_label">
             <property name="valign">center</property>
             <property name="halign">start</property>
             <property name="label" translatable="1">New Transaction Information</property>
-            <style>
-              <class name="gnc-class-strong" />
-            </style>
+            <style><class name="gnc-class-strong" /></style>
           </object>
         </child>
         <child>
           <object class="GtkGrid" id="duplicate_table">
             <property name="margin-start">6</property>
             <property name="margin-end">6</property>
-<property name="row-spacing">3</property>
+            <property name="row-spacing">3</property>
             <property name="column-spacing">6</property>
-            <child>
-              <object class="GtkLabel" id="date_label">
-                <property name="halign">end</property>
-                <property name="label" translatable="1">_Date</property>
-                <property name="use-underline">1</property>
-                <property name="justify">center</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">0</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="num_label">
-                <property name="halign">end</property>
-                <property name="label" translatable="1">_Number</property>
-                <property name="use-underline">1</property>
-                <property name="justify">center</property>
-                <property name="mnemonic-widget">num_entry</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">1</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkBox" id="date_hbox">
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">0</property>
-                </layout>
-                <child>
-                  <placeholder />
-                </child>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="tnum_label">
-                <property name="halign">end</property>
-                <property name="label" translatable="1">_Transaction Number</property>
-                <property name="use-underline">1</property>
-                <property name="justify">center</property>
-                <property name="mnemonic-widget">tnum_entry</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">2</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkCheckButton" id="link_check_button">
-                <property name="focusable">1</property>
-                <property name="halign">start</property>
-<property name="active">1</property>
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">3</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="link_label">
-                <property name="halign">end</property>
-                <property name="label" translatable="1">Keep Linked Document Entry</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">3</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkEntry" id="num_entry">
-                <property name="focusable">1</property>
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">1</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkEntry" id="tnum_entry">
-                <property name="focusable">1</property>
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">2</property>
-                </layout>
-              </object>
-            </child>
+            <child><object class="GtkLabel" id="date_label"><property name="halign">end</property><property name="label" translatable="1">_Date</property><property name="use-underline">1</property><property name="justify">center</property><layout><property name="column">0</property><property name="row">0</property></layout></object></child>
+            <child><object class="GtkLabel" id="num_label"><property name="halign">end</property><property name="label" translatable="1">_Number</property><property name="use-underline">1</property><property name="justify">center</property><property name="mnemonic-widget">num_entry</property><layout><property name="column">0</property><property name="row">1</property></layout></object></child>
+            <child><object class="GtkBox" id="date_hbox"><layout><property name="column">1</property><property name="row">0</property></layout></object></child>
+            <child><object class="GtkLabel" id="tnum_label"><property name="halign">end</property><property name="label" translatable="1">_Transaction Number</property><property name="use-underline">1</property><property name="justify">center</property><property name="mnemonic-widget">tnum_entry</property><layout><property name="column">0</property><property name="row">2</property></layout></object></child>
+            <child><object class="GtkCheckButton" id="link_check_button"><property name="focusable">1</property><property name="halign">start</property><property name="active">1</property><layout><property name="column">1</property><property name="row">3</property></layout></object></child>
+            <child><object class="GtkLabel" id="link_label"><property name="halign">end</property><property name="label" translatable="1">Keep Linked Document Entry</property><layout><property name="column">0</property><property name="row">3</property></layout></object></child>
+            <child><object class="GtkEntry" id="num_entry"><property name="focusable">1</property><layout><property name="column">1</property><property name="row">1</property></layout></object></child>
+            <child><object class="GtkEntry" id="tnum_entry"><property name="focusable">1</property><layout><property name="column">1</property><property name="row">2</property></layout></object></child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">button76</action-widget>
-      <action-widget response="-5">button77</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area15">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="button76">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
+          <object class="GtkBox" id="dialog-action_area15">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child><object class="GtkButton" id="button76"><property name="label" translatable="1">_Cancel</property><property name="focusable">1</property><property name="use-underline">1</property></object></child>
+            <child><object class="GtkButton" id="button77"><property name="label" translatable="1">_OK</property><property name="focusable">1</property><property name="use-underline">1</property></object></child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="button77">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
         </child>
       </object>
     </child>

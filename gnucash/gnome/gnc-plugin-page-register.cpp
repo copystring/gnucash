@@ -3062,14 +3062,108 @@ gnc_plugin_page_register_cmd_unvoid_transaction (GSimpleAction *simple,
     LEAVE (" ");
 }
 
-static std::optional<time64>
-input_date (GtkWidget * parent, const char *window_title, const char* title)
+typedef struct
 {
-    time64 rv = gnc_time (nullptr);
-    if (!gnc_dup_time64_dialog (parent, window_title, title, &rv))
-        return {};
+    GWeakRef page;
+    QofBook *book;
+    GncGUID transaction_guid;
+    GncGUID account_guid;
+} ReverseTransactionRequest;
 
-    return rv;
+static void
+reverse_transaction_request_free (ReverseTransactionRequest *request)
+{
+    g_weak_ref_clear (&request->page);
+    g_free (request);
+}
+
+static gboolean
+reverse_transaction_request_context (ReverseTransactionRequest *request,
+                                     GncPluginPageRegister **page_out,
+                                     Transaction **transaction_out,
+                                     Account **account_out)
+{
+    auto page = GNC_PLUGIN_PAGE_REGISTER (g_weak_ref_get (&request->page));
+    if (!page || request->book != gnc_get_current_book ())
+    {
+        g_clear_object (&page);
+        return FALSE;
+    }
+
+    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+    auto reg = priv->ledger ? gnc_ledger_display_get_split_register (priv->ledger) : nullptr;
+    auto current = reg ? gnc_split_register_get_current_trans (reg) : nullptr;
+    auto transaction = xaccTransLookup (&request->transaction_guid, request->book);
+    auto account = xaccAccountLookup (&request->account_guid, request->book);
+    if (!current || !transaction || !account ||
+        !guid_equal (xaccTransGetGUID (current), &request->transaction_guid))
+    {
+        g_object_unref (page);
+        return FALSE;
+    }
+
+    *page_out = page;
+    *transaction_out = transaction;
+    *account_out = account;
+    return TRUE;
+}
+
+static void
+reverse_transaction_request_finish (ReverseTransactionRequest *request,
+                                    const GncDupTransResult *result)
+{
+    GncPluginPageRegister *page;
+    Transaction *transaction;
+    Account *account;
+
+    if (reverse_transaction_request_context (request, &page, &transaction, &account))
+    {
+        auto new_transaction = xaccTransGetReversedBy (transaction);
+        if (!new_transaction && result)
+        {
+            gnc_suspend_gui_refresh ();
+            new_transaction = xaccTransReverse (transaction);
+            xaccTransSetDatePostedSecsNormalized (new_transaction, result->date);
+            xaccTransSetDateEnteredSecs (new_transaction, gnc_time (NULL));
+            gnc_resume_gui_refresh ();
+        }
+        if (new_transaction)
+        {
+            auto gsr = gnc_plugin_page_register_get_gsr (GNC_PLUGIN_PAGE (page));
+            auto split = xaccTransFindSplitByAccount (new_transaction, account);
+            if (gsr && split)
+            {
+                if (gnc_split_reg_clear_filter_for_split (gsr, split))
+                    gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE (page));
+                gnc_split_reg_jump_to_split (gsr, split);
+            }
+        }
+        g_object_unref (page);
+    }
+    reverse_transaction_request_free (request);
+}
+
+static void
+reverse_transaction_existing_finished (GtkWindow *parent, gint response,
+                                       gpointer user_data)
+{
+    auto request = static_cast<ReverseTransactionRequest *> (user_data);
+    (void)parent;
+    if (response == GTK_RESPONSE_YES)
+        reverse_transaction_request_finish (request, nullptr);
+    else
+        reverse_transaction_request_free (request);
+}
+
+static void
+reverse_transaction_date_finished (GncDupTransResult *result, gpointer user_data)
+{
+    auto request = static_cast<ReverseTransactionRequest *> (user_data);
+    if (result)
+        reverse_transaction_request_finish (request, result);
+    else
+        reverse_transaction_request_free (request);
+    gnc_dup_trans_result_free (result);
 }
 
 static void
@@ -3077,77 +3171,71 @@ gnc_plugin_page_register_cmd_reverse_transaction (GSimpleAction *simple,
                                                   GVariant      *paramter,
                                                   gpointer       user_data)
 {
-    auto page = GNC_PLUGIN_PAGE_REGISTER(user_data);
-    GncPluginPageRegisterPrivate* priv;
-    SplitRegister* reg;
-    GNCSplitReg* gsr;
-    Transaction* trans, *new_trans;
-    GtkWidget *window;
-    Account *account;
-    Split *split;
-
-    ENTER ("(action %p, page %p)", simple, page);
-
+    auto page = GNC_PLUGIN_PAGE_REGISTER (user_data);
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER (page));
 
-    priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
-    reg = gnc_ledger_display_get_split_register (priv->ledger);
-    window = gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page));
-    trans = gnc_split_register_get_current_trans (reg);
-    if (trans == NULL)
+    ENTER ("(action %p, page %p)", simple, page);
+    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+    auto reg = priv->ledger ? gnc_ledger_display_get_split_register (priv->ledger) : nullptr;
+    auto transaction = reg ? gnc_split_register_get_current_trans (reg) : nullptr;
+    auto split = reg ? gnc_split_register_get_current_split (reg) : nullptr;
+    auto account = split ? xaccSplitGetAccount (split) : nullptr;
+    auto window = GTK_WINDOW (gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page)));
+    if (!transaction || !account || !window)
         return;
 
-    split = gnc_split_register_get_current_split (reg);
-    account = xaccSplitGetAccount (split);
+    auto request = g_new0 (ReverseTransactionRequest, 1);
+    request->book = gnc_get_current_book ();
+    request->transaction_guid = *xaccTransGetGUID (transaction);
+    request->account_guid = *xaccAccountGetGUID (account);
+    g_weak_ref_init (&request->page, G_OBJECT (page));
 
-    if (!account)
-    {
-        LEAVE ("shouldn't try to reverse the blank transaction...");
-        return;
-    }
-
-    new_trans = xaccTransGetReversedBy (trans);
-    if (new_trans)
-    {
-        const char *rev = _("A reversing entry has already been created for this transaction.");
-        const char *jump = _("Jump to the transaction?");
-        if (!gnc_verify_dialog (GTK_WINDOW (window), TRUE, "%s\n\n%s", rev, jump))
-        {
-            LEAVE ("reverse cancelled");
-            return;
-        }
-    }
+    if (xaccTransGetReversedBy (transaction))
+        gnc_verify_dialog_async (window, TRUE, reverse_transaction_existing_finished,
+                                 request, "%s\n\n%s",
+                                 _("A reversing entry has already been created for this transaction."),
+                                 _("Jump to the transaction?"));
     else
-    {
-        auto date = input_date (window, _("Reverse Transaction"), _("New Transaction Information"));
-        if (!date)
-        {
-            LEAVE ("reverse cancelled");
-            return;
-        }
-
-        gnc_suspend_gui_refresh ();
-        new_trans = xaccTransReverse (trans);
-
-        /* Clear transaction level info */
-        xaccTransSetDatePostedSecsNormalized (new_trans, date.value());
-        xaccTransSetDateEnteredSecs (new_trans, gnc_time (NULL));
-
-        gnc_resume_gui_refresh();
-    }
-
-    /* Now jump to new trans */
-    gsr = gnc_plugin_page_register_get_gsr (GNC_PLUGIN_PAGE (page));
-    split = xaccTransFindSplitByAccount(new_trans, account);
-
-    /* Test for visibility of split */
-    if (gnc_split_reg_clear_filter_for_split (gsr, split))
-        gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE(page));
-
-    gnc_split_reg_jump_to_split (gsr, split);
+        gnc_dup_time64_dialog_async (window, _("Reverse Transaction"),
+                                     _("New Transaction Information"), gnc_time (NULL),
+                                     reverse_transaction_date_finished, request);
     LEAVE (" ");
 }
 
+typedef struct
+{
+    GWeakRef page;
+    QofBook *book;
+} GotoDateRequest;
+
+static void
+goto_date_request_finished (GncDupTransResult *result, gpointer user_data)
+{
+    auto request = static_cast<GotoDateRequest *> (user_data);
+    auto page = GNC_PLUGIN_PAGE_REGISTER (g_weak_ref_get (&request->page));
+
+    if (result && page && request->book == gnc_get_current_book ())
+    {
+        auto gsr = gnc_plugin_page_register_get_gsr (GNC_PLUGIN_PAGE (page));
+        auto query = gnc_plugin_page_register_get_query (GNC_PLUGIN_PAGE (page));
+        if (gsr && query)
+        {
+            auto splits = g_list_sort (g_list_copy (qof_query_run (query)),
+                                       (GCompareFunc)xaccSplitOrder);
+            auto it = g_list_find_custom (splits, &result->date,
+                                           (GCompareFunc)find_after_date);
+            if (it)
+                gnc_split_reg_jump_to_split (gsr, GNC_SPLIT (it->data));
+            else
+                gnc_split_reg_jump_to_blank (gsr);
+            g_list_free (splits);
+        }
+    }
+    g_clear_object (&page);
+    gnc_dup_trans_result_free (result);
+    g_weak_ref_clear (&request->page);
+    g_free (request);
+}
 static bool
 gnc_plugin_page_register_show_fs_save (GncPluginPageRegister* page)
 {
@@ -3673,41 +3761,21 @@ gnc_plugin_page_register_cmd_goto_date (GSimpleAction *simple,
                                         GVariant      *paramter,
                                         gpointer       user_data)
 {
-    auto page = GNC_PLUGIN_PAGE_REGISTER(user_data);
-    GNCSplitReg* gsr;
-    Query* query;
-    GList *splits;
-    GtkWidget *window = gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page));
-
-    ENTER ("(action %p, page %p)", simple, page);
+    auto page = GNC_PLUGIN_PAGE_REGISTER (user_data);
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER (page));
 
-    auto date = input_date (window, _("Go to Date"), _("Go to Date"));
-
-    if (!date)
-    {
-        LEAVE ("goto_date cancelled");
+    ENTER ("(action %p, page %p)", simple, page);
+    auto window = GTK_WINDOW (gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page)));
+    if (!window)
         return;
-    }
 
-    gsr = gnc_plugin_page_register_get_gsr (GNC_PLUGIN_PAGE (page));
-    query = gnc_plugin_page_register_get_query (GNC_PLUGIN_PAGE (page));
-    splits = g_list_copy (qof_query_run (query));
-    splits = g_list_sort (splits, (GCompareFunc)xaccSplitOrder);
-
-    // if gl register, there could be blank splits from other open registers
-    // included in split list so check for and ignore them
-    auto it = g_list_find_custom (splits, &date.value(), (GCompareFunc)find_after_date);
-
-    if (it)
-        gnc_split_reg_jump_to_split (gsr, GNC_SPLIT(it->data));
-    else
-        gnc_split_reg_jump_to_blank (gsr);
-
-    g_list_free (splits);
+    auto request = g_new0 (GotoDateRequest, 1);
+    request->book = gnc_get_current_book ();
+    g_weak_ref_init (&request->page, G_OBJECT (page));
+    gnc_dup_time64_dialog_async (window, _("Go to Date"), _("Go to Date"),
+                                 gnc_time (NULL), goto_date_request_finished, request);
     LEAVE (" ");
 }
-
 static void
 gnc_plugin_page_register_cmd_duplicate_transaction (GSimpleAction *simple,
                                                     GVariant      *paramter,
@@ -3721,8 +3789,7 @@ gnc_plugin_page_register_cmd_duplicate_transaction (GSimpleAction *simple,
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER (page));
 
     priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
-    gnc_split_register_duplicate_current
-    (gnc_ledger_display_get_split_register (priv->ledger));
+    gnc_split_register_duplicate_current_async (gnc_ledger_display_get_split_register (priv->ledger), G_OBJECT (page));
     LEAVE (" ");
 }
 

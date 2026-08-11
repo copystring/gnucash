@@ -464,11 +464,10 @@ gboolean
 gnc_split_register_get_split_amount_virt_loc (SplitRegister* reg, Split* split,
                                               VirtualLocation* virt_loc);
 
-/** Duplicates either the current transaction or the current split
- *    depending on the register mode and cursor position. Returns the
- *    split just created, or the 'main' split of the transaction just
- *    created, or NULL if nothing happened. */
-Split* gnc_split_register_duplicate_current (SplitRegister* reg);
+/** Starts asynchronous duplication of the current transaction or split.
+ * The owner keeps the register alive until completion; page, book, and cursor
+ * identity are revalidated before any mutation. */
+void gnc_split_register_duplicate_current_async (SplitRegister *reg, GObject *owner);
 
 /** Return TRUE if copied_item holds a transaction or split.
  */
