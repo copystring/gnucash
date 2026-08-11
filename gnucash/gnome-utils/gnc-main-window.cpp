@@ -149,6 +149,7 @@ static GList *active_windows = nullptr;
  *  decision active so repeated accelerators and close requests cannot race. */
 static gboolean quit_request_pending = FALSE;
 static gboolean shutdown_started = FALSE;
+static struct GncMainWindowAllFinishPendingRequest *all_finish_pending_request = nullptr;
 #define MSG_AUTO_SAVE _("Changes will be saved automatically in %u seconds")
 
 /* Declarations *********************************************************/
@@ -212,6 +213,9 @@ static void gnc_quartz_set_menu (GncMainWindow* window);
 #endif
 static void gnc_main_window_init_menu_updaters (GncMainWindow *window);
 
+typedef struct GncMainWindowFinishPendingRequest GncMainWindowFinishPendingRequest;
+typedef struct GncMainWindowAllFinishPendingRequest GncMainWindowAllFinishPendingRequest;
+
 struct _GncMainWindow
 {
     GtkApplicationWindow gtk_application_window;  /**< The parent object for a main window. */
@@ -266,6 +270,9 @@ typedef struct
 
     /** The shortcut controller for the window. */
     GtkEventController *shortcut_controller;
+
+    GHashTable    *display_item_hash;
+    GncMainWindowFinishPendingRequest *finish_pending_request;
 
 } GncMainWindowPrivate;
 
@@ -1084,47 +1091,307 @@ gnc_main_window_save_all_windows(GKeyFile *keyfile)
 }
 
 
-gboolean
-gnc_main_window_finish_pending (GncMainWindow *window)
+struct GncMainWindowFinishPendingRequest
+{
+    gatomicrefcount ref_count;
+    GWeakRef window;
+    GCancellable *cancellable;
+    gulong window_destroy_handler;
+    GList *pages;
+    GncPluginPage *current_page;
+    GncMainWindowPendingCallback callback;
+    gpointer user_data;
+    gboolean completed;
+};
+
+struct GncMainWindowAllFinishPendingRequest
+{
+    gatomicrefcount ref_count;
+    GCancellable *cancellable;
+    GList *windows;
+    GncMainWindow *current_window;
+    GncMainWindowAllPendingCallback callback;
+    gpointer user_data;
+    gboolean completed;
+};
+
+static GncMainWindowFinishPendingRequest*
+main_window_finish_pending_request_ref (GncMainWindowFinishPendingRequest *request)
+{
+    g_atomic_ref_count_inc (&request->ref_count);
+    return request;
+}
+
+static void
+main_window_finish_pending_request_free (GncMainWindowFinishPendingRequest *request)
+{
+    GObject *object = G_OBJECT (g_weak_ref_get (&request->window));
+
+    if (object && request->window_destroy_handler)
+        g_signal_handler_disconnect (object, request->window_destroy_handler);
+    g_clear_object (&object);
+    g_list_free_full (request->pages, g_object_unref);
+    g_clear_object (&request->current_page);
+    g_clear_object (&request->cancellable);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+main_window_finish_pending_request_unref (GncMainWindowFinishPendingRequest *request)
+{
+    if (request && g_atomic_ref_count_dec (&request->ref_count))
+        main_window_finish_pending_request_free (request);
+}
+
+static void
+main_window_finish_pending_request_complete (GncMainWindowFinishPendingRequest *request,
+                                             gboolean accepted)
+{
+    GncMainWindow *window;
+
+    if (!request || request->completed)
+        return;
+
+    request->completed = TRUE;
+    window = GNC_MAIN_WINDOW (g_weak_ref_get (&request->window));
+    if (window)
+    {
+        auto priv = GNC_MAIN_WINDOW_GET_PRIVATE (window);
+        if (priv->finish_pending_request == request)
+            priv->finish_pending_request = nullptr;
+    }
+    if (request->callback)
+        request->callback (window, accepted && window != nullptr, request->user_data);
+    g_clear_object (&window);
+    main_window_finish_pending_request_unref (request);
+}
+
+static void main_window_finish_pending_request_continue
+    (GncMainWindowFinishPendingRequest *request);
+
+static void
+main_window_finish_pending_page_finished (GncPluginPage *page, gboolean accepted,
+                                          gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowFinishPendingRequest *> (user_data);
+
+    g_clear_object (&request->current_page);
+    if (!accepted || !page)
+        main_window_finish_pending_request_complete (request, FALSE);
+    else
+        main_window_finish_pending_request_continue (request);
+    main_window_finish_pending_request_unref (request);
+}
+
+static void
+main_window_finish_pending_window_destroyed (GtkWidget *widget, gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowFinishPendingRequest *> (user_data);
+
+    (void)widget;
+    request->window_destroy_handler = 0;
+    g_cancellable_cancel (request->cancellable);
+    main_window_finish_pending_request_complete (request, FALSE);
+}
+
+static void
+main_window_finish_pending_request_continue (GncMainWindowFinishPendingRequest *request)
+{
+    GncMainWindow *window;
+
+    if (!request || request->completed)
+        return;
+    if (g_cancellable_is_cancelled (request->cancellable))
+    {
+        main_window_finish_pending_request_complete (request, FALSE);
+        return;
+    }
+
+    window = GNC_MAIN_WINDOW (g_weak_ref_get (&request->window));
+    if (!window)
+    {
+        main_window_finish_pending_request_complete (request, FALSE);
+        return;
+    }
+
+    while (request->pages)
+    {
+        auto link = request->pages;
+        auto page = static_cast<GncPluginPage *> (link->data);
+        request->pages = g_list_delete_link (request->pages, link);
+        request->current_page = page;
+        if (gnc_plugin_page_get_window (page) != GTK_WIDGET (window))
+        {
+            g_clear_object (&request->current_page);
+            continue;
+        }
+        gnc_plugin_page_finish_pending_async
+            (page, request->cancellable, main_window_finish_pending_page_finished,
+             main_window_finish_pending_request_ref (request));
+        g_object_unref (window);
+        return;
+    }
+
+    g_object_unref (window);
+    main_window_finish_pending_request_complete (request, TRUE);
+}
+
+void
+
+gnc_main_window_finish_pending_async (GncMainWindow *window,
+                                      GCancellable *cancellable,
+                                      GncMainWindowPendingCallback callback,
+                                      gpointer user_data)
 {
     GncMainWindowPrivate *priv;
-    GList *item;
+    GncMainWindowFinishPendingRequest *request;
 
-    g_return_val_if_fail(GNC_IS_MAIN_WINDOW(window), TRUE);
-
-    priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
-    for (item = priv->installed_pages; item; item = g_list_next(item))
+    if (!GNC_IS_MAIN_WINDOW (window))
     {
-        if (!gnc_plugin_page_finish_pending(static_cast<GncPluginPage*>(item->data)))
-        {
-            return FALSE;
-        }
+        if (callback)
+            callback (nullptr, FALSE, user_data);
+        return;
     }
-    return TRUE;
+
+    priv = GNC_MAIN_WINDOW_GET_PRIVATE (window);
+    if (priv->finish_pending_request)
+    {
+        if (callback)
+            callback (window, FALSE, user_data);
+        return;
+    }
+
+    request = g_new0 (GncMainWindowFinishPendingRequest, 1);
+    g_atomic_ref_count_init (&request->ref_count);
+    g_weak_ref_init (&request->window, window);
+    request->cancellable = cancellable ? G_CANCELLABLE (g_object_ref (cancellable)) :
+                                         g_cancellable_new ();
+    request->pages = g_list_copy_deep (priv->installed_pages,
+                                       (GCopyFunc)g_object_ref, nullptr);
+    request->callback = callback;
+    request->user_data = user_data;
+    request->window_destroy_handler = g_signal_connect
+        (window, "destroy", G_CALLBACK (main_window_finish_pending_window_destroyed), request);
+    priv->finish_pending_request = request;
+    main_window_finish_pending_request_continue (request);
 }
 
-
-gboolean
-gnc_main_window_all_finish_pending (void)
+static GncMainWindowAllFinishPendingRequest*
+main_window_all_finish_pending_request_ref (GncMainWindowAllFinishPendingRequest *request)
 {
-    const GList *windows, *item;
-
-    windows = gnc_gobject_tracking_get_list(GNC_MAIN_WINDOW_NAME);
-    for (item = windows; item; item = g_list_next(item))
-    {
-        if (!gnc_main_window_finish_pending(static_cast<GncMainWindow*>(item->data)))
-        {
-            return FALSE;
-        }
-    }
-    if (gnc_gui_refresh_suspended ())
-    {
-        gnc_warning_dialog (nullptr, "%s", "An operation is still running, wait for it to complete before quitting.");
-        return FALSE;
-    }
-    return TRUE;
+    g_atomic_ref_count_inc (&request->ref_count);
+    return request;
 }
 
+static void
+main_window_all_finish_pending_request_free (GncMainWindowAllFinishPendingRequest *request)
+{
+    g_list_free_full (request->windows, g_object_unref);
+    g_clear_object (&request->current_window);
+    g_clear_object (&request->cancellable);
+    g_free (request);
+}
+
+static void
+main_window_all_finish_pending_request_unref (GncMainWindowAllFinishPendingRequest *request)
+{
+    if (request && g_atomic_ref_count_dec (&request->ref_count))
+        main_window_all_finish_pending_request_free (request);
+}
+
+static void
+main_window_all_finish_pending_request_complete (GncMainWindowAllFinishPendingRequest *request,
+                                                 gboolean accepted)
+{
+    if (!request || request->completed)
+        return;
+
+    request->completed = TRUE;
+    if (all_finish_pending_request == request)
+        all_finish_pending_request = nullptr;
+    if (request->callback)
+        request->callback (accepted, request->user_data);
+    main_window_all_finish_pending_request_unref (request);
+}
+
+static void main_window_all_finish_pending_request_continue
+    (GncMainWindowAllFinishPendingRequest *request);
+
+static void
+main_window_all_finish_pending_window_finished (GncMainWindow *window, gboolean accepted,
+                                                gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowAllFinishPendingRequest *> (user_data);
+
+    (void)window;
+    g_clear_object (&request->current_window);
+    if (!accepted)
+        main_window_all_finish_pending_request_complete (request, FALSE);
+    else
+        main_window_all_finish_pending_request_continue (request);
+    main_window_all_finish_pending_request_unref (request);
+}
+
+static void
+main_window_all_finish_pending_request_continue (GncMainWindowAllFinishPendingRequest *request)
+{
+    if (!request || request->completed)
+        return;
+    if (g_cancellable_is_cancelled (request->cancellable))
+    {
+        main_window_all_finish_pending_request_complete (request, FALSE);
+        return;
+    }
+
+    if (!request->windows)
+    {
+        if (gnc_gui_refresh_suspended ())
+        {
+            g_warning ("An operation is still running; wait for it to complete before continuing.");
+            main_window_all_finish_pending_request_complete (request, FALSE);
+        }
+        else
+            main_window_all_finish_pending_request_complete (request, TRUE);
+        return;
+    }
+
+    auto link = request->windows;
+    auto window = static_cast<GncMainWindow *> (link->data);
+    request->windows = g_list_delete_link (request->windows, link);
+    request->current_window = window;
+    gnc_main_window_finish_pending_async
+        (window, request->cancellable, main_window_all_finish_pending_window_finished,
+         main_window_all_finish_pending_request_ref (request));
+}
+
+void
+
+gnc_main_window_all_finish_pending_async (GCancellable *cancellable,
+                                          GncMainWindowAllPendingCallback callback,
+                                          gpointer user_data)
+{
+    GncMainWindowAllFinishPendingRequest *request;
+    const GList *windows;
+
+    if (all_finish_pending_request)
+    {
+        if (callback)
+            callback (FALSE, user_data);
+        return;
+    }
+
+    request = g_new0 (GncMainWindowAllFinishPendingRequest, 1);
+    g_atomic_ref_count_init (&request->ref_count);
+    request->cancellable = cancellable ? G_CANCELLABLE (g_object_ref (cancellable)) :
+                                         g_cancellable_new ();
+    windows = gnc_gobject_tracking_get_list (GNC_MAIN_WINDOW_NAME);
+    request->windows = g_list_copy_deep ((GList *)windows, (GCopyFunc)g_object_ref, nullptr);
+    request->callback = callback;
+    request->user_data = user_data;
+    all_finish_pending_request = request;
+    main_window_all_finish_pending_request_continue (request);
+}
 
 /** See if the page already exists.  For each open window, look
  *  through the list of pages installed in that window and see if the
@@ -1178,7 +1445,13 @@ typedef struct
 typedef struct
 {
     GWeakRef window;
+    gboolean destroy_window;
 } GncMainWindowCloseRequest;
+
+typedef struct
+{
+    GWeakRef window;
+} GncMainWindowQuitAfterPendingRequest;
 
 static void gnc_main_window_quit_request_finish (GncMainWindowQuitRequest *request,
                                                   gboolean proceed);
@@ -1645,6 +1918,30 @@ gnc_main_window_close_request_free (GncMainWindowCloseRequest *request)
 }
 
 static void
+gnc_main_window_close_request_pending_finished (GncMainWindow *window,
+                                                 gboolean accepted,
+                                                 gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowCloseRequest *> (user_data);
+
+    if (window)
+    {
+        window->close_request_pending = FALSE;
+        if (accepted)
+        {
+            if (request->destroy_window)
+                gtk_window_destroy (GTK_WINDOW (window));
+            else
+            {
+                window->close_request_pending = TRUE;
+                gnc_main_window_request_quit (window);
+            }
+        }
+    }
+    gnc_main_window_close_request_free (request);
+}
+
+static void
 gnc_main_window_close_request_confirmed (gint response, gpointer user_data)
 {
     auto request = static_cast<GncMainWindowCloseRequest *> (user_data);
@@ -1653,14 +1950,43 @@ gnc_main_window_close_request_confirmed (gint response, gpointer user_data)
     if (object && GNC_IS_MAIN_WINDOW (object))
     {
         auto window = GNC_MAIN_WINDOW (object);
-        window->close_request_pending = FALSE;
-        if (response == GTK_RESPONSE_YES && gnc_main_window_finish_pending (window))
-            gtk_window_destroy (GTK_WINDOW (window));
+        if (response == GTK_RESPONSE_YES)
+        {
+            request->destroy_window = TRUE;
+            gnc_main_window_finish_pending_async
+                (window, nullptr, gnc_main_window_close_request_pending_finished, request);
+            request = nullptr;
+        }
+        else
+            window->close_request_pending = FALSE;
     }
     g_clear_object (&object);
-    gnc_main_window_close_request_free (request);
+    if (request)
+        gnc_main_window_close_request_free (request);
 }
 
+static void
+gnc_main_window_quit_after_pending_finished (gboolean accepted, gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowQuitAfterPendingRequest *> (user_data);
+    auto object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+
+    if (accepted && object && GNC_IS_MAIN_WINDOW (object))
+        gnc_main_window_request_quit (GNC_MAIN_WINDOW (object));
+    g_clear_object (&object);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+gnc_main_window_request_quit_after_pending (GncMainWindow *window)
+{
+    auto request = g_new0 (GncMainWindowQuitAfterPendingRequest, 1);
+
+    g_weak_ref_init (&request->window, window);
+    gnc_main_window_all_finish_pending_async
+        (nullptr, gnc_main_window_quit_after_pending_finished, request);
+}
 static gboolean
 gnc_main_window_close_request (GtkWindow *gtk_window, gpointer user_data)
 {
@@ -1685,11 +2011,13 @@ gnc_main_window_close_request (GtkWindow *gtk_window, gpointer user_data)
         return TRUE;
     }
 
-    if (!gnc_main_window_finish_pending (window))
-        return TRUE;
+    auto request = g_new0 (GncMainWindowCloseRequest, 1);
 
     window->close_request_pending = TRUE;
-    gnc_main_window_request_quit (window);
+    g_weak_ref_init (&request->window, window);
+    request->destroy_window = FALSE;
+    gnc_main_window_finish_pending_async
+        (window, nullptr, gnc_main_window_close_request_pending_finished, request);
     return TRUE;
 }
 
@@ -3681,6 +4009,47 @@ gnc_main_window_open_page (GncMainWindow *window,
 }
 
 
+typedef struct
+{
+    GncPluginPage *page;
+} GncMainWindowClosePageRequest;
+
+static void
+gnc_main_window_close_page_pending_finished (GncPluginPage *page, gboolean accepted,
+                                             gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowClosePageRequest *> (user_data);
+    auto closing_page = request->page;
+
+    if (accepted && page && closing_page->notebook_page &&
+        GNC_IS_MAIN_WINDOW (closing_page->window))
+    {
+        auto window = GNC_MAIN_WINDOW (closing_page->window);
+        auto priv = GNC_MAIN_WINDOW_GET_PRIVATE (window);
+
+        gnc_main_window_disconnect (window, closing_page);
+        gnc_plugin_page_destroy_widget (closing_page);
+        g_object_unref (closing_page);
+        if (priv->installed_pages == nullptr)
+        {
+            if (window->window_quitting)
+            {
+                GncPluginManager *manager = gnc_plugin_manager_get ();
+                GList *plugins = gnc_plugin_manager_get_plugins (manager);
+
+                window->just_plugin_prefs = TRUE;
+                g_list_foreach (plugins, gnc_main_window_remove_plugin, window);
+                window->just_plugin_prefs = FALSE;
+                g_list_free (plugins);
+                gnc_main_window_remove_prefs (window);
+            }
+            if (gnc_list_length_cmp (active_windows, 1) > 0)
+                gtk_window_destroy (GTK_WINDOW(window));
+        }
+    }
+    g_object_unref (request->page);
+    g_free (request);
+}
 /*  Remove a data plugin page from a window and display the previous
  *  page.  If the page removed was the last page in the window, and
  *  there is more than one window open, then the entire window will be
@@ -3689,50 +4058,15 @@ gnc_main_window_open_page (GncMainWindow *window,
 void
 gnc_main_window_close_page (GncPluginPage *page)
 {
-    GncMainWindow *window;
-    GncMainWindowPrivate *priv;
+    GncMainWindowClosePageRequest *request;
 
-    if (!page || !page->notebook_page)
+    if (!page || !page->notebook_page || !GNC_IS_MAIN_WINDOW (page->window))
         return;
 
-    if (!gnc_plugin_page_finish_pending(page))
-        return;
-
-    if (!GNC_IS_MAIN_WINDOW (page->window))
-        return;
-
-    window = GNC_MAIN_WINDOW (page->window);
-    if (!window)
-    {
-        g_warning("Page is not in a window.");
-        return;
-    }
-
-    gnc_main_window_disconnect(window, page);
-    gnc_plugin_page_destroy_widget (page);
-    g_object_unref(page);
-
-    /* If this isn't the last window, go ahead and destroy the window. */
-    priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
-    if (priv->installed_pages == nullptr)
-    {
-        if (window->window_quitting)
-        {
-            GncPluginManager *manager = gnc_plugin_manager_get ();
-            GList *plugins = gnc_plugin_manager_get_plugins (manager);
-
-            /* remove only the preference callbacks from the window plugins */
-            window->just_plugin_prefs = TRUE;
-            g_list_foreach (plugins, gnc_main_window_remove_plugin, window);
-            window->just_plugin_prefs = FALSE;
-            g_list_free (plugins);
-
-            /* remove the preference callbacks from the main window */
-            gnc_main_window_remove_prefs (window);
-        }
-        if (window && (gnc_list_length_cmp (active_windows, 1) > 0))
-            gtk_window_destroy (GTK_WINDOW(window));
-    }
+    request = g_new0 (GncMainWindowClosePageRequest, 1);
+    request->page = GNC_PLUGIN_PAGE (g_object_ref (page));
+    gnc_plugin_page_finish_pending_async
+        (page, nullptr, gnc_main_window_close_page_pending_finished, request);
 }
 
 
@@ -4541,8 +4875,7 @@ gnc_quartz_shutdown (GtkosxApplication *theApp, gpointer data)
 static gboolean
 gnc_quartz_should_quit (GtkosxApplication *theApp, GncMainWindow *window)
 {
-    if (gnc_main_window_all_finish_pending())
-        gnc_main_window_request_quit (window);
+    gnc_main_window_request_quit_after_pending (window);
     return TRUE;
 }
 static void
@@ -4930,10 +5263,7 @@ gnc_main_window_cmd_file_quit (GSimpleAction *simple,
                                gpointer       user_data)
 {
     GncMainWindow *window = (GncMainWindow*)user_data;
-    if (!gnc_main_window_all_finish_pending())
-        return;
-
-    gnc_main_window_request_quit (window);
+    gnc_main_window_request_quit_after_pending (window);
 }
 
 static void
@@ -5726,7 +6056,8 @@ gnc_main_window_cmd_help_about (GSimpleAction *simple,
 
     gtk_window_set_transient_for (GTK_WINDOW (dialog),
                                   GTK_WINDOW (window));
-    gnc_dialog_run (dialog);
+    g_signal_connect_swapped (dialog, "destroy", G_CALLBACK (g_object_unref), dialog);
+    gtk_window_present (GTK_WINDOW (dialog));
 }
 
 

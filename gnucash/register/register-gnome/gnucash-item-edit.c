@@ -379,7 +379,9 @@ item_edit_paste_text_ready_cb (GObject *source, GAsyncResult *result,
     char *text = gdk_clipboard_read_text_finish (GDK_CLIPBOARD (source), result,
                                                  &error);
 
-    if (item_edit && text)
+    if (item_edit && text &&
+
+        !gnc_table_control_input_suspended (item_edit->sheet->table->control))
     {
         char *filtered_text = gnc_filter_text_for_control_chars (text);
         if (filtered_text)
@@ -413,6 +415,8 @@ gnc_item_edit_paste_clipboard (GncItemEdit *item_edit)
     GdkClipboard *clipboard;
 
     g_return_if_fail (GNC_IS_ITEM_EDIT (item_edit));
+    if (gnc_table_control_input_suspended (item_edit->sheet->table->control))
+        return;
     clipboard = gtk_widget_get_clipboard (item_edit->editor);
     if (!clipboard)
         return;
@@ -442,6 +446,17 @@ gnc_item_edit_popup_toggled (GtkToggleButton *button, gpointer data)
 {
     GncItemEdit *item_edit = GNC_ITEM_EDIT (data);
     gboolean show_popup = gtk_toggle_button_get_active (button);
+
+    if (show_popup &&
+        gnc_table_control_input_suspended (item_edit->sheet->table->control))
+    {
+        g_signal_handlers_block_matched (button, G_SIGNAL_MATCH_DATA,
+                                         0, 0, NULL, NULL, data);
+        gtk_toggle_button_set_active (button, FALSE);
+        g_signal_handlers_unblock_matched (button, G_SIGNAL_MATCH_DATA,
+                                           0, 0, NULL, NULL, data);
+        return;
+    }
 
     if (show_popup)
     {
@@ -653,6 +668,9 @@ editor_click_pressed_cb (GtkGestureClick *gesture, G_GNUC_UNUSED gint n_press,
 {
     if (gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture)) !=
         GDK_BUTTON_SECONDARY)
+        return;
+
+    if (gnc_table_control_input_suspended (item_edit->sheet->table->control))
         return;
 
     if (!item_edit->show_popup)

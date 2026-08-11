@@ -150,7 +150,8 @@ static void gnc_plugin_page_report_save_page (GncPluginPage *plugin_page, GKeyFi
 static GncPluginPage *gnc_plugin_page_report_recreate_page (GtkWidget *window, GKeyFile *file, const gchar *group);
 static void gnc_plugin_page_report_name_changed (GncPluginPage *page, const gchar *name);
 static void gnc_plugin_page_report_update_edit_menu (GncPluginPage *page, gboolean hide);
-static gboolean gnc_plugin_page_report_finish_pending (GncPluginPage *page);
+static void gnc_plugin_page_report_finish_pending_async (GncPluginPage *page, GCancellable *cancellable,
+                                                              GncPluginPagePendingCallback callback, gpointer user_data);
 static void gnc_plugin_page_report_load_uri (GncPluginPage *page);
 
 static int gnc_plugin_page_report_check_urltype(URLType t);
@@ -366,7 +367,7 @@ gnc_plugin_page_report_class_init (GncPluginPageReportClass *klass)
     gnc_plugin_page_class->recreate_page   = gnc_plugin_page_report_recreate_page;
     gnc_plugin_page_class->page_name_changed = gnc_plugin_page_report_name_changed;
     gnc_plugin_page_class->update_edit_menu_actions = gnc_plugin_page_report_update_edit_menu;
-    gnc_plugin_page_class->finish_pending   = gnc_plugin_page_report_finish_pending;
+    gnc_plugin_page_class->finish_pending_async = gnc_plugin_page_report_finish_pending_async;
     gnc_plugin_page_class->focus_page_function = gnc_plugin_page_report_focus_widget;
 
     // create the "reportId" property
@@ -1148,15 +1149,18 @@ gnc_plugin_page_report_update_edit_menu (GncPluginPage *page, gboolean hide)
     g_simple_action_set_enabled (G_SIMPLE_ACTION(action), FALSE);
 }
 
-static gboolean
-gnc_plugin_page_report_finish_pending (GncPluginPage *page)
+static void
+gnc_plugin_page_report_finish_pending_async (GncPluginPage *page,
+                                              GCancellable *cancellable,
+                                              GncPluginPagePendingCallback callback,
+                                              gpointer user_data)
 {
-    GncPluginPageReportPrivate *priv;
-    GncPluginPageReport *report;
+    auto report = GNC_PLUGIN_PAGE_REPORT(page);
+    auto priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
 
-    report = GNC_PLUGIN_PAGE_REPORT(page);
-    priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
-    return !priv->reloading;
+    (void)cancellable;
+    if (callback)
+        callback (page, !priv->reloading, user_data);
 }
 
 

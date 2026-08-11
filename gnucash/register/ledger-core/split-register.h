@@ -549,6 +549,22 @@ void gnc_split_register_load (SplitRegister* reg, GList* slist,
  *    something was changed. */
 gboolean gnc_split_register_save (SplitRegister* reg, gboolean do_commit);
 
+/** Completion of a register save request. The register is NULL when its
+ * lifetime ended before the request could complete. */
+typedef void (*GncSplitRegisterSaveCallback) (SplitRegister *reg,
+                                               gboolean saved,
+                                               gpointer user_data);
+
+/** Persist the current cursor without entering a nested main loop. The
+ * callback runs exactly once after recalculation and exchange-rate decisions
+ * have either completed or been cancelled. */
+void gnc_split_register_save_async (SplitRegister *reg, gboolean do_commit,
+                                    GncSplitRegisterSaveCallback callback,
+                                    gpointer user_data);
+
+/** TRUE while the register owns an unresolved save decision. */
+gboolean gnc_split_register_save_pending (SplitRegister *reg);
+
 /** Causes a redraw of the register window associated with reg. */
 void gnc_split_register_redraw (SplitRegister* reg);
 

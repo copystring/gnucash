@@ -1201,6 +1201,11 @@ gnucash_sheet_insert_cb (GtkEditable *editable,
     const char* old_text = gtk_editable_get_text (GTK_EDITABLE (sheet->entry));
 
     g_assert (GTK_WIDGET(editable) == sheet->entry);
+    if (gnc_table_control_input_suspended (table->control))
+    {
+        g_signal_stop_emission_by_name (G_OBJECT (sheet->entry), "insert_text");
+        return;
+    }
     if (sheet->input_cancelled)
     {
         g_signal_stop_emission_by_name (G_OBJECT(sheet->entry),
@@ -1303,6 +1308,17 @@ gnucash_sheet_delete_cb (GtkWidget *widget,
     const char *retval;
     int cursor_position = start_pos;
     int start_sel, end_sel;
+
+    if (gnc_table_control_input_suspended (table->control))
+
+    {
+
+        g_signal_stop_emission_by_name (G_OBJECT (sheet->entry), "delete_text");
+
+        return;
+
+    }
+
 
     gnucash_cursor_get_virt (GNUCASH_CURSOR(sheet->cursor), &virt_loc);
 
@@ -1518,6 +1534,11 @@ gnucash_sheet_handle_pointer_press (GnucashSheet *sheet, guint button,
     gboolean do_popup;
     double content_x;
     double content_y;
+
+    if (gnc_table_control_input_suspended (sheet->table->control))
+
+        return TRUE;
+
 
     if (n_press != 1 || (sheet->button && sheet->button != button))
         return FALSE;
@@ -1838,6 +1859,8 @@ gnucash_sheet_handle_key (GnucashSheet *sheet, guint keyval,
     GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask ();
 
     g_return_val_if_fail (GNUCASH_IS_SHEET (sheet), FALSE);
+    if (gnc_table_control_input_suspended (sheet->table->control))
+        return TRUE;
     if (sheet_keyval_is_modifier (keyval))
         return FALSE;
 
@@ -1887,6 +1910,8 @@ gnucash_sheet_goto_virt_loc (GnucashSheet *sheet, VirtualLocation virt_loc)
     g_return_if_fail (GNUCASH_IS_SHEET(sheet));
 
     table = sheet->table;
+    if (gnc_table_control_input_suspended (table->control))
+        return;
 
     gnucash_cursor_get_virt (GNUCASH_CURSOR(sheet->cursor), &cur_virt_loc);
 

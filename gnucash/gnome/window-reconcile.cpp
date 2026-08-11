@@ -915,22 +915,15 @@ start_recn_dialog_finish (startRecnWindowData *data, gboolean accepted,
 }
 
 static void
-start_recn_dialog_response_cb (GtkDialog *dialog, gint response,
-                               startRecnWindowData *data)
+start_recn_dialog_accept_cb (G_GNUC_UNUSED GtkButton *button,
+                             startRecnWindowData *data)
 {
     Account *account;
     gnc_numeric ending;
     time64 statement_date;
 
-    (void)dialog;
     if (!data || data->completed)
         return;
-
-    if (response != GTK_RESPONSE_OK)
-    {
-        start_recn_dialog_cancel (data);
-        return;
-    }
 
     account = start_recn_get_account (data);
     if (!account)
@@ -955,6 +948,36 @@ start_recn_dialog_response_cb (GtkDialog *dialog, gint response,
     xaccAccountSetReconcileChildrenStatus (account, data->include_children);
     gnc_save_reconcile_interval (account, statement_date);
     start_recn_dialog_finish (data, TRUE, ending, statement_date);
+}
+
+static void
+start_recn_dialog_cancel_cb (G_GNUC_UNUSED GtkButton *button,
+                             startRecnWindowData *data)
+{
+    start_recn_dialog_cancel (data);
+}
+
+static gboolean
+start_recn_dialog_close_request_cb (GtkWindow *window, startRecnWindowData *data)
+{
+    if (!data || data->completed || data->startRecnWindow != GTK_WIDGET (window))
+        return FALSE;
+
+    start_recn_dialog_cancel (data);
+    return TRUE;
+}
+
+static gboolean
+start_recn_dialog_key_pressed_cb (G_GNUC_UNUSED GtkEventControllerKey *key,
+                                  guint keyval, G_GNUC_UNUSED guint keycode,
+                                  G_GNUC_UNUSED GdkModifierType state,
+                                  startRecnWindowData *data)
+{
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+
+    start_recn_dialog_cancel (data);
+    return TRUE;
 }
 
 static void
@@ -1144,11 +1167,19 @@ start_recn_dialog_open (GtkWidget *parent, Account *account,
     }
 
     auto ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton1"));
+    auto cancel_button = GTK_WIDGET (gtk_builder_get_object (builder, "cancelbutton1"));
+    auto key_controller = gtk_event_controller_key_new ();
+
     gtk_window_set_default_widget (GTK_WINDOW (dialog), ok_button);
-    g_signal_connect (dialog, "response",
-                      G_CALLBACK (start_recn_dialog_response_cb), data);
+    g_signal_connect (ok_button, "clicked", G_CALLBACK (start_recn_dialog_accept_cb), data);
+    g_signal_connect (cancel_button, "clicked", G_CALLBACK (start_recn_dialog_cancel_cb), data);
+    g_signal_connect (dialog, "close-request",
+                      G_CALLBACK (start_recn_dialog_close_request_cb), data);
     g_signal_connect (dialog, "destroy",
                       G_CALLBACK (start_recn_dialog_destroyed_cb), data);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (start_recn_dialog_key_pressed_cb), data);
+    gtk_widget_add_controller (dialog, key_controller);
     start_recn_pending_add (data);
     g_object_unref (builder);
     start_recn_dialog_present (data);

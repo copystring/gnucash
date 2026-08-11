@@ -328,34 +328,143 @@ finish_scrubbing (GncWindow *window, gulong handler_id)
 static const char*
 check_repair_abort_YN = N_("'Check & Repair' is currently running, do you want to abort it?");
 
-static gboolean
-gnc_plugin_page_account_finish_pending (GncPluginPage* page)
+struct AccountFinishPendingRequest
 {
-    if (gnc_get_ongoing_scrub ())
+    gatomicrefcount ref_count;
+    GncPluginPage *page;
+    GWeakRef parent;
+    GCancellable *cancellable;
+    gulong parent_destroy_handler;
+    GncPluginPagePendingCallback callback;
+    gpointer user_data;
+    gboolean completed;
+};
+
+static AccountFinishPendingRequest*
+account_finish_pending_request_ref (AccountFinishPendingRequest *request)
+{
+    g_atomic_ref_count_inc (&request->ref_count);
+    return request;
+}
+
+static void
+account_finish_pending_request_free (AccountFinishPendingRequest *request)
+{
+    auto parent = GTK_WIDGET (g_weak_ref_get (&request->parent));
+
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    g_clear_object (&parent);
+    g_weak_ref_clear (&request->parent);
+    g_clear_object (&request->page);
+    g_clear_object (&request->cancellable);
+    g_free (request);
+}
+
+static void
+account_finish_pending_request_unref (AccountFinishPendingRequest *request)
+{
+    if (request && g_atomic_ref_count_dec (&request->ref_count))
+        account_finish_pending_request_free (request);
+}
+
+static void
+account_finish_pending_request_complete (AccountFinishPendingRequest *request,
+                                         gboolean accepted)
+{
+    if (!request || request->completed)
+        return;
+
+    request->completed = TRUE;
+    if (request->callback)
+        request->callback (request->page, accepted, request->user_data);
+    account_finish_pending_request_unref (request);
+}
+
+static void
+account_finish_pending_parent_destroyed (GtkWidget *parent, gpointer user_data)
+{
+    auto request = static_cast<AccountFinishPendingRequest *> (user_data);
+
+    (void)parent;
+    request->parent_destroy_handler = 0;
+    g_cancellable_cancel (request->cancellable);
+    account_finish_pending_request_complete (request, FALSE);
+}
+
+static void
+account_finish_pending_alert_finished (GObject *source_object, GAsyncResult *result,
+                                       gpointer user_data)
+{
+    auto request = static_cast<AccountFinishPendingRequest *> (user_data);
+    GError *error = nullptr;
+    auto response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source_object), result,
+                                                    &error);
+
+    if (error)
     {
-        if (show_abort_verify)
-        {
-            gboolean ret = gnc_verify_dialog (GTK_WINDOW(gnc_plugin_page_get_window
-                                             (GNC_PLUGIN_PAGE(page))), FALSE,
-                                              "%s", _(check_repair_abort_YN));
-
-            show_abort_verify = FALSE;
-
-            if (ret)
-                gnc_set_abort_scrub (TRUE);
-
-            return ret; // verify response
-        }
-        else
-        {
-            if (gnc_get_abort_scrub ())
-                return TRUE; // close
-            else
-                return FALSE; // no close
-        }
+        g_clear_error (&error);
+        account_finish_pending_request_complete (request, FALSE);
     }
     else
-        return TRUE; // normal close
+    {
+        show_abort_verify = FALSE;
+        if (response == 1)
+        {
+            gnc_set_abort_scrub (TRUE);
+            account_finish_pending_request_complete (request, TRUE);
+        }
+        else
+            account_finish_pending_request_complete (request, FALSE);
+    }
+    account_finish_pending_request_unref (request);
+}
+
+static void
+gnc_plugin_page_account_finish_pending_async (GncPluginPage *page,
+                                              GCancellable *cancellable,
+                                              GncPluginPagePendingCallback callback,
+                                              gpointer user_data)
+{
+    auto request = g_new0 (AccountFinishPendingRequest, 1);
+    auto parent = gnc_plugin_page_get_window (page);
+
+    g_atomic_ref_count_init (&request->ref_count);
+    request->page = GNC_PLUGIN_PAGE (g_object_ref (page));
+    g_weak_ref_init (&request->parent, parent);
+    request->cancellable = cancellable ? G_CANCELLABLE (g_object_ref (cancellable)) :
+                                         g_cancellable_new ();
+    request->callback = callback;
+    request->user_data = user_data;
+    if (parent)
+        request->parent_destroy_handler = g_signal_connect
+            (parent, "destroy", G_CALLBACK (account_finish_pending_parent_destroyed), request);
+
+    if (!gnc_get_ongoing_scrub ())
+    {
+        account_finish_pending_request_complete (request, TRUE);
+        return;
+    }
+    if (!show_abort_verify)
+    {
+        account_finish_pending_request_complete (request, gnc_get_abort_scrub ());
+        return;
+    }
+    if (!parent || !GTK_IS_WINDOW (parent))
+    {
+        account_finish_pending_request_complete (request, FALSE);
+        return;
+    }
+
+    const char *buttons[] = { _("Cancel"), _("Abort"), nullptr };
+    auto alert = gtk_alert_dialog_new ("%s", _(check_repair_abort_YN));
+
+    gtk_alert_dialog_set_buttons (alert, buttons);
+    gtk_alert_dialog_set_cancel_button (alert, 0);
+    gtk_alert_dialog_choose (alert, GTK_WINDOW (parent), request->cancellable,
+                             account_finish_pending_alert_finished,
+                             account_finish_pending_request_ref (request));
+    g_object_unref (alert);
 }
 
 static void
@@ -373,7 +482,7 @@ gnc_plugin_page_account_tree_class_init (GncPluginPageAccountTreeClass *klass)
     gnc_plugin_class->save_page       = gnc_plugin_page_account_tree_save_page;
     gnc_plugin_class->recreate_page   = gnc_plugin_page_account_tree_recreate_page;
     gnc_plugin_class->focus_page_function = gnc_plugin_page_account_tree_focus_widget;
-    gnc_plugin_class->finish_pending = gnc_plugin_page_account_finish_pending;
+    gnc_plugin_class->finish_pending_async = gnc_plugin_page_account_finish_pending_async;
 
     plugin_page_signals[ACCOUNT_SELECTED] =
         g_signal_new ("account_selected",
@@ -1861,18 +1970,9 @@ delete_account_dialog_close_request_cb (GtkWindow *dialog, gpointer user_data)
 }
 
 static void
-gnc_plugin_page_account_tree_cmd_delete_account (GSimpleAction *simple,
-                                                 GVariant      *paramter,
-                                                 gpointer       user_data)
+gnc_plugin_page_account_tree_delete_account_after_pending
+    (GncPluginPageAccountTree *page, Account *account)
 {
-    (void) simple;
-    (void) paramter;
-
-    auto page = GNC_PLUGIN_PAGE_ACCOUNT_TREE (user_data);
-    auto account = gnc_plugin_page_account_tree_get_current_account (page);
-    if (!account || !gnc_main_window_all_finish_pending ())
-        return;
-
     auto references = qof_instance_get_referring_object_list (QOF_INSTANCE (account));
     if (references)
     {
@@ -1938,6 +2038,59 @@ gnc_plugin_page_account_tree_cmd_delete_account (GSimpleAction *simple,
                       request);
     gtk_window_set_default_widget (GTK_WINDOW (dialog), cancel_button);
     gtk_window_present (GTK_WINDOW (dialog));
+}
+
+typedef struct
+{
+    GWeakRef page;
+    GncGUID book_guid;
+    GncGUID account_guid;
+} GncAccountTreeDeletePendingRequest;
+
+static void
+gnc_plugin_page_account_tree_delete_pending_finished (gboolean accepted,
+                                                       gpointer user_data)
+{
+    auto request = static_cast<GncAccountTreeDeletePendingRequest *> (user_data);
+    auto page = GNC_PLUGIN_PAGE_ACCOUNT_TREE (g_weak_ref_get (&request->page));
+    auto book = gnc_get_current_book ();
+
+    if (accepted && page && book &&
+        guid_equal (qof_instance_get_guid (QOF_INSTANCE (book)), &request->book_guid))
+    {
+        auto account = xaccAccountLookup (&request->account_guid, book);
+
+        if (account && !qof_instance_get_destroying (account))
+            gnc_plugin_page_account_tree_delete_account_after_pending (page, account);
+    }
+    g_clear_object (&page);
+    g_weak_ref_clear (&request->page);
+    g_free (request);
+}
+
+static void
+gnc_plugin_page_account_tree_cmd_delete_account (GSimpleAction *simple,
+                                                 GVariant      *paramter,
+                                                 gpointer       user_data)
+{
+    auto page = GNC_PLUGIN_PAGE_ACCOUNT_TREE (user_data);
+    auto account = gnc_plugin_page_account_tree_get_current_account (page);
+    auto book = gnc_get_current_book ();
+    auto request = g_new0 (GncAccountTreeDeletePendingRequest, 1);
+
+    (void)simple;
+    (void)paramter;
+    if (!account || !book)
+    {
+        g_free (request);
+        return;
+    }
+
+    request->book_guid = *qof_instance_get_guid (QOF_INSTANCE (book));
+    request->account_guid = *xaccAccountGetGUID (account);
+    g_weak_ref_init (&request->page, page);
+    gnc_main_window_all_finish_pending_async
+        (nullptr, gnc_plugin_page_account_tree_delete_pending_finished, request);
 }
 
 void
@@ -2181,29 +2334,32 @@ gnc_plugin_page_account_tree_cmd_lots (GSimpleAction *simple,
     gnc_lot_viewer_dialog (GTK_WINDOW(window), account);
 }
 
+static void
+scrub_abort_verify_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    (void)parent;
+    (void)user_data;
+    if (response == GTK_RESPONSE_YES)
+        gnc_set_abort_scrub (TRUE);
+}
+
 static gboolean
 scrub_kp_handler (GtkEventControllerKey *key, guint keyval,
                   guint keycode, GdkModifierType state,
                   gpointer user_data)
 {
-    switch (keyval)
-    {
-    case GDK_KEY_Escape:
-        {
-            GtkWidget *widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER(key));
+    (void)keycode;
+    (void)state;
+    (void)user_data;
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
 
-            gboolean abort_scrub = gnc_verify_dialog (GTK_WINDOW(widget), FALSE,
-                                                      "%s", _(check_repair_abort_YN));
-
-            if (abort_scrub)
-                gnc_set_abort_scrub (true);
-
-            return true;
-        }
-    default:
-        break;
-    }
-    return false;
+    auto widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (key));
+    if (widget && GTK_IS_WINDOW (widget))
+        gnc_verify_dialog_async (GTK_WINDOW (widget), FALSE,
+                                 scrub_abort_verify_finished, nullptr,
+                                 "%s", _(check_repair_abort_YN));
+    return TRUE;
 }
 
 static void

@@ -1854,22 +1854,51 @@ create_balancing_transaction(QofBook *book, Account *account,
     return trans;
 }
 
+typedef struct
+{
+    GWeakRef gsr;
+    QofBook *book;
+} GsrBlankSaveRequest;
+
+static void
+gsr_blank_save_finished (SplitRegister *reg, gboolean saved, gpointer user_data)
+{
+    GsrBlankSaveRequest *request = user_data;
+    GObject *object = g_weak_ref_get (&request->gsr);
+    GNCSplitReg *gsr = object ? GNC_SPLIT_REG (object) : NULL;
+
+    if (saved && gsr && request->book == gnc_get_current_book () && gsr->ledger &&
+        reg == gnc_ledger_display_get_split_register (gsr->ledger))
+    {
+        gnc_split_register_redraw (reg);
+        gnc_split_reg_jump_to_blank (gsr);
+    }
+    g_clear_object (&gsr);
+    g_weak_ref_clear (&request->gsr);
+    g_free (request);
+}
+
 void
 gsr_default_blank_handler( GNCSplitReg *gsr, gpointer data )
 {
     SplitRegister *reg;
+    GsrBlankSaveRequest *request;
 
     ENTER("gsr=%p, gpointer=%p", gsr, data);
+    reg = gsr && gsr->ledger ?
+        gnc_ledger_display_get_split_register (gsr->ledger) : NULL;
+    if (!reg)
+    {
+        LEAVE ("no register");
+        return;
+    }
 
-    reg = gnc_ledger_display_get_split_register (gsr->ledger);
-
-    if (gnc_split_register_save (reg, TRUE))
-        gnc_split_register_redraw (reg);
-
-    gnc_split_reg_jump_to_blank (gsr);
-    LEAVE(" ");
+    request = g_new0 (GsrBlankSaveRequest, 1);
+    request->book = gnc_get_current_book ();
+    g_weak_ref_init (&request->gsr, G_OBJECT (gsr));
+    gnc_split_register_save_async (reg, TRUE, gsr_blank_save_finished, request);
+    LEAVE("save request started");
 }
-
 void
 gnc_split_reg_new_trans_cb (GtkWidget *widget, gpointer data)
 {
@@ -2118,26 +2147,41 @@ gnc_split_reg_set_sort_reversed(GNCSplitReg *gsr, gboolean rev, Refresh ref)
         gnc_ledger_display_refresh( gsr->ledger );
 }
 
-static gboolean
-gnc_split_reg_record (GNCSplitReg *gsr)
+static void gnc_split_reg_goto_next_trans_row (GNCSplitReg *gsr);
+
+typedef struct
 {
-    ENTER("gsr=%p", gsr);
+    GWeakRef gsr;
+    QofBook *book;
+    gboolean goto_blank;
+    gboolean next_transaction;
+} GsrEnterSaveRequest;
 
-    SplitRegister *reg = gnc_ledger_display_get_split_register (gsr->ledger);
+static void
+gsr_enter_save_finished (SplitRegister *reg, gboolean saved, gpointer user_data)
+{
+    GsrEnterSaveRequest *request = user_data;
+    GObject *object = g_weak_ref_get (&request->gsr);
+    GNCSplitReg *gsr = object ? GNC_SPLIT_REG (object) : NULL;
 
-    if (!gnc_split_register_save (reg, TRUE))
+    if (saved && gsr && request->book == gnc_get_current_book () && gsr->ledger &&
+        reg == gnc_ledger_display_get_split_register (gsr->ledger))
     {
-        LEAVE("no save");
-        return FALSE;
+        if (!request->goto_blank && request->next_transaction)
+            gnc_split_register_expand_current_trans (reg, FALSE);
+        if (request->goto_blank)
+            gnc_split_reg_jump_to_blank (gsr);
+        else if (request->next_transaction)
+            gnc_split_reg_goto_next_trans_row (gsr);
+        else
+            gnucash_register_goto_next_virt_row (gsr->reg);
     }
 
-    /* Explicit redraw shouldn't be needed,
-     * since gui_refresh events should handle this. */
-    /* gnc_split_register_redraw (reg); */
-    LEAVE(" ");
-    return TRUE;
+done:
+    g_clear_object (&gsr);
+    g_weak_ref_clear (&request->gsr);
+    g_free (request);
 }
-
 static gboolean
 gnc_split_reg_match_trans_row( VirtualLocation virt_loc,
                                gpointer user_data )
@@ -2165,68 +2209,34 @@ gnc_split_reg_goto_next_trans_row (GNCSplitReg *gsr)
 void
 gnc_split_reg_enter( GNCSplitReg *gsr, gboolean next_transaction )
 {
-    SplitRegister *sr = gnc_ledger_display_get_split_register( gsr->ledger );
+    SplitRegister *sr;
     gboolean goto_blank;
+    GsrEnterSaveRequest *request;
 
-    ENTER("gsr=%p, next_transaction=%s", gsr, next_transaction ? "TRUE" : "FALSE");
+    g_return_if_fail (IS_GNC_SPLIT_REG (gsr));
+    sr = gsr->ledger ? gnc_ledger_display_get_split_register (gsr->ledger) : NULL;
+    if (!sr)
+        return;
 
-    goto_blank = gnc_prefs_get_bool(GNC_PREFS_GROUP_GENERAL_REGISTER,
-                                    GNC_PREF_ENTER_MOVES_TO_END);
-
-    /* If we are in single or double line view and we hit enter
-     * on the blank split, go to the blank split instead of the
-     * next row. This prevents the cursor from jumping around
-     * when you are entering transactions. */
-    if ( !goto_blank && !next_transaction )
+    ENTER("gsr=%p, next_transaction=%s", gsr,
+          next_transaction ? "TRUE" : "FALSE");
+    goto_blank = gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL_REGISTER,
+                                     GNC_PREF_ENTER_MOVES_TO_END);
+    if (!goto_blank && !next_transaction && sr->style == REG_STYLE_LEDGER)
     {
-        SplitRegisterStyle style = sr->style;
-
-        if (style == REG_STYLE_LEDGER)
-        {
-            Split *blank_split;
-
-            blank_split = gnc_split_register_get_blank_split(sr);
-            if (blank_split != NULL)
-            {
-                Split *current_split;
-
-                current_split = gnc_split_register_get_current_split(sr);
-
-                if (blank_split == current_split)
-                    goto_blank = TRUE;
-            }
-        }
-    }
-    /* First record the transaction. This will perform a refresh. */
-    if (!gnc_split_reg_record (gsr))
-    {
-        /* we may come here from the transfer cell if we decline to create a
-         * new account, make sure the sheet has the focus if the record is FALSE
-         * which results in no cursor movement. */
-        gnc_split_reg_focus_on_sheet (gsr);
-
-        /* if there are no changes, just enter was pressed, proceed to move
-         * other wise lets not move. */
-        if (gnc_table_current_cursor_changed (sr->table, FALSE))
-        {
-            LEAVE(" ");
-            return;
-        }
+        Split *blank_split = gnc_split_register_get_blank_split (sr);
+        if (blank_split && blank_split == gnc_split_register_get_current_split (sr))
+            goto_blank = TRUE;
     }
 
-    if (!goto_blank && next_transaction)
-        gnc_split_register_expand_current_trans (sr, FALSE);
-
-    /* Now move. */
-    if (goto_blank)
-        gnc_split_reg_jump_to_blank( gsr );
-    else if (next_transaction)
-        gnc_split_reg_goto_next_trans_row( gsr );
-    else
-        gnucash_register_goto_next_virt_row( gsr->reg );
-    LEAVE(" ");
+    request = g_new0 (GsrEnterSaveRequest, 1);
+    request->book = gnc_get_current_book ();
+    request->goto_blank = goto_blank;
+    request->next_transaction = next_transaction;
+    g_weak_ref_init (&request->gsr, G_OBJECT (gsr));
+    gnc_split_register_save_async (sr, TRUE, gsr_enter_save_finished, request);
+    LEAVE ("save request started");
 }
-
 void
 gsr_default_enter_handler( GNCSplitReg *gsr, gpointer data )
 {

@@ -131,7 +131,9 @@ typedef void (*GncPluginPageRegisterPendingCallback) (GncPluginPageRegister* pag
                                                         gboolean accepted,
                                                         gpointer user_data);
 
-static gboolean gnc_plugin_page_register_finish_pending (GncPluginPage* plugin_page);
+static void gnc_plugin_page_register_finish_pending_async_virtual
+    (GncPluginPage* plugin_page, GCancellable* cancellable,
+     GncPluginPagePendingCallback callback, gpointer user_data);
 static void gnc_plugin_page_register_finish_pending_async
     (GncPluginPageRegister* page, GCancellable* cancellable,
      GncPluginPageRegisterPendingCallback callback, gpointer user_data,
@@ -536,7 +538,7 @@ gnc_plugin_page_register_class_init (GncPluginPageRegisterClass* klass)
     gnc_plugin_class->save_page       = gnc_plugin_page_register_save_page;
     gnc_plugin_class->recreate_page   = gnc_plugin_page_register_recreate_page;
     gnc_plugin_class->update_edit_menu_actions = gnc_plugin_page_register_update_edit_menu;
-    gnc_plugin_class->finish_pending  = gnc_plugin_page_register_finish_pending;
+    gnc_plugin_class->finish_pending_async = gnc_plugin_page_register_finish_pending_async_virtual;
     gnc_plugin_class->focus_page_function = gnc_plugin_page_register_focus_widget;
 
     gnc_ui_register_account_destroy_callback (gppr_account_destroy_cb);
@@ -1684,6 +1686,8 @@ finish_pending_request_complete (FinishPendingRequest* request,
             request->callback (page, accepted, request->user_data);
         g_object_unref (page);
     }
+    else if (request->callback)
+        request->callback (nullptr, FALSE, request->user_data);
     finish_pending_request_unref (request);
 }
 
@@ -1737,6 +1741,25 @@ finish_pending_scrub_finished (GObject* source_object, GAsyncResult* result,
 }
 
 static void
+finish_pending_save_finished (SplitRegister *reg, gboolean saved,
+                              gpointer user_data)
+{
+    auto request = static_cast<FinishPendingRequest *> (user_data);
+    auto page = GNC_PLUGIN_PAGE_REGISTER (g_weak_ref_get (&request->page));
+    gboolean current = FALSE;
+
+    if (page && reg)
+    {
+        auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+        current = priv->ledger &&
+            reg == gnc_ledger_display_get_split_register (priv->ledger);
+    }
+    if (page)
+        g_object_unref (page);
+    finish_pending_request_complete (request, saved && current);
+    finish_pending_request_unref (request);
+}
+static void
 finish_pending_changes_finished (GObject* source_object, GAsyncResult* result,
                                  gpointer user_data)
 {
@@ -1767,9 +1790,10 @@ finish_pending_changes_finished (GObject* source_object, GAsyncResult* result,
             {
                 if (response == 0)
                     gnc_split_register_cancel_cursor_trans_changes (reg);
-                gnc_split_register_save (reg, TRUE);
+                gnc_split_register_save_async
+                    (reg, TRUE, finish_pending_save_finished,
+                     finish_pending_request_ref (request));
                 g_object_unref (page);
-                finish_pending_request_complete (request, TRUE);
                 finish_pending_request_unref (request);
                 return;
             }
@@ -1878,11 +1902,19 @@ gnc_plugin_page_register_finish_pending_async
 
     priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
     if (priv->finish_pending_request)
+    {
+        if (callback)
+            callback (page, FALSE, user_data);
+        if (user_data_destroy)
+            user_data_destroy (user_data);
         return;
+    }
 
     parent = gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page));
     if (!parent || !GTK_IS_WINDOW (parent))
     {
+        if (callback)
+            callback (page, FALSE, user_data);
         if (user_data_destroy)
             user_data_destroy (user_data);
         return;
@@ -1903,88 +1935,35 @@ gnc_plugin_page_register_finish_pending_async
     priv->finish_pending_request = request;
     finish_pending_continue (request);
 }
-static gboolean
-finish_scrub (GncPluginPage* plugin_page)
+struct GncPluginPageRegisterPendingBridge
 {
-    gboolean ret = FALSE;
+    GncPluginPagePendingCallback callback;
+    gpointer user_data;
+};
 
-    if (is_scrubbing)
-    {
-        ret = gnc_verify_dialog (GTK_WINDOW(gnc_plugin_page_get_window (GNC_PLUGIN_PAGE(plugin_page))),
-                                 false, "%s", _(check_repair_abort_YN));
+static void
+gnc_plugin_page_register_finish_pending_bridge_finished
+    (GncPluginPageRegister* page, gboolean accepted, gpointer user_data)
+{
+    auto bridge = static_cast<GncPluginPageRegisterPendingBridge *> (user_data);
 
-        show_abort_verify = FALSE;
-
-        if (ret)
-            gnc_set_abort_scrub (TRUE);
-    }
-    return ret;
+    if (bridge->callback)
+        bridge->callback (page ? GNC_PLUGIN_PAGE (page) : nullptr, accepted, bridge->user_data);
 }
 
-static gboolean
-gnc_plugin_page_register_finish_pending (GncPluginPage* plugin_page)
+static void
+gnc_plugin_page_register_finish_pending_async_virtual
+    (GncPluginPage* plugin_page, GCancellable* cancellable,
+     GncPluginPagePendingCallback callback, gpointer user_data)
 {
-    GncPluginPageRegisterPrivate* priv;
-    GncPluginPageRegister* page;
-    SplitRegister* reg;
-    GtkWidget* dialog, *window;
-    gchar* name;
-    gint response;
+    auto bridge = g_new0 (GncPluginPageRegisterPendingBridge, 1);
 
-    if (is_scrubbing && show_abort_verify)
-    {
-        if (!finish_scrub (plugin_page))
-            return FALSE;
-    }
-
-    page = GNC_PLUGIN_PAGE_REGISTER (plugin_page);
-    priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
-    reg = gnc_ledger_display_get_split_register (priv->ledger);
-
-    if (!reg || !gnc_split_register_changed (reg))
-        return TRUE;
-
-    name = gnc_plugin_page_register_get_tab_name (plugin_page);
-    window = gnc_plugin_page_get_window (plugin_page);
-    dialog = gtk_message_dialog_new (GTK_WINDOW (window),
-                                     GTK_DIALOG_DESTROY_WITH_PARENT,
-                                     GTK_MESSAGE_WARNING,
-                                     GTK_BUTTONS_NONE,
-                                     /* Translators: %s is the name
-                                        of the tab page */
-                                     _ ("Save changes to %s?"), name);
-    g_free (name);
-    gtk_message_dialog_format_secondary_text
-    (GTK_MESSAGE_DIALOG (dialog),
-     "%s",
-     _ ("This register has pending changes to a transaction. "
-        "Would you like to save the changes to this transaction, "
-        "discard the transaction, or cancel the operation?"));
-    gnc_gtk_dialog_add_button (dialog, _ ("_Discard Transaction"),
-                               "edit-delete", GTK_RESPONSE_REJECT);
-    gtk_dialog_add_button (GTK_DIALOG (dialog),
-                           _ ("_Cancel"), GTK_RESPONSE_CANCEL);
-    gnc_gtk_dialog_add_button (dialog, _ ("_Save Transaction"),
-                               "document-save", GTK_RESPONSE_ACCEPT);
-
-    response = gnc_dialog_run (GTK_DIALOG (dialog));
-
-    switch (response)
-    {
-    case GTK_RESPONSE_ACCEPT:
-        gnc_split_register_save (reg, TRUE);
-        return TRUE;
-
-    case GTK_RESPONSE_REJECT:
-        gnc_split_register_cancel_cursor_trans_changes (reg);
-        gnc_split_register_save (reg, TRUE);
-        return TRUE;
-
-    default:
-        return FALSE;
-    }
+    bridge->callback = callback;
+    bridge->user_data = user_data;
+    gnc_plugin_page_register_finish_pending_async
+        (GNC_PLUGIN_PAGE_REGISTER (plugin_page), cancellable,
+         gnc_plugin_page_register_finish_pending_bridge_finished, bridge, g_free);
 }
-
 
 static gchar*
 gnc_plugin_page_register_get_tab_name (GncPluginPage* plugin_page)
@@ -3724,6 +3703,34 @@ Please choose one:"), _("Select"), 0, details);
     LEAVE (" ");
 }
 
+typedef struct
+{
+    GWeakRef page;
+    QofBook *book;
+} RegisterPageBlankRequest;
+
+static void
+register_page_blank_save_finished (SplitRegister *reg, gboolean saved,
+                                   gpointer user_data)
+{
+    auto request = static_cast<RegisterPageBlankRequest *> (user_data);
+    auto page = GNC_PLUGIN_PAGE_REGISTER (g_weak_ref_get (&request->page));
+
+    if (page && request->book == gnc_get_current_book ())
+    {
+        auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+        if (saved && priv->ledger && priv->gsr &&
+            reg == gnc_ledger_display_get_split_register (priv->ledger))
+        {
+            gnc_split_register_redraw (reg);
+            gnc_split_reg_jump_to_blank (priv->gsr);
+        }
+    }
+    if (page)
+        g_object_unref (page);
+    g_weak_ref_clear (&request->page);
+    g_free (request);
+}
 static void
 gnc_plugin_page_register_cmd_blank_transaction (GSimpleAction *simple,
                                                 GVariant      *paramter,
@@ -3740,11 +3747,12 @@ gnc_plugin_page_register_cmd_blank_transaction (GSimpleAction *simple,
     priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
     reg = gnc_ledger_display_get_split_register (priv->ledger);
 
-    if (gnc_split_register_save (reg, TRUE))
-        gnc_split_register_redraw (reg);
-
-    gnc_split_reg_jump_to_blank (priv->gsr);
-    LEAVE (" ");
+    auto request = g_new0 (RegisterPageBlankRequest, 1);
+    request->book = gnc_get_current_book ();
+    g_weak_ref_init (&request->page, page);
+    gnc_split_register_save_async (reg, TRUE, register_page_blank_save_finished,
+                                   request);
+    LEAVE ("save request started");
 }
 
 static bool
@@ -3858,7 +3866,7 @@ gnc_plugin_page_register_cmd_exchange_rate (GSimpleAction *simple,
     reg = gnc_ledger_display_get_split_register (priv->ledger);
 
     /* XXX Ignore the return value -- we don't care if this succeeds */
-    (void)gnc_split_register_handle_exchange (reg, TRUE);
+    (void)gnc_split_register_handle_exchange_async (reg, TRUE, NULL, NULL);
     LEAVE (" ");
 }
 
@@ -4208,6 +4216,15 @@ gnc_plugin_page_register_cmd_scrub_current (GSimpleAction *simple,
     LEAVE (" ");
 }
 
+static void
+scrub_abort_verify_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    (void)parent;
+    (void)user_data;
+    if (response == GTK_RESPONSE_YES)
+        gnc_set_abort_scrub (TRUE);
+}
+
 static gboolean
 scrub_kp_handler (GtkEventControllerKey *key, guint keyval,
                   guint keycode, GdkModifierType state,
@@ -4215,17 +4232,17 @@ scrub_kp_handler (GtkEventControllerKey *key, guint keyval,
 {
     GtkWidget *widget;
 
+    (void)keycode;
+    (void)state;
+    (void)user_data;
     if (keyval != GDK_KEY_Escape)
         return FALSE;
 
     widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (key));
-    if (gnc_verify_dialog (GTK_WINDOW (widget), FALSE,
-                           "%s", _(check_repair_abort_YN)))
-        gnc_set_abort_scrub (TRUE);
-
-    (void)keycode;
-    (void)state;
-    (void)user_data;
+    if (widget && GTK_IS_WINDOW (widget))
+        gnc_verify_dialog_async (GTK_WINDOW (widget), FALSE,
+                                 scrub_abort_verify_finished, nullptr,
+                                 "%s", _(check_repair_abort_YN));
     return TRUE;
 }
 static void

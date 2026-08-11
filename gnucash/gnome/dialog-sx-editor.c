@@ -207,46 +207,87 @@ sxed_destroy_window (GncSxEditorDialog *sxed)
 
 typedef struct
 {
-    GncSxEditorDialog *sxed;
+    GWeakRef dialog;
+    QofBook *book;
     SxedCompletion completed;
 } SxedLedgerCloseRequest;
 
+static GncSxEditorDialog *
+sxed_ledger_close_request_get_editor (SxedLedgerCloseRequest *request,
+                                      GtkWidget **dialog_out)
+{
+    GtkWidget *dialog = GTK_WIDGET (g_weak_ref_get (&request->dialog));
+    GncSxEditorDialog *sxed = dialog ?
+        g_object_get_data (G_OBJECT (dialog), "gnc-sxed-dialog-state") : NULL;
+
+    if (dialog_out)
+        *dialog_out = dialog;
+    else
+        g_clear_object (&dialog);
+    return sxed;
+}
 
 static void
-sxed_ledger_close_finished (GtkWindow *parent, gint choice, gpointer user_data)
+sxed_ledger_close_request_free (SxedLedgerCloseRequest *request)
 {
-    SxedLedgerCloseRequest *request = user_data;
-    GncSxEditorDialog *sxed = request->sxed;
-    SplitRegister *reg = gnc_ledger_display_get_split_register (sxed->ledger);
-
-    (void) parent;
-
-    if (choice == 0)
-    {
-        if (!gnc_split_register_save (reg, TRUE))
-        {
-            sxed_set_decision_pending (sxed, FALSE);
-            g_free (request);
-            return;
-        }
-        gnc_split_register_redraw (reg);
-    }
-    else if (choice == 1)
-    {
-        gnc_split_register_cancel_cursor_trans_changes (reg);
-    }
-    else
-    {
-        sxed_set_decision_pending (sxed, FALSE);
-        g_free (request);
-        return;
-    }
-
-    request->completed (sxed);
+    g_weak_ref_clear (&request->dialog);
     g_free (request);
 }
 
+static void
+sxed_ledger_save_finished (SplitRegister *reg, gboolean saved, gpointer user_data)
+{
+    SxedLedgerCloseRequest *request = user_data;
+    GtkWidget *dialog = NULL;
+    GncSxEditorDialog *sxed = sxed_ledger_close_request_get_editor (request, &dialog);
 
+    if (sxed && dialog && request->book == gnc_get_current_book () && sxed->ledger &&
+        reg == gnc_ledger_display_get_split_register (sxed->ledger) && saved)
+    {
+        gnc_split_register_redraw (reg);
+        request->completed (sxed);
+    }
+    else if (sxed && dialog)
+        sxed_set_decision_pending (sxed, FALSE);
+    g_clear_object (&dialog);
+    sxed_ledger_close_request_free (request);
+}
+
+static void
+sxed_ledger_close_finished (G_GNUC_UNUSED GtkWindow *parent, gint choice,
+                            gpointer user_data)
+{
+    SxedLedgerCloseRequest *request = user_data;
+    GtkWidget *dialog = NULL;
+    GncSxEditorDialog *sxed = sxed_ledger_close_request_get_editor (request, &dialog);
+    SplitRegister *reg = sxed && sxed->ledger ?
+        gnc_ledger_display_get_split_register (sxed->ledger) : NULL;
+
+    if (!sxed || !dialog || !reg || request->book != gnc_get_current_book ())
+    {
+        if (sxed && dialog)
+            sxed_set_decision_pending (sxed, FALSE);
+        goto done;
+    }
+
+    if (choice == 0)
+    {
+        gnc_split_register_save_async (reg, TRUE, sxed_ledger_save_finished, request);
+        g_clear_object (&dialog);
+        return;
+    }
+    if (choice == 1)
+    {
+        gnc_split_register_cancel_cursor_trans_changes (reg);
+        request->completed (sxed);
+    }
+    else
+        sxed_set_decision_pending (sxed, FALSE);
+
+done:
+    g_clear_object (&dialog);
+    sxed_ledger_close_request_free (request);
+}
 /*
  * Preserve the three-way register decision explicitly. The asynchronous
  * choice keeps the ledger and its cursor owned by the editor until the
@@ -266,8 +307,9 @@ gnc_sxed_reg_check_close_async (GncSxEditorDialog *sxed, SxedCompletion complete
     }
 
     request = g_new0 (SxedLedgerCloseRequest, 1);
-    request->sxed = sxed;
+    request->book = gnc_get_current_book ();
     request->completed = completed;
+    g_weak_ref_init (&request->dialog, G_OBJECT (sxed->dialog));
 
     choices = g_list_append (choices, _("Record"));
     choices = g_list_append (choices, _("Don't Record"));
@@ -1417,6 +1459,7 @@ gnc_ui_scheduled_xaction_editor_dialog_create (GtkWindow *parent,
 
     /* Connect the Widgets */
     sxed->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "scheduled_transaction_editor_dialog"));
+    g_object_set_data (G_OBJECT (sxed->dialog), "gnc-sxed-dialog-state", sxed);
     sxed->notebook = GTK_NOTEBOOK (gtk_builder_get_object (builder, "editor_notebook"));
     sxed->nameEntry = GTK_ENTRY (gtk_builder_get_object (builder, "sxe_name"));
     sxed->enabledOpt = GTK_TOGGLE_BUTTON (gtk_builder_get_object (builder, "enabled_opt"));

@@ -1064,7 +1064,8 @@ gnc_table_enter_update (Table *table,
     int cell_col;
     CellIOFlags io_flags;
 
-    if (table == NULL)
+    if (table == NULL || (table->control &&
+                          gnc_table_control_input_suspended (table->control)))
         return FALSE;
 
     cb = table->current_cursor;
@@ -1190,6 +1191,8 @@ gnc_table_confirm_change (Table *table, VirtualLocation virt_loc)
 
     if (!table || !table->model)
         return TRUE;
+    if (table->control && gnc_table_control_input_suspended (table->control))
+        return FALSE;
 
     cell_name = gnc_table_get_cell_name (table, virt_loc);
 
@@ -1225,6 +1228,12 @@ gnc_table_modify_update (Table *table,
 
     g_return_val_if_fail (table, NULL);
     g_return_val_if_fail (table->model, NULL);
+    if (table->control && gnc_table_control_input_suspended (table->control))
+    {
+        if (cancelled)
+            *cancelled = TRUE;
+        return NULL;
+    }
 
     if (gnc_table_model_read_only (table->model))
     {
@@ -1314,6 +1323,12 @@ gnc_table_direct_update (Table *table,
 
     g_return_val_if_fail (table, FALSE);
     g_return_val_if_fail (table->model, FALSE);
+    if (table->control && gnc_table_control_input_suspended (table->control))
+    {
+        if (newval_ptr)
+            *newval_ptr = NULL;
+        return TRUE;
+    }
 
     if (gnc_table_model_read_only (table->model))
     {
@@ -1707,6 +1722,8 @@ gnc_table_traverse_update(Table *table,
 
     if ((table == NULL) || (dest_loc == NULL))
         return FALSE;
+    if (table->control && gnc_table_control_input_suspended (table->control))
+        return TRUE;
 
     ENTER("proposed (%d %d) -> (%d %d)\n",
           virt_loc.vcell_loc.virt_row, virt_loc.vcell_loc.virt_row,

@@ -3155,8 +3155,6 @@ gnc_file_revert (GtkWindow *parent)
     const gchar *title = _("Reverting will discard all unsaved changes to %s. "
                            "Are you sure you want to proceed?");
 
-    if (!gnc_main_window_all_finish_pending ())
-        return;
 
     session = gnc_get_current_session ();
     fileurl = qof_session_get_url (session);

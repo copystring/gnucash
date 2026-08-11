@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="reconcile_start_dialog">
+  <object class="GtkWindow" id="reconcile_start_dialog">
     <property name="resizable">0</property>
-<child internal-child="content_area">
+    <property name="child">
       <object class="GtkBox" id="dialog-vbox6">
         <property name="orientation">vertical</property>
         <child>
@@ -157,32 +157,28 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton1</action-widget>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area6">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="cancelbutton1">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
+          <object class="GtkBox" id="reconcile_start_actions">
+            <property name="orientation">horizontal</property>
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkButton" id="cancelbutton1">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="okbutton1">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="okbutton1">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
         </child>
       </object>
-    </child>
+    </property>
   </object>
 </interface>
