@@ -227,6 +227,7 @@
     <item>
       <attribute name="label" translatable="yes">Stock Ass_istant…</attribute>
       <attribute name="action">GncPluginPageRegisterActions.ActionsStockAssistantAction</attribute>
+      <attribute name="hidden-when">action-disabled</attribute>
       <attribute name="tooltip" translatable="yes">Stock Assistant</attribute>
       <attribute name="temp" translatable="no">yes</attribute>
     </item>

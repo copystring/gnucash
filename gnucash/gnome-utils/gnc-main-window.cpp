@@ -267,8 +267,6 @@ typedef struct
     /** The shortcut controller for the window. */
     GtkEventController *shortcut_controller;
 
-    GHashTable    *display_item_hash;
-
 } GncMainWindowPrivate;
 
 G_DEFINE_TYPE_WITH_CODE(GncMainWindow, gnc_main_window, GTK_TYPE_APPLICATION_WINDOW,
@@ -3074,8 +3072,6 @@ gnc_main_window_init (GncMainWindow *window)
 
     priv->restoring_pages = FALSE;
 
-    priv->display_item_hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, nullptr);
-
     priv->previous_plugin_page_name = nullptr;
     priv->previous_menu_qualifier = nullptr;
 
@@ -3232,8 +3228,6 @@ gnc_main_window_destroy (GtkWidget *widget)
 
         qof_event_unregister_handler(priv->event_handler_id);
         priv->event_handler_id = 0;
-
-        g_hash_table_destroy (priv->display_item_hash);
 
         /* GncPluginManager stuff */
         manager = gnc_plugin_manager_get ();
@@ -3945,29 +3939,6 @@ gnc_main_window_toolbar_find_tool_item (GncMainWindow *window, const gchar *acti
     return gnc_find_toolbar_item (priv->toolbar, action_name);
 }
 
-GtkWidget *
-gnc_main_window_menu_find_menu_item (GncMainWindow *window, const gchar *action_name)
-{
-    GncMainWindowPrivate *priv;
-    GtkWidget *menu_item;
-
-    g_return_val_if_fail (GNC_IS_MAIN_WINDOW(window), nullptr);
-    g_return_val_if_fail (action_name != nullptr, nullptr);
-
-    priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
-
-    menu_item = GTK_WIDGET(g_hash_table_lookup (priv->display_item_hash, action_name));
-
-    if (!menu_item)
-    {
-        menu_item = gnc_menubar_model_find_menu_item (priv->menubar_model, priv->menubar, action_name);
-
-        g_hash_table_insert (priv->display_item_hash, g_strdup (action_name), menu_item);
-    }
-    return menu_item;
-}
-
-
 void
 gnc_main_window_menu_add_accelerator_keys (GncMainWindow *window)
 {
@@ -4016,36 +3987,34 @@ gnc_main_window_set_vis_of_items_by_action (GncMainWindow *window,
     GncMainWindowPrivate *priv;
 
     g_return_if_fail (GNC_IS_MAIN_WINDOW(window));
+    g_return_if_fail (action_names != nullptr);
 
     priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
 
     for (gint i = 0; action_names[i]; i++)
     {
         GtkWidget *tool_item = gnc_find_toolbar_item (priv->toolbar, action_names[i]);
-        GtkWidget *menu_item = gnc_main_window_menu_find_menu_item (window, action_names[i]);
+        gboolean menu_item_visible = gnc_menubar_model_set_item_visible (priv->menubar_model,
+                                                                           action_names[i], vis);
 
-        if (menu_item)
-        {
-            PINFO("Found menu_item %p with action name '%s', seting vis to '%s'",
-                    menu_item, action_names[i], vis ? "true" : "false");
-            gtk_widget_set_visible (menu_item, vis);
-        }
+        if (menu_item_visible)
+            PINFO("Updated GMenu item visibility for action '%s' to '%s'",
+                  action_names[i], vis ? "true" : "false");
         else
-            PINFO("Did not find menu_item with action name '%s' to set vis '%s'",
-                   action_names[i], vis ? "true" : "false");
+            PINFO("No GMenu item found for action '%s' while setting visibility to '%s'",
+                  action_names[i], vis ? "true" : "false");
 
         if (tool_item)
         {
-            PINFO("Found tool_item %p with action name '%s', seting vis to '%s'",
-                    tool_item, action_names[i], vis ? "true" : "false");
+            PINFO("Found tool_item %p with action name '%s', setting visibility to '%s'",
+                  tool_item, action_names[i], vis ? "true" : "false");
             gtk_widget_set_visible (tool_item, vis);
         }
         else
-             PINFO("Did not find tool_item with action name '%s' to set vis '%s'",
-                    action_names[i], vis ? "true" : "false");
+            PINFO("Did not find tool_item with action name '%s' to set visibility to '%s'",
+                  action_names[i], vis ? "true" : "false");
     }
 }
-
 
 void
 gnc_main_window_init_short_names (GncMainWindow *window,
@@ -4156,8 +4125,7 @@ gnc_main_window_update_menu_and_toolbar (GncMainWindow *window,
 
     gnc_main_window_update_toolbar (window, page, menu_qualifier);
 
-    // reset hash table and remove added menu items
-    g_hash_table_remove_all (priv->display_item_hash);
+    // Remove page-specific menu items after restoring hidden model entries.
     gnc_menubar_model_remove_items_with_attrib (priv->menubar_model,
                                                 GNC_MENU_ATTRIBUTE_TEMPORARY);
 
@@ -4332,7 +4300,7 @@ gnc_main_window_init_menu_updaters (GncMainWindow *window)
 {
     /* GtkPopoverMenuBar derives item sensitivity directly from actions. Keep
      * those actions synchronized with the focused editor instead of depending
-     * on GtkMenuItem show/hide signals that do not exist in GTK4. */
+     * on legacy menu-widget show/hide signals. */
     gnc_main_window_update_edit_actions_sensitivity (window, FALSE);
 }
 

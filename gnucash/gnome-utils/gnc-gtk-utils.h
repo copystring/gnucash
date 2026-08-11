@@ -75,14 +75,11 @@ void gnc_disable_all_actions_in_group (GSimpleActionGroup *action_group);
 
 void gnc_add_accelerator_keys_for_menu (GtkWidget *menu, GMenuModel *model, GtkEventController *shortcut_controller);
 
-GtkWidget *gnc_find_menu_item_by_action_name (GtkWidget *menu, const gchar *action_name);
-GtkWidget *gnc_find_menu_item_by_action_label (GtkWidget *menu, const gchar *action_label);
-GList *gnc_menu_get_items (GtkWidget *menu);
-
 GtkWidget *gnc_find_toolbar_item (GtkWidget *toolbar, const gchar *action_name);
 
-void gnc_menu_item_setup_tooltip_to_statusbar_callback (GtkWidget *menu_item,
-                                                        GtkWidget *statusbar);
+void gnc_menubar_setup_tooltip_to_statusbar_callbacks (GtkWidget *menubar,
+                                                   GMenuModel *menu_model,
+                                                   GtkWidget *statusbar);
 
 void gnc_tool_item_setup_tooltip_to_statusbar_callback (GtkWidget *tool_item,
                                                         GtkWidget *statusbar);
@@ -100,7 +97,9 @@ struct _GncMenuModelSearch
 typedef struct _GncMenuModelSearch GncMenuModelSearch;
 
 gboolean gnc_menubar_model_find_item (GMenuModel *menu_model, GncMenuModelSearch *gsm);
-GtkWidget *gnc_menubar_model_find_menu_item (GMenuModel *menu_model, GtkWidget *menu, const gchar *action_name);
+gboolean gnc_menubar_model_set_item_visible (GMenuModel *menu_model,
+                                            const gchar *action_name,
+                                            gboolean visible);
 
 gboolean gnc_menubar_model_update_item (GMenuModel *menu_model, const gchar *action_name,
                                         const gchar *target, const gchar *label,

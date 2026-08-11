@@ -285,23 +285,12 @@ gnc_plugin_add_menu_tooltip_callbacks (GtkWidget  *menubar,
                                        GMenuModel *menubar_model,
                                        GtkWidget  *statusbar)
 {
-    GList *menu_item_list;
+    g_return_if_fail (GTK_IS_WIDGET (menubar));
+    g_return_if_fail (G_IS_MENU_MODEL (menubar_model));
+    g_return_if_fail (GTK_IS_STATUSBAR (statusbar));
 
-    g_return_if_fail (G_IS_MENU_MODEL(menubar_model));
-    g_return_if_fail (GTK_IS_STATUSBAR(statusbar));
-
-    menu_item_list = gnc_menu_get_items (menubar);
-
-    for (GList *node = menu_item_list; node; node = node->next)
-    {
-        GtkWidget *menu_item = node->data;
-
-        gnc_menu_item_setup_tooltip_to_statusbar_callback (menu_item, statusbar);
-    }
-    g_object_set_data (G_OBJECT(statusbar), "menu-model", menubar_model);
-    g_list_free (menu_item_list);
+    gnc_menubar_setup_tooltip_to_statusbar_callbacks (menubar, menubar_model, statusbar);
 }
-
 static void
 setup_toolbar_tooltip_callbacks (GtkWidget *toolbar, gpointer user_data)
 {
