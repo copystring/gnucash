@@ -39,6 +39,13 @@
                         <property name="focusable">1</property>
                         <property name="hexpand">1</property>
                         <property name="vexpand">1</property>
+                        <property name="child">
+                          <object class="GtkColumnView" id="commodity_view">
+                            <property name="hexpand">1</property>
+                            <property name="vexpand">1</property>
+                            <property name="show-row-separators">1</property>
+                          </object>
+                        </property>
                       </object>
                     </child>
                     <child>
