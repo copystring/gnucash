@@ -119,6 +119,7 @@ struct _GNCSearchWindow
 
     gint                      component_id;
     const gchar              *prefs_group;
+    gboolean                  destroying;
 };
 
 struct _crit_data
@@ -128,7 +129,7 @@ struct _crit_data
     GtkWidget         *elemwidget;
     GtkWidget         *container;
     GtkWidget         *button;
-    GtkDialog         *dialog;
+    GtkWindow         *dialog;
 };
 
 static void search_clear_criteria (GNCSearchWindow *sw);
@@ -795,7 +796,7 @@ combo_box_changed (GtkDropDown *drop_down, GParamSpec *pspec,
         gtk_widget_set_visible (data->elemwidget, TRUE);
     }
 
-    gnc_search_core_type_pass_parent (data->element, GTK_WINDOW (data->dialog));
+    gnc_search_core_type_pass_parent (data->element, data->dialog);
     gtk_widget_queue_resize (GTK_WIDGET (data->dialog));
     gnc_search_core_type_grab_focus (newelem);
     gnc_search_core_type_editable_enters (newelem);
@@ -865,7 +866,7 @@ get_element_widget (GNCSearchWindow *sw, GNCSearchCoreType *element)
 
     data = g_new0 (struct _crit_data, 1);
     data->element = element;
-    data->dialog = GTK_DIALOG (sw->dialog);
+    data->dialog = GTK_WINDOW (sw->dialog);
 
     hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (hbox), FALSE);
@@ -1008,36 +1009,60 @@ add_criterion (GtkWidget *button, GNCSearchWindow *sw)
     gnc_search_dialog_add_criterion (sw);
 }
 
-static int
-gnc_search_dialog_close_cb (GtkDialog *dialog, GNCSearchWindow *sw)
+static void
+gnc_search_dialog_destroyed_cb (GtkWidget *dialog, GNCSearchWindow *sw)
 {
-    g_return_val_if_fail (sw, TRUE);
+    g_return_if_fail (sw);
+
+    if (!sw->destroying && sw->prefs_group)
+        gnc_save_window_size (sw->prefs_group, GTK_WINDOW (dialog));
+    sw->dialog = NULL;
 
     /* Unregister callback on book option changes originally registered
-     * if searching for splits */
+     * if searching for splits. */
     if (strcmp (sw->search_for, GNC_ID_SPLIT) == 0)
-        gnc_book_option_remove_cb(OPTION_NAME_NUM_FIELD_SOURCE,
-                                    gnc_search_dialog_book_option_changed, sw);
+        gnc_book_option_remove_cb (OPTION_NAME_NUM_FIELD_SOURCE,
+                                   gnc_search_dialog_book_option_changed, sw);
 
-    gnc_unregister_gui_component (sw->component_id);
+    if (sw->component_id)
+        gnc_unregister_gui_component (sw->component_id);
 
-    /* Clear the crit list */
     g_list_free (sw->crit_list);
-
-    /* Clear the button list */
     g_list_free (sw->button_list);
 
-    /* Destroy the queries */
-    if (sw->q) qof_query_destroy (sw->q);
-    if (sw->start_q) qof_query_destroy (sw->start_q);
-
-    /* Destroy the user_data */
+    if (sw->q)
+        qof_query_destroy (sw->q);
+    if (sw->start_q)
+        qof_query_destroy (sw->start_q);
     if (sw->free_cb)
-        (sw->free_cb)(sw->user_data);
+        sw->free_cb (sw->user_data);
 
-    /* Destroy and exit */
     g_free (sw);
-    return FALSE;
+}
+
+static gboolean
+gnc_search_dialog_close_request_cb (GtkWindow *dialog, GNCSearchWindow *sw)
+{
+    (void)dialog;
+    gnc_search_dialog_destroy (sw);
+    return TRUE;
+}
+
+static gboolean
+gnc_search_dialog_key_pressed_cb (GtkEventControllerKey *controller,
+                                  guint keyval, guint keycode,
+                                  GdkModifierType state,
+                                  GNCSearchWindow *sw)
+{
+    (void)controller;
+    (void)keycode;
+    (void)state;
+
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+
+    gnc_search_dialog_destroy (sw);
+    return TRUE;
 }
 
 static void
@@ -1055,11 +1080,11 @@ refresh_handler (GHashTable *changes, gpointer data)
 static void
 close_handler (gpointer data)
 {
-    GNCSearchWindow * sw = data;
+    GNCSearchWindow *sw = data;
 
     g_return_if_fail (sw);
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(sw->dialog));
-    /* DRH: should sw be freed here? */
+    if (sw->dialog)
+        gtk_window_destroy (GTK_WINDOW (sw->dialog));
 }
 
 static const gchar *
@@ -1122,8 +1147,7 @@ gnc_search_dialog_init_widgets (GNCSearchWindow *sw, const gchar *title)
     const char        *type_label;
     gboolean           active;
 
-    builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(sw));
+    builder = gtk_builder_new ();
     gnc_builder_add_from_file (builder, "dialog-search.glade", "search_dialog");
 
     /* Grab the dialog, save the dialog info */
@@ -1213,6 +1237,7 @@ gnc_search_dialog_init_widgets (GNCSearchWindow *sw, const gchar *title)
     widget = GTK_WIDGET(gtk_builder_get_object (builder, "find_button"));
     g_signal_connect (widget, "clicked",
                       G_CALLBACK (search_find_cb), sw);
+    gtk_window_set_default_widget (GTK_WINDOW (sw->dialog), widget);
 
     /* Deal with the cancel button */
     sw->cancel_button = GTK_WIDGET(gtk_builder_get_object (builder, "cancel_button"));
@@ -1259,9 +1284,17 @@ gnc_builder_connect_signals (builder, sw);
     gnc_gui_component_set_session (sw->component_id,
                                    gnc_get_current_session());
 
-    /* And setup the close callback */
-    g_signal_connect (G_OBJECT (sw->dialog), "destroy",
-                      G_CALLBACK (gnc_search_dialog_close_cb), sw);
+    g_signal_connect (sw->dialog, "close-request",
+                      G_CALLBACK (gnc_search_dialog_close_request_cb), sw);
+    g_signal_connect (sw->dialog, "destroy",
+                      G_CALLBACK (gnc_search_dialog_destroyed_cb), sw);
+    {
+        GtkEventController *key_controller = gtk_event_controller_key_new ();
+
+        gtk_widget_add_controller (sw->dialog, key_controller);
+        g_signal_connect (key_controller, "key-pressed",
+                          G_CALLBACK (gnc_search_dialog_key_pressed_cb), sw);
+    }
 
     gnc_search_dialog_reset_widgets (sw);
     gnc_search_dialog_show_close_cancel (sw);
@@ -1272,10 +1305,16 @@ gnc_builder_connect_signals (builder, sw);
 void
 gnc_search_dialog_destroy (GNCSearchWindow *sw)
 {
-    if (!sw) return;
-    if (sw->prefs_group)
-        gnc_save_window_size(sw->prefs_group, GTK_WINDOW(sw->dialog));
-    gnc_close_gui_component (sw->component_id);
+    if (!sw || sw->destroying)
+        return;
+
+    sw->destroying = TRUE;
+    if (sw->prefs_group && sw->dialog)
+        gnc_save_window_size (sw->prefs_group, GTK_WINDOW (sw->dialog));
+    if (sw->component_id)
+        gnc_close_gui_component (sw->component_id);
+    else if (sw->dialog)
+        gtk_window_destroy (GTK_WINDOW (sw->dialog));
 }
 
 void
