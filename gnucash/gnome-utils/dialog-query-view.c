@@ -130,31 +130,36 @@ dqv_save_window_size (DialogQueryView *dqv)
         gnc_save_window_size (dqv->pref_group, GTK_WINDOW(dqv->dialog));
 }
 
-static int
-gnc_dialog_query_view_delete_cb (GtkDialog *dialog, GdkEvent  *event, DialogQueryView *dqv)
+static void
+dqv_window_destroy_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer user_data)
 {
-    g_return_val_if_fail (dqv, TRUE);
+    DialogQueryView *dqv = user_data;
 
-    dqv_save_window_size (dqv);
+    g_return_if_fail (dqv);
 
-    gnc_unregister_gui_component (dqv->component_id);
+    if (dqv->component_id != NO_COMPONENT)
+        gnc_unregister_gui_component (dqv->component_id);
 
-    /* destroy the book list */
     dqv_clear_booklist (dqv);
-
-    /* Destroy and exit */
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(dqv->dialog));
     g_free (dqv);
-    return FALSE;
 }
 
 static void
-close_handler (gpointer data)
+dqv_component_close_handler (gpointer user_data)
 {
-    DialogQueryView *dqv = data;
+    DialogQueryView *dqv = user_data;
 
     g_return_if_fail (dqv);
-    gnc_dialog_query_view_delete_cb (GTK_DIALOG(dqv->dialog), NULL, dqv);
+
+    dqv_save_window_size (dqv);
+    gtk_window_destroy (GTK_WINDOW (dqv->dialog));
+}
+
+static gboolean
+dqv_close_request_cb (G_GNUC_UNUSED GtkWindow *window, gpointer user_data)
+{
+    gnc_dialog_query_view_destroy (user_data);
+    return TRUE;
 }
 
 static void
@@ -179,11 +184,9 @@ gnc_dialog_query_view_refresh_handler (GHashTable *changes, gpointer user_data)
 }
 
 static void
-gnc_dialog_query_view_close (GtkButton *button, DialogQueryView *dqv)
+gnc_dialog_query_view_close (G_GNUC_UNUSED GtkButton *button, DialogQueryView *dqv)
 {
-    dqv_save_window_size (dqv);
-
-    /* Don't select anything */
+    /* Don't select anything. */
     gnc_dialog_query_view_destroy (dqv);
 }
 
@@ -194,10 +197,11 @@ dqv_window_key_press_cb (GtkEventControllerKey *key, guint keyval,
 {
     DialogQueryView *dqv = user_data;
 
-    if (keyval == GDK_KEY_Escape)
-        dqv_save_window_size (dqv);
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
 
-    return FALSE;
+    gnc_dialog_query_view_destroy (dqv);
+    return TRUE;
 }
 
 /*****************************************************************/
@@ -212,6 +216,7 @@ gnc_dialog_query_view_new (GtkWindow *parent, GList *param_list, Query *q, const
     GList *node;
 
     dqv = g_new0 (DialogQueryView, 1);
+    dqv->component_id = NO_COMPONENT;
     builder = gtk_builder_new();
     gnc_builder_add_from_file (builder, "dialog-query-view.glade", "query_view_dialog");
     dqv->pref_group = pref_group;
@@ -261,14 +266,16 @@ gnc_dialog_query_view_new (GtkWindow *parent, GList *param_list, Query *q, const
     g_signal_connect (G_OBJECT (close), "clicked",
                       G_CALLBACK (gnc_dialog_query_view_close), dqv);
 
-    /* connect to the cleanup */
-    g_signal_connect (G_OBJECT (dqv->dialog), "delete_event",
-                      G_CALLBACK (gnc_dialog_query_view_delete_cb), dqv);
+    /* The component manager owns close initiation; destruction releases it. */
+    g_signal_connect (dqv->dialog, "close-request",
+                      G_CALLBACK (dqv_close_request_cb), dqv);
+    g_signal_connect (dqv->dialog, "destroy",
+                      G_CALLBACK (dqv_window_destroy_cb), dqv);
 
-    /* register ourselves */
+    /* Register before watching books so a book close always tears down this window. */
     dqv->component_id = gnc_register_gui_component ("GNC Dialog Query View",
                         gnc_dialog_query_view_refresh_handler,
-                        close_handler, dqv);
+                        dqv_component_close_handler, dqv);
 
     /* Build the book list */
     dqv_build_booklist (dqv, q);
@@ -345,13 +352,18 @@ void gnc_dialog_query_view_refresh (DialogQueryView *dqv)
     if (!dqv) return;
 
     gnc_query_view_refresh (GNC_QUERY_VIEW(dqv->qview));
-//FIXME gtk4    gtk_widget_show_all (dqv->dialog);
+    gtk_window_present (GTK_WINDOW (dqv->dialog));
 }
 
 void gnc_dialog_query_view_destroy (DialogQueryView *dqv)
 {
-    if (!dqv) return;
-    gnc_close_gui_component (dqv->component_id);
+    if (!dqv)
+        return;
+
+    if (dqv->component_id != NO_COMPONENT)
+        gnc_close_gui_component (dqv->component_id);
+    else
+        gtk_window_destroy (GTK_WINDOW (dqv->dialog));
 }
 
 DialogQueryView *
