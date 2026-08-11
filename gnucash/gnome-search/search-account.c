@@ -207,13 +207,13 @@ button_clicked (GtkButton *button, GNCSearchAccount *fi)
     GtkWidget *scrolled_window;
     GtkWidget *label;
     char *desc;
-    GtkTreeSelection *selection;
 
     /* Create the account tree */
     account_tree = GTK_WIDGET(gnc_tree_view_account_new (FALSE));
-    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW(account_tree), FALSE);
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(account_tree));
-    gtk_tree_selection_set_mode (selection, GTK_SELECTION_MULTIPLE);
+    gnc_tree_view_account_set_headers_visible (
+        GNC_TREE_VIEW_ACCOUNT (account_tree), FALSE);
+    gnc_tree_view_account_set_selection_mode (
+        GNC_TREE_VIEW_ACCOUNT (account_tree), GTK_SELECTION_MULTIPLE);
 
     /* Select the currently-selected accounts */
     priv = _PRIVATE(fi);

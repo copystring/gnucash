@@ -113,7 +113,7 @@ enum
 typedef struct GncPluginPageAccountTreePrivate
 {
     GtkWidget   *widget;
-    GtkTreeView *tree_view;
+    GncTreeViewAccount *tree_view;
     gint         component_id;
     AccountFilterDialog fd;
 } GncPluginPageAccountTreePrivate;
@@ -141,13 +141,9 @@ static gboolean gnc_plugin_page_account_tree_button_press_cb (GtkGestureClick *g
                                                               double x,
                                                               double y,
                                                               gpointer user_data);
-static void gnc_plugin_page_account_tree_double_click_cb (GtkTreeView *treeview,
-                                                          GtkTreePath *path,
-                                                          GtkTreeViewColumn *col,
-                                                          GncPluginPageAccountTree *page);
+static void gnc_plugin_page_account_tree_double_click_cb (GncTreeViewAccount *tree_view, Account *account, GncPluginPageAccountTree *page);
 
-static void gnc_plugin_page_account_tree_selection_changed_cb (GtkTreeSelection *selection,
-                                                               GncPluginPageAccountTree *page);
+static void gnc_plugin_page_account_tree_selection_changed_cb (GtkSelectionModel *selection, guint position, guint n_items, GncPluginPageAccountTree *page);
 static void accounting_period_changed_cb(gpointer prefs, gchar *pref, gpointer user_data);
 
 extern "C" {
@@ -510,8 +506,8 @@ gnc_plugin_page_account_tree_open (Account *account, GtkWindow *win)
             g_hash_table_insert (priv->fd.filter_override, parent_account, parent_account);
             temp_account = parent_account;
         }
-        gnc_tree_view_account_refilter (GNC_TREE_VIEW_ACCOUNT(priv->tree_view));
-        gnc_tree_view_account_set_selected_account (GNC_TREE_VIEW_ACCOUNT(priv->tree_view), account);
+        gnc_tree_view_account_refilter (priv->tree_view);
+        gnc_tree_view_account_set_selected_account (priv->tree_view, account);
     }
 }
 
@@ -523,7 +519,7 @@ gnc_plugin_page_account_tree_get_current_account (GncPluginPageAccountTree *page
 
     priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE(page);
     ENTER("page %p (tree view %p)", page, priv->tree_view);
-    account = gnc_tree_view_account_get_selected_account (GNC_TREE_VIEW_ACCOUNT(priv->tree_view));
+    account = gnc_tree_view_account_get_selected_account (priv->tree_view);
     if (account == NULL)
     {
         LEAVE("no account");
@@ -544,7 +540,7 @@ gnc_plugin_page_account_tree_focus_widget (GncPluginPage *account_plugin_page)
     if (GNC_IS_PLUGIN_PAGE_ACCOUNT_TREE(account_plugin_page))
     {
         GncPluginPageAccountTreePrivate *priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE(account_plugin_page);
-        GtkTreeView *view = GTK_TREE_VIEW(priv->tree_view);
+        GtkColumnView *view = gnc_tree_view_account_get_column_view (priv->tree_view);
 
         /* Disable the Transaction Menu */
         GAction *action = gnc_main_window_find_action (GNC_MAIN_WINDOW(account_plugin_page->window), "TransactionAction");
@@ -614,10 +610,9 @@ gnc_plugin_page_account_tree_create_widget (GncPluginPage *plugin_page)
 {
     GncPluginPageAccountTree *page;
     GncPluginPageAccountTreePrivate *priv;
-    GtkTreeSelection *selection;
-    GtkTreeView *tree_view;
+    GtkSelectionModel *selection;
+    GncTreeViewAccount *tree_view;
     GtkWidget *scrolled_window;
-    GtkTreeViewColumn *col;
 
     ENTER("page %p", plugin_page);
     page = GNC_PLUGIN_PAGE_ACCOUNT_TREE (plugin_page);
@@ -644,50 +639,41 @@ gnc_plugin_page_account_tree_create_widget (GncPluginPage *plugin_page)
     gtk_widget_set_vexpand (GTK_WIDGET(scrolled_window), true);
     gtk_widget_set_hexpand (GTK_WIDGET(scrolled_window), true);
 
-    tree_view = gnc_tree_view_account_new(FALSE);
-    col = gnc_tree_view_find_column_by_name(
-              GNC_TREE_VIEW(tree_view), "description");
-    g_object_set_data(G_OBJECT(col), DEFAULT_VISIBLE, GINT_TO_POINTER(1));
-    col = gnc_tree_view_find_column_by_name(
-              GNC_TREE_VIEW(tree_view), "total");
-    g_object_set_data(G_OBJECT(col), DEFAULT_VISIBLE, GINT_TO_POINTER(1));
-    gnc_tree_view_configure_columns(GNC_TREE_VIEW(tree_view));
-    g_object_set(G_OBJECT(tree_view),
-                 "state-section", STATE_SECTION,
-                 "show-column-menu", TRUE,
-                 NULL);
+    tree_view = GNC_TREE_VIEW_ACCOUNT (gnc_tree_view_account_new (FALSE));
+    gnc_tree_view_account_set_column_visible (tree_view, "description", TRUE);
+    gnc_tree_view_account_set_column_visible (tree_view, "total", TRUE);
+    gnc_tree_view_account_set_state_section (tree_view, STATE_SECTION);
+    gnc_tree_view_account_set_headers_visible (tree_view, TRUE);
 
     /* No name handler; then the user can't click on the name of the
        account to open its register. */
-    gnc_tree_view_account_set_code_edited(GNC_TREE_VIEW_ACCOUNT(tree_view),
+    gnc_tree_view_account_set_code_edited(tree_view,
                                           gnc_tree_view_account_code_edited_cb);
-    gnc_tree_view_account_set_description_edited(GNC_TREE_VIEW_ACCOUNT(tree_view),
+    gnc_tree_view_account_set_description_edited(tree_view,
             gnc_tree_view_account_description_edited_cb);
-    gnc_tree_view_account_set_notes_edited(GNC_TREE_VIEW_ACCOUNT(tree_view),
+    gnc_tree_view_account_set_notes_edited(tree_view,
                                            gnc_tree_view_account_notes_edited_cb);
 
     // Setup some callbacks so menu actions can be disabled/enabled
-    gnc_tree_view_account_set_editing_started_cb(GNC_TREE_VIEW_ACCOUNT(tree_view),
+    gnc_tree_view_account_set_editing_started_cb(tree_view,
         (GFunc)gnc_plugin_page_account_editing_started_cd, page);
-    gnc_tree_view_account_set_editing_finished_cb(GNC_TREE_VIEW_ACCOUNT(tree_view),
+    gnc_tree_view_account_set_editing_finished_cb(tree_view,
         (GFunc)gnc_plugin_page_account_editing_finished_cb, page);
 
     priv->tree_view = tree_view;
-    selection = gtk_tree_view_get_selection(tree_view);
-    g_signal_connect (G_OBJECT (selection), "changed",
+    selection = gnc_tree_view_account_get_selection_model (tree_view);
+    g_signal_connect (selection, "selection-changed",
                       G_CALLBACK (gnc_plugin_page_account_tree_selection_changed_cb), page);
 
     GtkGesture *event_gesture = gtk_gesture_click_new ();
-    gtk_widget_add_controller (GTK_WIDGET(tree_view), GTK_EVENT_CONTROLLER(event_gesture));
+    gtk_widget_add_controller (GTK_WIDGET(gnc_tree_view_account_get_column_view (tree_view)), GTK_EVENT_CONTROLLER(event_gesture));
     gtk_gesture_single_set_button (GTK_GESTURE_SINGLE(event_gesture), GDK_BUTTON_SECONDARY);
     g_signal_connect (G_OBJECT(event_gesture), "pressed",
                       G_CALLBACK(gnc_plugin_page_account_tree_button_press_cb), page);
 
-    g_signal_connect (G_OBJECT (tree_view), "row-activated",
+    g_signal_connect (tree_view, "account-activated",
                       G_CALLBACK (gnc_plugin_page_account_tree_double_click_cb), page);
-
-    gtk_tree_view_set_headers_visible(tree_view, TRUE);
-    gnc_plugin_page_account_tree_selection_changed_cb (NULL, page);
+    gnc_plugin_page_account_tree_selection_changed_cb (NULL, 0, 0, page);
     gtk_widget_set_visible (GTK_WIDGET(tree_view), true);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(scrolled_window),
                                    GTK_WIDGET(tree_view));
@@ -695,9 +681,9 @@ gnc_plugin_page_account_tree_create_widget (GncPluginPage *plugin_page)
     gtk_widget_set_vexpand (GTK_WIDGET(tree_view), true);
     gtk_widget_set_hexpand (GTK_WIDGET(tree_view), true);
 
-    priv->fd.tree_view = GNC_TREE_VIEW_ACCOUNT(priv->tree_view);
+    priv->fd.tree_view = priv->tree_view;
     gnc_tree_view_account_set_filter (
-        GNC_TREE_VIEW_ACCOUNT(tree_view),
+        tree_view,
         gnc_plugin_page_account_tree_filter_accounts, &priv->fd, NULL);
 
     priv->component_id =
@@ -739,8 +725,8 @@ gnc_plugin_page_account_tree_create_widget (GncPluginPage *plugin_page)
                       NULL);
 
     // Read account filter state information from account section
-    gnc_tree_view_account_restore_filter (GNC_TREE_VIEW_ACCOUNT(priv->tree_view), &priv->fd,
-       gnc_state_get_current(), gnc_tree_view_get_state_section (GNC_TREE_VIEW(priv->tree_view)));
+    gnc_tree_view_account_restore_filter (priv->tree_view, &priv->fd,
+       gnc_state_get_current(), gnc_tree_view_account_get_state_section (priv->tree_view));
 
     LEAVE("widget = %p", priv->widget);
     return priv->widget;
@@ -779,8 +765,8 @@ gnc_plugin_page_account_tree_destroy_widget (GncPluginPage *plugin_page)
                                 (gpointer)accounting_period_changed_cb, page);
 
     // Save account filter state information to account section
-    gnc_tree_view_account_save_filter (GNC_TREE_VIEW_ACCOUNT(priv->tree_view), &priv->fd,
-       gnc_state_get_current(), gnc_tree_view_get_state_section (GNC_TREE_VIEW(priv->tree_view)));
+    gnc_tree_view_account_save_filter (priv->tree_view, &priv->fd,
+       gnc_state_get_current(), gnc_tree_view_account_get_state_section (priv->tree_view));
 
     // Destroy the filter override hash table
     g_hash_table_destroy(priv->fd.filter_override);
@@ -821,9 +807,9 @@ update_inactive_actions (GncPluginPage *plugin_page)
 
     priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE (plugin_page);
 
-    if (gtk_tree_view_get_selection (priv->tree_view))
+    if (priv->tree_view)
     {
-        account = gnc_tree_view_account_get_selected_account (GNC_TREE_VIEW_ACCOUNT(priv->tree_view));
+        account = gnc_tree_view_account_get_selected_account (priv->tree_view);
         has_account = (account != NULL);
         subaccounts = (account && gnc_account_n_children (account) != 0);
         /* Check here for placeholder accounts, etc. */
@@ -887,7 +873,7 @@ gnc_plugin_page_account_tree_save_page (GncPluginPage *plugin_page,
     account_page = GNC_PLUGIN_PAGE_ACCOUNT_TREE(plugin_page);
     priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE(account_page);
 
-    gnc_tree_view_account_save(GNC_TREE_VIEW_ACCOUNT(priv->tree_view),
+    gnc_tree_view_account_save(priv->tree_view,
                                &priv->fd, key_file, group_name);
     LEAVE(" ");
 }
@@ -922,7 +908,7 @@ gnc_plugin_page_account_tree_recreate_page (GtkWidget *window,
     /* Install it now so we can then manipulate the created widget */
     gnc_main_window_open_page(GNC_MAIN_WINDOW(window), page);
 
-    gnc_tree_view_account_restore(GNC_TREE_VIEW_ACCOUNT(priv->tree_view),
+    gnc_tree_view_account_restore(priv->tree_view,
                                   &priv->fd, key_file, group_name);
     LEAVE(" ");
     return page;
@@ -956,7 +942,7 @@ gnc_plugin_page_account_tree_summarybar_position_changed (gpointer prefs,
 }
 
 /** This button press handler calls the common button press handler
- *  for all pages.  The GtkTreeView eats all button presses and
+ *  for all pages.  The Kontobaum fängt die Zeigerereignisse ab and
  *  doesn't pass them up the widget tree, even when doesn't do
  *  anything with them.  The only way to get access to the button
  *  presses in an account tree page is here on the tree view widget.
@@ -1018,52 +1004,26 @@ gppat_open_account_common (GncPluginPageAccountTree *page,
 }
 
 static void
-gnc_plugin_page_account_tree_double_click_cb (GtkTreeView *treeview,
-                                              GtkTreePath        *path,
-                                              GtkTreeViewColumn  *col,
-                                              GncPluginPageAccountTree *page)
+gnc_plugin_page_account_tree_double_click_cb (GncTreeViewAccount *tree_view,
+                                               Account *account,
+                                               GncPluginPageAccountTree *page)
 {
-    GtkTreeModel *model;
-    GtkTreeIter iter;
-
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_ACCOUNT_TREE (page));
-    g_return_if_fail (treeview);
-
-    model = gtk_tree_view_get_model(treeview);
-    if (gtk_tree_model_get_iter(model, &iter, path))
-    {
-        Account *account = gnc_tree_view_account_get_account_from_path (GNC_TREE_VIEW_ACCOUNT(treeview), path);
-        if (xaccAccountGetPlaceholder (account))
-        {
-            /* This is a placeholder account. Only only show/hide
-             * subaccount list if there is one.
-             */
-            if (gtk_tree_model_iter_has_child(model, &iter))
-            {
-                /* There are children,
-                 * just expand or collapse the row. */
-                if (gtk_tree_view_row_expanded(treeview, path))
-                    gtk_tree_view_collapse_row(treeview, path);
-                else
-                    gtk_tree_view_expand_row(treeview, path, FALSE);
-            }
-        }
-        else
-        {
-            /* No placeholder account, so open its register */
-            gppat_open_account_common (page, account, FALSE);
-        }
-    }
+    if (!account) return;
+    if (xaccAccountGetPlaceholder (account))
+        gnc_tree_view_account_toggle_expand (tree_view, account);
+    else
+        gppat_open_account_common (page, account, FALSE);
 }
 
 static void
-gnc_plugin_page_account_tree_selection_changed_cb (GtkTreeSelection *selection,
-                                                   GncPluginPageAccountTree *page)
+gnc_plugin_page_account_tree_selection_changed_cb (GtkSelectionModel *selection,
+                                                    guint position, guint n_items,
+                                                    GncPluginPageAccountTree *page)
 {
-    GncPluginPage *plugin_page = GNC_PLUGIN_PAGE(page);
-    update_inactive_actions (plugin_page);
+    update_inactive_actions (GNC_PLUGIN_PAGE (page));
+    (void)selection; (void)position; (void)n_items;
 }
-
 static void
 accounting_period_changed_cb (gpointer prefs, gchar *pref, gpointer user_data)
 {
@@ -2036,7 +1996,7 @@ gnc_plugin_page_account_tree_cmd_refresh (GSimpleAction *simple,
 
     priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE(page);
 
-    gnc_tree_view_account_clear_model_cache (GNC_TREE_VIEW_ACCOUNT(priv->tree_view));
+    gnc_tree_view_account_clear_model_cache (priv->tree_view);
     gtk_widget_queue_draw (priv->widget);
 }
 

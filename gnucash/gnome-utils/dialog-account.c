@@ -108,7 +108,7 @@ typedef struct _AccountWindow
     GNCAccountType preferred_account_type;
     gboolean       updating_type_dropdown;
     GtkWidget     *type_combo;
-    GtkTreeView   *parent_tree;
+    GtkWidget     *parent_tree;
     GtkWidget     *parent_scroll;
 
     GtkWidget *more_properties_page;
@@ -179,11 +179,10 @@ void gnc_account_name_insert_text_cb (GtkWidget   *entry,
                                       gpointer     data);
 static void set_auto_interest_box (AccountWindow *aw);
 static void gnc_account_type_update (AccountWindow *aw);
-static gboolean account_commodity_filter (GtkTreeSelection* selection,
-                                          GtkTreeModel* unused_model,
-                                          GtkTreePath* s_path,
-                                          gboolean path_currently_selected,
-                                          gpointer user_data);
+static gboolean account_commodity_filter (Account *account, gpointer user_data);
+static void account_parent_selection_changed_cb (GtkSelectionModel *selection,
+                                                 guint position, guint n_items,
+                                                 AccountWindow *aw);
 
 /** Implementation *******************************************************/
 
@@ -222,10 +221,10 @@ static void
 aw_connect_selection_changed (AccountWindow *aw)
 {
     aw_clear_selection_handler (aw);
-    aw->selection = G_OBJECT (gtk_tree_view_get_selection (GTK_TREE_VIEW(aw->parent_tree)));
-    aw->handler_id = g_signal_connect (G_OBJECT(aw->selection), "changed",
-                                       G_CALLBACK(gnc_account_parent_changed_cb),
-                                       aw);
+    aw->selection = G_OBJECT (gnc_tree_view_account_get_selection_model (
+        GNC_TREE_VIEW_ACCOUNT (aw->parent_tree)));
+    aw->handler_id = g_signal_connect (aw->selection, "selection-changed",
+                                       G_CALLBACK (account_parent_selection_changed_cb), aw);
 }
 
 static void
@@ -805,7 +804,7 @@ add_children_to_expander (GObject *object, GParamSpec *param_spec, gpointer data
     GtkExpander *expander = GTK_EXPANDER(object);
     Account *account = data;
     GtkWidget *scrolled_window;
-    GtkTreeView *view;
+    GtkWidget *view;
 
     if (gtk_expander_get_expanded (expander) &&
             !gtk_expander_get_child (GTK_EXPANDER(expander)))
@@ -1535,7 +1534,7 @@ commodity_changed_cb (GNCGeneralSelect *gsl, gpointer data)
 {
     AccountWindow *aw = data;
     gnc_commodity *currency;
-    GtkTreeSelection *selection;
+    GtkSelectionModel *selection;
     Account *account = aw_get_account (aw);
 
     currency = (gnc_commodity *) gnc_general_select_get_selected (gsl);
@@ -1570,42 +1569,31 @@ commodity_changed_cb (GNCGeneralSelect *gsl, gpointer data)
     gnc_amount_edit_set_print_info (GNC_AMOUNT_EDIT(aw->opening_balance_edit),
                                     gnc_commodity_print_info (currency, FALSE));
 
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(aw->transfer_tree));
-    gtk_tree_selection_unselect_all (selection);
+    selection = gnc_tree_view_account_get_selection_model (
+        GNC_TREE_VIEW_ACCOUNT (aw->transfer_tree));
+    gtk_selection_model_unselect_all (selection);
     gnc_account_opening_balance_button_update (aw, currency);
 }
 
 static gboolean
-account_commodity_filter (GtkTreeSelection *selection,
-                          GtkTreeModel *unused_model,
-                          GtkTreePath *s_path,
-                          gboolean path_currently_selected,
-                          gpointer user_data)
+account_commodity_filter (Account *account, gpointer user_data)
 {
+    AccountWindow *aw = user_data;
     gnc_commodity *commodity;
-    AccountWindow *aw;
-    Account *account;
 
-    g_return_val_if_fail (GTK_IS_TREE_SELECTION(selection), FALSE);
-
-    aw = user_data;
-
-    if (path_currently_selected)
-    {
-        /* already selected, don't waste time. */
-        return TRUE;
-    }
-
-    account = gnc_tree_view_account_get_account_from_path (GNC_TREE_VIEW_ACCOUNT(aw->transfer_tree), s_path);
     if (!account)
-    {
         return FALSE;
-    }
-
-    commodity = (gnc_commodity *)
-                gnc_general_select_get_selected (GNC_GENERAL_SELECT(aw->commodity_edit));
-
+    commodity = gnc_general_select_get_selected (GNC_GENERAL_SELECT (aw->commodity_edit));
     return gnc_commodity_equiv (xaccAccountGetCommodity (account), commodity);
+}
+
+static void
+account_parent_selection_changed_cb (GtkSelectionModel *selection, guint position,
+                                     guint n_items, AccountWindow *aw)
+{
+    gnc_account_parent_changed_cb (G_OBJECT (selection), aw);
+    (void)position;
+    (void)n_items;
 }
 
 void
@@ -1636,7 +1624,7 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     GtkWidget *box;
     GtkWidget *label;
     GtkBuilder  *builder;
-    GtkTreeSelection *selection;
+    GtkSelectionModel *selection;
     const gchar *tt = _("This Account contains Transactions.\nChanging this option is not possible.");
     guint32 compat_types = xaccAccountTypesValid ();
 
@@ -1764,8 +1752,8 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     aw->transfer_account_scroll = box;
 
     aw->transfer_tree = GTK_WIDGET(gnc_tree_view_account_new (FALSE));
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(aw->transfer_tree));
-    gtk_tree_selection_set_select_function (selection, account_commodity_filter, aw, NULL);
+    gnc_tree_view_account_set_selection_filter (
+        GNC_TREE_VIEW_ACCOUNT (aw->transfer_tree), account_commodity_filter, aw, NULL);
 
     gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(aw->transfer_tree));
     gtk_widget_set_visible (GTK_WIDGET(aw->transfer_tree), TRUE);
@@ -1999,7 +1987,7 @@ gnc_ui_new_account_window_internal (GtkWindow *parent,
         base_account = gnc_book_get_root_account (book);
     }
 
-    gtk_tree_view_collapse_all (aw->parent_tree);
+    gnc_tree_view_account_collapse_all (GNC_TREE_VIEW_ACCOUNT (aw->parent_tree));
     gnc_tree_view_account_set_selected_account (GNC_TREE_VIEW_ACCOUNT(
                                                 aw->parent_tree),
                                                 base_account);
@@ -2251,7 +2239,7 @@ gnc_ui_edit_account_window (GtkWindow *parent, Account *account)
     if (parent_acct == NULL)
         parent_acct = account; // must be at the root
 
-    gtk_tree_view_collapse_all (aw->parent_tree);
+    gnc_tree_view_account_collapse_all (GNC_TREE_VIEW_ACCOUNT (aw->parent_tree));
     gnc_tree_view_account_set_selected_account (GNC_TREE_VIEW_ACCOUNT(
                                                 aw->parent_tree),
                                                 parent_acct);

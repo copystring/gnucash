@@ -858,14 +858,15 @@ static int
 gnc_tax_info_update_accounts (TaxInfoDialog *ti_dialog)
 {
     GncTreeViewAccount *tree;
-    GtkTreeSelection* selection;
     GtkWidget *label;
+    GList *accounts;
     int num_accounts;
     char *string;
 
-    tree = GNC_TREE_VIEW_ACCOUNT(ti_dialog->account_treeview);
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(tree));
-    num_accounts = gtk_tree_selection_count_selected_rows (selection);
+    tree = GNC_TREE_VIEW_ACCOUNT (ti_dialog->account_treeview);
+    accounts = gnc_tree_view_account_get_selected_accounts (tree);
+    num_accounts = g_list_length (accounts);
+    g_list_free (accounts);
 
     label = ti_dialog->num_acct_label;
     string = g_strdup_printf (_("Accounts Selected: %d"), num_accounts);
@@ -931,17 +932,17 @@ gnc_tax_info_acct_type_cb (GtkWidget *w, gpointer data)
 }
 
 static void
-gnc_tax_info_account_changed_cb (GtkTreeSelection *selection,
-                                 gpointer data)
+gnc_tax_info_account_changed_cb (GtkSelectionModel *selection, guint position,
+                                 guint n_items, gpointer data)
 {
     TaxInfoDialog *ti_dialog = data;
     GncTreeViewAccount *view;
     GList *accounts;
     int num_accounts;
 
-    g_return_if_fail(GTK_IS_TREE_SELECTION(selection));
 
     num_accounts = gnc_tax_info_update_accounts (ti_dialog);
+    cursor_changed_cb (GTK_WIDGET (ti_dialog->account_treeview), ti_dialog);
     switch (num_accounts)
     {
     case 0:
@@ -1302,7 +1303,9 @@ gnc_tax_info_dialog_create (GtkWidget * parent, TaxInfoDialog *ti_dialog)
     GtkWidget *dialog;
     GtkBuilder  *builder;
     GtkTreeView *tree_view;
+    GtkWidget *account_tree;
     GtkTreeSelection *selection;
+    GtkSelectionModel *account_selection;
     GtkWidget *label;
 
     builder = gtk_builder_new();
@@ -1439,17 +1442,17 @@ gnc_tax_info_dialog_create (GtkWidget * parent, TaxInfoDialog *ti_dialog)
         ti_dialog->acct_info = GTK_WIDGET(gtk_builder_get_object (builder, "acct_info_vbox"));
         ti_dialog->num_acct_label = GTK_WIDGET(gtk_builder_get_object (builder, "num_accounts_label"));
 
-        tree_view = gnc_tree_view_account_new (FALSE);
-        gnc_tree_view_account_set_filter (GNC_TREE_VIEW_ACCOUNT(tree_view),
+        account_tree = gnc_tree_view_account_new (FALSE);
+        gnc_tree_view_account_set_filter (GNC_TREE_VIEW_ACCOUNT (account_tree),
                                           gnc_tax_info_dialog_account_filter_func,
                                           ti_dialog, NULL);
-        ti_dialog->account_treeview = GTK_WIDGET(tree_view);
-
-        selection = gtk_tree_view_get_selection (tree_view);
-        gtk_tree_selection_set_mode (selection, GTK_SELECTION_MULTIPLE);
-        g_signal_connect (G_OBJECT (selection), "changed",
-                          G_CALLBACK (gnc_tax_info_account_changed_cb),
-                          ti_dialog);
+        gnc_tree_view_account_set_selection_mode (
+            GNC_TREE_VIEW_ACCOUNT (account_tree), GTK_SELECTION_MULTIPLE);
+        ti_dialog->account_treeview = account_tree;
+        account_selection = gnc_tree_view_account_get_selection_model (
+            GNC_TREE_VIEW_ACCOUNT (account_tree));
+        g_signal_connect (account_selection, "selection-changed",
+                          G_CALLBACK (gnc_tax_info_account_changed_cb), ti_dialog);
 
         gtk_widget_set_visible (GTK_WIDGET(ti_dialog->account_treeview), TRUE);
         box = GTK_WIDGET(gtk_builder_get_object (builder, "account_scroll"));
@@ -1492,9 +1495,6 @@ gnc_tax_info_dialog_create (GtkWidget * parent, TaxInfoDialog *ti_dialog)
 
         g_signal_connect (G_OBJECT (button), "clicked",
                           G_CALLBACK  (select_subaccounts_clicked),
-                          ti_dialog);
-        g_signal_connect (G_OBJECT (ti_dialog->account_treeview), "cursor_changed",
-                          G_CALLBACK  (cursor_changed_cb),
                           ti_dialog);
     }
 

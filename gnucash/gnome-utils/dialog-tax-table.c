@@ -257,13 +257,19 @@ combo_changed (GtkWidget *widget, NewTaxTable *ntt)
     ntt->type = index + 1;
 
     new_tax_table_check_entry (ntt, NULL);
+    (void)selection;
+    (void)position;
+    (void)n_items;
 }
 
 static void
-tax_table_account_selection_changed_cb (GtkTreeSelection *treeselection,
-                                        NewTaxTable *ntt)
+tax_table_account_selection_changed_cb (GtkSelectionModel *selection, guint position,
+                                      guint n_items, NewTaxTable *ntt)
 {
     new_tax_table_check_entry (ntt, NULL);
+    (void)selection;
+    (void)position;
+    (void)n_items;
 }
 
 static GncTaxTable *
@@ -276,7 +282,7 @@ new_tax_table_dialog (TaxTableWindow *ttw, gboolean new_table,
     GtkWidget *box, *widget, *combo;
     gboolean done;
     gint response, index;
-    GtkTreeSelection *selection;
+    GtkSelectionModel *account_selection;
 
     if (!ttw) return NULL;
     if (new_table && entry) return NULL;
@@ -323,11 +329,12 @@ new_tax_table_dialog (TaxTableWindow *ttw, gboolean new_table,
     box = GTK_WIDGET(gtk_builder_get_object (builder, "acct_window"));
     ntt->acct_tree = GTK_WIDGET(gnc_tree_view_account_new (FALSE));
     gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(ntt->acct_tree));
-    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW(ntt->acct_tree), FALSE);
-
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(ntt->acct_tree));
-    g_signal_connect (G_OBJECT(selection), "changed",
-                      G_CALLBACK(tax_table_account_selection_changed_cb), ntt);
+    gnc_tree_view_account_set_headers_visible (
+        GNC_TREE_VIEW_ACCOUNT (ntt->acct_tree), FALSE);
+    account_selection = gnc_tree_view_account_get_selection_model (
+        GNC_TREE_VIEW_ACCOUNT (ntt->acct_tree));
+    g_signal_connect (account_selection, "selection-changed",
+                      G_CALLBACK (tax_table_account_selection_changed_cb), ntt);
 
     /* Make 'enter' do the right thing */
     gtk_entry_set_activates_default (GTK_ENTRY(gnc_amount_edit_gtk_entry
