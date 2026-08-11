@@ -95,16 +95,18 @@ gnc_options_dialog_help_cb(GncOptionsDialog *opt_dialog,
 {
     auto prm{static_cast<struct report_default_params_data*>(user_data)};
 
+    if (!prm || !prm->win)
+        return;
+
     auto parent = prm->win->get_widget();
-    auto dialog = gtk_message_dialog_new(GTK_WINDOW(parent),
-                                         GTK_DIALOG_DESTROY_WITH_PARENT,
-                                         GTK_MESSAGE_INFO,
-                                         GTK_BUTTONS_OK,
-                                         "%s",
-                                         _("Set the report options you want using this dialog."));
-//FIXME gtk4    g_signal_connect(G_OBJECT(dialog), "response",
-//                     (GCallback)gtk_window_destroy, nullptr);
-    gtk_widget_set_visible (GTK_WIDGET(dialog), true);
+    if (!parent)
+        return;
+    auto alert = gtk_alert_dialog_new (
+        "%s", _("Set the report options you want using this dialog."));
+
+    gtk_alert_dialog_show (alert, GTK_WINDOW (parent));
+    g_object_unref (alert);
+    (void)opt_dialog;
 }
 
 static void
