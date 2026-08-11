@@ -973,22 +973,61 @@ type_unbind_cb (GtkSignalListItemFactory *factory, GtkListItem *list_item, gpoin
     (void)factory; (void)user_data;
 }
 
-void
-gppat_filter_response_cb (GtkWidget *dialog, gint response, AccountFilterDialog *fd)
+#define ACCOUNT_FILTER_ACCEPTED "gnc-account-filter-accepted"
+
+static void
+account_filter_dialog_restore (AccountFilterDialog *fd)
 {
-    if (response != GTK_RESPONSE_OK)
-    {
-        fd->visible_types = fd->original_visible_types;
-        fd->show_hidden = fd->original_show_hidden;
-        fd->show_zero_total = fd->original_show_zero_total;
-        fd->show_unused = fd->original_show_unused;
-        gnc_tree_view_account_refilter (fd->tree_view);
-    }
-    g_clear_object (&fd->type_model);
-    fd->dialog = NULL;
-    gtk_window_destroy (GTK_WINDOW (dialog));
+    fd->visible_types = fd->original_visible_types;
+    fd->show_hidden = fd->original_show_hidden;
+    fd->show_zero_total = fd->original_show_zero_total;
+    fd->show_unused = fd->original_show_unused;
+    gnc_tree_view_account_refilter (fd->tree_view);
 }
 
+static void
+account_filter_dialog_destroy_cb (GtkWidget *dialog, AccountFilterDialog *fd)
+{
+    if (!fd || fd->dialog != dialog)
+        return;
+    if (!g_object_get_data (G_OBJECT (dialog), ACCOUNT_FILTER_ACCEPTED))
+        account_filter_dialog_restore (fd);
+    g_clear_object (&fd->type_model);
+    g_clear_object (&fd->dialog);
+}
+
+static void
+account_filter_dialog_finish (AccountFilterDialog *fd, gboolean accepted)
+{
+    if (!fd || !fd->dialog)
+        return;
+    if (accepted)
+        g_object_set_data (G_OBJECT (fd->dialog), ACCOUNT_FILTER_ACCEPTED,
+                           GINT_TO_POINTER (1));
+    gtk_window_destroy (GTK_WINDOW (fd->dialog));
+}
+
+static void
+account_filter_dialog_apply_cb (GtkButton *button, AccountFilterDialog *fd)
+{
+    account_filter_dialog_finish (fd, TRUE);
+    (void)button;
+}
+
+static void
+account_filter_dialog_cancel_cb (GtkButton *button, AccountFilterDialog *fd)
+{
+    account_filter_dialog_finish (fd, FALSE);
+    (void)button;
+}
+
+static gboolean
+account_filter_dialog_close_request_cb (GtkWindow *window, AccountFilterDialog *fd)
+{
+    account_filter_dialog_finish (fd, FALSE);
+    (void)window;
+    return TRUE;
+}
 void
 account_filter_dialog_create (AccountFilterDialog *fd, GncPluginPage *page)
 {
@@ -1003,6 +1042,7 @@ account_filter_dialog_create (AccountFilterDialog *fd, GncPluginPage *page)
     gtk_builder_set_current_object (builder, G_OBJECT (fd));
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_filter_by_dialog");
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "account_filter_by_dialog"));
+    g_object_ref (dialog);
     fd->dialog = dialog;
     gtk_window_set_transient_for (GTK_WINDOW (dialog), GTK_WINDOW (GNC_PLUGIN_PAGE (page)->window));
     title = g_strdup_printf (_("Filter %s by..."), _(gnc_plugin_page_get_page_name (page)));
@@ -1030,10 +1070,20 @@ account_filter_dialog_create (AccountFilterDialog *fd, GncPluginPage *page)
     g_signal_connect (factory, "unbind", G_CALLBACK (type_unbind_cb), fd);
     gtk_list_view_set_factory (list_view, factory);
     gtk_list_view_set_model (list_view, selection);
-    g_object_unref (factory); g_object_unref (selection);
+    g_object_unref (factory);
+    g_object_unref (selection);
     gnc_builder_connect_signals (builder, fd);
+    g_signal_connect (gtk_builder_get_object (builder, "okbutton1"), "clicked",
+                      G_CALLBACK (account_filter_dialog_apply_cb), fd);
+    g_signal_connect (gtk_builder_get_object (builder, "cancelbutton1"), "clicked",
+                      G_CALLBACK (account_filter_dialog_cancel_cb), fd);
+    g_signal_connect (dialog, "close-request",
+                      G_CALLBACK (account_filter_dialog_close_request_cb), fd);
+    g_signal_connect (dialog, "destroy", G_CALLBACK (account_filter_dialog_destroy_cb), fd);
+    gtk_window_set_default_widget (GTK_WINDOW (dialog),
+                                   GTK_WIDGET (gtk_builder_get_object (builder, "okbutton1")));
     g_object_unref (builder);
-    gtk_widget_set_visible (dialog, TRUE);
+    gtk_window_present (GTK_WINDOW (dialog));
 }
 static void
 save_filter (AccountFilterDialog *fd, GKeyFile *key_file, const gchar *group,

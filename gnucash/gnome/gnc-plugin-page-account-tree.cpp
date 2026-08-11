@@ -1295,6 +1295,12 @@ account_subaccount (Account* account)
     return subaccount;
 }
 
+static void
+delete_account_dialog_release_ref_cb (GtkWidget *, gpointer user_data)
+{
+    g_object_unref (user_data);
+}
+
 static GtkWidget*
 account_delete_dialog (Account *account, GtkWindow *parent)
 {
@@ -1312,6 +1318,8 @@ account_delete_dialog (Account *account, GtkWindow *parent)
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_delete_dialog");
 
     dialog = GTK_WIDGET(gtk_builder_get_object (builder, "account_delete_dialog"));
+    g_object_ref (dialog);
+    g_signal_connect (dialog, "destroy", G_CALLBACK (delete_account_dialog_release_ref_cb), dialog);
     gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
 
     /* FIXME: Same account type used for subaccount. */
@@ -1326,6 +1334,8 @@ account_delete_dialog (Account *account, GtkWindow *parent)
 
     widget = GTK_WIDGET(gtk_builder_get_object (builder, DELETE_DIALOG_OK_BUTTON));
     g_object_set_data(G_OBJECT(dialog), DELETE_DIALOG_OK_BUTTON, widget);
+    g_object_set_data(G_OBJECT(dialog), "delete-account-cancel-button",
+                      gtk_builder_get_object (builder, "cancelbutton"));
 
     // Add the account selectors and enable sections as appropriate
     // setup transactions selector
@@ -1509,7 +1519,7 @@ delete_account_request_lookup (const GncGUID *guid, gboolean present, QofBook *b
 }
 
 static Account *
-delete_account_dialog_selected_account (GtkDialog *dialog, const gchar *selector_key)
+delete_account_dialog_selected_account (GtkWindow *dialog, const gchar *selector_key)
 {
     auto selector = GTK_WIDGET (g_object_get_data (G_OBJECT (dialog), selector_key));
     if (!selector || !gtk_widget_is_sensitive (selector))
@@ -1520,7 +1530,7 @@ delete_account_dialog_selected_account (GtkDialog *dialog, const gchar *selector
 
 static gboolean
 delete_account_request_capture_destinations (DeleteAccountRequest *request,
-                                             GtkDialog *dialog)
+                                             GtkWindow *dialog)
 {
     GncPluginPageAccountTree *page;
     Account *account;
@@ -1800,7 +1810,7 @@ delete_account_request_continue (DeleteAccountRequest *request)
 }
 
 static void
-delete_account_dialog_response_cb (GtkDialog *dialog, gint response, gpointer user_data)
+delete_account_dialog_response_cb (GtkWindow *dialog, gint response, gpointer user_data)
 {
     auto request = static_cast<DeleteAccountRequest *> (user_data);
 
@@ -1819,6 +1829,34 @@ delete_account_dialog_response_cb (GtkDialog *dialog, gint response, gpointer us
         return;
     }
     delete_account_request_continue (request);
+}
+static void
+delete_account_dialog_apply_cb (GtkButton *, gpointer user_data)
+{
+    auto request = static_cast<DeleteAccountRequest *> (user_data);
+    auto dialog = delete_account_request_get_dialog (request);
+    if (!dialog)
+        return;
+    delete_account_dialog_response_cb (dialog, GTK_RESPONSE_ACCEPT, request);
+    g_object_unref (dialog);
+}
+
+static void
+delete_account_dialog_cancel_cb (GtkButton *, gpointer user_data)
+{
+    auto request = static_cast<DeleteAccountRequest *> (user_data);
+    auto dialog = delete_account_request_get_dialog (request);
+    if (!dialog)
+        return;
+    delete_account_dialog_response_cb (dialog, GTK_RESPONSE_CANCEL, request);
+    g_object_unref (dialog);
+}
+
+static gboolean
+delete_account_dialog_close_request_cb (GtkWindow *dialog, gpointer user_data)
+{
+    delete_account_dialog_response_cb (dialog, GTK_RESPONSE_CANCEL, user_data);
+    return TRUE;
 }
 }
 
@@ -1888,8 +1926,17 @@ gnc_plugin_page_account_tree_cmd_delete_account (GSimpleAction *simple,
     g_weak_ref_set (&request->dialog, G_OBJECT (dialog));
     g_object_set_data_full (G_OBJECT (dialog), DELETE_ACCOUNT_REQUEST_DATA,
                             request, delete_account_request_unref);
-    g_signal_connect (dialog, "response", G_CALLBACK (delete_account_dialog_response_cb),
+    auto delete_button = GTK_WIDGET (g_object_get_data (G_OBJECT (dialog),
+                                                        DELETE_DIALOG_OK_BUTTON));
+    auto cancel_button = GTK_WIDGET (g_object_get_data (G_OBJECT (dialog),
+                                                        "delete-account-cancel-button"));
+    g_signal_connect (delete_button, "clicked", G_CALLBACK (delete_account_dialog_apply_cb),
                       request);
+    g_signal_connect (cancel_button, "clicked", G_CALLBACK (delete_account_dialog_cancel_cb),
+                      request);
+    g_signal_connect (dialog, "close-request", G_CALLBACK (delete_account_dialog_close_request_cb),
+                      request);
+    gtk_window_set_default_widget (GTK_WINDOW (dialog), cancel_button);
     gtk_window_present (GTK_WINDOW (dialog));
 }
 

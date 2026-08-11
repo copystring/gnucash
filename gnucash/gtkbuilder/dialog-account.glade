@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="account_cascade_dialog">
+  <object class="GtkWindow" id="account_cascade_dialog">
     <property name="title" translatable="1">Cascade Account Values</property>
-<child internal-child="content_area">
+    <child>
+      <object class="GtkBox" id="account_cascade_dialog_content">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+<child>
       <object class="GtkBox">
-        <property name="visible">0</property>
+        <property name="visible">1</property>
         <property name="orientation">vertical</property>
         <property name="spacing">2</property>
         <child>
@@ -183,14 +187,7 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton3</action-widget>
-      <action-widget response="-5">okbutton3</action-widget>
-    </action-widgets>
-    <style>
-      <class name="gnc-class-account" />
-    </style>
-    <child internal-child="action_area">
+<child>
       <object class="GtkBox">
         <child>
           <object class="GtkButton" id="cancelbutton3">
@@ -210,13 +207,23 @@
         </child>
       </object>
     </child>
+      </object>
+    </child>
+    <style>
+      <class name="gnc-class-account" />
+    </style>
+
   </object>
-  <object class="GtkDialog" id="account_delete_dialog">
+  <object class="GtkWindow" id="account_delete_dialog">
 <property name="title" translatable="1">Delete Account</property>
     <property name="modal">1</property>
     <property name="default-width">500</property>
     <property name="destroy-with-parent">1</property>
-<child internal-child="content_area">
+    <child>
+      <object class="GtkBox" id="account_delete_dialog_content">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+<child>
       <object class="GtkBox" id="vbox100">
         <property name="hexpand">1</property>
         <property name="orientation">vertical</property>
@@ -494,14 +501,7 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-3">deletebutton</action-widget>
-    </action-widgets>
-    <style>
-      <class name="gnc-class-account" />
-    </style>
-    <child internal-child="action_area">
+<child>
       <object class="GtkBox" id="dialog-action_area100">
         <property name="visible">True</property>
         <child>
@@ -522,11 +522,20 @@
         </child>
       </object>
     </child>
+      </object>
+    </child>
+    <style>
+      <class name="gnc-class-account" />
+    </style>
+
   </object>
-  <object class="GtkDialog" id="account_filter_by_dialog">
+  <object class="GtkWindow" id="account_filter_by_dialog">
 <property name="title" translatable="1">Filter By…</property>
-<signal name="response" handler="gppat_filter_response_cb" swapped="no" />
-    <child internal-child="content_area">
+        <child>
+      <object class="GtkBox" id="account_filter_by_dialog_content">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+<child>
       <object class="GtkBox" id="vbox200">
         <property name="orientation">vertical</property>
         <property name="spacing">6</property>
@@ -655,14 +664,7 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton1</action-widget>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <style>
-      <class name="gnc-class-account" />
-    </style>
-    <child internal-child="action_area">
+<child>
       <object class="GtkBox" id="dialog-action_area200">
         <property name="visible">True</property>
         <child>
@@ -683,6 +685,12 @@
         </child>
       </object>
     </child>
+      </object>
+    </child>
+    <style>
+      <class name="gnc-class-account" />
+    </style>
+
   </object>
   <object class="GtkAdjustment" id="digit_spin_adjustment">
     <property name="lower">1</property>
@@ -691,10 +699,14 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkDialog" id="account_dialog">
+  <object class="GtkWindow" id="account_dialog">
 <property name="title" translatable="1">New Account</property>
     <signal name="destroy" handler="gnc_account_window_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
+        <child>
+      <object class="GtkBox" id="account_dialog_content">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+<child>
       <object class="GtkBox" id="vbox300">
         <property name="orientation">vertical</property>
         <property name="spacing">6</property>
@@ -1342,15 +1354,7 @@ Clear the entry to have no warning.</property>
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-11">help_button</action-widget>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <style>
-      <class name="gnc-class-account" />
-    </style>
-    <child internal-child="action_area">
+<child>
       <object class="GtkBox" id="dialog-action_area300">
         <property name="visible">True</property>
         <child>
@@ -1379,6 +1383,12 @@ Clear the entry to have no warning.</property>
         </child>
       </object>
     </child>
+      </object>
+    </child>
+    <style>
+      <class name="gnc-class-account" />
+    </style>
+
   </object>
   <object class="GtkAdjustment" id="interval_adjustment">
     <property name="lower">1</property>
@@ -1387,12 +1397,15 @@ Clear the entry to have no warning.</property>
     <property name="step-increment">5</property>
     <property name="page-increment">100</property>
   </object>
-  <object class="GtkDialog" id="account_renumber_dialog">
+  <object class="GtkWindow" id="account_renumber_dialog">
 <property name="title" translatable="1">Renumber sub-accounts</property>
     <property name="modal">1</property>
     <property name="default-width">450</property>
-<signal name="response" handler="gnc_account_renumber_response_cb" swapped="no" />
-    <child internal-child="content_area">
+        <child>
+      <object class="GtkBox" id="account_renumber_dialog_content">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+<child>
       <object class="GtkBox" id="vbox400">
         <property name="orientation">vertical</property>
         <property name="spacing">6</property>
@@ -1539,14 +1552,7 @@ Clear the entry to have no warning.</property>
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton2</action-widget>
-      <action-widget response="-5">okbutton2</action-widget>
-    </action-widgets>
-    <style>
-      <class name="gnc-class-account" />
-    </style>
-    <child internal-child="action_area">
+<child>
       <object class="GtkBox" id="dialog-action_area400">
         <property name="visible">True</property>
         <child>
@@ -1567,5 +1573,11 @@ Clear the entry to have no warning.</property>
         </child>
       </object>
     </child>
+      </object>
+    </child>
+    <style>
+      <class name="gnc-class-account" />
+    </style>
+
   </object>
 </interface>

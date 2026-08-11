@@ -2096,9 +2096,66 @@ gnc_split_register_save (SplitRegister* reg, gboolean do_commit)
 }
 
 
+#define SPLIT_REGISTER_ACCOUNT_CREATE_REQUEST "gnc-split-register-account-create-request"
+
+typedef struct
+{
+    GWeakRef parent;
+    QofBook *book;
+    gchar *name;
+} SplitRegisterAccountCreateRequest;
+
+static void
+split_register_account_create_request_free (SplitRegisterAccountCreateRequest *request)
+{
+    GtkWidget *parent = GTK_WIDGET (g_weak_ref_get (&request->parent));
+
+    if (parent && g_object_get_data (G_OBJECT (parent),
+                                     SPLIT_REGISTER_ACCOUNT_CREATE_REQUEST) == request)
+        g_object_steal_data (G_OBJECT (parent), SPLIT_REGISTER_ACCOUNT_CREATE_REQUEST);
+    g_clear_object (&parent);
+    g_weak_ref_clear (&request->parent);
+    g_free (request->name);
+    g_free (request);
+}
+
+static void
+split_register_account_create_finished (Account *account, gboolean accepted,
+                                        gpointer user_data)
+{
+    SplitRegisterAccountCreateRequest *request = user_data;
+    GtkWidget *parent = GTK_WIDGET (g_weak_ref_get (&request->parent));
+
+    if (accepted && account && parent && request->book == gnc_get_current_book () &&
+        gnc_account_get_book (account) == request->book)
+        gnc_gui_refresh_all ();
+    g_clear_object (&parent);
+    split_register_account_create_request_free (request);
+}
+
+static void
+split_register_account_create_confirmed (GtkWindow *parent, gint response,
+                                         gpointer user_data)
+{
+    SplitRegisterAccountCreateRequest *request = user_data;
+    GtkWidget *owner = GTK_WIDGET (g_weak_ref_get (&request->parent));
+
+    if (response == GTK_RESPONSE_YES && owner && GTK_IS_WINDOW (owner) &&
+        owner == GTK_WIDGET (parent) && request->book == gnc_get_current_book ())
+    {
+        gnc_ui_new_accounts_from_name_with_defaults_async (
+            GTK_WINDOW (owner), request->name, NULL, NULL, NULL,
+            split_register_account_create_finished, request);
+        g_clear_object (&owner);
+        return;
+    }
+    g_clear_object (&owner);
+    split_register_account_create_request_free (request);
+}
+
 Account*
 gnc_split_register_get_account_by_name (SplitRegister* reg, BasicCell* bcell,
-                                        const char* name)
+                                         const char* name)
 {
     const char* placeholder = _ ("The account %s does not allow transactions.");
     const char* missing = _ ("The account %s does not exist. "
@@ -2106,8 +2163,8 @@ gnc_split_register_get_account_by_name (SplitRegister* reg, BasicCell* bcell,
     char* account_name;
     ComboCell* cell = (ComboCell*) bcell;
     Account* account;
-    static gboolean creating_account = FALSE;
-    GtkWindow* parent = GTK_WINDOW (gnc_split_register_get_parent (reg));
+    GtkWidget *owner = gnc_split_register_get_parent (reg);
+    GtkWindow *parent = GTK_IS_WINDOW (owner) ? GTK_WINDOW (owner) : NULL;
 
     if (!name || (strlen (name) == 0))
         return NULL;
@@ -2118,24 +2175,25 @@ gnc_split_register_get_account_by_name (SplitRegister* reg, BasicCell* bcell,
     if (!account)
         account = gnc_account_lookup_by_code (gnc_get_current_root_account (), name);
 
-    /* if gnc_ui_new_accounts_from_name_window is used, there is a call to
-     * refresh which subsequently calls this function again, that's the
-     * reason for static creating_account. */
-
-    if (!account && !creating_account)
+    if (!account)
     {
-        /* Ask if they want to create a new one. */
-        if (!gnc_verify_dialog (parent, TRUE, missing, name))
+        SplitRegisterAccountCreateRequest *request;
+
+        if (!parent || g_object_get_data (G_OBJECT (parent),
+                                          SPLIT_REGISTER_ACCOUNT_CREATE_REQUEST))
             return NULL;
-        creating_account = TRUE;
-        /* User said yes, they want to create a new account. */
-        account = gnc_ui_new_accounts_from_name_window (parent, name);
-        creating_account = FALSE;
-        if (!account)
-            return NULL;
+        request = g_new0 (SplitRegisterAccountCreateRequest, 1);
+        request->book = gnc_get_current_book ();
+        request->name = g_strdup (name);
+        g_weak_ref_init (&request->parent, G_OBJECT (parent));
+        g_object_set_data (G_OBJECT (parent), SPLIT_REGISTER_ACCOUNT_CREATE_REQUEST,
+                           request);
+        gnc_verify_dialog_async (parent, TRUE, split_register_account_create_confirmed,
+                                 request, missing, name);
+        return NULL;
     }
 
-    if (!creating_account)
+    if (account)
     {
         /* Now have the account. */
         account_name = gnc_get_account_name_for_split_register (account,
