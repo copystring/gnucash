@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="file_access_dialog">
+  <object class="GtkWindow" id="file_access_dialog">
     <property name="default-width">600</property>
     <property name="default-height">500</property>
-<signal name="response" handler="gnc_ui_file_access_response_cb" swapped="no" />
-    <child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="dialog-vbox1">
         <property name="orientation">vertical</property>
         <property name="spacing">5</property>
@@ -205,14 +204,10 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">pb_op</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area1">
+        <child>
+          <object class="GtkBox" id="dialog-action_area1">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancel_button">
@@ -231,6 +226,8 @@
             <property name="use-underline">1</property>
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>

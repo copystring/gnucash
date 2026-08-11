@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="totd_dialog">
+  <object class="GtkWindow" id="totd_dialog">
 <property name="title" translatable="1">GnuCash Tip Of The Day</property>
     <property name="default-width">400</property>
     <property name="default-height">300</property>
-<signal name="response" handler="gnc_totd_dialog_response_cb" swapped="no" />
-    <child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="dialog-vbox3">
         <property name="orientation">vertical</property>
         <property name="spacing">6</property>
@@ -65,15 +64,10 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="2">back-button</action-widget>
-      <action-widget response="1">forward-button</action-widget>
-      <action-widget response="-7">close-button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area3">
+        <child>
+          <object class="GtkBox" id="dialog-action_area3">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="back-button">
@@ -101,6 +95,8 @@
             <property name="use-underline">1</property>
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>

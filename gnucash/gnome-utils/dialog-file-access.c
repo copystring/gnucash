@@ -70,7 +70,10 @@ typedef struct FileAccessWindow
     GtkEntry            *tf_port;
 } FileAccessWindow;
 
-void gnc_ui_file_access_response_cb( GtkDialog *, gint, GtkDialog * );
+static void file_access_accept_clicked_cb (GtkButton *button,
+                                           FileAccessWindow *faw);
+static void file_access_cancel_clicked_cb (GtkButton *button,
+                                           FileAccessWindow *faw);
 static void cb_uri_type_changed_cb (GtkDropDown *drop_down, GParamSpec *pspec,
                                         gpointer user_data);
 static void port_insert_text_cb( GtkEditable *editable, const gchar *text,
@@ -239,69 +242,62 @@ file_access_choose_file_cb (GtkButton *button, gpointer user_data)
     (void)button;
 }
 
-void
-gnc_ui_file_access_response_cb(GtkDialog *dialog, gint response, GtkDialog *unused)
+static void
+file_access_accept_clicked_cb (GtkButton *button, FileAccessWindow *faw)
 {
-    FileAccessWindow* faw;
-    gchar* url;
+    gchar *url;
 
-    g_return_if_fail( dialog != NULL );
+    g_return_if_fail (faw != NULL);
 
-    faw = g_object_get_data( G_OBJECT(dialog), "FileAccessWindow" );
-    g_return_if_fail( faw != NULL );
-
-    switch ( response )
+    url = geturl (faw);
+    if (!url)
+        return;
+    if (g_str_has_prefix (url, "file://"))
     {
-    case GTK_RESPONSE_HELP:
-        gnc_gnome_help (GTK_WINDOW(dialog), DF_MANUAL, DL_GLOBPREFS );
-        break;
+        gchar *path = gnc_uri_get_path (url);
+        gboolean is_directory = path && g_file_test (path, G_FILE_TEST_IS_DIR);
 
-    case GTK_RESPONSE_OK:
-        url = geturl( faw );
-        if ( url == NULL )
+        g_free (path);
+        if (is_directory)
         {
-            return;
-        }
-        if (g_str_has_prefix (url, "file://") &&
-            g_file_test (gnc_uri_get_path (url), G_FILE_TEST_IS_DIR))
-        {
-            gnc_error_dialog (GTK_WINDOW (dialog), "%s",
+            gnc_error_dialog (GTK_WINDOW (faw->dialog), "%s",
                               _("Please select a file, not a folder."));
             g_free (url);
             return;
         }
-        if ( faw->type == FILE_ACCESS_OPEN )
-        {
-            gboolean open_readonly = faw->readonly_checkbutton
-                                     ? gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(faw->readonly_checkbutton))
-                                     : FALSE;
-            gnc_file_open_file (GTK_WINDOW(dialog), url, open_readonly);
-        }
-        else if ( faw->type == FILE_ACCESS_SAVE_AS )
-        {
-            gnc_file_do_save_as (GTK_WINDOW(dialog), url);
-        }
-        else if ( faw->type == FILE_ACCESS_EXPORT )
-        {
-            gnc_file_do_export (GTK_WINDOW(dialog), url);
-        }
-        break;
-
-    case GTK_RESPONSE_CANCEL:
-    case GTK_RESPONSE_DELETE_EVENT:
-        break;
-
-    default:
-        PERR( "Invalid response" );
-        break;
     }
 
-    if ( response != GTK_RESPONSE_HELP )
+    switch (faw->type)
     {
-        gtk_window_destroy (GTK_WINDOW(dialog));
+    case FILE_ACCESS_OPEN:
+        gnc_file_open_file (GTK_WINDOW (faw->dialog), url,
+                            faw->readonly_checkbutton &&
+                            gtk_toggle_button_get_active (
+                                GTK_TOGGLE_BUTTON (faw->readonly_checkbutton)));
+        break;
+    case FILE_ACCESS_SAVE_AS:
+        gnc_file_do_save_as (GTK_WINDOW (faw->dialog), url);
+        break;
+    case FILE_ACCESS_EXPORT:
+        gnc_file_do_export (GTK_WINDOW (faw->dialog), url);
+        break;
+    default:
+        g_assert_not_reached ();
     }
+
+    g_free (url);
+    gtk_window_destroy (GTK_WINDOW (faw->dialog));
+    (void)button;
 }
 
+static void
+file_access_cancel_clicked_cb (GtkButton *button, FileAccessWindow *faw)
+{
+    g_return_if_fail (faw != NULL);
+
+    gtk_window_destroy (GTK_WINDOW (faw->dialog));
+    (void)button;
+}
 /* Activate the file chooser and deactivate the db selection fields */
 static void
 set_widget_sensitivity( FileAccessWindow* faw, gboolean is_file_based_uri )
@@ -403,6 +399,7 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     FileAccessWindow *faw;
     GtkBuilder* builder;
     GtkButton* op;
+    GtkButton* cancel;
     GList* list;
     GList* node;
     GtkWidget* uri_type_container;
@@ -478,8 +475,18 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     }
 
     op = GTK_BUTTON(gtk_builder_get_object (builder, "pb_op" ));
-    if ( op != NULL )
-        gtk_button_set_label( op, button_label );
+    cancel = GTK_BUTTON(gtk_builder_get_object (builder, "cancel_button" ));
+    if (op)
+    {
+        gtk_button_set_label (op, button_label);
+        gtk_window_set_default_widget (GTK_WINDOW (faw->dialog),
+                                       GTK_WIDGET (op));
+        g_signal_connect (op, "clicked",
+                          G_CALLBACK (file_access_accept_clicked_cb), faw);
+    }
+    if (cancel)
+        g_signal_connect (cancel, "clicked",
+                          G_CALLBACK (file_access_cancel_clicked_cb), faw);
 
     faw->file_select_button = GTK_WIDGET (gtk_builder_get_object (
         builder, "file_select_button"));
