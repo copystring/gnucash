@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="auto_clear_start_dialog">
+  <object class="GtkWindow" id="auto_clear_start_dialog">
     <property name="resizable">0</property>
-<child internal-child="content_area">
+    <property name="child">
       <object class="GtkBox" id="dialog-vbox6">
         <property name="orientation">vertical</property>
         <property name="spacing">3</property>
@@ -49,7 +49,7 @@
             </child>
             <child>
               <object class="GtkGrid" id="table1">
-<property name="row-spacing">3</property>
+                <property name="row-spacing">3</property>
                 <property name="column-spacing">6</property>
                 <child>
                   <object class="GtkLabel" id="end_label">
@@ -69,9 +69,6 @@
                       <property name="column">1</property>
                       <property name="row">0</property>
                     </layout>
-                    <child>
-                      <placeholder />
-                    </child>
                   </object>
                 </child>
                 <child>
@@ -95,35 +92,29 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area6">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="cancel_button">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_autoclear_window_cancel_cb" swapped="no" />
+          <object class="GtkBox" id="dialog-action_area6">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <property name="margin-top">6</property>
+            <child>
+              <object class="GtkButton" id="cancel_button">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="ok_button">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="ok_button">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_autoclear_window_ok_cb" swapped="no" />
-          </object>
-
         </child>
       </object>
-    </child>
+    </property>
   </object>
 </interface>
