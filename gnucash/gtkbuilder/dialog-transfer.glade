@@ -4,7 +4,11 @@
   <object class="GtkWindow" id="transfer_dialog">
 <property name="title" translatable="1">Transfer Funds</property>
     <child>
-      <object class="GtkBox" id="vbox">
+      <object class="GtkBox" id="transfer_dialog_box">
+        <property name="orientation">vertical</property>
+        <property name="spacing">6</property>
+        <child>
+          <object class="GtkBox" id="vbox">
         <property name="orientation">vertical</property>
         <property name="spacing">2</property>
         <child>
@@ -469,10 +473,10 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <child>
-      <object class="GtkBox" id="hbbox">
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="hbbox">
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancel_button">
@@ -489,6 +493,8 @@
             <property name="use-underline">1</property>
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>
