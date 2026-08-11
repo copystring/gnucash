@@ -27,6 +27,7 @@
 #include <config.h>
 
 #include <gtk/gtk.h>
+#include <gdk/gdkkeysyms.h>
 #include <glib/gi18n.h>
 #include <time.h>
 
@@ -50,6 +51,7 @@
 
 #define DIALOG_PRICE_EDIT_CM_CLASS "dialog-price-edit"
 #define GNC_PREFS_GROUP "dialogs.price-editor"
+#define PRICE_EDIT_DIALOG_DATA "gnc-price-edit-dialog-data"
 
 /* This static indicates the debugging module that this .o belongs to.  */
 G_GNUC_UNUSED static QofLogModule log_module = GNC_MOD_GUI;
@@ -57,44 +59,65 @@ G_GNUC_UNUSED static QofLogModule log_module = GNC_MOD_GUI;
 
 typedef struct
 {
-    GtkWidget * dialog;
+    GtkWindow *dialog;
     QofSession *session;
     QofBook *book;
     GNCPriceDB *price_db;
+    GncGUID book_guid;
+    gint component_id;
     GNCPriceEditType type;
 
-    GtkWidget * namespace_cbwe;
-    GtkWidget * commodity_cbwe;
-    GtkWidget * currency_edit;
-    GtkWidget * date_edit;
-    GtkWidget * source_entry;
-    GtkWidget * type_combobox;
-    GtkWidget * price_edit;
+    GtkWidget *namespace_cbwe;
+    GtkWidget *commodity_cbwe;
+    GtkWidget *currency_edit;
+    GtkWidget *date_edit;
+    GtkWidget *source_entry;
+    GtkWidget *type_combobox;
+    GtkWidget *price_edit;
 
-    GtkWidget * help_button;
-    GtkWidget * cancel_button;
-    GtkWidget * apply_button;
-    GtkWidget * ok_button;
+    GtkWidget *help_button;
+    GtkWidget *cancel_button;
+    GtkWidget *apply_button;
+    GtkWidget *ok_button;
 
     GNCPrice *price;
     gboolean changed;
     gboolean is_new;
-
+    gboolean closing;
+    gboolean save_pending;
 } PriceEditDialog;
 
-void pedit_dialog_response_cb (GtkDialog *dialog, gint response, gpointer data);
-void pedit_data_changed_cb (GtkWidget *w, gpointer data);
-void pedit_commodity_ns_changed_cb (GtkEditable *entry, gpointer data);
-void pedit_commodity_changed_cb (GtkEditable *entry, gpointer data);
+typedef struct
+{
+    GWeakRef dialog;
+    GncGUID book_guid;
+    GncGUID price_guid;
+    GncGUID commodity_guid;
+    GncGUID currency_guid;
+    gchar *source;
+    gchar *type;
+    gnc_numeric value;
+    time64 date;
+    gboolean has_price_guid;
+    gboolean replace_existing;
+    gboolean apply;
+} PriceEditSaveRequest;
+
+static void pedit_data_changed_cb (GtkWidget *widget, gpointer user_data);
+static void pedit_commodity_ns_changed_cb (GtkEditable *entry, gpointer user_data);
+static void pedit_commodity_changed_cb (GtkEditable *entry, gpointer user_data);
+static void pedit_dialog_close (PriceEditDialog *pedit_dialog);
 
 
 static void
 gnc_prices_set_changed (PriceEditDialog *pedit_dialog, gboolean changed)
 {
-    pedit_dialog->changed = changed;
+    gboolean save_sensitive;
 
-    gtk_widget_set_sensitive (pedit_dialog->apply_button, changed);
-    gtk_widget_set_sensitive (pedit_dialog->ok_button, changed);
+    pedit_dialog->changed = changed;
+    save_sensitive = changed && !pedit_dialog->save_pending;
+    gtk_widget_set_sensitive (pedit_dialog->apply_button, save_sensitive);
+    gtk_widget_set_sensitive (pedit_dialog->ok_button, save_sensitive);
 }
 
 
@@ -200,202 +223,380 @@ price_to_gui (PriceEditDialog *pedit_dialog)
 
 
 static gboolean
-pedit_dialog_replace_found_price (PriceEditDialog *pedit_dialog,
-                                  const gnc_commodity *commodity,
-                                  const gnc_commodity *currency, time64 t)
+pedit_dialog_matches_book (const PriceEditDialog *pedit_dialog)
 {
-    gboolean price_found = FALSE;
-    GNCPrice *test_price = gnc_pricedb_lookup_day_t64 (pedit_dialog->price_db,
-                                                       commodity, currency, t);
+    QofBook *book;
 
-    if (test_price)
-    {
-        if (pedit_dialog->is_new) // new price
-            price_found = TRUE;
-        else // edit price
-        {
-            if (!gnc_price_equal (test_price, pedit_dialog->price))
-                price_found = TRUE;
-        }
-        gnc_price_unref (test_price);
-    }
+    if (!pedit_dialog || pedit_dialog->closing || !pedit_dialog->session ||
+        !pedit_dialog->book)
+        return FALSE;
 
-    if (price_found)
-    {
-        gint response;
-        GtkWidget *dialog;
-        gchar *message = _("Are you sure you want to replace the existing price?");
-
-        dialog = gtk_message_dialog_new (GTK_WINDOW (pedit_dialog->dialog),
-                                         GTK_DIALOG_DESTROY_WITH_PARENT,
-                                         GTK_MESSAGE_QUESTION,
-                                         GTK_BUTTONS_NONE,
-                                         "%s", _("Replace price?"));
-        gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
-                        "%s", message);
-
-        gtk_dialog_add_buttons (GTK_DIALOG(dialog),
-                              _("_Cancel"), GTK_RESPONSE_CANCEL,
-                              _("_Replace"), GTK_RESPONSE_YES,
-                               (gchar *)NULL);
-        gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_YES);
-        response = gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_PRICE_QUOTES_REPLACE);
-        gtk_window_destroy (GTK_WINDOW(dialog));
-
-        if (response == GTK_RESPONSE_CANCEL)
-            return FALSE;
-    }
-    return TRUE;
+    book = qof_session_get_book (pedit_dialog->session);
+    return book == pedit_dialog->book && book == gnc_get_current_book () &&
+           !qof_instance_get_destroying (QOF_INSTANCE (book)) &&
+           guid_equal (qof_instance_get_guid (QOF_INSTANCE (book)),
+                       &pedit_dialog->book_guid);
 }
 
+static void
+pedit_save_request_free (PriceEditSaveRequest *request)
+{
+    if (!request)
+        return;
+
+    g_weak_ref_clear (&request->dialog);
+    g_free (request->source);
+    g_free (request->type);
+    g_free (request);
+}
+
+static PriceEditSaveRequest *
+pedit_save_request_new (PriceEditDialog *pedit_dialog, gboolean apply)
+{
+    PriceEditSaveRequest *request = g_new0 (PriceEditSaveRequest, 1);
+
+    g_weak_ref_init (&request->dialog, pedit_dialog->dialog);
+    request->book_guid = pedit_dialog->book_guid;
+    request->apply = apply;
+    return request;
+}
 
 static const char *
-gui_to_price (PriceEditDialog *pedit_dialog)
+pedit_save_request_collect (PriceEditDialog *pedit_dialog,
+                            PriceEditSaveRequest *request)
 {
-    GNCPrintAmountInfo print_info;
+    GNCPrice *test_price;
     gnc_commodity *commodity;
     gnc_commodity *currency;
-    gchar         *name_space;
-    const gchar   *fullname;
-    const char *source;
-    const char *type;
-    gnc_numeric value;
-    time64 date;
+    gchar *name_space;
+    const gchar *fullname;
+
+    if (!pedit_dialog_matches_book (pedit_dialog))
+        return _("The active book has changed.");
 
     name_space = gnc_ui_namespace_picker_ns (pedit_dialog->namespace_cbwe);
     fullname = gtk_editable_get_text (GTK_EDITABLE (
         gnc_ui_commodity_picker_get_entry (pedit_dialog->commodity_cbwe)));
-
-    commodity = gnc_commodity_table_find_full(gnc_get_current_commodities(), name_space, fullname);
-    if (!commodity)
-    {
-        g_free (name_space);
+    commodity = gnc_commodity_table_find_full (gnc_get_current_commodities (),
+                                                name_space, fullname);
+    g_free (name_space);
+    if (!commodity || qof_instance_get_destroying (QOF_INSTANCE (commodity)))
         return _("You must select a Security.");
-    }
 
-    currency = gnc_currency_edit_get_currency
-               (GNC_CURRENCY_EDIT (pedit_dialog->currency_edit));
-    if (!currency)
-    {
-        g_free (name_space);
+    currency = gnc_currency_edit_get_currency (
+        GNC_CURRENCY_EDIT (pedit_dialog->currency_edit));
+    if (!currency || qof_instance_get_destroying (QOF_INSTANCE (currency)))
         return _("You must select a Currency.");
-    }
-
-    date = gnc_date_edit_get_date (GNC_DATE_EDIT (pedit_dialog->date_edit));
-
-    source = gtk_entry_get_text (GTK_ENTRY (pedit_dialog->source_entry));
-
-    type = type_index_to_string
-           (gtk_drop_down_get_selected (GTK_DROP_DOWN (pedit_dialog->type_combobox)));
-
-    print_info = gnc_commodity_print_info (currency, FALSE);
-    gnc_amount_edit_set_print_info (GNC_AMOUNT_EDIT (pedit_dialog->price_edit), print_info);
-    gnc_amount_edit_set_fraction (GNC_AMOUNT_EDIT (pedit_dialog->price_edit), 0);
 
     if (!gnc_amount_edit_evaluate (GNC_AMOUNT_EDIT (pedit_dialog->price_edit), NULL))
-    {
-        g_free (name_space);
         return _("You must enter a valid amount.");
+
+    request->commodity_guid = *qof_instance_get_guid (QOF_INSTANCE (commodity));
+    request->currency_guid = *qof_instance_get_guid (QOF_INSTANCE (currency));
+    request->date = gnc_date_edit_get_date (GNC_DATE_EDIT (pedit_dialog->date_edit));
+    request->source = g_strdup (gtk_entry_get_text (
+        GTK_ENTRY (pedit_dialog->source_entry)));
+    request->type = g_strdup (type_index_to_string (gtk_drop_down_get_selected (
+        GTK_DROP_DOWN (pedit_dialog->type_combobox))));
+    request->value = gnc_amount_edit_get_amount (
+        GNC_AMOUNT_EDIT (pedit_dialog->price_edit));
+
+    if (pedit_dialog->price)
+    {
+        request->price_guid = *gnc_price_get_guid (pedit_dialog->price);
+        request->has_price_guid = TRUE;
     }
 
-    value = gnc_amount_edit_get_amount
-            (GNC_AMOUNT_EDIT (pedit_dialog->price_edit));
-
-    // test for existing price on same day
-    if (pedit_dialog_replace_found_price (pedit_dialog, commodity, currency, date))
+    test_price = gnc_pricedb_lookup_day_t64 (pedit_dialog->price_db, commodity,
+                                              currency, request->date);
+    if (test_price)
     {
-        if (!pedit_dialog->price)
-            pedit_dialog->price = gnc_price_create (pedit_dialog->book);
-        gnc_price_begin_edit (pedit_dialog->price);
-        gnc_price_set_commodity (pedit_dialog->price, commodity);
-        gnc_price_set_currency (pedit_dialog->price, currency);
-        gnc_price_set_time64 (pedit_dialog->price, date);
-        gnc_price_set_source_string (pedit_dialog->price, source);
-        gnc_price_set_typestr (pedit_dialog->price, type);
-        gnc_price_set_value (pedit_dialog->price, value);
-        gnc_price_commit_edit (pedit_dialog->price);
-        g_free (name_space);
-        return NULL;
+        request->replace_existing = pedit_dialog->is_new ||
+            !pedit_dialog->price || !gnc_price_equal (test_price,
+                                                       pedit_dialog->price);
+        gnc_price_unref (test_price);
     }
-    else
-    {
-        g_free (name_space);
-        return "CANCEL";
-    }
+    return NULL;
 }
 
+static const char *
+pedit_save_request_commit (PriceEditDialog *pedit_dialog,
+                           const PriceEditSaveRequest *request)
+{
+    gnc_commodity *commodity;
+    gnc_commodity *currency;
+    GNCPrice *current_price;
+
+    if (!pedit_dialog_matches_book (pedit_dialog) ||
+        !guid_equal (&pedit_dialog->book_guid, &request->book_guid))
+        return _("The active book has changed.");
+
+    commodity = gnc_commodity_find_commodity_by_guid (&request->commodity_guid,
+                                                        pedit_dialog->book);
+    currency = gnc_commodity_find_commodity_by_guid (&request->currency_guid,
+                                                       pedit_dialog->book);
+    if (!commodity || !currency ||
+        qof_instance_get_destroying (QOF_INSTANCE (commodity)) ||
+        qof_instance_get_destroying (QOF_INSTANCE (currency)))
+        return _("The selected commodity is no longer available.");
+
+    if (!pedit_dialog->is_new)
+    {
+        if (!request->has_price_guid || !pedit_dialog->price ||
+            !guid_equal (gnc_price_get_guid (pedit_dialog->price),
+                         &request->price_guid) ||
+            qof_instance_get_destroying (QOF_INSTANCE (pedit_dialog->price)))
+            return _("The selected price is no longer available.");
+
+        current_price = gnc_price_lookup (&request->price_guid,
+                                          pedit_dialog->book);
+        if (current_price != pedit_dialog->price)
+            return _("The selected price is no longer available.");
+    }
+
+    if (!pedit_dialog->price)
+        pedit_dialog->price = gnc_price_create (pedit_dialog->book);
+    if (!pedit_dialog->price)
+        return _("Unable to create a price in the active book.");
+
+    gnc_price_begin_edit (pedit_dialog->price);
+    gnc_price_set_commodity (pedit_dialog->price, commodity);
+    gnc_price_set_currency (pedit_dialog->price, currency);
+    gnc_price_set_time64 (pedit_dialog->price, request->date);
+    gnc_price_set_source_string (pedit_dialog->price, request->source);
+    gnc_price_set_typestr (pedit_dialog->price, request->type);
+    gnc_price_set_value (pedit_dialog->price, request->value);
+    gnc_price_commit_edit (pedit_dialog->price);
+    return NULL;
+}
 
 static void
-pedit_dialog_destroy_cb (GtkWidget *widget, gpointer data)
+pedit_dialog_show_error (PriceEditDialog *pedit_dialog, const char *message)
 {
-    PriceEditDialog *pedit_dialog = data;
+    gnc_warning_dialog_async (pedit_dialog->dialog, NULL, _("Invalid Price"),
+                              message, _("_Close"), GTK_RESPONSE_CLOSE, TRUE,
+                              NULL, NULL);
+}
 
-    gnc_unregister_gui_component_by_data (DIALOG_PRICE_EDIT_CM_CLASS,
-                                          pedit_dialog);
+static void
+pedit_dialog_commit_succeeded (PriceEditDialog *pedit_dialog, gboolean apply)
+{
+    GNCPrice *new_price;
 
+    gnc_prices_set_changed (pedit_dialog, FALSE);
+    if (pedit_dialog->is_new)
+        gnc_pricedb_add_price (pedit_dialog->price_db, pedit_dialog->price);
+    gnc_gui_refresh_all ();
+
+    if (!apply)
+    {
+        pedit_dialog_close (pedit_dialog);
+        return;
+    }
+
+    new_price = gnc_price_clone (pedit_dialog->price, pedit_dialog->book);
+    if (!new_price)
+    {
+        pedit_dialog_close (pedit_dialog);
+        return;
+    }
+
+    pedit_dialog->is_new = TRUE;
+    gnc_price_unref (pedit_dialog->price);
+    pedit_dialog->price = new_price;
+}
+
+static gboolean
+pedit_save_request_matches (PriceEditDialog *pedit_dialog,
+                            const PriceEditSaveRequest *request)
+{
+    return pedit_dialog_matches_book (pedit_dialog) &&
+           guid_equal (&pedit_dialog->book_guid, &request->book_guid);
+}
+
+static void
+pedit_dialog_replace_finished (gint response, gpointer user_data)
+{
+    PriceEditSaveRequest *request = user_data;
+    GtkWindow *window = GTK_WINDOW (g_weak_ref_get (&request->dialog));
+    PriceEditDialog *pedit_dialog = NULL;
+    const char *error = NULL;
+
+    if (window)
+        pedit_dialog = g_object_get_data (G_OBJECT (window),
+                                          PRICE_EDIT_DIALOG_DATA);
+    if (!pedit_dialog || pedit_dialog->dialog != window ||
+        !pedit_save_request_matches (pedit_dialog, request))
+        goto done;
+
+    pedit_dialog->save_pending = FALSE;
+    if (response != GTK_RESPONSE_YES)
+    {
+        gnc_prices_set_changed (pedit_dialog, FALSE);
+        goto done;
+    }
+
+    error = pedit_save_request_commit (pedit_dialog, request);
+    if (error)
+    {
+        pedit_dialog_show_error (pedit_dialog, error);
+        gnc_prices_set_changed (pedit_dialog, pedit_dialog->changed);
+    }
+    else
+        pedit_dialog_commit_succeeded (pedit_dialog, request->apply);
+
+done:
+    g_clear_object (&window);
+    pedit_save_request_free (request);
+}
+
+static void
+pedit_dialog_save (PriceEditDialog *pedit_dialog, gboolean apply)
+{
+    PriceEditSaveRequest *request;
+    const char *error;
+
+    if (!pedit_dialog || pedit_dialog->closing || pedit_dialog->save_pending)
+        return;
+    if (!pedit_dialog_matches_book (pedit_dialog))
+    {
+        pedit_dialog_close (pedit_dialog);
+        return;
+    }
+
+    request = pedit_save_request_new (pedit_dialog, apply);
+    error = pedit_save_request_collect (pedit_dialog, request);
+    if (error)
+    {
+        pedit_dialog_show_error (pedit_dialog, error);
+        pedit_save_request_free (request);
+        return;
+    }
+
+    if (request->replace_existing)
+    {
+        pedit_dialog->save_pending = TRUE;
+        gnc_prices_set_changed (pedit_dialog, pedit_dialog->changed);
+        gnc_warning_dialog_async (pedit_dialog->dialog,
+                                  GNC_PREF_WARN_PRICE_QUOTES_REPLACE,
+                                  _("Replace price?"),
+                                  _("Are you sure you want to replace the existing price?"),
+                                  _("_Replace"), GTK_RESPONSE_YES, TRUE,
+                                  pedit_dialog_replace_finished, request);
+        return;
+    }
+
+    error = pedit_save_request_commit (pedit_dialog, request);
+    if (error)
+        pedit_dialog_show_error (pedit_dialog, error);
+    else
+        pedit_dialog_commit_succeeded (pedit_dialog, apply);
+    pedit_save_request_free (request);
+}
+
+static void
+pedit_dialog_destroy_cb (GtkWidget *widget, gpointer user_data)
+{
+    PriceEditDialog *pedit_dialog = user_data;
+
+    if (!pedit_dialog)
+        return;
+
+    pedit_dialog->closing = TRUE;
+    if (pedit_dialog->dialog == GTK_WINDOW (widget))
+    {
+        g_object_set_data (G_OBJECT (widget), PRICE_EDIT_DIALOG_DATA, NULL);
+        pedit_dialog->dialog = NULL;
+    }
+    if (pedit_dialog->component_id)
+    {
+        gnc_unregister_gui_component (pedit_dialog->component_id);
+        pedit_dialog->component_id = 0;
+    }
     if (pedit_dialog->price)
     {
         gnc_price_unref (pedit_dialog->price);
         pedit_dialog->price = NULL;
-        pedit_dialog->is_new = FALSE;
     }
-
     g_free (pedit_dialog);
 }
 
-
-void
-pedit_dialog_response_cb (GtkDialog *dialog, gint response, gpointer data)
+static void
+pedit_type_changed_cb (GtkDropDown *drop_down, GParamSpec *property,
+                       gpointer user_data)
 {
-    PriceEditDialog *pedit_dialog = data;
-    GNCPrice *new_price = NULL;
-    const char *error_str;
-
-    if ((response == GTK_RESPONSE_OK) || (response == GTK_RESPONSE_APPLY))
-    {
-        error_str = gui_to_price (pedit_dialog);
-        if (g_strcmp0 (error_str, "CANCEL") == 0) // cancel from replace price dialog
-        {
-            // set the ok and cancel buttons sensitivity
-            gnc_prices_set_changed (pedit_dialog, FALSE);
-            return;
-        }
-        else if (error_str) // error string from gui
-        {
-            gnc_warning_dialog (GTK_WINDOW (pedit_dialog->dialog), "%s", error_str);
-            return;
-        }
-        // set the ok and cancel buttons sensitivity
-        gnc_prices_set_changed (pedit_dialog, FALSE);
-
-        if (pedit_dialog->is_new)
-            gnc_pricedb_add_price (pedit_dialog->price_db, pedit_dialog->price);
-
-        gnc_gui_refresh_all ();
-    }
-
-    if (response == GTK_RESPONSE_APPLY)
-    {
-        new_price = gnc_price_clone (pedit_dialog->price, pedit_dialog->book);
-        pedit_dialog->is_new = TRUE;
-
-        gnc_price_unref (pedit_dialog->price);
-        pedit_dialog->price = new_price;
-    }
-    else if (response == GTK_RESPONSE_HELP)
-    {
-        gnc_gnome_help (GTK_WINDOW (pedit_dialog->dialog), DF_MANUAL, DL_PRICE_EDIT);
-    }
-    else
-    {
-        gnc_save_window_size(GNC_PREFS_GROUP, GTK_WINDOW(pedit_dialog->dialog));
-        gtk_window_destroy (GTK_WINDOW(pedit_dialog->dialog));
-        pedit_dialog_destroy_cb (NULL, pedit_dialog);
-    }
+    (void)drop_down;
+    (void)property;
+    gnc_prices_set_changed (user_data, TRUE);
 }
 
+static void
+pedit_dialog_close (PriceEditDialog *pedit_dialog)
+{
+    if (!pedit_dialog || pedit_dialog->closing || !pedit_dialog->dialog)
+        return;
 
-void
+    pedit_dialog->closing = TRUE;
+    gnc_save_window_size (GNC_PREFS_GROUP, pedit_dialog->dialog);
+    gtk_window_destroy (pedit_dialog->dialog);
+}
+
+static void
+pedit_dialog_help_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    PriceEditDialog *pedit_dialog = user_data;
+
+    (void)button;
+    if (pedit_dialog && !pedit_dialog->closing && pedit_dialog->dialog)
+        gnc_gnome_help (pedit_dialog->dialog, DF_MANUAL, DL_PRICE_EDIT);
+}
+
+static void
+pedit_dialog_cancel_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    pedit_dialog_close (user_data);
+}
+
+static void
+pedit_dialog_apply_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    pedit_dialog_save (user_data, TRUE);
+}
+
+static void
+pedit_dialog_ok_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    pedit_dialog_save (user_data, FALSE);
+}
+
+static gboolean
+pedit_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    pedit_dialog_close (user_data);
+    return TRUE;
+}
+
+static gboolean
+pedit_dialog_key_pressed_cb (GtkEventControllerKey *controller, guint keyval,
+                             guint keycode, GdkModifierType state,
+                             gpointer user_data)
+{
+    (void)controller;
+    (void)keycode;
+    (void)state;
+
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+
+    pedit_dialog_close (user_data);
+    return TRUE;
+}
+
+static void
 pedit_commodity_ns_changed_cb (GtkEditable *, gpointer data)
 {
     PriceEditDialog *pedit_dialog = data;
@@ -410,7 +611,7 @@ pedit_commodity_ns_changed_cb (GtkEditable *, gpointer data)
 }
 
 
-void
+static void
 pedit_commodity_changed_cb (GtkEditable *entry, gpointer data)
 {
     gnc_commodity   *commodity = NULL;
@@ -456,11 +657,12 @@ pedit_commodity_changed_cb (GtkEditable *entry, gpointer data)
 }
 
 
-void
-pedit_data_changed_cb (GtkWidget *w, gpointer data)
+static void
+pedit_data_changed_cb (GtkWidget *widget, gpointer data)
 {
     PriceEditDialog *pedit_dialog = data;
 
+    (void)widget;
     gnc_prices_set_changed (pedit_dialog, TRUE);
 }
 
@@ -472,7 +674,7 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
 {
     GtkBuilder *builder;
     GNCPrintAmountInfo print_info;
-    GtkWidget *dialog;
+    GtkWindow *dialog;
     GtkWidget *entry;
     GtkWidget *box;
     GtkWidget *w;
@@ -483,15 +685,17 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
     gnc_builder_add_from_file (builder, "dialog-price.ui", "price_dialog");
 
     pedit_dialog->session = session;
-    pedit_dialog->book = qof_session_get_book(pedit_dialog->session);
-    pedit_dialog->price_db = gnc_pricedb_get_db(pedit_dialog->book);
+    pedit_dialog->book = qof_session_get_book (pedit_dialog->session);
+    pedit_dialog->book_guid = *qof_instance_get_guid (QOF_INSTANCE (pedit_dialog->book));
+    pedit_dialog->price_db = gnc_pricedb_get_db (pedit_dialog->book);
 
-    dialog =  GTK_WIDGET(gtk_builder_get_object (builder, "price_dialog"));
+    dialog = GTK_WINDOW (gtk_builder_get_object (builder, "price_dialog"));
     pedit_dialog->dialog = dialog;
+    g_object_set_data (G_OBJECT (dialog), PRICE_EDIT_DIALOG_DATA, pedit_dialog);
 
     /* parent */
-    if (parent != NULL)
-        gtk_window_set_transient_for (GTK_WINDOW (dialog), GTK_WINDOW (parent));
+    if (GTK_IS_WINDOW (parent))
+        gtk_window_set_transient_for (dialog, GTK_WINDOW (parent));
 
     w = GTK_WIDGET(gtk_builder_get_object (builder, "namespace_cbwe"));
     pedit_dialog->namespace_cbwe = w;
@@ -573,23 +777,41 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
     pedit_dialog->ok_button = w;
 
     gnc_prices_set_changed (pedit_dialog, FALSE);
+    gtk_window_set_default_widget (dialog, pedit_dialog->cancel_button);
 
-    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, pedit_dialog);
-    g_signal_connect (gnc_ui_commodity_picker_get_entry (pedit_dialog->namespace_cbwe), "changed",
-                      G_CALLBACK (pedit_commodity_ns_changed_cb), pedit_dialog);
-    g_signal_connect (gnc_ui_commodity_picker_get_entry (pedit_dialog->commodity_cbwe), "changed",
-                      G_CALLBACK (pedit_commodity_changed_cb), pedit_dialog);
+    g_signal_connect (pedit_dialog->help_button, "clicked",
+                      G_CALLBACK (pedit_dialog_help_clicked_cb), pedit_dialog);
+    g_signal_connect (pedit_dialog->cancel_button, "clicked",
+                      G_CALLBACK (pedit_dialog_cancel_clicked_cb), pedit_dialog);
+    g_signal_connect (pedit_dialog->apply_button, "clicked",
+                      G_CALLBACK (pedit_dialog_apply_clicked_cb), pedit_dialog);
+    g_signal_connect (pedit_dialog->ok_button, "clicked",
+                      G_CALLBACK (pedit_dialog_ok_clicked_cb), pedit_dialog);
+    g_signal_connect (pedit_dialog->type_combobox, "notify::selected",
+                      G_CALLBACK (pedit_type_changed_cb), pedit_dialog);
+    g_signal_connect (dialog, "close-request",
+                      G_CALLBACK (pedit_dialog_close_request_cb), pedit_dialog);
+    g_signal_connect (dialog, "destroy", G_CALLBACK (pedit_dialog_destroy_cb),
+                      pedit_dialog);
+    GtkEventController *key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (GTK_WIDGET (dialog), key_controller);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (pedit_dialog_key_pressed_cb), pedit_dialog);
+    g_signal_connect (gnc_ui_commodity_picker_get_entry (pedit_dialog->namespace_cbwe),
+                      "changed", G_CALLBACK (pedit_commodity_ns_changed_cb),
+                      pedit_dialog);
+    g_signal_connect (gnc_ui_commodity_picker_get_entry (pedit_dialog->commodity_cbwe),
+                      "changed", G_CALLBACK (pedit_commodity_changed_cb),
+                      pedit_dialog);
 
-    g_object_unref(G_OBJECT(builder));
+    g_object_unref (builder);
 }
 
 
 static void
 close_handler (gpointer user_data)
 {
-    PriceEditDialog *pedit_dialog = user_data;
-
-    gtk_dialog_response(GTK_DIALOG(pedit_dialog->dialog), GTK_RESPONSE_CANCEL);
+    pedit_dialog_close (user_data);
 }
 
 
@@ -609,10 +831,12 @@ show_handler (const char *klass, gint component_id,
     PriceEditDialog *pedit_dialog = user_data;
     GNCPrice * price = iter_data;
 
-    if (!pedit_dialog || (pedit_dialog->price != price))
-        return(FALSE);
+    if (!pedit_dialog || pedit_dialog->closing ||
+        !pedit_dialog_matches_book (pedit_dialog) ||
+        pedit_dialog->price != price)
+        return FALSE;
 
-    gtk_window_present (GTK_WINDOW(pedit_dialog->dialog));
+    gtk_window_present (pedit_dialog->dialog);
     return(TRUE);
 }
 
@@ -638,9 +862,13 @@ gnc_price_edit_dialog (GtkWidget * parent,
                                         show_handler, price)))
         return;
 
+    if (!session || !qof_session_get_book (session))
+        return;
+
     pedit_dialog = g_new0 (PriceEditDialog, 1);
     gnc_price_pedit_dialog_create (parent, pedit_dialog, session);
-    gnc_restore_window_size(GNC_PREFS_GROUP, GTK_WINDOW(pedit_dialog->dialog), GTK_WINDOW(parent));
+    gnc_restore_window_size (GNC_PREFS_GROUP, pedit_dialog->dialog,
+                             GTK_IS_WINDOW (parent) ? GTK_WINDOW (parent) : NULL);
     pedit_dialog->type = type;
 
     switch (type)
@@ -668,11 +896,12 @@ gnc_price_edit_dialog (GtkWidget * parent,
     price_to_gui(pedit_dialog);
     gnc_prices_set_changed (pedit_dialog, FALSE);
     component_id = gnc_register_gui_component (DIALOG_PRICE_EDIT_CM_CLASS,
-                   refresh_handler, close_handler,
-                   pedit_dialog);
+                                                refresh_handler, close_handler,
+                                                pedit_dialog);
+    pedit_dialog->component_id = component_id;
     gnc_gui_component_set_session (component_id, pedit_dialog->session);
     gtk_widget_grab_focus (pedit_dialog->commodity_cbwe);
-    gtk_widget_show (pedit_dialog->dialog);
+    gtk_window_present (pedit_dialog->dialog);
 }
 
 
