@@ -1,56 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkAdjustment" id="docs_list_hor_adj">
-    <property name="upper">100</property>
-    <property name="step-increment">1</property>
-    <property name="page-increment">10</property>
-  </object>
-  <object class="GtkListStore" id="docs_list_model">
-    <columns>
-      <column type="gint64" />
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
-  <object class="GtkAdjustment" id="docs_list_vert_adj">
-    <property name="upper">100</property>
-    <property name="step-increment">1</property>
-    <property name="page-increment">10</property>
-  </object>
-  <object class="GtkListStore" id="owner_type_combo_model">
-    <columns>
-      <column type="gchararray" />
-      <column type="gint" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Customer</col>
-        <col id="1">0</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Vendor</col>
-        <col id="1">0</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Employee</col>
-        <col id="1">0</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="post_combo_model">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-  </object>
-  <object class="GtkDialog" id="payment_dialog">
+  <object class="GtkWindow" id="payment_dialog">
     <property name="title" translatable="1">Process Payment</property>
     <property name="default-height">560</property>
-<signal name="destroy" handler="gnc_payment_window_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
+    <property name="child">
       <object class="GtkBox" id="dialog-vbox1">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -69,17 +23,9 @@
                     <property name="tooltip-text" translatable="1">The company associated with this payment.</property>
 <property name="spacing">5</property>
                     <child>
-                      <object class="GtkComboBox" id="owner_type_combo">
-                        <property name="model">owner_type_combo_model</property>
-                        <property name="active">0</property>
-                        <property name="entry-text-column">0</property>
-                        <property name="id-column">1</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="Partner Type" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
+                      <object class="GtkBox" id="owner_type_box">
+                        <property name="orientation">horizontal</property>
+                        <property name="hexpand">1</property>
                       </object>
                     </child>
                   </object>
@@ -105,17 +51,9 @@
               <object class="GtkFrame" id="frame5">
                 <property name="hexpand">1</property>
                 <property name="child">
-                  <object class="GtkComboBox" id="post_combo">
-<property name="model">post_combo_model</property>
-                    <property name="has-entry">1</property>
-                    <property name="entry-text-column">0</property>
-                    <signal name="changed" handler="gnc_payment_dialog_post_to_changed_cb" swapped="no" />
-                    <property name="child">
-                      <object class="GtkEntry" id="combobox-entry">
-                        <property name="visible">0</property>
-                        <property name="focusable">1</property>
-                      </object>
-                    </property>
+                  <object class="GtkBox" id="post_account_box">
+                    <property name="orientation">horizontal</property>
+                    <property name="hexpand">1</property>
                   </object>
                 </property>
                 <child type="label">
@@ -140,102 +78,16 @@
                     <property name="focusable">1</property>
                     <property name="hexpand">1</property>
                     <property name="vexpand">1</property>
-<property name="hadjustment">docs_list_hor_adj</property>
-                    <property name="vadjustment">docs_list_vert_adj</property>
                     <property name="hscrollbar-policy">always</property>
                     <property name="vscrollbar-policy">always</property>
 <property name="child">
-                      <object class="GtkTreeView" id="docs_list_tree_view">
-                        <property name="focusable">1</property>
-                        <property name="hadjustment">docs_list_hor_adj</property>
-                        <property name="vadjustment">docs_list_vert_adj</property>
-                        <property name="model">docs_list_model</property>
-                        <property name="reorderable">1</property>
-                        <property name="search-column">0</property>
-                        <property name="fixed-height-mode">1</property>
-                        <child internal-child="selection">
-                          <object class="GtkTreeSelection" id="docs_list_treeview_sel">
-                            <signal name="changed" handler="gnc_payment_dialog_document_selection_changed_cb" swapped="no" />
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkTreeViewColumn" id="docs_list_col_date">
-                            <property name="resizable">1</property>
-                            <property name="sizing">fixed</property>
-                            <property name="min-width">50</property>
-                            <property name="title" translatable="1">Date</property>
-                            <property name="clickable">1</property>
-                            <property name="sort-indicator">1</property>
-                            <property name="sort-column-id">0</property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkTreeViewColumn" id="docs_list_col_num">
-                            <property name="resizable">1</property>
-                            <property name="sizing">fixed</property>
-                            <property name="min-width">50</property>
-                            <property name="title" translatable="1">Number</property>
-                            <property name="clickable">1</property>
-                            <property name="sort-column-id">1</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="docs_list_num_renderer" />
-                              <attributes>
-                                <attribute name="text">1</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkTreeViewColumn" id="docs_list_col_type">
-                            <property name="resizable">1</property>
-                            <property name="sizing">fixed</property>
-                            <property name="min-width">50</property>
-                            <property name="title" translatable="1">Type</property>
-                            <property name="clickable">1</property>
-                            <property name="sort-column-id">2</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="docs_list_type_renderer" />
-                              <attributes>
-                                <attribute name="text">2</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkTreeViewColumn" id="docs_list_col_deb">
-                            <property name="resizable">1</property>
-                            <property name="sizing">fixed</property>
-                            <property name="min-width">50</property>
-                            <property name="title" translatable="1">Debit</property>
-                            <property name="clickable">1</property>
-                            <property name="sort-column-id">3</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="docs_list_deb_renderer" />
-                              <attributes>
-                                <attribute name="text">3</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkTreeViewColumn" id="docs_list_col_cred">
-                            <property name="resizable">1</property>
-                            <property name="sizing">fixed</property>
-                            <property name="min-width">50</property>
-                            <property name="title" translatable="1">Credit</property>
-                            <property name="clickable">1</property>
-                            <property name="sort-column-id">4</property>
-                            <child>
-                              <object class="GtkCellRendererText" id="docs_list_cred_renderer" />
-                              <attributes>
-                                <attribute name="text">4</attribute>
-                              </attributes>
-                            </child>
-                          </object>
-                        </child>
+                      <object class="GtkBox" id="docs_list_box">
+                        <property name="orientation">vertical</property>
+                        <property name="hexpand">1</property>
+                        <property name="vexpand">1</property>
                       </object>
                     </property>
-                  </object>
+                </object>
                 </property>
                 <child type="label">
                   <object class="GtkLabel" id="label1">
@@ -585,34 +437,28 @@ In case of an over-payment or if no invoice was selected, GnuCash will automatic
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area1">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="cancelbutton">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_payment_cancel_cb" swapped="no" />
+          <object class="GtkBox" id="dialog-action_area1">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <child>
+              <object class="GtkButton" id="cancelbutton">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="okbutton">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="okbutton">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_payment_ok_cb" swapped="no" />
-          </object>
-
         </child>
       </object>
-    </child>
+    </property>
   </object>
 </interface>

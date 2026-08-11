@@ -37,10 +37,8 @@
 #include "gnc-date.h"
 #include "gnc-date-edit.h"
 #include "gnc-amount-edit.h"
-#include "gnc-gtk-utils.h"
 #include "gnc-prefs.h"
 #include "gnc-tree-view-account.h"
-#include "tree-view-utils.h"
 #include "Transaction.h"
 #include "Account.h"
 #include "gncOwner.h"
@@ -61,11 +59,23 @@ static const QofLogModule log_module = G_LOG_DOMAIN;
 #define DIALOG_PAYMENT_CM_CLASS "payment-dialog"
 #define GNC_PREFS_GROUP         "dialogs.process-payment"
 
-typedef enum
+enum
 {
-    COL_OWNER_TYPE_NAME ,
-    COL_OWNER_TYPE_NUM ,
-} OwnerTypeCols;
+    PAYMENT_DOC_DATE,
+    PAYMENT_DOC_NUMBER,
+    PAYMENT_DOC_TYPE,
+    PAYMENT_DOC_DEBIT,
+    PAYMENT_DOC_CREDIT,
+    PAYMENT_DOC_COLUMN_COUNT,
+};
+
+#define PAYMENT_DOC_DATE_DATA   "payment-document-date"
+#define PAYMENT_DOC_NUMBER_DATA "payment-document-number"
+#define PAYMENT_DOC_TYPE_DATA   "payment-document-type"
+#define PAYMENT_DOC_DEBIT_DATA  "payment-document-debit"
+#define PAYMENT_DOC_CREDIT_DATA "payment-document-credit"
+#define PAYMENT_DOC_LOT_DATA    "payment-document-lot"
+#define PAYMENT_ACCOUNT_DATA    "payment-account"
 
 typedef struct
 {
@@ -91,17 +101,25 @@ struct _payment_window
     GtkWidget   * num_entry;
     GtkWidget   * memo_entry;
     GtkWidget   * post_combo;
+    GtkWidget   * post_popover;
     GtkWidget   * owner_box;
-    GtkWidget   * owner_type_combo;
+    GtkDropDown * owner_type_combo;
     GtkWidget   * owner_choice;
     GtkWidget   * amount_debit_edit;
     GtkWidget   * amount_credit_edit;
     GtkWidget   * amount_payment_box;
     GtkWidget   * amount_refund_box;
     GtkWidget   * date_edit;
-    GtkWidget   * acct_tree;
-    GtkWidget   * docs_list_tree_view;
-    GtkWidget   * commodity_label;
+    GtkWidget        * acct_tree;
+    GtkColumnView    * docs_list_view;
+    GListStore       * docs_list_store;
+    GtkSortListModel * docs_list_sorted;
+    GtkMultiSelection *docs_list_selection;
+    GListStore       * post_account_store;
+    GtkFilterListModel *post_account_filtered;
+    GtkSingleSelection *post_account_selection;
+    GtkCustomFilter  * post_account_filter;
+    GtkWidget        * commodity_label;
     GtkWidget   * print_check;
 
     gint          component_id;
@@ -117,6 +135,10 @@ struct _payment_window
     InitialPaymentInfo *tx_info;
     gboolean      print_check_state;
 };
+
+static void payment_post_account_set_text (PaymentWindow *pw, const gchar *text);
+static guint payment_document_selection_count (PaymentWindow *pw);
+void gnc_payment_dialog_post_to_changed_cb (GtkEditable *widget, gpointer data);
 
 void gnc_ui_payment_window_set_num (PaymentWindow *pw, const char* num)
 {
@@ -176,8 +198,9 @@ void gnc_ui_payment_window_set_postaccount (PaymentWindow *pw, const Account* ac
     g_assert(account);
     {
         gchar *acct_string = gnc_account_get_full_name (account);
-        gnc_cbwe_set_by_string(GTK_COMBO_BOX(pw->post_combo), acct_string);
-        g_free(acct_string);
+        payment_post_account_set_text (pw, acct_string);
+        gnc_payment_dialog_post_to_changed_cb (GTK_EDITABLE (pw->post_combo), pw);
+        g_free (acct_string);
     }
 
     gnc_ui_payment_window_set_commodity (pw, account);
@@ -196,27 +219,245 @@ static gboolean gnc_payment_dialog_has_pre_existing_txn(const PaymentWindow* pw)
     return pw->tx_info->txn != NULL;
 }
 int  gnc_payment_dialog_owner_changed_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data);
-int  gnc_payment_dialog_post_to_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_payment_dialog_document_selection_changed_cb (GtkWidget *widget, gpointer data);
+void gnc_payment_dialog_post_to_changed_cb (GtkEditable *widget, gpointer data);
+void gnc_payment_dialog_document_selection_changed_cb (GtkSelectionModel *selection,
+                                                        guint position,
+                                                        guint n_items,
+                                                        gpointer data);
 void gnc_payment_dialog_xfer_acct_changed_cb (GtkWidget *widget, gpointer data);
 void gnc_payment_ok_cb (GtkWidget *widget, gpointer data);
 void gnc_payment_cancel_cb (GtkWidget *widget, gpointer data);
 void gnc_payment_window_destroy_cb (GtkWidget *widget, gpointer data);
-void gnc_payment_acct_tree_row_activated_cb (GtkWidget *widget, GtkTreePath *path,
-        GtkTreeViewColumn *column, PaymentWindow *pw);
 void gnc_payment_leave_amount_cb (GtkEventControllerFocus *controller,
                                   gpointer user_data);
 void gnc_payment_activate_amount_cb (GtkWidget *widget, PaymentWindow *pw);
 void gnc_payment_window_fill_docs_list (PaymentWindow *pw);
 
+static Account *payment_post_account_fill (PaymentWindow *pw);
+static Account *payment_post_account_get_active (PaymentWindow *pw);
+static void payment_post_entry_changed_cb (GtkEditable *editable, gpointer data);
+static gboolean payment_account_tree_key_pressed_cb (GtkEventControllerKey *controller,
+                                                      guint keyval, guint keycode,
+                                                      GdkModifierType state, gpointer data);
+static void payment_account_tree_released_cb (GtkGestureClick *gesture,
+                                              gint n_press, gdouble x, gdouble y,
+                                              gpointer data);
 
+
+static void
+payment_post_account_set_text (PaymentWindow *pw, const gchar *text)
+{
+    g_signal_handlers_block_by_func (pw->post_combo,
+                                     G_CALLBACK (payment_post_entry_changed_cb), pw);
+    gtk_editable_set_text (GTK_EDITABLE (pw->post_combo), text ? text : "");
+    g_signal_handlers_unblock_by_func (pw->post_combo,
+                                       G_CALLBACK (payment_post_entry_changed_cb), pw);
+}
+
+static Account *
+payment_post_account_get_active (PaymentWindow *pw)
+{
+    const gchar *text;
+    guint n_items;
+
+    if (!pw || !pw->post_combo || !pw->post_account_store)
+        return NULL;
+
+    text = gtk_editable_get_text (GTK_EDITABLE (pw->post_combo));
+    if (!text || !*text)
+        return NULL;
+
+    n_items = g_list_model_get_n_items (G_LIST_MODEL (pw->post_account_store));
+    for (guint position = 0; position < n_items; position++)
+    {
+        GtkStringObject *item = g_list_model_get_item (G_LIST_MODEL (pw->post_account_store),
+                                                        position);
+        Account *account = NULL;
+
+        if (g_strcmp0 (text, gtk_string_object_get_string (item)) == 0)
+            account = g_object_get_data (G_OBJECT (item), PAYMENT_ACCOUNT_DATA);
+        g_object_unref (item);
+        if (account)
+            return account;
+    }
+    return NULL;
+}
+
+static gboolean
+payment_post_account_matches (gpointer item, gpointer user_data)
+{
+    PaymentWindow *pw = user_data;
+    const gchar *text;
+    const gchar *name;
+    gchar *needle;
+    gchar *haystack;
+    gboolean matches;
+
+    if (!pw || !pw->post_combo || !GTK_IS_STRING_OBJECT (item))
+        return FALSE;
+
+    text = gtk_editable_get_text (GTK_EDITABLE (pw->post_combo));
+    if (!text || !*text)
+        return TRUE;
+
+    name = gtk_string_object_get_string (GTK_STRING_OBJECT (item));
+    needle = g_utf8_casefold (text, -1);
+    haystack = g_utf8_casefold (name, -1);
+    matches = g_strstr_len (haystack, -1, needle) != NULL;
+    g_free (needle);
+    g_free (haystack);
+    return matches;
+}
+
+static void
+payment_post_account_item_setup_cb (G_GNUC_UNUSED GtkSignalListItemFactory *factory,
+                                    GtkListItem *list_item,
+                                    G_GNUC_UNUSED gpointer user_data)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0f);
+    gtk_list_item_set_child (list_item, label);
+}
+
+static void
+payment_post_account_item_bind_cb (G_GNUC_UNUSED GtkSignalListItemFactory *factory,
+                                   GtkListItem *list_item,
+                                   G_GNUC_UNUSED gpointer user_data)
+{
+    GtkStringObject *item = GTK_STRING_OBJECT (gtk_list_item_get_item (list_item));
+    GtkWidget *label = gtk_list_item_get_child (list_item);
+
+    gtk_label_set_text (GTK_LABEL (label), gtk_string_object_get_string (item));
+}
+
+static void
+payment_post_account_activated_cb (G_GNUC_UNUSED GtkListView *view,
+                                   guint position, gpointer user_data)
+{
+    PaymentWindow *pw = user_data;
+    GtkStringObject *item;
+
+    if (!pw || !pw->post_account_filtered)
+        return;
+
+    item = g_list_model_get_item (G_LIST_MODEL (pw->post_account_filtered), position);
+    if (!item)
+        return;
+
+    payment_post_account_set_text (pw, gtk_string_object_get_string (item));
+    gtk_popover_popdown (GTK_POPOVER (pw->post_popover));
+    gnc_payment_dialog_post_to_changed_cb (GTK_EDITABLE (pw->post_combo), pw);
+    g_object_unref (item);
+}
+
+static void
+payment_post_entry_changed_cb (G_GNUC_UNUSED GtkEditable *editable, gpointer data)
+{
+    PaymentWindow *pw = data;
+
+    if (!pw)
+        return;
+
+    gtk_filter_changed (GTK_FILTER (pw->post_account_filter), GTK_FILTER_CHANGE_DIFFERENT);
+    if (g_list_model_get_n_items (G_LIST_MODEL (pw->post_account_filtered)) > 0)
+        gtk_popover_popup (GTK_POPOVER (pw->post_popover));
+    gnc_payment_dialog_post_to_changed_cb (GTK_EDITABLE (pw->post_combo), pw);
+}
+
+static void
+payment_post_account_setup (PaymentWindow *pw, GtkBox *box)
+{
+    GtkListItemFactory *factory;
+    GtkWidget *list;
+    GtkWidget *scroller;
+
+    pw->post_combo = gtk_entry_new ();
+    gtk_widget_set_hexpand (pw->post_combo, TRUE);
+    gtk_box_append (box, pw->post_combo);
+
+    pw->post_account_store = g_list_store_new (GTK_TYPE_STRING_OBJECT);
+    pw->post_account_filter = gtk_custom_filter_new (payment_post_account_matches, pw, NULL);
+    pw->post_account_filtered = gtk_filter_list_model_new (
+        G_LIST_MODEL (pw->post_account_store), GTK_FILTER (pw->post_account_filter));
+    pw->post_account_selection = gtk_single_selection_new (
+        G_LIST_MODEL (pw->post_account_filtered));
+
+    factory = GTK_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
+    g_signal_connect (factory, "setup", G_CALLBACK (payment_post_account_item_setup_cb), NULL);
+    g_signal_connect (factory, "bind", G_CALLBACK (payment_post_account_item_bind_cb), NULL);
+    list = gtk_list_view_new (GTK_SELECTION_MODEL (pw->post_account_selection), factory);
+    g_object_unref (factory);
+    g_signal_connect (list, "activate", G_CALLBACK (payment_post_account_activated_cb), pw);
+
+    scroller = gtk_scrolled_window_new ();
+    gtk_widget_set_size_request (scroller, 360, 240);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), list);
+
+    pw->post_popover = gtk_popover_new ();
+    gtk_widget_set_parent (pw->post_popover, pw->post_combo);
+    gtk_popover_set_child (GTK_POPOVER (pw->post_popover), scroller);
+    g_signal_connect (pw->post_combo, "changed",
+                      G_CALLBACK (payment_post_entry_changed_cb), pw);
+}
+
+static Account *
+payment_post_account_fill (PaymentWindow *pw)
+{
+    GList *accounts;
+    GList *node;
+    gchar *old_text;
+    gchar *first_name = NULL;
+    gboolean old_text_is_allowed = FALSE;
+
+    g_return_val_if_fail (pw && pw->book && pw->post_account_store, NULL);
+
+    old_text = g_strdup (gtk_editable_get_text (GTK_EDITABLE (pw->post_combo)));
+    g_list_store_remove_all (pw->post_account_store);
+    accounts = gnc_account_get_descendants (gnc_book_get_root_account (pw->book));
+
+    for (node = accounts; node; node = node->next)
+    {
+        Account *account = node->data;
+        GtkStringObject *item;
+        gchar *name;
+
+        if (g_list_index (pw->acct_types,
+                          GINT_TO_POINTER (xaccAccountGetType (account))) == -1)
+            continue;
+
+        if (pw->acct_commodities &&
+            !g_list_find_custom (pw->acct_commodities,
+                                 GINT_TO_POINTER (xaccAccountGetCommodity (account)),
+                                 gnc_commodity_compare_void))
+            continue;
+
+        name = gnc_account_get_full_name (account);
+        item = gtk_string_object_new (name);
+        g_object_set_data (G_OBJECT (item), PAYMENT_ACCOUNT_DATA, account);
+        g_list_store_append (pw->post_account_store, item);
+        if (!first_name)
+            first_name = g_strdup (name);
+        if (g_strcmp0 (old_text, name) == 0)
+            old_text_is_allowed = TRUE;
+        g_object_unref (item);
+        g_free (name);
+    }
+
+    g_list_free (accounts);
+    payment_post_account_set_text (pw,
+                                   old_text_is_allowed ? old_text : (first_name ? first_name : ""));
+    gtk_filter_changed (GTK_FILTER (pw->post_account_filter), GTK_FILTER_CHANGE_DIFFERENT);
+    g_free (first_name);
+    g_free (old_text);
+    return payment_post_account_get_active (pw);
+}
 static void
 gnc_payment_window_refresh_handler (G_GNUC_UNUSED GHashTable *changes, gpointer data)
 {
     PaymentWindow *pw = data;
 
     gnc_payment_window_fill_docs_list (pw);
-    pw->post_acct = gnc_account_select_combo_fill (pw->post_combo, pw->book, pw->acct_types, NULL);
+    pw->post_acct = payment_post_account_fill (pw);
 }
 
 static gboolean
@@ -226,7 +467,6 @@ gnc_payment_window_check_payment (PaymentWindow *pw)
     gnc_numeric amount_deb, amount_cred;
     gboolean enable_xfer_acct = TRUE;
     gboolean allow_payment = TRUE;
-    GtkTreeSelection *selection;
     gint c_result, d_result;
 
     if (!pw)
@@ -287,8 +527,7 @@ gnc_payment_window_check_payment (PaymentWindow *pw)
 
     /* this last test checks whether documents were selected. if none,
        emit warning but still allow as an unattached payment. */
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(pw->docs_list_tree_view));
-    if (gtk_tree_selection_count_selected_rows (selection) == 0)
+    if (payment_document_selection_count (pw) == 0)
     {
         conflict_msg = _("No business items were selected to assign this payment to. This may create an unattached payment.");
         allow_payment = TRUE;
@@ -328,120 +567,256 @@ gnc_payment_window_close_handler (gpointer data)
     if (!pw) return;
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(pw->dialog));
 
-//FIXME gtk4  gtk_window_destroy (GTK_WINDOW(pw->dialog));
+    gtk_window_destroy (GTK_WINDOW (pw->dialog));
+}
+
+static time64
+payment_document_row_date (GObject *row)
+{
+    time64 *date = g_object_get_data (row, PAYMENT_DOC_DATE_DATA);
+    return date ? *date : 0;
+}
+
+static const gchar *
+payment_document_row_text (GObject *row, guint column)
+{
+    switch (column)
+    {
+        case PAYMENT_DOC_NUMBER:
+            return g_object_get_data (row, PAYMENT_DOC_NUMBER_DATA);
+        case PAYMENT_DOC_TYPE:
+            return g_object_get_data (row, PAYMENT_DOC_TYPE_DATA);
+        case PAYMENT_DOC_DEBIT:
+            return g_object_get_data (row, PAYMENT_DOC_DEBIT_DATA);
+        case PAYMENT_DOC_CREDIT:
+            return g_object_get_data (row, PAYMENT_DOC_CREDIT_DATA);
+        default:
+            return NULL;
+    }
+}
+
+static GObject *
+payment_document_row_new (time64 date, const gchar *number, const gchar *type,
+                          const gchar *debit, const gchar *credit, GNCLot *lot)
+{
+    GObject *row = g_object_new (G_TYPE_OBJECT, NULL);
+    time64 *stored_date = g_new (time64, 1);
+
+    *stored_date = date;
+    g_object_set_data_full (row, PAYMENT_DOC_DATE_DATA, stored_date, g_free);
+    g_object_set_data_full (row, PAYMENT_DOC_NUMBER_DATA, g_strdup (number), g_free);
+    g_object_set_data_full (row, PAYMENT_DOC_TYPE_DATA, g_strdup (type), g_free);
+    g_object_set_data_full (row, PAYMENT_DOC_DEBIT_DATA, g_strdup (debit), g_free);
+    g_object_set_data_full (row, PAYMENT_DOC_CREDIT_DATA, g_strdup (credit), g_free);
+    g_object_set_data (row, PAYMENT_DOC_LOT_DATA, lot);
+    return row;
 }
 
 static void
-calculate_selected_total_helper (GtkTreeModel *model,
-                                 G_GNUC_UNUSED GtkTreePath *path,
-                                 GtkTreeIter *iter,
-                                 gpointer data)
+payment_document_item_setup_cb (G_GNUC_UNUSED GtkSignalListItemFactory *factory,
+                                GtkListItem *list_item, gpointer user_data)
 {
-    gnc_numeric *subtotal = (gnc_numeric*) data;
-    gnc_numeric cur_val;
-    GNCLot *lot;
-    Account *acct;
-    gnc_commodity *currency;
+    guint column = GPOINTER_TO_UINT (user_data);
+    GtkWidget *label = gtk_label_new (NULL);
 
-    gtk_tree_model_get (model, iter, 5, &lot, -1);
+    gtk_label_set_xalign (GTK_LABEL (label),
+                          column == PAYMENT_DOC_DEBIT || column == PAYMENT_DOC_CREDIT ? 1.0f : 0.0f);
+    gtk_list_item_set_child (list_item, label);
+}
 
-    /* Find the amount's currency to determine the required precision */
-    acct = gnc_lot_get_account (lot);
-    currency = xaccAccountGetCommodity (acct);
+static void
+payment_document_item_bind_cb (G_GNUC_UNUSED GtkSignalListItemFactory *factory,
+                               GtkListItem *list_item, gpointer user_data)
+{
+    guint column = GPOINTER_TO_UINT (user_data);
+    GObject *row = gtk_list_item_get_item (list_item);
+    GtkWidget *label = gtk_list_item_get_child (list_item);
+    const gchar *text;
+    gchar *date_text = NULL;
 
-    cur_val = gnc_lot_get_balance (lot);
-    *subtotal = gnc_numeric_add (*subtotal, cur_val,
-                                 gnc_commodity_get_fraction (currency), GNC_HOW_RND_ROUND_HALF_UP);
+    if (column == PAYMENT_DOC_DATE)
+    {
+        date_text = qof_print_date (payment_document_row_date (row));
+        text = date_text;
+    }
+    else
+        text = payment_document_row_text (row, column);
+
+    gtk_label_set_text (GTK_LABEL (label), text ? text : "");
+    g_free (date_text);
+}
+
+static gint
+payment_document_sort_cb (gconstpointer first, gconstpointer second, gpointer user_data)
+{
+    GObject *a = (GObject *)first;
+    GObject *b = (GObject *)second;
+    guint column = GPOINTER_TO_UINT (user_data);
+    gint result;
+
+    if (column == PAYMENT_DOC_DATE)
+    {
+        time64 a_date = payment_document_row_date (a);
+        time64 b_date = payment_document_row_date (b);
+        result = (a_date > b_date) - (a_date < b_date);
+        if (result)
+            return result;
+        return g_strcmp0 (payment_document_row_text (a, PAYMENT_DOC_NUMBER),
+                          payment_document_row_text (b, PAYMENT_DOC_NUMBER));
+    }
+
+    return g_strcmp0 (payment_document_row_text (a, column),
+                      payment_document_row_text (b, column));
+}
+
+static GtkColumnViewColumn *
+payment_document_column_new (const gchar *title, guint column, gint width)
+{
+    GtkListItemFactory *factory = GTK_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
+    GtkColumnViewColumn *view_column;
+    GtkCustomSorter *sorter;
+
+    g_signal_connect (factory, "setup", G_CALLBACK (payment_document_item_setup_cb),
+                      GUINT_TO_POINTER (column));
+    g_signal_connect (factory, "bind", G_CALLBACK (payment_document_item_bind_cb),
+                      GUINT_TO_POINTER (column));
+    view_column = gtk_column_view_column_new (title, factory);
+    g_object_unref (factory);
+    gtk_column_view_column_set_resizable (view_column, TRUE);
+    gtk_column_view_column_set_fixed_width (view_column, width);
+    sorter = gtk_custom_sorter_new (payment_document_sort_cb, GUINT_TO_POINTER (column), NULL);
+    gtk_column_view_column_set_sorter (view_column, GTK_SORTER (sorter));
+    g_object_unref (sorter);
+    return view_column;
+}
+
+static guint
+payment_document_selection_count (PaymentWindow *pw)
+{
+    guint count = 0;
+    guint n_items;
+
+    if (!pw || !pw->docs_list_sorted || !pw->docs_list_selection)
+        return 0;
+
+    n_items = g_list_model_get_n_items (G_LIST_MODEL (pw->docs_list_sorted));
+    for (guint position = 0; position < n_items; position++)
+        count += gtk_selection_model_is_selected (GTK_SELECTION_MODEL (pw->docs_list_selection), position);
+    return count;
+}
+
+static GList *
+payment_document_selected_lots (PaymentWindow *pw)
+{
+    GList *lots = NULL;
+    guint n_items;
+
+    if (!pw || !pw->docs_list_sorted || !pw->docs_list_selection)
+        return NULL;
+
+    n_items = g_list_model_get_n_items (G_LIST_MODEL (pw->docs_list_sorted));
+    for (guint position = 0; position < n_items; position++)
+    {
+        GObject *row;
+        GNCLot *lot;
+
+        if (!gtk_selection_model_is_selected (GTK_SELECTION_MODEL (pw->docs_list_selection), position))
+            continue;
+        row = g_list_model_get_item (G_LIST_MODEL (pw->docs_list_sorted), position);
+        lot = g_object_get_data (row, PAYMENT_DOC_LOT_DATA);
+        if (lot)
+            lots = g_list_insert_sorted (lots, lot, (GCompareFunc)gncOwnerLotsSortFunc);
+        g_object_unref (row);
+    }
+    return lots;
 }
 
 static gnc_numeric
-gnc_payment_dialog_calculate_selected_total (PaymentWindow *pw)
+payment_document_selected_total (PaymentWindow *pw)
 {
-    GtkTreeSelection *selection;
-    gnc_numeric val = gnc_numeric_zero();
+    gnc_numeric total = gnc_numeric_zero ();
+    guint n_items;
 
-    if (!pw->docs_list_tree_view || !GTK_IS_TREE_VIEW(pw->docs_list_tree_view))
-        return gnc_numeric_zero();
+    if (!pw || !pw->docs_list_sorted || !pw->docs_list_selection)
+        return total;
 
-    /* Figure out if anything is set in the current list */
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(pw->docs_list_tree_view));
+    n_items = g_list_model_get_n_items (G_LIST_MODEL (pw->docs_list_sorted));
+    for (guint position = 0; position < n_items; position++)
+    {
+        GObject *row;
+        GNCLot *lot;
+        Account *account;
 
-    gtk_tree_selection_selected_foreach (selection,
-                                         calculate_selected_total_helper,
-                                         (gpointer) &val);
-
-    return val;
+        if (!gtk_selection_model_is_selected (GTK_SELECTION_MODEL (pw->docs_list_selection), position))
+            continue;
+        row = g_list_model_get_item (G_LIST_MODEL (pw->docs_list_sorted), position);
+        lot = g_object_get_data (row, PAYMENT_DOC_LOT_DATA);
+        account = lot ? gnc_lot_get_account (lot) : NULL;
+        if (account)
+            total = gnc_numeric_add (total, gnc_lot_get_balance (lot),
+                                     gnc_commodity_get_fraction (xaccAccountGetCommodity (account)),
+                                     GNC_HOW_RND_ROUND_HALF_UP);
+        g_object_unref (row);
+    }
+    return total;
 }
 
 static void
-gnc_payment_dialog_document_selection_changed (PaymentWindow *pw)
+payment_document_selection_changed (PaymentWindow *pw)
 {
-    gnc_numeric val;
-
-    /* Don't change the amount based on the selected documents
-     * in case this payment is from a pre-existing txn
-     */
     if (gnc_payment_dialog_has_pre_existing_txn (pw))
         return;
 
-    /* Set the payment amount in the dialog */
-    val = gnc_payment_dialog_calculate_selected_total (pw);
-    gnc_ui_payment_window_set_amount(pw, val);
+    gnc_ui_payment_window_set_amount (pw, payment_document_selected_total (pw));
 }
 
 static gint
 _gnc_lotinfo_find_by_lot(PreExistLotInfo *lotinfo_inst, GNCLot *lot_to_find)
 {
-    if (lotinfo_inst->lot == lot_to_find)
-        return 0;
-    return -1;
+    return lotinfo_inst->lot == lot_to_find ? 0 : -1;
 }
 
 static void
-gnc_payment_dialog_highlight_documents (PaymentWindow *pw)
+payment_document_highlight (PaymentWindow *pw)
 {
     gboolean selection_changed = FALSE;
-    GtkTreeIter iter;
-    GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(pw->docs_list_tree_view));
-    GtkTreeSelection *selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(pw->docs_list_tree_view));
-    gtk_tree_selection_unselect_all (selection);
+    guint n_items;
 
-    if (gtk_tree_model_get_iter_first (model, &iter))
+    if (!pw || !pw->docs_list_sorted || !pw->docs_list_selection)
+        return;
+
+    g_signal_handlers_block_by_func (pw->docs_list_selection,
+                                     G_CALLBACK (gnc_payment_dialog_document_selection_changed_cb), pw);
+    gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (pw->docs_list_selection));
+    n_items = g_list_model_get_n_items (G_LIST_MODEL (pw->docs_list_sorted));
+    for (guint position = 0; position < n_items; position++)
     {
-        do
+        GObject *row = g_list_model_get_item (G_LIST_MODEL (pw->docs_list_sorted), position);
+        GNCLot *lot = g_object_get_data (row, PAYMENT_DOC_LOT_DATA);
+        GList *found = lot ? g_list_find_custom (pw->tx_info->lots, lot,
+                                                  (GCompareFunc)_gnc_lotinfo_find_by_lot) : NULL;
+
+        if (found)
         {
-            GNCLot *lot;
-            GList *li_node;
-
-            gtk_tree_model_get (model, &iter, 5, &lot, -1);
-
-            if (!lot)
-                continue; /* Lot has been deleted behind our back... */
-
-            li_node = g_list_find_custom (pw->tx_info->lots, lot,
-                                            (GCompareFunc)_gnc_lotinfo_find_by_lot);
-            if (li_node)
-            {
-                gtk_tree_selection_select_iter (selection, &iter);
-                selection_changed = TRUE;
-            }
+            gtk_selection_model_select_item (GTK_SELECTION_MODEL (pw->docs_list_selection),
+                                             position, FALSE);
+            selection_changed = TRUE;
         }
-        while (gtk_tree_model_iter_next (model, &iter));
+        g_object_unref (row);
     }
+    g_signal_handlers_unblock_by_func (pw->docs_list_selection,
+                                       G_CALLBACK (gnc_payment_dialog_document_selection_changed_cb), pw);
 
     if (selection_changed)
-        gnc_payment_dialog_document_selection_changed (pw);
+        payment_document_selection_changed (pw);
 }
-
 
 void
 gnc_payment_window_fill_docs_list (PaymentWindow *pw)
 {
-    GtkListStore *store;
-    GtkTreeSelection *selection;
     GList *list = NULL, *node;
 
-    g_return_if_fail (pw->docs_list_tree_view && GTK_IS_TREE_VIEW(pw->docs_list_tree_view));
+    g_return_if_fail (pw && pw->docs_list_store);
 
     /* Get a list of open lots for this owner and post account */
     if (pw->owner.owner.undefined && pw->post_acct)
@@ -493,11 +868,13 @@ gnc_payment_window_fill_docs_list (PaymentWindow *pw)
             }
         }
 
-    /* Clear the existing list */
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(pw->docs_list_tree_view));
-    gtk_tree_selection_unselect_all (selection);
-    store = GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(pw->docs_list_tree_view)));
-    gtk_list_store_clear(store);
+    /* Clear the existing list without treating the refresh as user input. */
+    g_signal_handlers_block_by_func (pw->docs_list_selection,
+                                     G_CALLBACK (gnc_payment_dialog_document_selection_changed_cb), pw);
+    gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (pw->docs_list_selection));
+    g_list_store_remove_all (pw->docs_list_store);
+    g_signal_handlers_unblock_by_func (pw->docs_list_selection,
+                                       G_CALLBACK (gnc_payment_dialog_document_selection_changed_cb), pw);
 
     /* Add the documents and overpayments to the tree view */
     for (node = list; node; node = node->next)
@@ -509,7 +886,6 @@ gnc_payment_window_fill_docs_list (PaymentWindow *pw)
         const gchar *doc_id_str   = NULL;
         const gchar *doc_deb_str  = NULL;
         const gchar *doc_cred_str = NULL;
-        GtkTreeIter iter;
         GncInvoice *document;
         gnc_numeric value;
         gnc_numeric debit = gnc_numeric_zero();
@@ -582,22 +958,20 @@ gnc_payment_window_fill_docs_list (PaymentWindow *pw)
         if (!gnc_numeric_zero_p (credit))
             doc_cred_str = xaccPrintAmount (credit, gnc_default_print_info (FALSE));
 
-        gtk_list_store_append (store, &iter);
-        gtk_list_store_set (store, &iter,
-                            0, doc_date_time,
-                            1, doc_id_str,
-                            2, doc_type_str,
-                            3, doc_deb_str,
-                            4, doc_cred_str,
-                            5, (gpointer)lot,
-                            -1);
+        {
+            GObject *row = payment_document_row_new (doc_date_time, doc_id_str, doc_type_str,
+                                                      doc_deb_str, doc_cred_str, lot);
+            g_list_store_append (pw->docs_list_store, row);
+            g_object_unref (row);
+        }
 
     }
 
     g_list_free (list);
 
     /* Highlight the preset invoice if it's in the new list */
-    gnc_payment_dialog_highlight_documents (pw);
+    payment_document_highlight (pw);
+    gnc_payment_window_check_payment (pw);
 }
 
 static void
@@ -628,7 +1002,7 @@ gnc_payment_dialog_owner_changed (PaymentWindow *pw)
     if (gncOwnerIsValid(owner))
         pw->acct_commodities = gncOwnerGetCommoditiesList (owner);
 
-    pw->post_acct = gnc_account_select_combo_fill (pw->post_combo, pw->book, pw->acct_types, NULL);
+    pw->post_acct = payment_post_account_fill (pw);
     if (gncOwnerEqual(&pw->owner, &pw->tx_info->owner) && pw->tx_info->post_acct)
     {
         pw->post_acct = pw->tx_info->post_acct;
@@ -702,9 +1076,12 @@ gnc_payment_dialog_owner_type_changed (PaymentWindow *pw)
     g_object_unref (G_OBJECT (pw->amount_debit_edit));
     g_object_unref (G_OBJECT (pw->amount_credit_edit));
 
-    /* Redo the owner_choice widget */
-//FIXME gtk4    if (pw->owner_choice)
-//        gtk_window_destroy (GTK_WINDOW(pw->owner_choice));
+    /* Rebuild the owner selector for the newly selected owner type. */
+    if (pw->owner_choice)
+    {
+        gtk_box_remove (GTK_BOX (pw->owner_box), pw->owner_choice);
+        pw->owner_choice = NULL;
+    }
     pw->owner_choice = gnc_owner_select_create (NULL, pw->owner_box, pw->book, &pw->owner);
     gtk_widget_set_visible (GTK_WIDGET(pw->owner_choice), TRUE);
     gnc_payment_dialog_owner_changed (pw);
@@ -764,13 +1141,80 @@ gnc_payment_update_style_classes (PaymentWindow *pw)
     gtk_style_context_add_class (stylectxt, style_label);
 }
 
+static guint
+payment_owner_type_position (GncOwnerType owner_type)
+{
+    switch (owner_type)
+    {
+        case GNC_OWNER_VENDOR:
+            return 1;
+        case GNC_OWNER_EMPLOYEE:
+            return 2;
+        case GNC_OWNER_CUSTOMER:
+        default:
+            return 0;
+    }
+}
+
+static GncOwnerType
+payment_owner_type_from_position (guint position)
+{
+    switch (position)
+    {
+        case 1:
+            return GNC_OWNER_VENDOR;
+        case 2:
+            return GNC_OWNER_EMPLOYEE;
+        default:
+            return GNC_OWNER_CUSTOMER;
+    }
+}
+
+static void
+payment_owner_type_changed_cb (G_GNUC_UNUSED GObject *object,
+                               G_GNUC_UNUSED GParamSpec *property,
+                               gpointer data)
+{
+    PaymentWindow *pw = data;
+    GncOwnerType owner_type;
+
+    if (!pw)
+        return;
+
+    owner_type = payment_owner_type_from_position (
+        gtk_drop_down_get_selected (pw->owner_type_combo));
+    if (owner_type == pw->owner_type)
+    {
+        gnc_payment_window_check_payment (pw);
+        return;
+    }
+
+    pw->owner_type = owner_type;
+    if (gncOwnerGetType (&pw->tx_info->owner) == pw->owner_type)
+        gncOwnerCopy (&pw->tx_info->owner, &pw->owner);
+    else
+    {
+        switch (pw->owner_type)
+        {
+            case GNC_OWNER_VENDOR:
+                gncOwnerInitVendor (&pw->owner, NULL);
+                break;
+            case GNC_OWNER_EMPLOYEE:
+                gncOwnerInitEmployee (&pw->owner, NULL);
+                break;
+            default:
+                gncOwnerInitCustomer (&pw->owner, NULL);
+                break;
+        }
+    }
+
+    gnc_payment_dialog_owner_type_changed (pw);
+    gnc_payment_window_check_payment (pw);
+}
+
 static void
 gnc_payment_set_owner_type (PaymentWindow *pw, GncOwnerType owner_type)
 {
-    gboolean valid;
-    GtkTreeModel *store;
-    GtkTreeIter iter;
-
     switch (owner_type)
     {
         case GNC_OWNER_CUSTOMER:
@@ -780,23 +1224,16 @@ gnc_payment_set_owner_type (PaymentWindow *pw, GncOwnerType owner_type)
             break;
         default:
             pw->owner_type = GNC_OWNER_CUSTOMER;
-    }
-
-    store = gtk_combo_box_get_model (GTK_COMBO_BOX(pw->owner_type_combo));
-    valid = gtk_tree_model_get_iter_first (store, &iter);
-    while (valid)
-    {
-        GncOwnerType owner_type;
-        gtk_tree_model_get (store, &iter, COL_OWNER_TYPE_NUM, &owner_type, -1);
-        if (owner_type == pw->owner_type)
-        {
-            gtk_combo_box_set_active_iter (GTK_COMBO_BOX(pw->owner_type_combo), &iter);
             break;
-        }
-        valid = gtk_tree_model_iter_next (store, &iter);
     }
-    gnc_payment_update_style_classes (pw);
 
+    g_signal_handlers_block_by_func (pw->owner_type_combo,
+                                     G_CALLBACK (payment_owner_type_changed_cb), pw);
+    gtk_drop_down_set_selected (pw->owner_type_combo,
+                                payment_owner_type_position (pw->owner_type));
+    g_signal_handlers_unblock_by_func (pw->owner_type_combo,
+                                       G_CALLBACK (payment_owner_type_changed_cb), pw);
+    gnc_payment_update_style_classes (pw);
     gnc_payment_dialog_owner_type_changed (pw);
 }
 
@@ -824,65 +1261,18 @@ gnc_payment_dialog_owner_changed_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer d
     return FALSE;
 }
 
-static int
-gnc_payment_dialog_owner_type_changed_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
-{
-    PaymentWindow *pw = data;
-    GtkTreeIter iter;
-    GtkTreeModel *model;
-    GncOwnerType owner_type;
-
-    if (!pw) return FALSE;
-
-    gtk_combo_box_get_active_iter (GTK_COMBO_BOX(pw->owner_type_combo), &iter);
-    model = gtk_combo_box_get_model (GTK_COMBO_BOX(pw->owner_type_combo));
-    gtk_tree_model_get (model, &iter, COL_OWNER_TYPE_NUM, &owner_type, -1);
-
-    if (owner_type != pw->owner_type)
-    {
-        pw->owner_type = owner_type;
-
-        /* If type changed, the currently selected owner can't be valid any more
-         * If the initial owner is of the new owner_type, we propose that one
-         * otherwise we just reset the owner
-         */
-        if (gncOwnerGetType (&pw->tx_info->owner) == pw->owner_type)
-            gncOwnerCopy (&pw->tx_info->owner, &pw->owner);
-        else
-        {
-            switch (pw->owner_type)
-            {
-                case GNC_OWNER_VENDOR:
-                    gncOwnerInitVendor (&pw->owner, NULL);
-                    break;
-                case GNC_OWNER_EMPLOYEE:
-                    gncOwnerInitEmployee (&pw->owner, NULL);
-                    break;
-                default:
-                    gncOwnerInitCustomer (&pw->owner, NULL);
-            }
-
-        }
-
-        gnc_payment_dialog_owner_type_changed (pw);
-    }
-
-    /* Reflect if the payment could complete now */
-    gnc_payment_window_check_payment (pw);
-
-    return FALSE;
-}
-
 void
-gnc_payment_dialog_document_selection_changed_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
+gnc_payment_dialog_document_selection_changed_cb (G_GNUC_UNUSED GtkSelectionModel *selection,
+                                                   G_GNUC_UNUSED guint position,
+                                                   G_GNUC_UNUSED guint n_items,
+                                                   gpointer data)
 {
     PaymentWindow *pw = data;
 
-    if (!pw) return;
+    if (!pw)
+        return;
 
-    gnc_payment_dialog_document_selection_changed (pw);
-
-    /* Reflect if the payment could complete now */
+    payment_document_selection_changed (pw);
     gnc_payment_window_check_payment (pw);
 }
 
@@ -897,49 +1287,26 @@ gnc_payment_dialog_xfer_acct_changed_cb (G_GNUC_UNUSED GtkWidget *widget, gpoint
     gnc_payment_window_check_payment (pw);
 }
 
-int
-gnc_payment_dialog_post_to_changed_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
+void
+gnc_payment_dialog_post_to_changed_cb (G_GNUC_UNUSED GtkEditable *widget, gpointer data)
 {
     PaymentWindow *pw = data;
     Account *post_acct;
 
-    if (!pw) return FALSE;
+    if (!pw)
+        return;
 
-    post_acct = gnc_account_select_combo_get_active (pw->post_combo);
-
-    /* If this post account really changed, then reset ourselves */
+    post_acct = payment_post_account_get_active (pw);
     if (post_acct != pw->post_acct)
     {
         pw->post_acct = post_acct;
-        gnc_payment_dialog_post_to_changed(pw);
+        gnc_payment_dialog_post_to_changed (pw);
     }
     else
-        gnc_payment_dialog_highlight_documents (pw);
-
-    /* Reflect if the payment could complete now */
+        payment_document_highlight (pw);
     gnc_payment_window_check_payment (pw);
 
-    return FALSE;
-}
-
-/*
- * This helper function is called once for each row in the tree view
- * that is currently selected.  Its task is to add the corresponding
- * lot to the end of a glist.
- */
-static void
-get_selected_lots (GtkTreeModel *model,
-                   G_GNUC_UNUSED GtkTreePath *path,
-                   GtkTreeIter *iter,
-                   gpointer data)
-{
-    GList **return_list = data;
-    GNCLot *lot;
-
-    gtk_tree_model_get (model, iter, 5, &lot, -1);
-
-    if (lot)
-        *return_list = g_list_insert_sorted (*return_list, lot, (GCompareFunc)gncOwnerLotsSortFunc);
+    gnc_payment_window_check_payment (pw);
 }
 
 typedef struct
@@ -1032,12 +1399,10 @@ gnc_payment_ok_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
     g_weak_ref_init (&request->window, pw->dialog);
     {
         GDate date;
-        GtkTreeSelection *selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (pw->docs_list_tree_view));
         g_date_clear (&date, 1);
         gnc_date_edit_get_gdate (GNC_DATE_EDIT (pw->date_edit), &date);
         request->date = gdate_to_time64 (date);
-        gtk_tree_selection_selected_foreach (selection, get_selected_lots,
-                                             &request->selected_lots);
+        request->selected_lots = payment_document_selected_lots (pw);
     }
 
     if (gnc_numeric_zero_p (pw->amount_tot) ||
@@ -1079,39 +1444,51 @@ gnc_payment_window_destroy_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 
     g_list_free (pw->acct_types);
     g_list_free (pw->acct_commodities);
-    if (pw->tx_info->lots)
+    if (pw->tx_info)
+    {
         g_list_free_full (pw->tx_info->lots, g_free);
+        g_free (pw->tx_info);
+    }
+    g_clear_object (&pw->docs_list_selection);
+    g_clear_object (&pw->docs_list_sorted);
+    g_clear_object (&pw->docs_list_store);
+    g_clear_object (&pw->post_account_selection);
+    g_clear_object (&pw->post_account_filtered);
+    g_clear_object (&pw->post_account_filter);
+    g_clear_object (&pw->post_account_store);
     g_free (pw);
 }
 
-void
-gnc_payment_acct_tree_row_activated_cb (GtkWidget *widget, GtkTreePath *path,
-                                        G_GNUC_UNUSED GtkTreeViewColumn *column, PaymentWindow *pw)
+static gboolean
+payment_account_tree_key_pressed_cb (G_GNUC_UNUSED GtkEventControllerKey *controller,
+                                     guint keyval, G_GNUC_UNUSED guint keycode,
+                                     G_GNUC_UNUSED GdkModifierType state, gpointer data)
 {
-    GtkTreeView *view;
-    GtkTreeModel *model;
-    GtkTreeIter iter;
+    PaymentWindow *pw = data;
 
-    g_return_if_fail(widget);
-    view = GTK_TREE_VIEW(widget);
-
-    model = gtk_tree_view_get_model(view);
-    if (gtk_tree_model_get_iter(model, &iter, path))
+    if (keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter)
     {
-        if (gtk_tree_model_iter_has_child(model, &iter))
+        Account *account = gnc_tree_view_account_get_selected_account (
+            GNC_TREE_VIEW_ACCOUNT (pw->acct_tree));
+
+        if (account && gnc_account_n_children (account) == 0 &&
+            gnc_payment_window_check_payment (pw))
         {
-            /* There are children,
-             * just expand or collapse the row. */
-            if (gtk_tree_view_row_expanded(view, path))
-                gtk_tree_view_collapse_row(view, path);
-            else
-                gtk_tree_view_expand_row(view, path, FALSE);
+            gnc_payment_ok_cb (pw->acct_tree, pw);
+            return TRUE;
         }
-        else if (gnc_payment_window_check_payment (pw))
-            /* It's an account without any children
-             * If all conditions for a valid payment are met click the Ok button. */
-            gnc_payment_ok_cb(widget, pw);
     }
+    return FALSE;
+}
+
+static void
+payment_account_tree_released_cb (G_GNUC_UNUSED GtkGestureClick *gesture,
+                                  G_GNUC_UNUSED gint n_press,
+                                  G_GNUC_UNUSED gdouble x,
+                                  G_GNUC_UNUSED gdouble y,
+                                  gpointer data)
+{
+    gnc_payment_window_check_payment (data);
 }
 
 void
@@ -1150,7 +1527,7 @@ void
 gnc_payment_activate_amount_cb (G_GNUC_UNUSED GtkWidget *widget,
                                 PaymentWindow *pw)
 {
-//FIXME gtk4      gnc_payment_leave_amount_cb (NULL, NULL, pw);
+    gnc_payment_leave_amount_cb (NULL, pw);
 }
 
 /* Select the list of accounts to show in the tree */
@@ -1176,44 +1553,36 @@ find_handler (G_GNUC_UNUSED gpointer find_data, gpointer user_data)
     return (pw != NULL);
 }
 
-static void print_date (G_GNUC_UNUSED GtkTreeViewColumn *tree_column,
-                        GtkCellRenderer *cell,
-                        GtkTreeModel *tree_model,
-                        GtkTreeIter *iter,
-                        G_GNUC_UNUSED gpointer data)
+static void
+payment_document_view_setup (PaymentWindow *pw, GtkBox *box)
 {
-    time64 doc_date_time;
-    gchar *doc_date_str;
+    GtkColumnViewColumn *date_column;
 
-    g_return_if_fail (cell && iter && tree_model);
+    pw->docs_list_store = g_list_store_new (G_TYPE_OBJECT);
+    pw->docs_list_sorted = gtk_sort_list_model_new (G_LIST_MODEL (pw->docs_list_store), NULL);
+    gtk_sort_list_model_set_incremental (pw->docs_list_sorted, FALSE);
+    pw->docs_list_selection = gtk_multi_selection_new (G_LIST_MODEL (pw->docs_list_sorted));
+    pw->docs_list_view = GTK_COLUMN_VIEW (
+        gtk_column_view_new (GTK_SELECTION_MODEL (pw->docs_list_selection)));
+    gtk_column_view_set_show_row_separators (pw->docs_list_view, TRUE);
+    gtk_column_view_set_show_column_separators (pw->docs_list_view, TRUE);
 
-
-    gtk_tree_model_get (tree_model, iter, 0, &doc_date_time, -1);
-    doc_date_str = qof_print_date (doc_date_time);
-    g_object_set (G_OBJECT (cell), "text", doc_date_str, NULL);
-    g_free (doc_date_str);
-}
-
-static gint
-doc_sort_func (GtkTreeModel *model,
-               GtkTreeIter  *a,
-               GtkTreeIter  *b,
-               gpointer      user_data)
-{
-    time64 a_date, b_date;
-    gchar *a_id = NULL, *b_id = NULL;
-    int ret;
-
-    gtk_tree_model_get (model, a, 0, &a_date, 1, &a_id, -1);
-    gtk_tree_model_get (model, b, 0, &b_date, 1, &b_id, -1);
-
-    if (a_date < b_date) ret = -1;
-    else if (a_date > b_date) ret = 1;
-    else ret = g_strcmp0 (a_id, b_id);
-
-    g_free (a_id);
-    g_free (b_id);
-    return ret;
+    date_column = payment_document_column_new (_("Date"), PAYMENT_DOC_DATE, 95);
+    gtk_column_view_append_column (pw->docs_list_view, date_column);
+    gtk_column_view_append_column (pw->docs_list_view,
+                                   payment_document_column_new (_("Number"), PAYMENT_DOC_NUMBER, 120));
+    gtk_column_view_append_column (pw->docs_list_view,
+                                   payment_document_column_new (_("Type"), PAYMENT_DOC_TYPE, 125));
+    gtk_column_view_append_column (pw->docs_list_view,
+                                   payment_document_column_new (_("Debit"), PAYMENT_DOC_DEBIT, 120));
+    gtk_column_view_append_column (pw->docs_list_view,
+                                   payment_document_column_new (_("Credit"), PAYMENT_DOC_CREDIT, 120));
+    gtk_sort_list_model_set_sorter (pw->docs_list_sorted,
+                                    gtk_column_view_get_sorter (pw->docs_list_view));
+    gtk_column_view_sort_by_column (pw->docs_list_view, date_column, GTK_SORT_ASCENDING);
+    g_signal_connect (pw->docs_list_selection, "selection-changed",
+                      G_CALLBACK (gnc_payment_dialog_document_selection_changed_cb), pw);
+    gtk_box_append (box, GTK_WIDGET (pw->docs_list_view));
 }
 
 static gboolean
@@ -1231,11 +1600,8 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     PaymentWindow *pw;
     GtkBuilder *builder;
     GtkWidget *box;
-    GtkTreeSelection *selection;
-    GtkTreeViewColumn *column;
-    GtkCellRenderer *renderer;
-    GtkTreeModel *store;
-    GtkTreeIter iter;
+    GtkWidget *cancel_button;
+    GtkStringList *owner_types;
 
     /* Ensure we always have a properly initialized PreExistTxnInfo struct to work with */
     if (!tx_info)
@@ -1277,11 +1643,6 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     /* Open and read the Glade File */
     builder = gtk_builder_new();
     gtk_builder_set_current_object (builder, G_OBJECT(pw));
-    gnc_builder_add_from_file (builder, "dialog-payment.glade", "docs_list_hor_adj");
-    gnc_builder_add_from_file (builder, "dialog-payment.glade", "docs_list_vert_adj");
-    gnc_builder_add_from_file (builder, "dialog-payment.glade", "docs_list_model");
-    gnc_builder_add_from_file (builder, "dialog-payment.glade", "post_combo_model");
-    gnc_builder_add_from_file (builder, "dialog-payment.glade", "owner_type_combo_model");
     gnc_builder_add_from_file (builder, "dialog-payment.glade", "payment_dialog");
     pw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "payment_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(pw->dialog), parent);
@@ -1293,32 +1654,18 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     pw->payment_warning = GTK_WIDGET (gtk_builder_get_object (builder, "payment_warning"));
     pw->conflict_message = GTK_WIDGET (gtk_builder_get_object (builder, "conflict_message"));
     pw->ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton"));
+    cancel_button = GTK_WIDGET (gtk_builder_get_object (builder, "cancelbutton"));
     pw->num_entry = GTK_WIDGET (gtk_builder_get_object (builder, "num_entry"));
     pw->memo_entry = GTK_WIDGET (gtk_builder_get_object (builder, "memo_entry"));
     pw->commodity_label = GTK_WIDGET (gtk_builder_get_object (builder, "commodity_label"));
-    pw->post_combo = GTK_WIDGET (gtk_builder_get_object (builder, "post_combo"));
-    gtk_combo_box_set_entry_text_column( GTK_COMBO_BOX( pw->post_combo ), 0 );
-    gnc_cbwe_require_list_item(GTK_COMBO_BOX(pw->post_combo));
+    box = GTK_WIDGET (gtk_builder_get_object (builder, "post_account_box"));
+    payment_post_account_setup (pw, GTK_BOX (box));
 
-    pw->owner_type_combo = GTK_WIDGET (gtk_builder_get_object (builder, "owner_type_combo"));
-    /* Add the respective GNC_OWNER_TYPEs to the combo box model
-     * ATTENTION: the order here should match the order of the
-     * store's entries as set in the glade file !
-     */
-    store = gtk_combo_box_get_model (GTK_COMBO_BOX(pw->owner_type_combo));
-    gtk_tree_model_get_iter_first (store, &iter);
-    gtk_list_store_set (GTK_LIST_STORE(store), &iter,
-                        COL_OWNER_TYPE_NAME, _("Customer"),
-                        COL_OWNER_TYPE_NUM, GNC_OWNER_CUSTOMER, -1);
-    gtk_tree_model_iter_next (store, &iter);
-    gtk_list_store_set (GTK_LIST_STORE(store), &iter,
-                        COL_OWNER_TYPE_NAME, _("Vendor"),
-                        COL_OWNER_TYPE_NUM, GNC_OWNER_VENDOR, -1);
-    gtk_tree_model_iter_next (store, &iter);
-    gtk_list_store_set (GTK_LIST_STORE(store), &iter,
-                        COL_OWNER_TYPE_NAME, _("Employee"),
-                        COL_OWNER_TYPE_NUM, GNC_OWNER_EMPLOYEE, -1);
-
+    box = GTK_WIDGET (gtk_builder_get_object (builder, "owner_type_box"));
+    owner_types = gtk_string_list_new ((const char *[]) { _("Customer"), _("Vendor"), _("Employee"), NULL });
+    pw->owner_type_combo = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (owner_types), NULL));
+    g_object_unref (owner_types);
+    gtk_box_append (GTK_BOX (box), GTK_WIDGET (pw->owner_type_combo));
     pw->owner_box = GTK_WIDGET (gtk_builder_get_object (builder, "owner_box"));
 
     pw->amount_refund_box = GTK_WIDGET (gtk_builder_get_object (builder, "amount_refund_box"));
@@ -1361,58 +1708,12 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     gtk_box_append (GTK_BOX(box), GTK_WIDGET(pw->date_edit));
     pw->print_check = GTK_WIDGET (gtk_builder_get_object (builder, "print_check"));
 
-    pw->docs_list_tree_view = GTK_WIDGET (gtk_builder_get_object (builder, "docs_list_tree_view"));
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(pw->docs_list_tree_view));
-    gtk_tree_selection_set_mode (selection, GTK_SELECTION_MULTIPLE);
-
-    // Set grid lines option to preference
-    gtk_tree_view_set_grid_lines (GTK_TREE_VIEW(pw->docs_list_tree_view), gnc_tree_view_get_grid_lines_pref ());
-
-    /* Configure date column */
-    renderer = gtk_cell_renderer_text_new ();
-    column = gtk_tree_view_get_column (GTK_TREE_VIEW (pw->docs_list_tree_view), 0);
-    gtk_tree_view_column_pack_start (column, renderer, TRUE);
-    tree_view_column_set_default_width (GTK_TREE_VIEW (pw->docs_list_tree_view),
-                                        column, "31-12-2013");
-    gtk_tree_view_column_set_cell_data_func (column, renderer,
-                                             (GtkTreeCellDataFunc) print_date,
-                                             NULL, NULL);
-
-    /* Configure document number column */
-    column = gtk_tree_view_get_column (GTK_TREE_VIEW (pw->docs_list_tree_view), 1);
-    tree_view_column_set_default_width (GTK_TREE_VIEW (pw->docs_list_tree_view),
-                                        column, _("Pre-Payment"));
-
-    /* Configure document type column */
-    column = gtk_tree_view_get_column (GTK_TREE_VIEW (pw->docs_list_tree_view), 2);
-    tree_view_column_set_default_width (GTK_TREE_VIEW (pw->docs_list_tree_view),
-                                        column, _("Credit Note"));
-
-    /* Configure debit column */
-    column = gtk_tree_view_get_column (GTK_TREE_VIEW (pw->docs_list_tree_view), 3);
-    tree_view_column_set_default_width (GTK_TREE_VIEW (pw->docs_list_tree_view),
-                                        column, "9,999,999.00");
-
-    /* Configure credit column */
-    column = gtk_tree_view_get_column (GTK_TREE_VIEW (pw->docs_list_tree_view), 4);
-    tree_view_column_set_default_width (GTK_TREE_VIEW (pw->docs_list_tree_view),
-                                        column, "9,999,999.00");
-
-    gtk_tree_sortable_set_default_sort_func
-        (GTK_TREE_SORTABLE (gtk_tree_view_get_model
-                            (GTK_TREE_VIEW (pw->docs_list_tree_view))),
-         doc_sort_func, NULL, NULL);
-
-    gtk_tree_sortable_set_sort_column_id
-        (GTK_TREE_SORTABLE (gtk_tree_view_get_model
-                            (GTK_TREE_VIEW (pw->docs_list_tree_view))),
-         GTK_TREE_SORTABLE_DEFAULT_SORT_COLUMN_ID,
-         GTK_SORT_ASCENDING);
+    box = GTK_WIDGET (gtk_builder_get_object (builder, "docs_list_box"));
+    payment_document_view_setup (pw, GTK_BOX (box));
 
     box = GTK_WIDGET (gtk_builder_get_object (builder, "acct_window"));
-    pw->acct_tree = GTK_WIDGET(gnc_tree_view_account_new (FALSE));
-    gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(pw->acct_tree));
-    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW(pw->acct_tree), FALSE);
+    pw->acct_tree = GTK_WIDGET (gnc_tree_view_account_new (FALSE));
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (box), pw->acct_tree);
     gnc_payment_set_account_types (GNC_TREE_VIEW_ACCOUNT (pw->acct_tree));
 
     /* Set the dialog for the 'new' owner and owner type.
@@ -1420,19 +1721,23 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     gncOwnerCopy (&pw->tx_info->owner, &(pw->owner));
     gnc_payment_set_owner_type (pw, gncOwnerGetType (&pw->tx_info->owner));
 
-    /* Setup signals */
-    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
-                                      pw);
+    /* Window actions are explicitly asynchronous callbacks. */
+    g_signal_connect (pw->dialog, "destroy", G_CALLBACK (gnc_payment_window_destroy_cb), pw);
+    g_signal_connect (cancel_button, "clicked", G_CALLBACK (gnc_payment_cancel_cb), pw);
+    g_signal_connect (pw->ok_button, "clicked", G_CALLBACK (gnc_payment_ok_cb), pw);
+    g_signal_connect (pw->owner_type_combo, "notify::selected",
+                      G_CALLBACK (payment_owner_type_changed_cb), pw);
+    {
+        GtkEventController *key_controller = gtk_event_controller_key_new ();
+        GtkGesture *click_controller = gtk_gesture_click_new ();
 
-    g_signal_connect (G_OBJECT (pw->acct_tree), "row-activated",
-                      G_CALLBACK (gnc_payment_acct_tree_row_activated_cb), pw);
-
-    g_signal_connect (G_OBJECT (pw->owner_type_combo), "changed",
-                      G_CALLBACK (gnc_payment_dialog_owner_type_changed_cb), pw);
-
-    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(pw->acct_tree));
-    g_signal_connect (G_OBJECT (selection), "changed",
-                      G_CALLBACK (gnc_payment_dialog_xfer_acct_changed_cb), pw);
+        g_signal_connect (key_controller, "key-pressed",
+                          G_CALLBACK (payment_account_tree_key_pressed_cb), pw);
+        g_signal_connect (click_controller, "released",
+                          G_CALLBACK (payment_account_tree_released_cb), pw);
+        gtk_widget_add_controller (pw->acct_tree, key_controller);
+        gtk_widget_add_controller (pw->acct_tree, GTK_EVENT_CONTROLLER (click_controller));
+    }
 
     g_signal_connect (G_OBJECT(pw->dialog), "close-request",
                       G_CALLBACK(payment_dialog_close_request_cb), pw);
@@ -1453,7 +1758,7 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     gnc_restore_window_size (GNC_PREFS_GROUP, GTK_WINDOW(pw->dialog), GTK_WINDOW(parent));
 
     /* Show it all */
-//FIXME gtk4    gtk_widget_show_all (pw->dialog);
+    gtk_window_present (GTK_WINDOW (pw->dialog));
     g_object_unref(G_OBJECT(builder));
 
     // The customer choice widget should have keyboard focus
@@ -1470,7 +1775,7 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
         const gchar *text;
         const char *acct_type;
 
-        text = gnc_entry_get_text (GTK_ENTRY(gtk_combo_box_get_child (GTK_COMBO_BOX(pw->post_combo))));
+        text = gtk_editable_get_text (GTK_EDITABLE (pw->post_combo));
 
         if (!text || g_strcmp0 (text, "") == 0)
         {
@@ -1626,132 +1931,35 @@ static char *gen_split_desc (Transaction *txn, Split *split)
     return split_str;
 }
 
-static Split *select_payment_split (GtkWindow *parent, Transaction *txn)
+static void
+payment_show_alert (GtkWindow *parent, const gchar *message)
 {
-    /* We require the txn to have one split in an Asset account.
-     * The only exception would be a lot link transaction
-     */
-    GList *payment_splits = xaccTransGetPaymentAcctSplitList (txn);
-    Split *selected_split = NULL;
-    if (!payment_splits)
-    {
-        GtkWidget *dialog;
-
-        if (xaccTransGetTxnType(txn) == TXN_TYPE_LINK)
-            return NULL;
-
-        dialog = gtk_message_dialog_new (parent,
-                                         GTK_DIALOG_DESTROY_WITH_PARENT,
-                                         GTK_MESSAGE_INFO,
-                                         GTK_BUTTONS_CLOSE,
-                                         "%s",
-                                         _("The selected transaction doesn't have splits that can be assigned as a payment"));
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
-        PINFO("No asset splits in txn \"%s\"; cannot use this for assigning a payment.",
-                  xaccTransGetDescription(txn));
-        return NULL;
-    }
-
-    if (g_list_length(payment_splits) > 1)
-    {
-        GtkWidget *first_rb = NULL;
-        int answer = GTK_BUTTONS_OK;
-        const char *message = _("While this transaction has multiple splits that can be considered\n"
-                                "as 'the payment split', GnuCash only knows how to handle one.\n"
-                                "Please select one, the others will be discarded.\n\n");
-        GtkDialog *dialog = GTK_DIALOG(
-                            gtk_dialog_new_with_buttons (_("Warning"),
-                                                         parent,
-                                                         GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                         _("Continue"), GTK_BUTTONS_OK,
-                                                         _("Cancel"), GTK_BUTTONS_CANCEL,
-                                                         NULL));
-        GtkWidget *content = gtk_dialog_get_content_area(dialog);
-        GtkWidget *label = gtk_label_new (message);
-        gtk_box_append (GTK_BOX(content), GTK_WIDGET(label));
-
-        /* Add splits as selectable options to the dialog */
-        for (GList *node = payment_splits; node; node = node->next)
-        {
-            GtkWidget *rbutton;
-            Split *split = node->data;
-            char *split_str = gen_split_desc (txn, split);
-
-            if (node == payment_splits)
-            {
-                first_rb = gtk_check_button_new_with_label (split_str);
-                rbutton = first_rb;
-            }
-            else
-            {
-                rbutton = gtk_check_button_new_with_label (split_str);
-                gtk_check_button_set_group (GTK_CHECK_BUTTON(first_rb), GTK_CHECK_BUTTON(rbutton));
-            }
-
-            g_object_set_data(G_OBJECT(rbutton), "split", split);
-            gtk_box_append (GTK_BOX(content), GTK_WIDGET(rbutton));
-
-            g_free (split_str);
-        }
-
-        gtk_dialog_set_default_response (dialog, GTK_BUTTONS_CANCEL);
-//FIXME gtk4        gtk_widget_show_all (GTK_WIDGET(dialog));
-
-//FIXME gtk4    answer = gtk_dialog_run (dialog);
-gtk_window_set_modal (GTK_WINDOW(dialog), TRUE); //FIXME gtk4
-answer = GTK_RESPONSE_CANCEL; //FIXME gtk4
-
-        if (answer == GTK_BUTTONS_OK)
-        {
-//FIXME gtk4            GSList *rbgroup = gtk_radio_button_get_group (GTK_RADIO_BUTTON(first_rb));
-//            GSList *rbnode;
-//            for (rbnode = rbgroup; rbnode; rbnode = rbnode->next)
-//            {
-//                GtkWidget *rbutton = rbnode->data;
-//                if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(rbutton)))
-//                {
-//                    selected_split = g_object_get_data(G_OBJECT(rbutton), "split");
-//                    break;
-//                }
-//            }
-        }
-
-//FIXME gtk4        gtk_window_destroy (GTK_WINDOW(dialog));
-    }
-    else
-        selected_split = payment_splits->data;
-
-    g_list_free (payment_splits);
-    return selected_split;
+    GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", message);
+    gtk_alert_dialog_show (alert, parent);
+    g_object_unref (alert);
 }
 
-static GList *select_txn_lots (GtkWindow *parent, Transaction *txn, Account **post_acct, gboolean *abort)
+static GList *
+select_txn_lots (GtkWindow *parent, Transaction *txn, Account **post_acct, gboolean *abort)
 {
-    SplitList *apar_splits = NULL; /* all spits in txn that are APAR type */
-    SplitList *apar_splits_no_lot = NULL; /* all splits in txn that are APAR type, but not tied to a lot */
+    SplitList *apar_splits = NULL; /* all splits in txn that are APAR type */
+    SplitList *apar_splits_no_lot = NULL; /* APAR splits not tied to a lot */
     SplitList *iter;
     GList *txn_lots = NULL;
     GList *unique_apar_accts = NULL;
 
-    /* There's no use in continuing if I can't set the post_acct or abort variables */
     if (!post_acct || !abort)
         return NULL;
 
     *abort = FALSE;
     *post_acct = NULL;
-
-    /* Start by filtering out all APAR splits that have lots. Those are the ones we can
-       display as invoices and pre-payments in the payment window. */
     apar_splits = xaccTransGetAPARAcctSplitList (txn, FALSE);
     for (iter = apar_splits; iter; iter = iter->next)
     {
-        GNCLot *postlot = NULL;
+        GNCLot *postlot;
         Split *post_split = iter->data;
         Account *apar_acct = xaccSplitGetAccount (post_split);
 
-        /* Store found apar_acct in our list of unique_apar_accts
-         * for later processing */
         if (!g_list_find (unique_apar_accts, apar_acct))
             unique_apar_accts = g_list_prepend (unique_apar_accts, apar_acct);
 
@@ -1768,42 +1976,30 @@ static GList *select_txn_lots (GtkWindow *parent, Transaction *txn, Account **po
             apar_splits_no_lot = g_list_prepend (apar_splits_no_lot, post_split);
     }
 
-    /* If no post_acct was selected from the postlots, fall back to the first apar split's
-     * account if there is one. */
     if (!*post_acct && apar_splits_no_lot)
         *post_acct = xaccSplitGetAccount (apar_splits_no_lot->data);
 
-    /* Abort if the txn has splits in more than one APAR account
-     * GnuCash can only handle one post account per payment transaction.
-     */
     if (g_list_length (unique_apar_accts) > 1)
     {
-        GtkWidget *dialog;
-        char *split_str = g_strdup ("");
+        GString *accounts = g_string_new (NULL);
+        gchar *message;
 
         for (iter = unique_apar_accts; iter; iter = iter->next)
         {
-            Account *acct = iter->data;
-            char *acct_name = gnc_account_get_full_name (acct);
-            char *tmp_str = g_strconcat(split_str, "• ", acct_name, "\n", NULL);
-            g_free (acct_name);
-            g_free (split_str);
-            split_str = tmp_str;
+            gchar *name = gnc_account_get_full_name (iter->data);
+            g_string_append_printf (accounts, "• %s\n", name);
+            g_free (name);
         }
-
-        dialog = gtk_message_dialog_new (parent,
-                                         GTK_DIALOG_DESTROY_WITH_PARENT,
-                                         GTK_MESSAGE_INFO,
-                                         GTK_BUTTONS_CLOSE,
-                                         _("This transaction has splits in multiple business accounts:\n\n%s\n"
-                                         "GnuCash can only handle transactions that post to a single account.\n\n"
-                                         "Please correct this manually by editing the transaction directly and then try again."),
-                                         split_str);
-        gnc_dialog_run (GTK_DIALOG(dialog));
-
-        PINFO("Multiple asset accounts in splits of txn \"%s\"; cannot use this for assigning a payment.",
-              xaccTransGetDescription(txn));
-        g_free (split_str);
+        message = g_strdup_printf (
+            _("This transaction has splits in multiple business accounts:\n\n%s\n"
+              "GnuCash can only handle transactions that post to a single account.\n\n"
+              "Please correct this manually by editing the transaction directly and then try again."),
+            accounts->str);
+        payment_show_alert (parent, message);
+        PINFO ("Multiple asset accounts in splits of txn \"%s\"; cannot use this for assigning a payment.",
+               xaccTransGetDescription (txn));
+        g_free (message);
+        g_string_free (accounts, TRUE);
 
         *abort = TRUE;
         g_list_free_full (txn_lots, g_free);
@@ -1816,60 +2012,218 @@ static GList *select_txn_lots (GtkWindow *parent, Transaction *txn, Account **po
     return txn_lots;
 }
 
-PaymentWindow * gnc_ui_payment_new_with_txn (GtkWindow* parent, GncOwner *owner, Transaction *txn)
+static PaymentWindow *
+payment_window_from_transaction (GtkWindow *parent, GncOwner *owner,
+                                 Transaction *txn, Split *payment_split)
 {
-    Split *payment_split = NULL;
     Account *post_acct = NULL;
-    InitialPaymentInfo *tx_info = NULL;
-    GList *txn_lots = NULL;
+    InitialPaymentInfo *tx_info;
+    GList *txn_lots;
     gboolean abort = FALSE;
     PaymentWindow *pw;
+    gnc_numeric amount;
 
-    if (!txn)
-        return NULL;
-
-    if (!xaccTransGetSplitList(txn))
-        return NULL;
-
-    /* We require the txn to have one split in an Asset account.
-     * The only exception would be a lot link transaction
-     */
-    payment_split = select_payment_split (parent, txn);
-    if (!payment_split && (xaccTransGetTxnType(txn) != TXN_TYPE_LINK))
-        return NULL;
-
-    /* Get all APAR related lots. Watch out: there might be none */
     txn_lots = select_txn_lots (parent, txn, &post_acct, &abort);
     if (abort)
         return NULL;
 
-    // Fill in the values from the given txn
-    tx_info = g_new0(InitialPaymentInfo, 1);
+    tx_info = g_new0 (InitialPaymentInfo, 1);
     tx_info->txn = txn;
     tx_info->post_acct = post_acct;
     tx_info->lots = txn_lots;
-    gncOwnerCopy (owner, &tx_info->owner);
+    if (owner)
+        gncOwnerCopy (owner, &tx_info->owner);
+    else
+        gncOwnerInitCustomer (&tx_info->owner, NULL);
 
-    pw = new_payment_window (parent,
-                            qof_instance_get_book(QOF_INSTANCE(txn)),
-                            tx_info);
-
-    gnc_ui_payment_window_set_num(pw, gnc_get_num_action (txn, payment_split));
-    gnc_ui_payment_window_set_memo(pw, xaccTransGetDescription(txn));
+    pw = new_payment_window (parent, qof_instance_get_book (QOF_INSTANCE (txn)), tx_info);
+    gnc_ui_payment_window_set_num (pw, gnc_get_num_action (txn, payment_split));
+    gnc_ui_payment_window_set_memo (pw, xaccTransGetDescription (txn));
     {
         GDate txn_date = xaccTransGetDatePostedGDate (txn);
-        gnc_ui_payment_window_set_date(pw, &txn_date);
+        gnc_ui_payment_window_set_date (pw, &txn_date);
     }
 
-    gnc_numeric amount = xaccSplitGetAmount (payment_split);
-    /* Note: at this point post account selected in newly created payment dialog
-     * may differ from what we got from select_txn_lots above.
-     * Use the dialog's post account commodity to optionally convert the amount
-     * to to display to the user */
-    if (pw->post_acct)
+    amount = payment_split ? xaccSplitGetAmount (payment_split) : gnc_numeric_zero ();
+    if (payment_split && pw->post_acct)
         amount = xaccSplitConvertAmount (payment_split, pw->post_acct);
-    gnc_ui_payment_window_set_amount(pw, amount);
+    gnc_ui_payment_window_set_amount (pw, amount);
     if (payment_split)
-        gnc_ui_payment_window_set_xferaccount(pw, xaccSplitGetAccount(payment_split));
+        gnc_ui_payment_window_set_xferaccount (pw, xaccSplitGetAccount (payment_split));
     return pw;
+}
+
+typedef struct
+{
+    GWeakRef parent;
+    GncOwner owner;
+    Transaction *txn;
+    GList *payment_splits;
+    GList *buttons;
+    GtkWindow *dialog;
+    gboolean consumed;
+} PaymentTxnRequest;
+
+static void
+payment_txn_request_free (PaymentTxnRequest *request)
+{
+    if (!request)
+        return;
+    g_list_free (request->payment_splits);
+    g_list_free (request->buttons);
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+}
+
+static Split *
+payment_txn_request_selected_split (PaymentTxnRequest *request)
+{
+    for (GList *node = request->buttons; node; node = node->next)
+    {
+        GtkCheckButton *button = GTK_CHECK_BUTTON (node->data);
+        if (gtk_check_button_get_active (button))
+            return g_object_get_data (G_OBJECT (button), "payment-split");
+    }
+    return NULL;
+}
+
+static void
+payment_txn_dialog_destroyed_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer user_data)
+{
+    PaymentTxnRequest *request = user_data;
+    request->dialog = NULL;
+    if (!request->consumed)
+        payment_txn_request_free (request);
+}
+
+static void
+payment_txn_continue_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
+{
+    PaymentTxnRequest *request = user_data;
+    GtkWindow *parent;
+    Split *payment_split;
+
+    if (request->consumed)
+        return;
+
+    payment_split = payment_txn_request_selected_split (request);
+    if (!payment_split)
+        return;
+
+    request->consumed = TRUE;
+    parent = g_weak_ref_get (&request->parent);
+    gtk_window_destroy (request->dialog);
+    payment_window_from_transaction (parent, &request->owner, request->txn, payment_split);
+    g_clear_object (&parent);
+    payment_txn_request_free (request);
+}
+
+static void
+payment_txn_cancel_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
+{
+    PaymentTxnRequest *request = user_data;
+    if (request->dialog)
+        gtk_window_destroy (request->dialog);
+}
+
+static void
+payment_txn_request_show_split_picker (PaymentTxnRequest *request)
+{
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+    GtkWidget *content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    GtkWidget *message = gtk_label_new (_("While this transaction has multiple splits that can be considered\n"
+                                          "as 'the payment split', GnuCash only knows how to handle one.\n"
+                                          "Please select one; the others will be discarded."));
+    GtkWidget *button_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkCheckButton *first = NULL;
+    GtkWidget *cancel;
+    GtkWidget *continue_button;
+
+    request->dialog = GTK_WINDOW (gtk_window_new ());
+    gtk_window_set_title (request->dialog, _("Select Payment Split"));
+    gtk_window_set_modal (request->dialog, TRUE);
+    if (parent)
+        gtk_window_set_transient_for (request->dialog, parent);
+    gtk_widget_set_margin_top (content, 12);
+    gtk_widget_set_margin_bottom (content, 12);
+    gtk_widget_set_margin_start (content, 12);
+    gtk_widget_set_margin_end (content, 12);
+    gtk_label_set_xalign (GTK_LABEL (message), 0.0f);
+    gtk_box_append (GTK_BOX (content), message);
+
+    for (GList *node = request->payment_splits; node; node = node->next)
+    {
+        Split *split = node->data;
+        gchar *description = gen_split_desc (request->txn, split);
+        GtkCheckButton *choice = GTK_CHECK_BUTTON (gtk_check_button_new_with_label (description));
+
+        if (first)
+            gtk_check_button_set_group (choice, first);
+        else
+        {
+            first = choice;
+            gtk_check_button_set_active (choice, TRUE);
+        }
+        g_object_set_data (G_OBJECT (choice), "payment-split", split);
+        request->buttons = g_list_append (request->buttons, choice);
+        gtk_box_append (GTK_BOX (content), GTK_WIDGET (choice));
+        g_free (description);
+    }
+
+    gtk_widget_set_halign (button_box, GTK_ALIGN_END);
+    cancel = gtk_button_new_with_mnemonic (_("_Cancel"));
+    continue_button = gtk_button_new_with_mnemonic (_("_Continue"));
+    gtk_box_append (GTK_BOX (button_box), cancel);
+    gtk_box_append (GTK_BOX (button_box), continue_button);
+    gtk_box_append (GTK_BOX (content), button_box);
+    gtk_window_set_child (request->dialog, content);
+    g_signal_connect (request->dialog, "destroy",
+                      G_CALLBACK (payment_txn_dialog_destroyed_cb), request);
+    g_signal_connect (cancel, "clicked", G_CALLBACK (payment_txn_cancel_cb), request);
+    g_signal_connect (continue_button, "clicked", G_CALLBACK (payment_txn_continue_cb), request);
+    gtk_window_present (request->dialog);
+    g_clear_object (&parent);
+}
+
+PaymentWindow *
+gnc_ui_payment_new_with_txn (GtkWindow *parent, GncOwner *owner, Transaction *txn)
+{
+    GList *payment_splits;
+
+    if (!txn || !xaccTransGetSplitList (txn))
+        return NULL;
+
+    payment_splits = xaccTransGetPaymentAcctSplitList (txn);
+    if (!payment_splits)
+    {
+        if (xaccTransGetTxnType (txn) == TXN_TYPE_LINK)
+            return payment_window_from_transaction (parent, owner, txn, NULL);
+
+        payment_show_alert (parent,
+                            _("The selected transaction doesn't have splits that can be assigned as a payment"));
+        PINFO ("No asset splits in txn \"%s\"; cannot use this for assigning a payment.",
+               xaccTransGetDescription (txn));
+        return NULL;
+    }
+
+    if (!payment_splits->next)
+    {
+        PaymentWindow *pw = payment_window_from_transaction (parent, owner, txn,
+                                                              payment_splits->data);
+        g_list_free (payment_splits);
+        return pw;
+    }
+
+    {
+        PaymentTxnRequest *request = g_new0 (PaymentTxnRequest, 1);
+        g_weak_ref_init (&request->parent, parent);
+        if (owner)
+            gncOwnerCopy (owner, &request->owner);
+        else
+            gncOwnerInitCustomer (&request->owner, NULL);
+        request->txn = txn;
+        request->payment_splits = payment_splits;
+        payment_txn_request_show_split_picker (request);
+    }
+    return NULL;
 }
