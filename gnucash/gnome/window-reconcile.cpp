@@ -498,6 +498,113 @@ recn_get_account (RecnWindow *recnData)
 
     return xaccAccountLookup (&recnData->account, gnc_get_current_book ());
 }
+typedef enum
+{
+    RECN_REGISTER_REVEAL_SPLIT,
+    RECN_REGISTER_REVEAL_SPLIT_AMOUNT,
+} RecnRegisterRevealKind;
+
+typedef struct
+{
+    GWeakRef reconcile_window;
+    GWeakRef page;
+    GWeakRef page_window;
+    QofBook *book;
+    GncGUID account_guid;
+    GncGUID split_guid;
+    GncGUID transaction_guid;
+    RecnRegisterRevealKind kind;
+} RecnRegisterRevealRequest;
+
+static void
+recn_register_reveal_request_free (gpointer user_data)
+{
+    auto request = static_cast<RecnRegisterRevealRequest *> (user_data);
+
+    g_weak_ref_clear (&request->page_window);
+    g_weak_ref_clear (&request->page);
+    g_weak_ref_clear (&request->reconcile_window);
+    g_free (request);
+}
+
+static void
+recn_register_reveal_finished (GNCSplitReg *gsr, Split *split,
+                               GncSplitRegRevealResult result,
+                               gpointer user_data)
+{
+    auto request = static_cast<RecnRegisterRevealRequest *> (user_data);
+    GtkWindow *reconcile_window =
+        GTK_WINDOW (g_weak_ref_get (&request->reconcile_window));
+    GncPluginPage *page = GNC_PLUGIN_PAGE (g_weak_ref_get (&request->page));
+    GtkWindow *page_window = GTK_WINDOW (g_weak_ref_get (&request->page_window));
+    Account *account;
+    Transaction *transaction;
+    RecnWindow *recnData;
+
+    if (!reconcile_window || !page || !page_window ||
+        !GTK_IS_WINDOW (reconcile_window) ||
+        !GNC_IS_PLUGIN_PAGE_REGISTER (page) ||
+        !GTK_IS_WINDOW (page_window) ||
+        request->book != gnc_get_current_book () ||
+        qof_book_shutting_down (request->book))
+        goto out;
+
+    account = xaccAccountLookup (&request->account_guid, request->book);
+    recnData = account ? static_cast<RecnWindow *> (
+        gnc_find_first_gui_component (WINDOW_RECONCILE_CM_CLASS,
+                                      find_by_account, account)) : nullptr;
+    transaction = xaccTransLookup (&request->transaction_guid, request->book);
+    if (!account || !recnData || recnData->window != GTK_WIDGET (reconcile_window) ||
+        recnData->page != page ||
+        !guid_equal (&recnData->account, &request->account_guid) ||
+        recn_get_account (recnData) != account ||
+        gnc_plugin_page_get_window (page) !=
+            GTK_WIDGET (page_window) ||
+        gnc_plugin_page_register_get_gsr (page) != gsr ||
+        xaccSplitLookup (&request->split_guid, request->book) != split ||
+        !transaction || xaccSplitGetParent (split) != transaction)
+        goto out;
+
+    if (result == GNC_SPLIT_REG_REVEAL_FILTER_CLEARED)
+        gnc_plugin_page_register_clear_current_filter (page);
+    if (request->kind == RECN_REGISTER_REVEAL_SPLIT_AMOUNT)
+        gnc_split_reg_jump_to_split_amount (gsr, split);
+    else
+        gnc_split_reg_jump_to_split (gsr, split);
+
+out:
+    g_clear_object (&page_window);
+    g_clear_object (&page);
+    g_clear_object (&reconcile_window);
+}
+
+static void
+recn_register_reveal_split_async (RecnWindow *recnData, GNCSplitReg *gsr,
+                                  Split *split, RecnRegisterRevealKind kind)
+{
+    RecnRegisterRevealRequest *request;
+    Account *account;
+    Transaction *transaction;
+    GtkWidget *page_window;
+
+    if (!recnData || !recnData->window || !recnData->page || !gsr || !split ||
+        !(account = recn_get_account (recnData)) ||
+        !(transaction = xaccSplitGetParent (split)) ||
+        !(page_window = gnc_plugin_page_get_window (recnData->page)))
+        return;
+
+    request = g_new0 (RecnRegisterRevealRequest, 1);
+    request->book = gnc_get_current_book ();
+    request->account_guid = *xaccAccountGetGUID (account);
+    request->split_guid = *xaccSplitGetGUID (split);
+    request->transaction_guid = *xaccTransGetGUID (transaction);
+    request->kind = kind;
+    g_weak_ref_init (&request->reconcile_window, G_OBJECT (recnData->window));
+    g_weak_ref_init (&request->page, G_OBJECT (recnData->page));
+    g_weak_ref_init (&request->page_window, G_OBJECT (page_window));
+    gnc_split_reg_reveal_split_async (gsr, split, recn_register_reveal_finished,
+                                      request, recn_register_reveal_request_free);
+}
 
 
 static void
@@ -1405,11 +1512,8 @@ gnc_reconcile_window_double_click_cb(GNCReconcileView *view, Split *split,
     if (gsr == NULL)
         return;
 
-    /* Test for visibility of split */
-    if (gnc_split_reg_clear_filter_for_split (gsr, split))
-        gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE(recnData->page));
-
-    gnc_split_reg_jump_to_split( gsr, split );
+    recn_register_reveal_split_async (recnData, gsr, split,
+                                      RECN_REGISTER_REVEAL_SPLIT);
 }
 
 
@@ -1735,11 +1839,8 @@ gnc_ui_reconcile_window_edit_cb (GSimpleAction *simple,
     if (gsr == NULL)
         return;
 
-    /* Test for visibility of split */
-    if (gnc_split_reg_clear_filter_for_split (gsr, split))
-        gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE(recnData->page));
-
-    gnc_split_reg_jump_to_split_amount( gsr, split );
+    recn_register_reveal_split_async (recnData, gsr, split,
+                                      RECN_REGISTER_REVEAL_SPLIT_AMOUNT);
 }
 
 

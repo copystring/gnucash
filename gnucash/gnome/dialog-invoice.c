@@ -847,6 +847,10 @@ gnc_invoice_window_destroy_cb (GtkWidget *widget, gpointer data)
     InvoiceWindow *iw = data;
     GncInvoice *invoice = iw_get_invoice (iw);
 
+    /* This callback is also used by the embedded invoice page. The widget is
+     * already in destruction, so this path only tears down controller state. */
+    (void)widget;
+
     gnc_suspend_gui_refresh ();
 
     if ((iw->dialog_type == NEW_INVOICE || iw->dialog_type == DUP_INVOICE)
@@ -858,7 +862,6 @@ gnc_invoice_window_destroy_cb (GtkWidget *widget, gpointer data)
         iw->invoice_guid = *guid_null ();
     }
 
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(widget));
     gnc_entry_ledger_destroy (iw->ledger);
     gnc_unregister_gui_component (iw->component_id);
     g_object_unref (G_OBJECT (iw->builder));
@@ -2662,8 +2665,8 @@ gnc_invoice_dialog_close_handler (gpointer user_data)
 {
     InvoiceWindow *iw = user_data;
 
-//FIXME gtk4    if (iw)
-//        gtk_window_destroy (GTK_WINDOW(iw->dialog));
+    if (iw && GTK_IS_WINDOW (iw->dialog))
+        gtk_window_destroy (GTK_WINDOW (iw->dialog));
 }
 
 static void

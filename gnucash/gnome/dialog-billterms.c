@@ -232,9 +232,9 @@ init_notebook_widgets (BillTermNB *notebook, gboolean read_only,
 
     /* Disconnect the notebook from the window */
     g_object_ref (notebook->notebook);
-    gtk_box_remove (GTK_BOX(parent), GTK_WIDGET(notebook->notebook));
+    gtk_window_set_child (GTK_WINDOW (parent), NULL);
+    gtk_window_destroy (GTK_WINDOW (parent));
     g_object_unref (G_OBJECT(builder));
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(parent));
 
     /* NOTE: The caller needs to unref once they attach */
 }
@@ -976,9 +976,11 @@ billterms_window_close_handler (gpointer data)
     BillTermsWindow *btw = data;
 
     g_return_if_fail (btw);
+    if (!btw->window)
+        return;
 
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(btw->window));
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(btw->window));
+    gtk_window_destroy (GTK_WINDOW (btw->window));
 }
 
 void
@@ -986,7 +988,9 @@ billterms_window_close (GtkWidget *widget, gpointer data)
 {
     BillTermsWindow *btw = data;
 
-    gnc_close_gui_component (btw->component_id);
+    if (btw)
+        gnc_close_gui_component (btw->component_id);
+    (void)widget;
 }
 
 static gboolean
@@ -1008,13 +1012,10 @@ billterms_window_destroy_cb (GtkWidget *widget, gpointer data)
 
     if (!btw) return;
 
+    /* The GtkWindow is already being destroyed. Prevent a reentrant close
+     * handler from trying to destroy it again before unregistering it. */
+    btw->window = NULL;
     gnc_unregister_gui_component (btw->component_id);
-
-    if (btw->window)
-    {
-//FIXME gtk4        gtk_window_destroy (GTK_WINDOW(btw->window));
-        btw->window = NULL;
-    }
     g_clear_object (&btw->term_selection);
     g_clear_object (&btw->terms_model);
     g_free (btw);
@@ -1029,7 +1030,7 @@ billterms_window_key_press_cb (GtkEventControllerKey *key, guint keyval,
 
     if (keyval == GDK_KEY_Escape)
     {
-        billterms_window_close_handler (btw);
+        gnc_close_gui_component (btw->component_id);
         return TRUE;
     }
     else

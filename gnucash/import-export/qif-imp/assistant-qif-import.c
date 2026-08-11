@@ -553,8 +553,6 @@ gnc_ui_qif_import_assistant_destroy (GtkWidget *object, gpointer user_data)
 
     gnc_unregister_gui_component_by_data (ASSISTANT_QIF_IMPORT_CM_CLASS, wind);
 
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(wind->window));
-
     scm_gc_unprotect_object (wind->imported_files);
     scm_gc_unprotect_object (wind->selected_file);
     scm_gc_unprotect_object (wind->gnc_acct_info);

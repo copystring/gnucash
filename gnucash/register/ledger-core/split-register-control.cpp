@@ -86,40 +86,158 @@ check_imbalance_fraction (const SplitRegister *reg,
     return denom_diff;
 }
 
-static gboolean
-gnc_split_register_balance_trans (SplitRegister *reg, Transaction *trans)
+typedef enum
 {
-    int choice;
+    GNC_SPLIT_REGISTER_BALANCE_CONTINUE,
+    GNC_SPLIT_REGISTER_BALANCE_DEFERRED
+} GncSplitRegisterBalanceResult;
+
+typedef struct
+{
+    GncSplitRegisterAsyncRequest base;
+    GWeakRef parent;
+    QofBook *book;
+    GncGUID book_guid;
+    GncGUID transaction_guid;
+    GncGUID default_account_guid;
+    GncGUID other_account_guid;
+    VirtualLocation source;
+    gboolean has_parent;
+    gboolean has_default_account;
+    gboolean has_other_account;
+    gboolean cancelled;
+    gboolean completed;
+} SplitRegisterBalanceRequest;
+
+static void
+split_register_balance_request_release_input (SplitRegisterBalanceRequest *request)
+{
+    auto reg = request->base.reg;
+
+    if (reg && reg->table && reg->table->control)
+        gnc_table_control_set_input_suspended (reg->table->control, FALSE);
+}
+
+static gboolean
+split_register_balance_request_is_current (SplitRegisterBalanceRequest *request,
+                                           GtkWidget *parent)
+{
+    auto reg = request->base.reg;
+    auto transaction = reg ? gnc_split_register_get_current_trans (reg) : nullptr;
+
+    return !request->cancelled && reg && reg->table && request->book &&
+        request->book == gnc_get_current_book () &&
+        guid_equal (&request->book_guid, qof_book_get_guid (request->book)) &&
+        transaction &&
+        virt_loc_equal (reg->table->current_cursor_loc, request->source) &&
+        guid_equal (xaccTransGetGUID (transaction), &request->transaction_guid) &&
+        xaccTransLookup (&request->transaction_guid, request->book) == transaction &&
+        (!request->has_parent ||
+         (parent && gnc_split_register_get_parent (reg) == parent));
+}
+
+static void
+split_register_balance_request_free (SplitRegisterBalanceRequest *request)
+{
+    gnc_split_register_async_request_untrack (&request->base);
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+}
+
+static void
+split_register_balance_request_cancel (GncSplitRegisterAsyncRequest *base)
+{
+    auto request = reinterpret_cast<SplitRegisterBalanceRequest *>(base);
+
+    request->cancelled = TRUE;
+    split_register_balance_request_release_input (request);
+    /* GtkAlertDialog owns the completion callback. Keep this carrier alive
+     * until it observes cancellation, but detach it from the closing register. */
+    gnc_split_register_async_request_untrack (&request->base);
+}
+
+static void
+split_register_balance_request_finished (G_GNUC_UNUSED GtkWindow *dialog,
+                                         gint choice, gpointer user_data)
+{
+    auto request = static_cast<SplitRegisterBalanceRequest *>(user_data);
+    auto reg = request->base.reg;
+    auto parent = static_cast<GtkWidget *>(g_weak_ref_get (&request->parent));
+    gboolean changed = FALSE;
+
+    if (!request->cancelled && !request->completed)
+    {
+        request->completed = TRUE;
+        if (choice > 0 && split_register_balance_request_is_current (request, parent))
+        {
+            auto transaction = xaccTransLookup (&request->transaction_guid, request->book);
+            auto default_account = request->has_default_account
+                ? xaccAccountLookup (&request->default_account_guid, request->book) : nullptr;
+            auto other_account = request->has_other_account
+                ? xaccAccountLookup (&request->other_account_guid, request->book) : nullptr;
+            auto root = default_account ? gnc_account_get_root (default_account) : nullptr;
+
+            if (!xaccTransIsBalanced (transaction))
+            {
+                switch (choice)
+                {
+                case 1:
+                    xaccTransScrubImbalance (transaction, root, nullptr);
+                    changed = TRUE;
+                    break;
+                case 2:
+                    xaccTransScrubImbalance (transaction, root, default_account);
+                    changed = TRUE;
+                    break;
+                case 3:
+                    if (request->has_other_account)
+                    {
+                        xaccTransScrubImbalance (transaction, root, other_account);
+                        changed = TRUE;
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+
+    if (changed && reg && reg->table)
+        gnc_split_register_redraw (reg);
+    g_clear_object (&parent);
+    split_register_balance_request_release_input (request);
+    split_register_balance_request_free (request);
+}
+
+static GncSplitRegisterBalanceResult
+gnc_split_register_balance_trans_async (SplitRegister *reg, Transaction *trans)
+{
     int default_value;
     Account *default_account;
     Account *other_account;
-    Account *root;
-    GList *radio_list = NULL;
-    const char *title   = _("Rebalance Transaction");
-    const char *message = _("The current transaction is not balanced.");
     Split *split;
     Split *other_split;
     gboolean two_accounts;
     gboolean multi_currency;
+    GList *choices = nullptr;
 
-    if (xaccTransIsBalanced (trans))
-        return FALSE;
+    if (!reg || !reg->table || !trans || xaccTransIsBalanced (trans))
+        return GNC_SPLIT_REGISTER_BALANCE_CONTINUE;
 
     if (xaccTransUseTradingAccounts (trans))
     {
-        MonetaryList *imbal_list;
-        gnc_monetary *imbal_mon;
-        imbal_list = xaccTransGetImbalance (trans);
+        MonetaryList *imbal_list = xaccTransGetImbalance (trans);
 
-        /* See if the imbalance is only in the transaction's currency */
+        /* See if the imbalance is only in the transaction's currency. */
         if (!imbal_list)
-            /* Value imbalance, but not commodity imbalance.  This shouldn't
-               be something that scrubbing can cause to happen.  Perhaps someone
-               entered invalid splits.  */
+            /* Value imbalance, but not commodity imbalance. This should not
+             * happen after scrubbing, but it must not carry model pointers
+             * over the asynchronous choice boundary. */
             multi_currency = TRUE;
         else
         {
-            imbal_mon = static_cast<gnc_monetary*>(imbal_list->data);
+            auto imbal_mon = static_cast<gnc_monetary *>(imbal_list->data);
             if (!imbal_list->next &&
                 gnc_commodity_equiv (gnc_monetary_commodity (*imbal_mon),
                                      xaccTransGetCurrency (trans)))
@@ -128,11 +246,13 @@ gnc_split_register_balance_trans (SplitRegister *reg, Transaction *trans)
                 multi_currency = TRUE;
 
             if (multi_currency && check_imbalance_fraction (reg, imbal_mon, trans))
-                return FALSE;
+            {
+                gnc_monetary_list_free (imbal_list);
+                return GNC_SPLIT_REGISTER_BALANCE_CONTINUE;
+            }
         }
 
-        /* We're done with the imbalance list, the real work will be done
-           by xaccTransScrubImbalance which will get it again. */
+        /* The real work will obtain a fresh imbalance list after the choice. */
         gnc_monetary_list_free (imbal_list);
     }
     else
@@ -141,19 +261,19 @@ gnc_split_register_balance_trans (SplitRegister *reg, Transaction *trans)
     split = xaccTransGetSplit (trans, 0);
     other_split = xaccSplitGetOtherSplit (split);
 
-    if (other_split == NULL)
+    if (!other_split)
     {
-        /* Attempt to handle the inverted many-to-one mapping */
+        /* Attempt to handle the inverted many-to-one mapping. */
         split = xaccTransGetSplit (trans, 1);
         if (split)
             other_split = xaccSplitGetOtherSplit (split);
         else
             split = xaccTransGetSplit (trans, 0);
     }
-    if (other_split == NULL || multi_currency)
+    if (!other_split || multi_currency)
     {
         two_accounts = FALSE;
-        other_account = NULL;
+        other_account = nullptr;
     }
     else
     {
@@ -163,73 +283,68 @@ gnc_split_register_balance_trans (SplitRegister *reg, Transaction *trans)
 
     default_account = gnc_split_register_get_default_account (reg);
 
-    /* If the two pointers are the same, the account from other_split
-     * is actually the default account. We must make other_account
-     * the account from split instead.   */
-
+    /* If the two pointers are the same, the account from other_split is the
+     * default account. In that case prefer the account from split. */
     if (default_account == other_account)
-        other_account = xaccSplitGetAccount (split);
-
-    /*  If the two pointers are still the same, we have two splits, but
-     *  they both refer to the same account. While non-sensical, we don't
-     *  object.   */
-
+        other_account = split ? xaccSplitGetAccount (split) : nullptr;
     if (default_account == other_account)
         two_accounts = FALSE;
 
-    radio_list = g_list_append (radio_list,
-                                _("Balance it _manually"));
-    radio_list = g_list_append (radio_list,
-                                _("Let GnuCash _add an adjusting split"));
-
+    choices = g_list_append (choices, g_strdup (_("Balance it _manually")));
+    choices = g_list_append (choices,
+                             g_strdup (_("Let GnuCash _add an adjusting split")));
     if (reg->type < NUM_SINGLE_REGISTER_TYPES && !multi_currency)
     {
-        radio_list = g_list_append (radio_list,
-                                    _("Adjust current account _split total"));
-
+        choices = g_list_append (choices,
+                                 g_strdup (_("Adjust current account _split total")));
         default_value = 2;
         if (two_accounts)
         {
-            radio_list = g_list_append (radio_list,
-                                        _("Adjust _other account split total"));
+            choices = g_list_append (choices,
+                                     g_strdup (_("Adjust _other account split total")));
             default_value = 3;
         }
     }
     else
         default_value = 0;
 
-    choice = gnc_choose_radio_option_dialog (gnc_split_register_get_parent (reg),
-                                             title,
-                                             message,
-                                             _("_Rebalance"),
-                                             default_value,
-                                             radio_list);
-
-    g_list_free (radio_list);
-
-    root = default_account ? gnc_account_get_root (default_account) : NULL;
-    switch (choice)
+    auto book = gnc_get_current_book ();
+    if (!book)
     {
-    default:
-    case 0:
-        break;
-
-    case 1:
-        xaccTransScrubImbalance (trans, root, NULL);
-        break;
-
-    case 2:
-        xaccTransScrubImbalance (trans, root, default_account);
-        break;
-
-    case 3:
-        xaccTransScrubImbalance (trans, root, other_account);
-        break;
+        g_list_free_full (choices, g_free);
+        return GNC_SPLIT_REGISTER_BALANCE_CONTINUE;
     }
 
-    return TRUE;
-}
+    auto request = g_new0 (SplitRegisterBalanceRequest, 1);
+    auto parent = gnc_split_register_get_parent (reg);
+    request->book = book;
+    request->book_guid = *qof_book_get_guid (book);
+    request->transaction_guid = *xaccTransGetGUID (trans);
+    request->source = reg->table->current_cursor_loc;
+    request->has_parent = parent != nullptr;
+    if (default_account)
+    {
+        request->default_account_guid = *xaccAccountGetGUID (default_account);
+        request->has_default_account = TRUE;
+    }
+    if (two_accounts && other_account)
+    {
+        request->other_account_guid = *xaccAccountGetGUID (other_account);
+        request->has_other_account = TRUE;
+    }
+    g_weak_ref_init (&request->parent, parent);
+    gnc_split_register_async_request_track (reg, &request->base,
+                                            split_register_balance_request_cancel);
+    gnc_table_control_set_input_suspended (reg->table->control, TRUE);
+    gnc_choose_option_dialog_async (GTK_IS_WINDOW (parent) ? GTK_WINDOW (parent) : nullptr,
+                                    _("Rebalance Transaction"),
+                                    _("The current transaction is not balanced."),
+                                    choices, default_value,
+                                    split_register_balance_request_finished, request);
+    g_list_free_full (choices, g_free);
 
+    return GNC_SPLIT_REGISTER_BALANCE_DEFERRED;
+}
 static gboolean
 gnc_split_register_old_split_empty_p (SplitRegister *reg, Split *split)
 {
@@ -592,7 +707,8 @@ gnc_split_register_move_cursor (VirtualLocation *p_new_virt_loc,
              (pending_trans != blank_trans) &&
              (old_trans != new_trans))
     {
-        if (gnc_split_register_balance_trans (reg, pending_trans))
+        if (gnc_split_register_balance_trans_async (reg, pending_trans) ==
+            GNC_SPLIT_REGISTER_BALANCE_DEFERRED)
         {
             /* Trans was unbalanced. */
             new_trans = old_trans;
@@ -617,7 +733,8 @@ gnc_split_register_move_cursor (VirtualLocation *p_new_virt_loc,
              (old_trans != new_trans) &&
              !xaccTransHasReconciledSplits (old_trans) &&
              !info->first_pass &&
-             gnc_split_register_balance_trans (reg, old_trans))
+             gnc_split_register_balance_trans_async (reg, old_trans) ==
+             GNC_SPLIT_REGISTER_BALANCE_DEFERRED)
     {
         /* no matter what, stay there so the user can see what happened */
         new_trans = old_trans;

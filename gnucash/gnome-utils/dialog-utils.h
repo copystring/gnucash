@@ -175,20 +175,6 @@ void gnc_warning_dialog_choice_async (GtkWindow *parent,
                                       GncWarningDialogResponseCallback completed,
                                       gpointer user_data);
 
-/** Note: This dialog is modal!
- */
-gint
-gnc_dialog_run (GtkDialog *dialog);
-
-/** Run a dialog with GTK4 response callbacks while preserving the widget.
- *
- * This is for dialogs that must remain available for validation retries or
- * whose controls are read after the user responds. The caller owns and must
- * destroy the dialog when its interaction is complete.
- */
-gint
-gnc_dialog_run_non_destructive (GtkDialog *dialog);
-
 /** Callback for gnc_ok_to_close_window_async().
  *
  * @a window is NULL and @a close_allowed is FALSE when the target window was

@@ -90,22 +90,6 @@ extern "C" {
 
 /* Dialog windows ***************************************************/
 
-extern gboolean
-gnc_verify_dialog (GtkWindow *parent,
-                   gboolean yes_is_default,
-                   const char *format, ...) G_GNUC_PRINTF (3, 4);
-
-extern gint
-gnc_ok_cancel_dialog (GtkWindow *parent,
-                      gint default_result,
-                      const char *format, ...) G_GNUC_PRINTF (3, 4);
-
-extern gboolean
-gnc_action_dialog (GtkWindow *parent,
-                   const gchar *action,
-                   gboolean action_default,
-                   const gchar *format, ...) G_GNUC_PRINTF (4, 5);
-
 /**
  * Receives exactly one response from a non-blocking GTK4 decision dialog.
  *
@@ -185,13 +169,6 @@ gnc_info2_dialog (GtkWidget *parent, const gchar *title, const gchar *msg);
 
 extern void
 gnc_gnome_help (GtkWindow *parent, const char *file_name, const char *target_link);
-
-int      gnc_choose_radio_option_dialog (GtkWidget *parent,
-        const char *title,
-        const char *msg,
-        const char *button_name,
-        int default_value,
-        GList *radio_list);
 
 void     gnc_tax_info_dialog (GtkWidget *parent, Account *account);
 void     gnc_stock_split_dialog (GtkWidget *parent, Account * initial);

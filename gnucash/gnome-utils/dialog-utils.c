@@ -873,88 +873,6 @@ gnc_perm_button_cb (GtkButton *perm, gpointer user_data)
 
 typedef struct
 {
-    GMainLoop *loop;
-    gint response;
-    gboolean answered;
-    gboolean destroyed;
-} GncDialogResponseState;
-
-static void
-gnc_dialog_response_cb (GtkDialog *dialog, gint response, gpointer user_data)
-{
-    GncDialogResponseState *state = user_data;
-
-    (void)dialog;
-    state->response = response;
-    state->answered = TRUE;
-    if (g_main_loop_is_running(state->loop))
-        g_main_loop_quit(state->loop);
-}
-
-static gboolean
-gnc_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
-{
-    (void)user_data;
-    gtk_dialog_response (GTK_DIALOG(window), GTK_RESPONSE_DELETE_EVENT);
-    return TRUE;
-}
-
-static void
-gnc_dialog_destroy_cb (GtkWidget *widget, gpointer user_data)
-{
-    GncDialogResponseState *state = user_data;
-
-    (void)widget;
-    state->destroyed = TRUE;
-    if (!state->answered)
-    {
-        state->response = GTK_RESPONSE_DELETE_EVENT;
-        state->answered = TRUE;
-    }
-    if (g_main_loop_is_running(state->loop))
-        g_main_loop_quit(state->loop);
-}
-
-static gint
-gnc_dialog_wait_for_response (GtkDialog *dialog)
-{
-    GncDialogResponseState state = { 0 };
-    gulong response_handler;
-    gulong close_handler;
-    gulong destroy_handler;
-
-    g_object_ref (dialog);
-    state.loop = g_main_loop_new (NULL, FALSE);
-    response_handler = g_signal_connect (dialog, "response",
-                                         G_CALLBACK(gnc_dialog_response_cb), &state);
-    close_handler = g_signal_connect (dialog, "close-request",
-                                      G_CALLBACK(gnc_dialog_close_request_cb), &state);
-    destroy_handler = g_signal_connect (dialog, "destroy",
-                                        G_CALLBACK(gnc_dialog_destroy_cb), &state);
-    gtk_window_set_modal (GTK_WINDOW(dialog), TRUE);
-    gtk_widget_set_visible (GTK_WIDGET(dialog), TRUE);
-    g_main_loop_run (state.loop);
-
-    if (!state.destroyed)
-    {
-        g_signal_handler_disconnect (dialog, response_handler);
-        g_signal_handler_disconnect (dialog, close_handler);
-        g_signal_handler_disconnect (dialog, destroy_handler);
-    }
-    g_main_loop_unref (state.loop);
-    g_object_unref (dialog);
-
-    return state.answered ? state.response : GTK_RESPONSE_DELETE_EVENT;
-}
-
-gint
-gnc_dialog_run_non_destructive (GtkDialog *dialog)
-{
-    return gnc_dialog_wait_for_response (dialog);
-}
-
-typedef struct
-{
     GtkWindow *window;
     GWeakRef parent;
     GWeakRef perm;
@@ -1422,16 +1340,6 @@ gnc_ok_to_close_window_async (GtkWindow *window,
                              gnc_ok_to_close_window_request_finished, request);
     g_object_unref (dialog);
     gnc_ok_to_close_window_request_unref (request);
-}
-gint
-gnc_dialog_run (GtkDialog *dialog)
-{
-    gint response = gnc_dialog_run_non_destructive (dialog);
-
-    if (response == GTK_RESPONSE_NONE || response == GTK_RESPONSE_DELETE_EVENT)
-        response = GTK_RESPONSE_CANCEL;
-    gtk_window_destroy (GTK_WINDOW(dialog));
-    return response;
 }
 
 /* If this is a new book, this function can be used to display book options

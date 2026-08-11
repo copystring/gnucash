@@ -826,20 +826,24 @@ gnc_plugin_page_invoice_summarybar_position_changed (gpointer prefs,
     GncPluginPage *plugin_page;
     GncPluginPageInvoice *page;
     GncPluginPageInvoicePrivate *priv;
-    GtkPositionType position = GTK_POS_BOTTOM;
+    GtkWidget *summarybar;
+    GtkWidget *last_child;
 
     g_return_if_fail(user_data != NULL);
 
     plugin_page = GNC_PLUGIN_PAGE(user_data);
     page = GNC_PLUGIN_PAGE_INVOICE (user_data);
     priv = GNC_PLUGIN_PAGE_INVOICE_GET_PRIVATE(page);
+    summarybar = plugin_page->summarybar;
 
-    if (gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_SUMMARYBAR_POSITION_TOP))
-        position = GTK_POS_TOP;
+    if (!summarybar || gtk_widget_get_parent (summarybar) != priv->widget)
+        return;
 
-//FIXME gtk4    gtk_box_reorder_child(GTK_BOX(priv->widget),
-//                          plugin_page->summarybar,
-//                          (position == GTK_POS_TOP ? 0 : -1) );
+    if (gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
+                            GNC_PREF_SUMMARYBAR_POSITION_TOP))
+        gtk_box_reorder_child_after (GTK_BOX (priv->widget), summarybar, NULL);
+    else if ((last_child = gtk_widget_get_last_child (priv->widget)) != summarybar)
+        gtk_box_reorder_child_after (GTK_BOX (priv->widget), summarybar, last_child);
 }
 
 

@@ -70,7 +70,91 @@ typedef struct
 
     DoclinkReturn *ret_dlr;
 }DoclinkDialog;
+typedef struct
+{
+    GWeakRef dialog_window;
+    GWeakRef page;
+    GWeakRef page_window;
+    QofBook *book;
+    GncGUID split_guid;
+    GncGUID transaction_guid;
+} DoclinkRegisterRevealRequest;
 
+static void
+doclink_register_reveal_request_free (gpointer user_data)
+{
+    DoclinkRegisterRevealRequest *request = user_data;
+
+    g_weak_ref_clear (&request->page_window);
+    g_weak_ref_clear (&request->page);
+    g_weak_ref_clear (&request->dialog_window);
+    g_free (request);
+}
+
+static void
+doclink_register_reveal_finished (GNCSplitReg *gsr, Split *split,
+                                  GncSplitRegRevealResult result,
+                                  gpointer user_data)
+{
+    DoclinkRegisterRevealRequest *request = user_data;
+    GObject *dialog_window = g_weak_ref_get (&request->dialog_window);
+    GObject *page_object = g_weak_ref_get (&request->page);
+    GObject *page_window = g_weak_ref_get (&request->page_window);
+    GncPluginPage *page;
+    Transaction *transaction;
+
+    if (!dialog_window || !page_object || !page_window ||
+        !GTK_IS_WINDOW (dialog_window) ||
+        !GNC_IS_PLUGIN_PAGE_REGISTER (page_object) ||
+        !GTK_IS_WINDOW (page_window) ||
+        !gtk_widget_get_visible (GTK_WIDGET (dialog_window)) ||
+        request->book != gnc_get_current_book () ||
+        qof_book_shutting_down (request->book))
+        goto out;
+
+    page = GNC_PLUGIN_PAGE (page_object);
+    transaction = xaccTransLookup (&request->transaction_guid, request->book);
+    if (gnc_plugin_page_get_window (page) != GTK_WIDGET (page_window) ||
+        gnc_plugin_page_register_get_gsr (page) != gsr ||
+        xaccSplitLookup (&request->split_guid, request->book) != split ||
+        !transaction || xaccSplitGetParent (split) != transaction)
+        goto out;
+
+    if (result == GNC_SPLIT_REG_REVEAL_FILTER_CLEARED)
+        gnc_plugin_page_register_clear_current_filter (page);
+    gnc_split_reg_jump_to_split (gsr, split);
+
+out:
+    g_clear_object (&page_window);
+    g_clear_object (&page_object);
+    g_clear_object (&dialog_window);
+}
+
+static void
+doclink_register_reveal_split_async (DoclinkDialog *dialog,
+                                     GncPluginPage *page, GNCSplitReg *gsr,
+                                     Split *split)
+{
+    DoclinkRegisterRevealRequest *request;
+    GtkWidget *page_window;
+    Transaction *transaction;
+
+    if (!dialog || !dialog->window || !page || !gsr || !split ||
+        !(transaction = xaccSplitGetParent (split)) ||
+        !(page_window = gnc_plugin_page_get_window (page)))
+        return;
+
+    request = g_new0 (DoclinkRegisterRevealRequest, 1);
+    request->book = gnc_get_current_book ();
+    request->split_guid = *xaccSplitGetGUID (split);
+    request->transaction_guid = *xaccTransGetGUID (transaction);
+    g_weak_ref_init (&request->dialog_window, G_OBJECT (dialog->window));
+    g_weak_ref_init (&request->page, G_OBJECT (page));
+    g_weak_ref_init (&request->page_window, G_OBJECT (page_window));
+    gnc_split_reg_reveal_split_async
+        (gsr, split, doclink_register_reveal_finished, request,
+         doclink_register_reveal_request_free);
+}
 
 typedef struct
 {
@@ -1047,11 +1131,7 @@ row_selected_trans_cb (GtkGestureClick *gesture, int n_press,
         gsr = gnc_plugin_page_register_get_gsr (page);
         gnc_split_reg_raise (gsr);
 
-        // Test for visibility of split
-        if (gnc_split_reg_clear_filter_for_split (gsr, (split)))
-            gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE(page));
-
-        gnc_split_reg_jump_to_split (gsr, split);
+        doclink_register_reveal_split_async (doclink_dialog, page, gsr, split);
     }
 
     // Open transaction document link dialog

@@ -151,10 +151,6 @@ void gnc_split_reg_expand_trans_toolbar_cb(GtkWidget *widget, gpointer data);
 void gnc_split_reg_new_trans_cb(GtkWidget *widget, gpointer data);
 void gnc_split_reg_jump_cb(GtkWidget *widget, gpointer data);
 
-void gnc_split_reg_style_ledger_cb (GtkWidget *w, gpointer data);
-void gnc_split_reg_style_auto_ledger_cb (GtkWidget *w, gpointer data);
-void gnc_split_reg_style_journal_cb (GtkWidget *w, gpointer data);
-void gnc_split_reg_double_line_cb (GtkWidget *w, gpointer data);
 
 void gnc_split_reg_sort_standard_cb (GtkWidget *w, gpointer data);
 void gnc_split_reg_sort_date_cb (GtkWidget *w, gpointer data);
@@ -509,11 +505,12 @@ gnc_split_reg_dispose(GObject *obj)
                                  gsr);
 
     if (gsr->reg)
-    {
         g_signal_handlers_disconnect_by_data (gsr->reg, gsr);
-//FIXME gtk4        gtk_window_destroy (GTK_WINDOW(gsr->reg));
-    }
     gsr->reg = NULL;
+
+    /* GNCSplitReg owns the register as a GtkBox child. Chaining disposal lets
+     * GtkBox unparent it exactly once; it is not a separate GtkWindow. */
+    G_OBJECT_CLASS (gnc_split_reg_parent_class)->dispose (obj);
 }
 
 /**
@@ -1739,31 +1736,20 @@ gnc_split_reg_cancel_trans_cb(GtkWidget *w, gpointer data)
 void
 gsr_default_expand_handler( GNCSplitReg *gsr, gpointer data )
 {
-    gint activeCount;
-    gboolean expand;
     SplitRegister *reg;
 
-    if (!gsr)
+    if (!gsr || !gsr->ledger)
         return;
 
     reg = gnc_ledger_display_get_split_register (gsr->ledger);
+    if (!reg)
+        return;
 
-    /* These should all be in agreement. */
-//FIXME gtk4    activeCount =
-//        ( ( gtk_check_menu_item_get_active (GTK_CHECK_MENU_ITEM(gsr->split_menu_check)) ? 1 : -1 )
-//          + ( gtk_check_menu_item_get_active (GTK_CHECK_MENU_ITEM(gsr->split_popup_check)) ? 1 : -1 )
-//          + ( gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(gsr->split_button) )
-//              ? 1 : -1 ) );
-activeCount = 0;
-
-    /* If activeCount > 0, then there's more active than inactive; otherwise,
-     * more inactive than active.  Both determine which state the user is
-     * attempting to get to. */
-    expand = ( activeCount < 0 );
-
-    /* The ledger's invocation of 'redraw_all' will force the agreement in the
-     * other split state widgets, so we neglect doing it here.  */
-    gnc_split_register_expand_current_trans (reg, expand);
+    /* The register model is the single source of truth. GTK4 reflects this
+     * through SplitTransactionAction during redraw, so legacy menu and
+     * toolbar signal paths must toggle the model instead of sampling widgets. */
+    gnc_split_register_expand_current_trans
+        (reg, !gnc_split_register_current_trans_expanded (reg));
 }
 
 void
@@ -1780,30 +1766,180 @@ gnc_split_reg_expand_trans_toolbar_cb (GtkWidget *widget, gpointer data)
     gsr_emit_simple_signal( gsr, "expand_ent" );
 }
 
-gboolean
-gnc_split_reg_clear_filter_for_split (GNCSplitReg *gsr, Split *split)
+typedef struct
 {
-    VirtualCellLocation vcell_loc;
-    SplitRegister *reg;
+    GncSplitRegisterAsyncRequest base;
+    GWeakRef gsr;
+    GWeakRef window;
+    QofBook *book;
+    GncGUID book_guid;
+    GncGUID split_guid;
+    GncSplitRegRevealCallback completed;
+    gpointer user_data;
+    GDestroyNotify destroy_notify;
+    gboolean cancelled;
+} GsrRevealSplitRequest;
 
-    if (!gsr)
-        return FALSE;
+static void
+gsr_reveal_split_request_free (GsrRevealSplitRequest *request)
+{
+    GDestroyNotify destroy_notify;
+    gpointer user_data;
+
+    gnc_split_register_async_request_untrack (&request->base);
+    g_weak_ref_clear (&request->window);
+    g_weak_ref_clear (&request->gsr);
+
+    destroy_notify = request->destroy_notify;
+    user_data = request->user_data;
+    request->destroy_notify = NULL;
+    request->user_data = NULL;
+    if (destroy_notify)
+        destroy_notify (user_data);
+    g_free (request);
+}
+
+static void
+gsr_reveal_split_request_cancel (GncSplitRegisterAsyncRequest *base)
+{
+    GsrRevealSplitRequest *request = (GsrRevealSplitRequest *)base;
+    SplitRegister *reg = request->base.reg;
+
+    request->cancelled = TRUE;
+    if (reg && reg->table && reg->table->control)
+        gnc_table_control_set_input_suspended (reg->table->control, FALSE);
+    /* GtkAlertDialog owns the completion callback. Keep this detached request
+     * alive until it observes cancellation and invokes the destroy notifier. */
+    gnc_split_register_async_request_untrack (&request->base);
+}
+
+static gboolean
+gsr_reveal_split_request_context (GsrRevealSplitRequest *request,
+                                  GNCSplitReg **gsr_out,
+                                  GtkWindow **parent_out,
+                                  Split **split_out)
+{
+    GObject *owner = g_weak_ref_get (&request->gsr);
+    GObject *window = g_weak_ref_get (&request->window);
+    SplitRegister *reg = request->base.reg;
+    GNCSplitReg *gsr;
+    QofBook *book;
+    Split *split;
+
+    if (request->cancelled || !reg || !reg->table || !owner || !window ||
+        !IS_GNC_SPLIT_REG (owner) || !GTK_IS_WINDOW (window))
+        goto out;
+
+    gsr = GNC_SPLIT_REG (owner);
+    book = gnc_get_current_book ();
+    if (gsr->window != GTK_WIDGET (window) || !gsr->ledger ||
+        gnc_ledger_display_get_split_register (gsr->ledger) != reg || !book ||
+        request->book != book ||
+        !guid_equal (&request->book_guid, qof_book_get_guid (book)) ||
+        qof_book_shutting_down (book))
+        goto out;
+
+    split = xaccSplitLookup (&request->split_guid, request->book);
+    if (!split)
+        goto out;
+
+    *gsr_out = gsr;
+    *parent_out = GTK_WINDOW (window);
+    *split_out = split;
+    return TRUE;
+
+out:
+    g_clear_object (&window);
+    g_clear_object (&owner);
+    return FALSE;
+}
+
+static void
+gsr_reveal_split_request_finished (gint response, gpointer user_data)
+{
+    GsrRevealSplitRequest *request = user_data;
+    SplitRegister *reg = request->base.reg;
+
+    if (reg && reg->table && reg->table->control)
+        gnc_table_control_set_input_suspended (reg->table->control, FALSE);
+
+    if (response == GTK_RESPONSE_OK)
+    {
+        GNCSplitReg *gsr;
+        GtkWindow *parent;
+        Split *split;
+
+        if (gsr_reveal_split_request_context (request, &gsr, &parent, &split))
+        {
+            request->completed (gsr, split, GNC_SPLIT_REG_REVEAL_FILTER_CLEARED,
+                                request->user_data);
+            g_object_unref (parent);
+            g_object_unref (gsr);
+        }
+    }
+    gsr_reveal_split_request_free (request);
+}
+
+void
+gnc_split_reg_reveal_split_async (GNCSplitReg *gsr, Split *split,
+                                  GncSplitRegRevealCallback completed,
+                                  gpointer user_data,
+                                  GDestroyNotify destroy_notify)
+{
+    GsrRevealSplitRequest *request;
+    SplitRegister *reg;
+    VirtualCellLocation vcell_loc;
+    GtkWindow *parent;
+    QofBook *book;
+
+    if (!completed || !gsr || !split || !gsr->ledger ||
+        !GTK_IS_WINDOW (gsr->window))
+        goto rejected;
 
     reg = gnc_ledger_display_get_split_register (gsr->ledger);
+    parent = GTK_WINDOW (gsr->window);
+    book = gnc_get_current_book ();
+    if (!reg || !reg->table || !gnc_split_register_get_info (reg) || !book ||
+        qof_book_shutting_down (book) ||
+        xaccSplitLookup (xaccSplitGetGUID (split), book) != split)
+        goto rejected;
 
-    if (!gnc_split_register_get_split_virt_loc (reg, split, &vcell_loc))
+    if (gnc_split_register_get_split_virt_loc (reg, split, &vcell_loc))
     {
-        gint response = gnc_ok_cancel_dialog (GTK_WINDOW(gsr->window),
-             GTK_RESPONSE_CANCEL,
-             (_("Target split is currently hidden in this register.\n\n%s\n\n"
-                "Select OK to temporarily clear filter and proceed,\n"
-                "otherwise the last active cell will be selected.")),
-             gsr->filter_text);
-
-        if (response == GTK_RESPONSE_OK)
-            return TRUE;
+        completed (gsr, split, GNC_SPLIT_REG_REVEAL_ALREADY_VISIBLE, user_data);
+        if (destroy_notify)
+            destroy_notify (user_data);
+        return;
     }
-    return FALSE;
+
+    if (reg->table->control &&
+        gnc_table_control_input_suspended (reg->table->control))
+        goto rejected;
+
+    request = g_new0 (GsrRevealSplitRequest, 1);
+    request->book = book;
+    request->book_guid = *qof_book_get_guid (book);
+    request->split_guid = *xaccSplitGetGUID (split);
+    request->completed = completed;
+    request->user_data = user_data;
+    request->destroy_notify = destroy_notify;
+    g_weak_ref_init (&request->gsr, G_OBJECT (gsr));
+    g_weak_ref_init (&request->window, G_OBJECT (parent));
+    gnc_split_register_async_request_track (reg, &request->base,
+                                            gsr_reveal_split_request_cancel);
+    if (reg->table->control)
+        gnc_table_control_set_input_suspended (reg->table->control, TRUE);
+    gnc_ok_cancel_dialog_async
+        (parent, GTK_RESPONSE_CANCEL, gsr_reveal_split_request_finished, request,
+         _("Target split is currently hidden in this register.\n\n%s\n\n"
+           "Select OK to temporarily clear filter and proceed,\n"
+           "otherwise the last active cell will be selected."),
+         gsr->filter_text ? gsr->filter_text : "");
+    return;
+
+rejected:
+    if (destroy_notify)
+        destroy_notify (user_data);
 }
 
 /**
@@ -2036,55 +2172,6 @@ gnc_split_reg_change_style (GNCSplitReg *gsr, SplitRegisterStyle style, gboolean
     gnc_split_register_config (reg, reg->type, style, reg->use_double_line);
     if (refresh)
         gnc_ledger_display_refresh (gsr->ledger);
-}
-
-void
-gnc_split_reg_style_ledger_cb (GtkWidget *w, gpointer data)
-{
-    GNCSplitReg *gsr = data;
-
-//FIXME gtk4    if (!gtk_check_menu_item_get_active (GTK_CHECK_MENU_ITEM(w)))
-//        return;
-
-    gnc_split_reg_change_style (gsr, REG_STYLE_LEDGER, TRUE);
-}
-
-void
-gnc_split_reg_style_auto_ledger_cb (GtkWidget *w, gpointer data)
-{
-    GNCSplitReg *gsr = data;
-
-//FIXME gtk4    if (!gtk_check_menu_item_get_active (GTK_CHECK_MENU_ITEM(w)))
-//        return;
-
-    gnc_split_reg_change_style (gsr, REG_STYLE_AUTO_LEDGER, TRUE);
-}
-
-void
-gnc_split_reg_style_journal_cb (GtkWidget *w, gpointer data)
-{
-    GNCSplitReg *gsr = data;
-
-//FIXME gtk4    if (!gtk_check_menu_item_get_active (GTK_CHECK_MENU_ITEM(w)))
-//        return;
-
-    gnc_split_reg_change_style (gsr, REG_STYLE_JOURNAL, TRUE);
-}
-
-void
-gnc_split_reg_double_line_cb (GtkWidget *w, gpointer data)
-{
-    GNCSplitReg *gsr = data;
-    SplitRegister *reg = gnc_ledger_display_get_split_register (gsr->ledger);
-    gboolean use_double_line;
-
-//FIXME gtk4    use_double_line = gtk_check_menu_item_get_active (GTK_CHECK_MENU_ITEM(w));
-//    if ( use_double_line == reg->use_double_line )
-//        return;
-use_double_line = FALSE;
-
-    gnc_split_register_config( reg, reg->type, reg->style, use_double_line );
-    gnc_ledger_display_refresh( gsr->ledger );
 }
 
 void

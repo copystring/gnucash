@@ -3148,6 +3148,88 @@ typedef struct
     GncGUID account_guid;
 } ReverseTransactionRequest;
 
+typedef struct
+{
+    GWeakRef page;
+    GWeakRef window;
+    QofBook *book;
+    GncGUID split_guid;
+    GncGUID transaction_guid;
+    gboolean expand_after_jump;
+} RegisterRevealRequest;
+
+static void
+register_reveal_request_free (gpointer user_data)
+{
+    RegisterRevealRequest *request = static_cast<RegisterRevealRequest *> (user_data);
+
+    g_weak_ref_clear (&request->window);
+    g_weak_ref_clear (&request->page);
+    g_free (request);
+}
+
+static void
+register_reveal_finished (GNCSplitReg *gsr, Split *split,
+                         GncSplitRegRevealResult result, gpointer user_data)
+{
+    RegisterRevealRequest *request = static_cast<RegisterRevealRequest *> (user_data);
+    GncPluginPage *page = GNC_PLUGIN_PAGE (g_weak_ref_get (&request->page));
+    GtkWindow *window = GTK_WINDOW (g_weak_ref_get (&request->window));
+    Transaction *transaction;
+
+    if (!page || !window || !GNC_IS_PLUGIN_PAGE_REGISTER (page) ||
+        request->book != gnc_get_current_book () ||
+        qof_book_shutting_down (request->book))
+        goto out;
+
+    transaction = xaccTransLookup (&request->transaction_guid, request->book);
+    if (gnc_plugin_page_get_window (page) != GTK_WIDGET (window) ||
+        gnc_plugin_page_register_get_gsr (page) != gsr ||
+        xaccSplitLookup (&request->split_guid, request->book) != split ||
+        !transaction || xaccSplitGetParent (split) != transaction)
+        goto out;
+
+    if (result == GNC_SPLIT_REG_REVEAL_FILTER_CLEARED)
+        gnc_plugin_page_register_clear_current_filter (page);
+    gnc_split_reg_jump_to_split (gsr, split);
+
+    if (request->expand_after_jump)
+    {
+        auto reg = gsr->ledger ? gnc_ledger_display_get_split_register (gsr->ledger) : nullptr;
+        if (reg)
+        {
+            gnc_split_register_expand_current_trans (reg, TRUE);
+            gnc_split_reg_jump_to_split (gsr, split);
+        }
+    }
+
+out:
+    g_clear_object (&window);
+    g_clear_object (&page);
+}
+
+static void
+register_reveal_split_async (GncPluginPage *page, GNCSplitReg *gsr,
+                             Split *split, gboolean expand_after_jump)
+{
+    RegisterRevealRequest *request;
+    GtkWidget *window;
+    Transaction *transaction;
+
+    if (!page || !gsr || !split || !(window = gnc_plugin_page_get_window (page)) ||
+        !(transaction = xaccSplitGetParent (split)))
+        return;
+
+    request = g_new0 (RegisterRevealRequest, 1);
+    request->book = gnc_get_current_book ();
+    request->split_guid = *xaccSplitGetGUID (split);
+    request->transaction_guid = *xaccTransGetGUID (transaction);
+    request->expand_after_jump = expand_after_jump;
+    g_weak_ref_init (&request->page, G_OBJECT (page));
+    g_weak_ref_init (&request->window, G_OBJECT (window));
+    gnc_split_reg_reveal_split_async (gsr, split, register_reveal_finished, request,
+                                      register_reveal_request_free);
+}
 static void
 reverse_transaction_request_free (ReverseTransactionRequest *request)
 {
@@ -3210,11 +3292,7 @@ reverse_transaction_request_finish (ReverseTransactionRequest *request,
             auto gsr = gnc_plugin_page_register_get_gsr (GNC_PLUGIN_PAGE (page));
             auto split = xaccTransFindSplitByAccount (new_transaction, account);
             if (gsr && split)
-            {
-                if (gnc_split_reg_clear_filter_for_split (gsr, split))
-                    gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE (page));
-                gnc_split_reg_jump_to_split (gsr, split);
-            }
+                register_reveal_split_async (GNC_PLUGIN_PAGE (page), gsr, split, FALSE);
         }
         g_object_unref (page);
     }
@@ -3731,6 +3809,101 @@ invoice_from_split (Split* split)
 }
 
 
+struct LinkedInvoiceChoiceRequest
+{
+    GWeakRef page;
+    GWeakRef window;
+    QofBook *book;
+    GncGUID book_guid;
+    GncGUID transaction_guid;
+    GList *invoice_guids;
+};
+
+static void
+linked_invoice_choice_request_free (LinkedInvoiceChoiceRequest *request)
+{
+    g_weak_ref_clear (&request->window);
+    g_weak_ref_clear (&request->page);
+    g_list_free_full (request->invoice_guids, (GDestroyNotify)guid_free);
+    g_free (request);
+}
+
+static gboolean
+linked_invoice_choice_request_context (LinkedInvoiceChoiceRequest *request,
+                                       gint choice, GtkWindow **parent_out,
+                                       GncInvoice **invoice_out)
+{
+    auto page = GNC_PLUGIN_PAGE_REGISTER (g_weak_ref_get (&request->page));
+    auto parent = GTK_WINDOW (g_weak_ref_get (&request->window));
+    auto book = gnc_get_current_book ();
+    GncGUID *invoice_guid;
+    GncInvoice *invoice;
+    gboolean linked = FALSE;
+
+    if (choice < 0 || !page || !parent || !book || request->book != book ||
+        !guid_equal (&request->book_guid, qof_book_get_guid (book)) ||
+        qof_book_shutting_down (book) ||
+        gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page)) != GTK_WIDGET (parent))
+        goto out;
+
+    invoice_guid = static_cast<GncGUID *> (g_list_nth_data (request->invoice_guids,
+                                                             choice));
+    if (!invoice_guid)
+        goto out;
+
+    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+    auto reg = priv->ledger ?
+        gnc_ledger_display_get_split_register (priv->ledger) : nullptr;
+    auto transaction = reg ? gnc_split_register_get_current_trans (reg) : nullptr;
+    if (!transaction ||
+        !guid_equal (xaccTransGetGUID (transaction), &request->transaction_guid) ||
+        xaccTransLookup (&request->transaction_guid, book) != transaction)
+        goto out;
+
+    invoice = gncInvoiceLookup (book, invoice_guid);
+    if (!invoice || gncInvoiceGetBook (invoice) != book ||
+        !guid_equal (gncInvoiceGetGUID (invoice), invoice_guid))
+        goto out;
+
+    for (auto linked_invoice : invoices_from_transaction (transaction))
+    {
+        if (guid_equal (gncInvoiceGetGUID (linked_invoice), invoice_guid))
+        {
+            linked = TRUE;
+            break;
+        }
+    }
+    if (!linked)
+        goto out;
+
+    g_object_unref (page);
+    *parent_out = parent;
+    *invoice_out = invoice;
+    return TRUE;
+
+out:
+    g_clear_object (&parent);
+    g_clear_object (&page);
+    return FALSE;
+}
+
+static void
+linked_invoice_choice_finished (GtkWindow *dialog_parent, gint choice,
+                                gpointer user_data)
+{
+    auto request = static_cast<LinkedInvoiceChoiceRequest *> (user_data);
+    GtkWindow *parent = nullptr;
+    GncInvoice *invoice = nullptr;
+
+    if (linked_invoice_choice_request_context (request, choice, &parent, &invoice))
+    {
+        gnc_ui_invoice_edit (parent, invoice);
+        g_clear_object (&parent);
+    }
+    linked_invoice_choice_request_free (request);
+    (void)dialog_parent;
+}
+
 static void
 gnc_plugin_page_register_cmd_jump_linked_invoice (GSimpleAction *simple,
                                                   GVariant      *paramter,
@@ -3741,67 +3914,96 @@ gnc_plugin_page_register_cmd_jump_linked_invoice (GSimpleAction *simple,
     SplitRegister* reg;
     GncInvoice* invoice;
     Transaction *txn;
-    GtkWidget *window;
+    GtkWindow *parent;
+    QofBook *book;
 
     ENTER ("(action %p, page %p)", simple, page);
 
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER (page));
     priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
-    reg = gnc_ledger_display_get_split_register (priv->gsr->ledger);
-    txn = gnc_split_register_get_current_trans (reg);
-    invoice = invoice_from_split (gnc_split_register_get_current_split (reg));
-    window = GNC_PLUGIN_PAGE(page)->window;
+    reg = priv->gsr && priv->gsr->ledger ?
+        gnc_ledger_display_get_split_register (priv->gsr->ledger) : nullptr;
+    txn = reg ? gnc_split_register_get_current_trans (reg) : nullptr;
+    invoice = reg ? invoice_from_split (gnc_split_register_get_current_split (reg)) : nullptr;
+    parent = GTK_WINDOW (gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page)));
+    book = gnc_get_current_book ();
+
+    if (!reg || !txn || !parent || !book || qof_book_shutting_down (book) ||
+        xaccTransGetBook (txn) != book)
+    {
+        LEAVE ("missing current register context");
+        return;
+    }
 
     if (!invoice)
     {
         auto invoices = invoices_from_transaction (txn);
         if (invoices.empty())
+        {
             PERR ("shouldn't happen: if no invoices, function is never called");
-        else if (invoices.size() == 1)
+            LEAVE ("no linked invoices");
+            return;
+        }
+        if (invoices.size() == 1)
             invoice = invoices[0];
         else
         {
+            auto request = g_new0 (LinkedInvoiceChoiceRequest, 1);
             GList *details = NULL;
-            gint choice;
-            const gchar *amt;
-            for (const auto& inv : invoices)
+
+            request->book = book;
+            request->book_guid = *qof_book_get_guid (book);
+            request->transaction_guid = *xaccTransGetGUID (txn);
+            g_weak_ref_init (&request->page, page);
+            g_weak_ref_init (&request->window, parent);
+            for (const auto& linked_invoice : invoices)
             {
-                gchar *date = qof_print_date (gncInvoiceGetDatePosted (inv));
-                amt = xaccPrintAmount
-                    (gncInvoiceGetTotal (inv),
-                     gnc_account_print_info (gncInvoiceGetPostedAcc (inv), TRUE));
+                const gchar *amount;
+                gchar *date;
+
+                if (!linked_invoice || gncInvoiceGetBook (linked_invoice) != book)
+                {
+                    linked_invoice_choice_request_free (request);
+                    g_list_free_full (details, g_free);
+                    LEAVE ("invalid linked invoice");
+                    return;
+                }
+
+                date = qof_print_date (gncInvoiceGetDatePosted (linked_invoice));
+                amount = xaccPrintAmount
+                    (gncInvoiceGetTotal (linked_invoice),
+                     gnc_account_print_info (gncInvoiceGetPostedAcc (linked_invoice), TRUE));
                 details = g_list_prepend
                     (details,
                      /* Translators: %s refer to the following in
                         order: invoice type, invoice ID, owner name,
                         posted date, amount */
                      g_strdup_printf (_("%s %s from %s, posted %s, amount %s"),
-                                      gncInvoiceGetTypeString (inv),
-                                      gncInvoiceGetID (inv),
-                                      gncOwnerGetName (gncInvoiceGetOwner (inv)),
-                                      date, amt));
+                                      gncInvoiceGetTypeString (linked_invoice),
+                                      gncInvoiceGetID (linked_invoice),
+                                      gncOwnerGetName (gncInvoiceGetOwner (linked_invoice)),
+                                      date, amount));
+                request->invoice_guids = g_list_prepend
+                    (request->invoice_guids, guid_copy (gncInvoiceGetGUID (linked_invoice)));
                 g_free (date);
             }
             details = g_list_reverse (details);
-            choice = gnc_choose_radio_option_dialog
-                (window, _("Select Business Item"),
+            request->invoice_guids = g_list_reverse (request->invoice_guids);
+            gnc_choose_option_dialog_async
+                (parent, _("Select Business Item"),
                  _("Several business items are linked with this transaction. \
-Please choose one:"), _("Select"), 0, details);
-            if ((choice >= 0) && ((size_t)choice < invoices.size()))
-                invoice = invoices[choice];
+Please choose one:"), details, 0, linked_invoice_choice_finished, request);
             g_list_free_full (details, g_free);
+            LEAVE ("linked invoice choice request started");
+            return;
         }
     }
 
-    if (invoice)
-    {
-        GtkWindow *gtk_window = gnc_window_get_gtk_window (GNC_WINDOW (window));
-        gnc_ui_invoice_edit (gtk_window, invoice);
-    }
+    if (invoice && gncInvoiceGetBook (invoice) == book)
+        gnc_ui_invoice_edit (parent, invoice);
 
     LEAVE (" ");
 }
-
 typedef struct
 {
     GWeakRef page;
@@ -4210,20 +4412,8 @@ gnc_plugin_page_register_cmd_jump (GSimpleAction *simple,
     if (new_page_reg->style != REG_STYLE_JOURNAL)
         jump_twice = TRUE;
 
-    /* Test for visibility of split */
-    if (gnc_split_reg_clear_filter_for_split (gsr, split))
-        gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE(new_plugin_page));
-
-    gnc_split_reg_jump_to_split (gsr, split);
-
-    if (multiple_splits && jump_twice)
-    {
-        /* Expand the transaction for the basic and auto ledger to identify the
-         * split in this register, but only if there are more than two splits.
-         */
-        gnc_split_register_expand_current_trans (new_page_reg, TRUE);
-        gnc_split_reg_jump_to_split (gsr, split);
-    }
+    register_reveal_split_async (new_plugin_page, gsr, split,
+                                 multiple_splits && jump_twice);
     LEAVE (" ");
 }
 
