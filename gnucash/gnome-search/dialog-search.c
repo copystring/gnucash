@@ -259,13 +259,10 @@ gnc_search_dialog_double_click_cb (GNCQueryView *qview,
 static void
 gnc_search_dialog_init_result_view (GNCSearchWindow *sw)
 {
-    GtkTreeSelection *selection;
-
     sw->result_view = gnc_query_view_new(sw->display_list, sw->q);
 
-    // We want the multi-selection mode of the tree view.
-    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(sw->result_view));
-    gtk_tree_selection_set_mode (selection, GTK_SELECTION_MULTIPLE);
+    gnc_query_view_set_selection_mode (GNC_QUERY_VIEW (sw->result_view),
+                                       GTK_SELECTION_MULTIPLE);
 
     /* Set the sort order of the tree view */
     gnc_query_sort_order(GNC_QUERY_VIEW(sw->result_view), 1, GTK_SORT_ASCENDING);
@@ -366,11 +363,8 @@ gnc_search_dialog_display_results (GNCSearchWindow *sw)
     /* If there are results then select the first, and grab focus */
     if (gnc_query_view_get_num_entries (GNC_QUERY_VIEW(sw->result_view)) > 0)
     {
-        GtkTreeSelection *selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(sw->result_view));
-        GtkTreePath *path = gtk_tree_path_new_first ();
-        gtk_tree_selection_select_path (selection, path);
-        gtk_tree_path_free (path);
-        gtk_widget_grab_focus (sw->result_view);
+        gnc_query_view_select_first (GNC_QUERY_VIEW (sw->result_view));
+        gnc_query_view_grab_focus (GNC_QUERY_VIEW (sw->result_view));
     }
 }
 

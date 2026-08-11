@@ -1221,79 +1221,80 @@ gnc_reconcile_window_row_cb(GNCReconcileView *view, gpointer item,
  *  request).
  */
 static void
-do_popup_menu(RecnWindow *recnData, GdkEventButton *event)
+reconcile_popup_closed (GtkPopover *popup, gpointer user_data)
+{
+    gtk_widget_unparent (GTK_WIDGET (popup));
+    (void)user_data;
+}
+
+static void
+do_popup_menu (RecnWindow *recnData, GtkWidget *relative_to, double x, double y)
 {
     GMenuModel *menu_model = (GMenuModel *)gtk_builder_get_object (recnData->builder,
-                                                                   "recwin-popup");
-    GtkWidget *menu = gtk_menu_new_from_model (menu_model);
+                                                                    "recwin-popup");
+    GtkWidget *menu;
+    GdkRectangle point = { (int)x, (int)y, 1, 1 };
 
-    if (!menu)
+    if (!menu_model || !relative_to)
         return;
-
-    gtk_menu_attach_to_widget (GTK_MENU(menu), GTK_WIDGET(recnData->window), NULL);
-    gtk_menu_popup_at_pointer (GTK_MENU(menu), (GdkEvent *) event);
+    menu = gtk_popover_menu_new_from_model (menu_model);
+    gtk_widget_set_parent (menu, relative_to);
+    gtk_popover_set_pointing_to (GTK_POPOVER (menu), &point);
+    g_signal_connect (menu, "closed", G_CALLBACK (reconcile_popup_closed), NULL);
+    gtk_popover_popup (GTK_POPOVER (menu));
 }
 
-
-/** Callback function invoked when the user requests that Gnucash
- *  popup the contextual menu via the keyboard context-menu request
- *  key combination (Shift-F10 by default).
- *
- *  @param recnData This is a data structure describing the
- *  Reconciliation Window.
- *
- *  @param widget Whatever widget had focus when the user issued the
- *  keyboard context-menu request.
- *
- *  @return Always returns TRUE to indicate that the menu request was
- *  handled.
- */
-static gboolean
-gnc_reconcile_window_popup_menu_cb (GtkWidget *widget,
-                                    RecnWindow *recnData)
+static void
+gnc_reconcile_window_context_pressed_cb (GtkGestureClick *gesture, int n_press,
+                                          double x, double y, gpointer user_data)
 {
-    do_popup_menu(recnData, NULL);
-    return TRUE;
+    RecnWindow *recnData = static_cast<RecnWindow *> (user_data);
+    GtkWidget *widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture));
+
+    if (n_press != 1 || gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture)) !=
+                        GDK_BUTTON_SECONDARY)
+        return;
+    gnc_query_view_select_at_point (GNC_QUERY_VIEW (widget), x, y);
+    do_popup_menu (recnData, widget, x, y);
+    gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
 }
 
-
-/*  Callback function invoked when the user clicks in the content of
- *  any Gnucash window.  If this was a "right-click" then Gnucash will
- *  popup the contextual menu.
- */
-static gboolean
-gnc_reconcile_window_button_press_cb (GtkWidget *widget,
-                                      GdkEventButton *event,
-                                      RecnWindow *recnData)
+static void
+gnc_reconcile_window_focus_enter_cb (GtkEventControllerFocus *controller,
+                                     gpointer user_data)
 {
-    if (event->button == 3 && event->type == GDK_BUTTON_PRESS)
+    RecnWindow *recnData = static_cast<RecnWindow *> (user_data);
+    GNCReconcileView *this_view = GNC_RECONCILE_VIEW
+        (gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller)));
+    GNCReconcileView *other_view = this_view == GNC_RECONCILE_VIEW (recnData->debit) ?
+        GNC_RECONCILE_VIEW (recnData->credit) : GNC_RECONCILE_VIEW (recnData->debit);
+
+    gnc_reconcile_view_unselect_all (other_view);
+}
+
+static gboolean
+gnc_reconcile_key_pressed_cb (GtkEventControllerKey *controller, guint keyval,
+                               guint keycode, GdkModifierType state,
+                               gpointer user_data)
+{
+    RecnWindow *recnData = static_cast<RecnWindow *> (user_data);
+    GtkWidget *this_view = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+    GtkWidget *other_view;
+
+    if (keyval == GDK_KEY_Menu || (keyval == GDK_KEY_F10 && (state & GDK_SHIFT_MASK)))
     {
-        GNCQueryView *qview = GNC_QUERY_VIEW(widget);
-        GtkTreePath *path;
-
-        /* Get tree path for row that was clicked */
-        gtk_tree_view_get_path_at_pos (GTK_TREE_VIEW(qview),
-                                       (gint) event->x,
-                                       (gint) event->y,
-                                       &path, NULL, NULL, NULL);
-
-        if (path)
-        {
-            GtkTreeSelection *selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(qview));
-
-            if (!gtk_tree_selection_path_is_selected (selection, path))
-            {
-                gtk_tree_selection_unselect_all (selection);
-                gtk_tree_selection_select_path (selection, path);
-            }
-            gtk_tree_path_free (path);
-        }
-        do_popup_menu (recnData, event);
+        do_popup_menu (recnData, this_view, gtk_widget_get_width (this_view) / 2.0,
+                       gtk_widget_get_height (this_view) / 2.0);
         return TRUE;
     }
-    return FALSE;
-}
+    if (keyval != GDK_KEY_Tab && keyval != GDK_KEY_ISO_Left_Tab)
+        return FALSE;
 
+    other_view = this_view == recnData->debit ? recnData->credit : recnData->debit;
+    gnc_query_view_grab_focus (GNC_QUERY_VIEW (other_view));
+    (void)keycode;
+    return TRUE;
+}
 
 static GNCSplitReg *
 gnc_reconcile_window_open_register(RecnWindow *recnData)
@@ -1334,59 +1335,6 @@ gnc_reconcile_window_double_click_cb(GNCReconcileView *view, Split *split,
         gnc_plugin_page_register_clear_current_filter (GNC_PLUGIN_PAGE(recnData->page));
 
     gnc_split_reg_jump_to_split( gsr, split );
-}
-
-
-static void
-gnc_reconcile_window_focus_cb(GtkWidget *widget, GdkEventFocus *event,
-                              gpointer data)
-{
-    auto recnData = static_cast<RecnWindow*>(data);
-    GNCReconcileView *this_view, *other_view;
-    GNCReconcileView *debit, *credit;
-
-    this_view = GNC_RECONCILE_VIEW(widget);
-
-    debit  = GNC_RECONCILE_VIEW(recnData->debit);
-    credit = GNC_RECONCILE_VIEW(recnData->credit);
-
-    other_view = GNC_RECONCILE_VIEW(this_view == debit ? credit : debit);
-
-    /* clear the *other* list so we always have no more than one selection */
-    gnc_reconcile_view_unselect_all(other_view);
-}
-
-
-static gboolean
-gnc_reconcile_key_press_cb (GtkWidget *widget, GdkEventKey *event,
-                            gpointer data)
-{
-    auto recnData = static_cast<RecnWindow*>(data);
-    GtkWidget *this_view, *other_view;
-    GtkWidget *debit, *credit;
-
-    switch (event->keyval)
-    {
-    case GDK_KEY_Tab:
-    case GDK_KEY_ISO_Left_Tab:
-        break;
-
-    default:
-        return FALSE;
-    }
-
-    g_signal_stop_emission_by_name (widget, "key_press_event");
-
-    this_view = widget;
-
-    debit  = recnData->debit;
-    credit = recnData->credit;
-
-    other_view = (this_view == debit ? credit : debit);
-
-    gtk_widget_grab_focus (other_view);
-
-    return TRUE;
 }
 
 
@@ -1433,20 +1381,25 @@ gnc_reconcile_window_create_view_box(Account *account,
     g_signal_connect(view, "line_selected",
                      G_CALLBACK(gnc_reconcile_window_row_cb),
                      recnData);
-    g_signal_connect(view, "button_press_event",
-                     G_CALLBACK(gnc_reconcile_window_button_press_cb),
-                     recnData);
+    auto context_click = GTK_GESTURE_CLICK (gtk_gesture_click_new ());
+    gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (context_click), GDK_BUTTON_SECONDARY);
+    g_signal_connect (context_click, "pressed",
+                      G_CALLBACK (gnc_reconcile_window_context_pressed_cb), recnData);
+    gtk_widget_add_controller (view, GTK_EVENT_CONTROLLER (context_click));
     g_signal_connect(view, "double_click_split",
                      G_CALLBACK(gnc_reconcile_window_double_click_cb),
                      recnData);
-    g_signal_connect(view, "focus_in_event",
-                     G_CALLBACK(gnc_reconcile_window_focus_cb),
-                     recnData);
-    g_signal_connect(view, "key_press_event",
-                     G_CALLBACK(gnc_reconcile_key_press_cb),
-                     recnData);
+    auto focus_controller = gtk_event_controller_focus_new ();
+    g_signal_connect (focus_controller, "enter",
+                      G_CALLBACK (gnc_reconcile_window_focus_enter_cb), recnData);
+    gtk_widget_add_controller (view, focus_controller);
 
-    scrollWin = gtk_scrolled_window_new (NULL, NULL);
+    auto key_controller = gtk_event_controller_key_new ();
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gnc_reconcile_key_pressed_cb), recnData);
+    gtk_widget_add_controller (view, key_controller);
+
+    scrollWin = gtk_scrolled_window_new ();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW (scrollWin),
                                    GTK_POLICY_AUTOMATIC,
                                    GTK_POLICY_AUTOMATIC);
@@ -1631,58 +1584,24 @@ static void
 gnc_reconcile_window_delete_set_next_selection (RecnWindow *recnData, Split *split)
 {
     GNCReconcileView *view = gnc_reconcile_window_get_selection_view (recnData);
-    GtkTreeModel *model = gtk_tree_view_get_model (GTK_TREE_VIEW (view));
-    Split *this_split = NULL;
-    GtkTreeIter iter;
-    GtkTreeSelection *selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (view));
-    GList *path_list, *node;
-    GtkTreePath *save_del_path;
-    Transaction* trans = xaccSplitGetParent (split); // parent transaction of the split to delete
+    Transaction *transaction;
+    Split *candidate;
 
     if (!view)
-        return; // no selected split
-
-    path_list = gtk_tree_selection_get_selected_rows (selection, &model);
-    // get path of the first split selected - there should be only 1 selected
-    node = g_list_first (path_list);
-    if (!node)
         return;
-    auto path = static_cast<GtkTreePath*>(node->data);
-    save_del_path = gtk_tree_path_copy (path);
-
-    gtk_tree_path_next (path);
-    if (gtk_tree_model_get_iter (model, &iter, path))
+    transaction = xaccSplitGetParent (split);
+    candidate = (Split *)gnc_query_view_get_adjacent_entry (GNC_QUERY_VIEW (view), split, FALSE);
+    while (candidate && xaccSplitGetParent (candidate) == transaction)
+        candidate = (Split *)gnc_query_view_get_adjacent_entry (GNC_QUERY_VIEW (view), candidate, FALSE);
+    if (!candidate)
     {
-        do
-        {
-            gtk_tree_model_get (model, &iter, REC_POINTER, &this_split, -1);
-        }
-        while (xaccSplitGetParent (this_split) == trans && gtk_tree_model_iter_next (model, &iter));
+        candidate = (Split *)gnc_query_view_get_adjacent_entry (GNC_QUERY_VIEW (view), split, TRUE);
+        while (candidate && xaccSplitGetParent (candidate) == transaction)
+            candidate = (Split *)gnc_query_view_get_adjacent_entry (GNC_QUERY_VIEW (view), candidate, TRUE);
     }
-
-    if ((!this_split) || xaccSplitGetParent (this_split) == trans)
-    {
-        // There aren't any splits for a different transaction after the split to be deleted,
-        //  so find the previous split having a different parent transaction
-        path = save_del_path; // split to be deleted
-        if (gtk_tree_path_prev (path) && gtk_tree_model_get_iter (model, &iter, path))
-        {
-            do
-            {
-                gtk_tree_model_get (model, &iter, REC_POINTER, &this_split, -1);
-            }
-            while (xaccSplitGetParent (this_split) == trans && gtk_tree_model_iter_previous (model, &iter));
-        }
-    }
-
-    gtk_tree_path_free (save_del_path);
-    g_list_free_full (path_list, (GDestroyNotify) gtk_tree_path_free);
-    if ((!this_split) || xaccSplitGetParent (this_split) == trans)
-        return;
-
-    gtk_tree_selection_select_iter (selection, &iter);
+    if (candidate)
+        gnc_query_view_select_entry (GNC_QUERY_VIEW (view), candidate, TRUE);
 }
-
 
 static void
 gnc_ui_reconcile_window_delete_cb (GSimpleAction *simple,
@@ -2224,9 +2143,6 @@ recnWindowWithBalance (GtkWidget *parent, Account *account, gnc_numeric new_endi
                                         G_ACTION_GROUP(recnData->simple_action_group));
     }
 
-    g_signal_connect(recnData->window, "popup-menu",
-                     G_CALLBACK(gnc_reconcile_window_popup_menu_cb), recnData);
-
     statusbar = gtk_statusbar_new();
     gnc_box_prepend_full(GTK_BOX(vbox), statusbar, FALSE, FALSE, 0);
 
@@ -2428,7 +2344,7 @@ use Find Transactions to find them, unreconcile, and re-reconcile."));
     gnc_query_sort_order(GNC_QUERY_VIEW(recnData->debit), REC_DATE, GTK_SORT_ASCENDING);
     gnc_query_sort_order(GNC_QUERY_VIEW(recnData->credit), REC_DATE, GTK_SORT_ASCENDING);
 
-    gtk_widget_grab_focus (recnData->debit);
+    gnc_query_view_grab_focus (GNC_QUERY_VIEW (recnData->debit));
 
     {   // align the Totals value with that of the amount column
         gint recn_widthc = gnc_reconcile_view_get_column_width (GNC_RECONCILE_VIEW(recnData->credit), REC_RECN);
