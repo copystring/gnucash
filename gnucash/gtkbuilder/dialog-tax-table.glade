@@ -1,378 +1,138 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
-  <requires lib="gtk" version="4.0" />
+  <requires lib="gtk" version="4.0"/>
   <object class="GtkWindow" id="tax_table_window">
     <property name="title" translatable="1">Tax Tables</property>
-    <signal name="destroy" handler="tax_table_window_destroy_cb" swapped="no" />
+    <signal name="destroy" handler="tax_table_window_destroy_cb" swapped="no"/>
     <property name="child">
-      <object class="GtkCenterBox">
+      <object class="GtkBox">
         <property name="orientation">vertical</property>
-        <property name="start-widget">
+        <property name="spacing">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <child>
           <object class="GtkBox">
-            <property name="orientation">vertical</property>
+            <property name="spacing">12</property>
+            <property name="vexpand">1</property>
             <child>
-              <object class="GtkBox" id="hbox4">
-                <property name="vexpand">1</property>
-                <property name="spacing">12</property>
+              <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <property name="hexpand">1</property>
                 <child>
-                  <object class="GtkBox" id="vbox1">
-                    <property name="hexpand">1</property>
-<property name="orientation">vertical</property>
-                    <property name="spacing">6</property>
-                    <child>
-                      <object class="GtkLabel" id="label1">
-                        <property name="valign">center</property>
-                        <property name="halign">start</property>
-                        <property name="label" translatable="1">Tax Tables</property>
-                        <style>
-                          <class name="gnc-class-strong" />
-                        </style>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkScrolledWindow" id="scrolledwindow1">
-                        <property name="focusable">1</property>
-                        <property name="vexpand">1</property>
-<property name="child">
-                          <object class="GtkTreeView" id="tax_tables_view">
-                            <property name="focusable">1</property>
-                            <property name="headers-visible">0</property>
-                            <child internal-child="selection">
-                              <object class="GtkTreeSelection" />
-                            </child>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkBox" id="hbox2">
-                        <property name="visible">True</property>
-<property name="spacing">6</property>
-<child>
-                          <object class="GtkButton" id="rename_table_button">
-                            <property name="label" translatable="1">_Rename</property>
-                            <property name="focusable">1</property>
-                            <property name="use-underline">1</property>
-                            <signal name="clicked" handler="tax_table_rename_table_cb" swapped="no" />
-                          </object>
-
-                        </child>
-                        <child>
-                          <object class="GtkButton" id="delete_table_button">
-                            <property name="label" translatable="1">_Delete</property>
-                            <property name="focusable">1</property>
-                            <property name="receives-default">1</property>
-                            <property name="use-underline">1</property>
-                            <signal name="clicked" handler="tax_table_delete_table_cb" swapped="no" />
-                          </object>
-
-                        </child>
-                        <child>
-                          <object class="GtkButton" id="new_table_button">
-                            <property name="label" translatable="1">_New</property>
-                            <property name="focusable">1</property>
-                            <property name="receives-default">1</property>
-                            <property name="use-underline">1</property>
-                            <signal name="clicked" handler="tax_table_new_table_cb" swapped="no" />
-                          </object>
-
-                        </child>
-                      </object>
-                    </child>
+                  <object class="GtkLabel">
+                    <property name="label" translatable="1">Tax Tables</property>
+                    <property name="halign">start</property>
+                    <style><class name="gnc-class-strong"/></style>
                   </object>
                 </child>
                 <child>
-                  <object class="GtkBox" id="vbox2">
-                    <property name="hexpand">1</property>
-<property name="orientation">vertical</property>
-                    <property name="spacing">6</property>
-                    <child>
-                      <object class="GtkLabel" id="label2">
-                        <property name="valign">center</property>
-                        <property name="halign">start</property>
-                        <property name="label" translatable="1">Tax Table Entries</property>
-                        <style>
-                          <class name="gnc-class-strong" />
-                        </style>
-                        <property name="use-markup">1</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkScrolledWindow" id="scrolledwindow2">
+                  <object class="GtkScrolledWindow">
+                    <property name="vexpand">1</property>
+                    <property name="min-content-height">260</property>
+                    <property name="child">
+                      <object class="GtkColumnView" id="tax_tables_view">
                         <property name="focusable">1</property>
-                        <property name="vexpand">1</property>
-<property name="child">
-                          <object class="GtkTreeView" id="tax_table_entries">
-                            <property name="focusable">1</property>
-                            <property name="headers-visible">0</property>
-                            <child internal-child="selection">
-                              <object class="GtkTreeSelection" />
-                            </child>
-                          </object>
-                        </property>
                       </object>
-                    </child>
-                    <child>
-                      <object class="GtkBox" id="hbox3">
-                        <property name="visible">True</property>
-<property name="spacing">6</property>
-<child>
-                          <object class="GtkButton" id="edit_entry_button">
-                            <property name="label" translatable="1">_Edit</property>
-                            <property name="focusable">1</property>
-                            <property name="receives-default">1</property>
-                            <property name="use-underline">1</property>
-                            <signal name="clicked" handler="tax_table_edit_entry_cb" swapped="no" />
-                          </object>
-
-                        </child>
-                        <child>
-                          <object class="GtkButton" id="delete_entry_button">
-                            <property name="label" translatable="1">De_lete</property>
-                            <property name="focusable">1</property>
-                            <property name="receives-default">1</property>
-                            <property name="use-underline">1</property>
-                            <signal name="clicked" handler="tax_table_delete_entry_cb" swapped="no" />
-                          </object>
-
-                        </child>
-                        <child>
-                          <object class="GtkButton" id="new_entry_button">
-                            <property name="label" translatable="1">Ne_w</property>
-                            <property name="focusable">1</property>
-                            <property name="receives-default">1</property>
-                            <property name="use-underline">1</property>
-                            <signal name="clicked" handler="tax_table_new_entry_cb" swapped="no" />
-                          </object>
-
-                        </child>
+                    </property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="spacing">6</property>
+                    <child><object class="GtkButton" id="rename_table_button"><property name="label" translatable="1">_Rename</property><property name="use-underline">1</property><signal name="clicked" handler="tax_table_rename_table_cb"/></object></child>
+                    <child><object class="GtkButton" id="delete_table_button"><property name="label" translatable="1">_Delete</property><property name="use-underline">1</property><signal name="clicked" handler="tax_table_delete_table_cb"/></object></child>
+                    <child><object class="GtkButton" id="new_table_button"><property name="label" translatable="1">_New</property><property name="use-underline">1</property><signal name="clicked" handler="tax_table_new_table_cb"/></object></child>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <property name="hexpand">1</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label" translatable="1">Tax Table Entries</property>
+                    <property name="halign">start</property>
+                    <style><class name="gnc-class-strong"/></style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkScrolledWindow">
+                    <property name="vexpand">1</property>
+                    <property name="min-content-height">260</property>
+                    <property name="child">
+                      <object class="GtkColumnView" id="tax_table_entries">
+                        <property name="focusable">1</property>
                       </object>
-                    </child>
+                    </property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="spacing">6</property>
+                    <child><object class="GtkButton" id="edit_entry_button"><property name="label" translatable="1">_Edit</property><property name="use-underline">1</property><signal name="clicked" handler="tax_table_edit_entry_cb"/></object></child>
+                    <child><object class="GtkButton" id="delete_entry_button"><property name="label" translatable="1">De_lete</property><property name="use-underline">1</property><signal name="clicked" handler="tax_table_delete_entry_cb"/></object></child>
+                    <child><object class="GtkButton" id="new_entry_button"><property name="label" translatable="1">Ne_w</property><property name="use-underline">1</property><signal name="clicked" handler="tax_table_new_entry_cb"/></object></child>
                   </object>
                 </child>
               </object>
             </child>
           </object>
-        </property>
-        <property name="end-widget">
+        </child>
+        <child>
           <object class="GtkBox">
-            <property name="orientation">vertical</property>
-            <child>
-              <object class="GtkBox" id="dialog-action_area">
-                <property name="visible">True</property>
-<child>
-                  <object class="GtkButton" id="close_button">
-                    <property name="label" translatable="1">_Close</property>
-                    <property name="focusable">1</property>
-<property name="receives-default">1</property>
-                    <property name="use-underline">1</property>
-                    <signal name="clicked" handler="tax_table_window_close" swapped="no" />
-                  </object>
-
-                </child>
-              </object>
-            </child>
+            <property name="halign">end</property>
+            <child><object class="GtkButton" id="close_button"><property name="label" translatable="1">_Close</property><property name="use-underline">1</property><signal name="clicked" handler="tax_table_window_close"/></object></child>
           </object>
-        </property>
+        </child>
       </object>
     </property>
   </object>
-  <object class="GtkListStore" id="type_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Value $</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Percent %</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkDialog" id="new_tax_table_dialog">
-<property name="modal">1</property>
+  <object class="GtkWindow" id="new_tax_table_dialog">
+    <property name="title" translatable="1">Tax Table</property>
+    <property name="modal">1</property>
     <property name="default-height">370</property>
-<child internal-child="content_area">
-      <object class="GtkBox" id="dialog-vbox6">
+    <property name="default-width">460</property>
+    <property name="child">
+      <object class="GtkBox">
         <property name="orientation">vertical</property>
-        <property name="spacing">8</property>
+        <property name="spacing">12</property>
+        <property name="margin-start">18</property>
+        <property name="margin-end">18</property>
+        <property name="margin-top">18</property>
+        <property name="margin-bottom">18</property>
         <child>
           <object class="GtkGrid" id="ttd_table">
             <property name="vexpand">1</property>
-            <property name="row-spacing">3</property>
-            <property name="column-spacing">6</property>
-            <child>
-              <object class="GtkEntry" id="name_entry">
-                <property name="focusable">1</property>
-<property name="activates-default">1</property>
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">1</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="spacer">
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">2</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="label11">
-                <property name="halign">start</property>
-                <property name="label" translatable="1">Tax Table Entry</property>
-                <style>
-                  <class name="gnc-class-strong" />
-                </style>
-                <property name="use-markup">1</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">3</property>
-                  <property name="column-span">2</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="table_title">
-                <property name="halign">start</property>
-                <property name="label" translatable="1">Tax Table</property>
-                <style>
-                  <class name="gnc-class-strong" />
-                </style>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">0</property>
-                  <property name="column-span">2</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkScrolledWindow" id="acct_window">
-                <property name="focusable">1</property>
-                <property name="hexpand">1</property>
-                <property name="vexpand">1</property>
-                <property name="hscrollbar-policy">never</property>
-                <child>
-                  <placeholder />
-                </child>
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">6</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkBox" id="amount_box">
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">5</property>
-                </layout>
-                <child>
-                  <placeholder />
-                </child>
-              </object>
-            </child>
-            <child>
-              <object class="GtkComboBox" id="type_combobox">
-                <property name="model">type_liststore</property>
-                <child>
-                  <object class="GtkCellRendererText" id="cellrenderertext1" />
-                  <attributes>
-                    <attribute name="text">0</attribute>
-                  </attributes>
-                </child>
-                <layout>
-                  <property name="column">1</property>
-                  <property name="row">4</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="table_name">
-                <property name="halign">end</property>
-                <property name="label" translatable="1">_Name</property>
-                <property name="use-underline">1</property>
-                <property name="justify">right</property>
-                <property name="mnemonic-widget">name_entry</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">1</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="label6">
-                <property name="halign">end</property>
-                <property name="label" translatable="1">_Type</property>
-                <property name="use-underline">1</property>
-                <property name="justify">right</property>
-                <property name="mnemonic-widget">type_combobox</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">4</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="value_label">
-                <property name="halign">end</property>
-                <property name="label" translatable="1">_Value</property>
-                <property name="use-underline">1</property>
-                <property name="justify">right</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">5</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="account_label">
-                <property name="halign">end</property>
-                <property name="valign">start</property>
-                <property name="label" translatable="1">_Account</property>
-                <property name="use-underline">1</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">6</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <placeholder />
-            </child>
+            <property name="row-spacing">8</property>
+            <property name="column-spacing">12</property>
+            <child><object class="GtkLabel" id="table_title"><property name="label" translatable="1">Tax Table</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style><layout><property name="column">0</property><property name="row">0</property><property name="column-span">2</property></layout></object></child>
+            <child><object class="GtkLabel" id="table_name"><property name="label" translatable="1">_Name</property><property name="use-underline">1</property><property name="halign">end</property><property name="mnemonic-widget">name_entry</property><layout><property name="column">0</property><property name="row">1</property></layout></object></child>
+            <child><object class="GtkEntry" id="name_entry"><property name="hexpand">1</property><property name="activates-default">1</property><layout><property name="column">1</property><property name="row">1</property></layout></object></child>
+            <child><object class="GtkLabel" id="spacer"><layout><property name="column">0</property><property name="row">2</property></layout></object></child>
+            <child><object class="GtkLabel"><property name="label" translatable="1">Tax Table Entry</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style><layout><property name="column">0</property><property name="row">3</property><property name="column-span">2</property></layout></object></child>
+            <child><object class="GtkLabel"><property name="label" translatable="1">_Type</property><property name="use-underline">1</property><property name="halign">end</property><property name="mnemonic-widget">type_dropdown</property><layout><property name="column">0</property><property name="row">4</property></layout></object></child>
+            <child><object class="GtkDropDown" id="type_dropdown"><property name="hexpand">1</property><layout><property name="column">1</property><property name="row">4</property></layout></object></child>
+            <child><object class="GtkLabel" id="value_label"><property name="label" translatable="1">_Value</property><property name="use-underline">1</property><property name="halign">end</property><layout><property name="column">0</property><property name="row">5</property></layout></object></child>
+            <child><object class="GtkBox" id="amount_box"><layout><property name="column">1</property><property name="row">5</property></layout></object></child>
+            <child><object class="GtkLabel" id="account_label"><property name="label" translatable="1">_Account</property><property name="use-underline">1</property><property name="halign">end</property><property name="valign">start</property><layout><property name="column">0</property><property name="row">6</property></layout></object></child>
+            <child><object class="GtkScrolledWindow" id="acct_window"><property name="hexpand">1</property><property name="vexpand">1</property><property name="min-content-height">180</property><property name="hscrollbar-policy">never</property><layout><property name="column">1</property><property name="row">6</property></layout></object></child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <child><object class="GtkButton" id="cancel_button"><property name="label" translatable="1">_Cancel</property><property name="use-underline">1</property></object></child>
+            <child><object class="GtkButton" id="ok_button"><property name="label" translatable="1">_OK</property><property name="use-underline">1</property></object></child>
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area6">
-        <property name="visible">True</property>
-        <child>
-          <object class="GtkButton" id="cancel_button">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="ok_button">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
-        </child>
-      </object>
-    </child>
+    </property>
   </object>
 </interface>

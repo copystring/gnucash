@@ -28,8 +28,6 @@ typedef struct _taxtable_window TaxTableWindow;
 
 #include "gncTaxTable.h"
 
-/* Create a new tax-table by name */
-GncTaxTable * gnc_ui_tax_table_new_from_name (GtkWindow *parent, QofBook *book, const char *name);
 typedef void (*GncTaxTableCreatedCB) (GncTaxTable *table, gboolean accepted,
                                       gpointer user_data);
 
