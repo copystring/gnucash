@@ -60,6 +60,9 @@ struct RegisterSortDialog
     GncPluginPage* plugin_page;
     SplitRegister* reg;
     GtkWidget*     dialog;
+    guint          references;
+    bool           completed;
+    bool           book_option_registered;
     GtkWidget*     num_radio;
     GtkWidget*     act_radio;
 
@@ -74,11 +77,6 @@ extern "C"
 {
 // These functions are the dialog callbacks. They're connected to their
 // signals in gnc-plugin-page-register.glade so they mustn't be name-mangled.
-void
-gnc_ppr_sort_response_cb (GtkDialog* dialog,
-                          gint response,
-                          RegisterSortDialog *rsd);
-
 void
 gnc_ppr_sort_button_cb (GtkToggleButton* button,
                         RegisterSortDialog *rsd);
@@ -295,70 +293,131 @@ gnc_ppr_sort_book_option_changed (gpointer new_val,
     gnc_split_reg_sort (gsr, (SortType)gsr->sort_type, force, refresh);
 }
 
-/** This function is called when the "Sort By…" dialog is closed.
- *  If the dialog was closed by any method other than clicking the OK
- *  button, the original sorting order will be restored.
- *
- *  @param dialog A pointer to the dialog box.
- *
- *  @param response A numerical value indicating why the dialog box was closed.
- *
- *  @param rsd A pointer to the sort dialog structure.
- */
-void
-gnc_ppr_sort_response_cb (GtkDialog* dialog,
-                          gint response,
-                          RegisterSortDialog *rsd)
+static void
+ppr_sort_dialog_unref (RegisterSortDialog *rsd)
 {
-    g_return_if_fail (GTK_IS_DIALOG(dialog));
-    g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER(rsd->plugin_page));
+    g_return_if_fail (rsd->references > 0);
 
-    ENTER(" ");
+    if (--rsd->references)
+        return;
 
+    g_clear_object (&rsd->plugin_page);
+    g_free (rsd);
+}
+
+static void
+ppr_sort_dialog_complete (RegisterSortDialog *rsd, bool accepted,
+                          bool destroy_window)
+{
+    GtkWidget *dialog;
     auto sd = gnc_plugin_page_register_get_sort_data (rsd->plugin_page);
     auto gsr = gnc_plugin_page_register_get_gsr (rsd->plugin_page);
 
-    if (response != GTK_RESPONSE_OK)
+    if (rsd->completed)
+        return;
+
+    rsd->completed = true;
+    dialog = rsd->dialog;
+    rsd->dialog = nullptr;
+    sd->dialog = nullptr;
+
+    if (!accepted)
     {
-        // Restore the original sort order
+        /* Restore the original order, including a reverse-only change. */
         gnc_split_reg_set_sort_reversed (gsr, rsd->original_reverse_order, no_refresh);
         sd->reverse_order = rsd->original_reverse_order;
-        // use force as sort_type may still be the same if only reverse_order changed
         gnc_split_reg_sort (gsr, rsd->original_sort_type, force, refresh);
         sd->sort_type = rsd->original_sort_type;
         sd->save_order = rsd->original_save_order;
     }
     else
     {
-        // clear the sort when unticking the save option
-        if ((!sd->save_order) && ((rsd->original_sort_type) ||
-                                  (rsd->original_reverse_order)))
+        /* Clear the persisted order when saving was explicitly disabled. */
+        if (!sd->save_order && (rsd->original_sort_type || rsd->original_reverse_order))
         {
             gnc_ppr_sort_set_order (gsr, DEFAULT_SORT_ORDER);
             gnc_ppr_sort_set_reversed (gsr, false);
         }
-        rsd->original_sort_type = sd->sort_type;
-        rsd->original_reverse_order = sd->reverse_order;
 
         if (sd->save_order)
         {
             SortType type = gnc_split_reg_get_sort_type (gsr);
-            std::string sort_type = (SortTypeasString (type));
+            std::string sort_type = SortTypeasString (type);
 
             gnc_ppr_sort_set_order (gsr, sort_type);
             gnc_ppr_sort_set_reversed (gsr, sd->reverse_order);
         }
     }
-    gnc_book_option_remove_cb (OPTION_NAME_NUM_FIELD_SOURCE,
-                               gnc_ppr_sort_book_option_changed,
-                               (gpointer)rsd);
-    rsd->dialog = nullptr;
+
+    if (rsd->book_option_registered)
+    {
+        gnc_book_option_remove_cb (OPTION_NAME_NUM_FIELD_SOURCE,
+                                   gnc_ppr_sort_book_option_changed,
+                                   rsd);
+        rsd->book_option_registered = false;
+    }
     rsd->num_radio = nullptr;
     rsd->act_radio = nullptr;
-    sd->dialog = nullptr;
-    g_free (rsd);
-    gtk_window_destroy (GTK_WINDOW(dialog));
-    LEAVE (" ");
+
+    if (destroy_window && dialog)
+        gtk_window_destroy (GTK_WINDOW (dialog));
+}
+
+static void
+ppr_sort_dialog_accept_clicked (GtkButton *button, RegisterSortDialog *rsd)
+{
+    (void)button;
+    ppr_sort_dialog_complete (rsd, true, true);
+}
+
+static void
+ppr_sort_dialog_cancel_clicked (GtkButton *button, RegisterSortDialog *rsd)
+{
+    (void)button;
+    ppr_sort_dialog_complete (rsd, false, true);
+}
+
+static gboolean
+ppr_sort_dialog_close_request (GtkWindow *window, RegisterSortDialog *rsd)
+{
+    (void)window;
+    ppr_sort_dialog_complete (rsd, false, true);
+    return TRUE;
+}
+
+static gboolean
+ppr_sort_dialog_escape (GtkWidget *widget, GVariant *args, gpointer user_data)
+{
+    auto rsd = static_cast<RegisterSortDialog *> (user_data);
+
+    (void)widget;
+    (void)args;
+    ppr_sort_dialog_complete (rsd, false, true);
+    return TRUE;
+}
+
+static void
+ppr_sort_dialog_destroyed (GtkWidget *widget, RegisterSortDialog *rsd)
+{
+    (void)widget;
+    rsd->dialog = nullptr;
+    if (!rsd->completed)
+        ppr_sort_dialog_complete (rsd, false, false);
+    ppr_sort_dialog_unref (rsd);
+}
+
+static void
+ppr_sort_dialog_add_shortcuts (GtkWindow *dialog, RegisterSortDialog *rsd)
+{
+    auto controller = GTK_SHORTCUT_CONTROLLER (gtk_shortcut_controller_new ());
+
+    gtk_shortcut_controller_set_scope (controller, GTK_SHORTCUT_SCOPE_MANAGED);
+    gtk_shortcut_controller_add_shortcut (
+        controller,
+        gtk_shortcut_new (
+            gtk_keyval_trigger_new (GDK_KEY_Escape, GDK_NO_MODIFIER_MASK),
+            gtk_callback_action_new (ppr_sort_dialog_escape, rsd, NULL)));
+    gtk_widget_add_controller (GTK_WIDGET (dialog), GTK_EVENT_CONTROLLER (controller));
 }
 
 /** This function is called when a radio button in the "Sort By…"
@@ -375,7 +434,7 @@ gnc_ppr_sort_button_cb (GtkToggleButton* button,
     g_return_if_fail (GTK_IS_TOGGLE_BUTTON(button));
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER(rsd->plugin_page));
 
-    auto name = gtk_buildable_get_name (GTK_BUILDABLE(button));
+    auto name = gtk_buildable_get_buildable_id (GTK_BUILDABLE(button));
 
     ENTER("button %s(%p), page %p", name, button, rsd->plugin_page);
 
@@ -452,6 +511,9 @@ gnc_ppr_sort_order_reverse_cb (GtkToggleButton* button,
 static void
 gnc_ppr_sort_dialog_create (RegisterSortDialog *rsd, SortData *sd)
 {
+    GtkWidget *cancel_button;
+    GtkWidget *ok_button;
+
     /* Create the dialog */
     auto builder = gtk_builder_new();
     gnc_builder_add_from_file (builder, "gnc-plugin-page-register.glade", "sort_by_dialog");
@@ -503,14 +565,28 @@ gnc_ppr_sort_dialog_create (RegisterSortDialog *rsd, SortData *sd)
     }
     gnc_book_option_register_cb (OPTION_NAME_NUM_FIELD_SOURCE,
                                  (GncBOCb)gnc_ppr_sort_book_option_changed,
-                                 (gpointer)rsd);
+                                 rsd);
+    rsd->book_option_registered = true;
 
-    /* Wire it up */
+    /* Wire the control callbacks declared in the builder and the explicit
+     * window lifecycle callbacks here. */
     gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func,
                                       rsd);
+    cancel_button = GTK_WIDGET (gtk_builder_get_object (builder, "cancelbutton2"));
+    ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton2"));
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (ppr_sort_dialog_cancel_clicked), rsd);
+    g_signal_connect (ok_button, "clicked",
+                      G_CALLBACK (ppr_sort_dialog_accept_clicked), rsd);
+    g_signal_connect (dialog, "close-request",
+                      G_CALLBACK (ppr_sort_dialog_close_request), rsd);
+    g_signal_connect (dialog, "destroy",
+                      G_CALLBACK (ppr_sort_dialog_destroyed), rsd);
+    ppr_sort_dialog_add_shortcuts (GTK_WINDOW (dialog), rsd);
+    gtk_window_set_default_widget (GTK_WINDOW (dialog), ok_button);
 
     /* Show it */
-    gtk_widget_show (dialog);
+    gtk_window_present (GTK_WINDOW (dialog));
     g_object_unref (G_OBJECT(builder));
     LEAVE (" ");
 }
@@ -536,7 +612,8 @@ gnc_ppr_sort_dialog (GncPluginPage *plugin_page, SplitRegister* reg,
 
     rsd = g_new0 (RegisterSortDialog, 1);
 
-    rsd->plugin_page = plugin_page;
+    rsd->references = 1;
+    rsd->plugin_page = GNC_PLUGIN_PAGE (g_object_ref (plugin_page));
     rsd->reg = reg;
     rsd->show_save_button = show_save_button;
 

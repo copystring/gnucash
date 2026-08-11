@@ -16,15 +16,19 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkDialog" id="filter_by_dialog">
-<property name="title" translatable="1" comments="Filter register by… Dialog">Filter register by…</property>
+  <object class="GtkWindow" id="filter_by_dialog">
+    <property name="title" translatable="1" comments="Filter register by… Dialog">Filter register by…</property>
     <property name="resizable">0</property>
+    <property name="modal">1</property>
     <property name="destroy-with-parent">1</property>
-<signal name="response" handler="gnc_ppr_filter_response_cb" swapped="no" />
-    <child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="dialog-vbox19">
         <property name="orientation">vertical</property>
         <property name="spacing">6</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkNotebook" id="notebook1">
             <property name="vexpand">1</property>
@@ -445,13 +449,10 @@ If 0, all previous days included</property>
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton4</action-widget>
-      <action-widget response="-5">okbutton4</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+    <child>
       <object class="GtkBox" id="dialog-action_area21">
-        <property name="visible">True</property>
+        <property name="halign">end</property>
+        <property name="spacing">6</property>
         <child>
           <object class="GtkButton" id="cancelbutton4">
             <property name="label" translatable="1">_Cancel</property>
@@ -521,14 +522,19 @@ If 0, all previous days included</property>
   <object class="GtkEntryBuffer" id="entrybuffer1">
     <property name="text">0</property>
   </object>
-  <object class="GtkDialog" id="sort_by_dialog">
-<property name="title" translatable="1" comments="Sort register by Dialog">Sort register by…</property>
+  <object class="GtkWindow" id="sort_by_dialog">
+    <property name="title" translatable="1" comments="Sort register by Dialog">Sort register by…</property>
     <property name="resizable">0</property>
-    <signal name="response" handler="gnc_ppr_sort_response_cb" swapped="no" />
-    <child internal-child="content_area">
+    <property name="modal">1</property>
+    <property name="destroy-with-parent">1</property>
+    <child>
       <object class="GtkBox" id="dialog-vbox17">
         <property name="orientation">vertical</property>
         <property name="spacing">6</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
         <child>
           <object class="GtkBox" id="vbox101">
             <property name="vexpand">1</property>
@@ -698,13 +704,10 @@ If 0, all previous days included</property>
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton2</action-widget>
-      <action-widget response="-5">okbutton2</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+    <child>
       <object class="GtkBox" id="dialog-action_area19">
-        <property name="visible">True</property>
+        <property name="halign">end</property>
+        <property name="spacing">6</property>
         <child>
           <object class="GtkButton" id="cancelbutton2">
             <property name="label" translatable="1">_Cancel</property>
