@@ -25,9 +25,6 @@
 
 #include "gnc-gtk-utils.h"
 
-#define LAST_INDEX "last_index"
-#define CHANGED_ID "changed_id"
-
 static void
 gnc_box_pack_full (GtkBox *box, GtkWidget *child, gboolean expand,
                    gboolean fill, guint padding, gboolean prepend)
@@ -96,202 +93,6 @@ gnc_widget_set_all_margins (GtkWidget *widget, gint margin)
     gtk_widget_set_margin_bottom (widget, margin);
 }
 
-
-/** Find an entry in the GtkComboBox by its text value, and set
- *  the widget to that value.  This function also records the index of
- *  that text value for use when the user leaves the widget.
- *
- *  @param cbwe A pointer to a GtkComboBox with entry widget.
- *
- *  @param text The entry text to find in the model of the combo box
- *  entry. */
-void
-gnc_cbwe_set_by_string(GtkComboBox *cbwe,
-                      const gchar *text)
-{
-    GtkTreeModel *model;
-    GtkTreeIter iter;
-    gchar *tree_string;
-    gint column, index, id;
-    gboolean match;
-
-    model = gtk_combo_box_get_model(GTK_COMBO_BOX(cbwe));
-    if (!gtk_tree_model_get_iter_first(model, &iter))
-    {
-        /* empty tree */
-        gtk_combo_box_set_active(GTK_COMBO_BOX(cbwe), -1);
-        return;
-    }
-
-    column = gtk_combo_box_get_entry_text_column(cbwe);
-    do
-    {
-        gtk_tree_model_get(model, &iter, column, &tree_string, -1);
-        match = g_utf8_collate(text, tree_string) == 0;
-        g_free(tree_string);
-        if (!match)
-            continue;
-
-        /* Found a matching string */
-        id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(cbwe), CHANGED_ID));
-        g_signal_handler_block(cbwe, id);
-        gtk_combo_box_set_active_iter(GTK_COMBO_BOX(cbwe), &iter);
-        g_signal_handler_unblock(cbwe, id);
-
-        index = gtk_combo_box_get_active(GTK_COMBO_BOX(cbwe));
-        g_object_set_data(G_OBJECT(cbwe), LAST_INDEX, GINT_TO_POINTER(index));
-        return;
-    }
-    while (gtk_tree_model_iter_next(model, &iter));
-}
-
-
-/**  The GtkComboBox with entry widget has changed its value.  If the widget
- *   now points to another valid entry string then record the index of
- *   that string for use when the user leaves the widget.
- *
- *   @param widget Unused.
- *
- *   @param cbwe A pointer to a GtkComboBox widget. */
-static void
-gnc_cbwe_changed_cb (GtkComboBox *widget,
-                    GtkComboBox *cbwe)
-{
-    gint index;
-
-    index = gtk_combo_box_get_active(widget);
-    if (index == -1)
-        return;
-    g_object_set_data(G_OBJECT(cbwe), LAST_INDEX, GINT_TO_POINTER(index));
-}
-
-
-/**  The completion attached to currency edit widget has selected a
- *   match.  This function extracts the completed string from the
- *   completion code's temporary model, and uses that to set the index
- *   of that currency name for use when the user leaves the widget.
- *   This should always point to a valid currency name since the user
- *   made the selection from a list of currency names.
- *
- *   @param completion Unused.
- *
- *   @param comp_model A temporary model used by completion code that
- *   contains only the current matches.
- *
- *   @param comp_iter The iter in the completion's temporary model
- *   that represents the user selected match.
- *
- *   @param cbwe A pointer to a currency entry widget. */
-static gboolean
-gnc_cbwe_match_selected_cb (GtkEntryCompletion *completion,
-                            GtkTreeModel       *comp_model,
-                            GtkTreeIter        *comp_iter,
-                            GtkComboBox        *cbwe)
-{
-    gint column;
-    gchar *text;
-
-    column = gtk_combo_box_get_entry_text_column(cbwe);
-    gtk_tree_model_get(comp_model, comp_iter, column, &text, -1);
-    gnc_cbwe_set_by_string(cbwe, text);
-    g_free(text);
-    return FALSE;
-}
-
-
-/**  The focus left the currency edit widget, so reset the widget to
- *   its last known good value.  If the widget value contained a valid
- *   currency then this is a noop.  Otherwise the widget will be reset
- *   to the last user selected currency.  This latter state will occur
- *   if the user has typed characters directly into the widget but not
- *   selected a completion.
- *
- *   @param entry Unused.
- *
- *   @param event Unused.
- *
- *   @param cbwe A pointer to a currency entry widget. */
-//FIXME gtk4
-#ifdef skip
-static gboolean
-gnc_cbwe_focus_out_cb (GtkEntry *entry,
-                       GdkEventFocus *event,
-                       GtkComboBox *cbwe)
-{
-    const gchar *text;
-    gint index;
-
-    /* Make a final attempt to match the current text. */
-    text = gnc_entry_get_text(entry);
-    gnc_cbwe_set_by_string(cbwe, text);
-
-    /* Get the last known index (which may have just been set). */
-    index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(cbwe), LAST_INDEX));
-    gtk_combo_box_set_active(GTK_COMBO_BOX(cbwe), index);
-    return FALSE;
-}
-#endif
-void
-gnc_cbwe_add_completion (GtkComboBox *cbwe)
-{
-    GtkEntry *entry;
-    GtkEntryCompletion *completion;
-    GtkTreeModel *model;
-
-    entry = GTK_ENTRY(gtk_combo_box_get_child (GTK_COMBO_BOX(cbwe)));
-    completion = gtk_entry_get_completion(entry);
-    if (completion)
-        return;
-
-    /* No completion yet? Set one up. */
-    completion = gtk_entry_completion_new();
-    model = gtk_combo_box_get_model(GTK_COMBO_BOX(cbwe));
-    gtk_entry_completion_set_model(completion, model);
-    gtk_entry_completion_set_text_column(completion, 0);
-    gtk_entry_set_completion(entry, completion);
-    g_object_unref(completion);
-}
-
-void
-gnc_cbwe_require_list_item (GtkComboBox *cbwe)
-{
-    GtkEntry *entry;
-    GtkEntryCompletion *completion;
-    GtkTreeModel *model;
-    GtkTreeIter iter;
-    gint index, id;
-
-    /* Ensure completion is set up. */
-    gnc_cbwe_add_completion(cbwe);
-
-    /* If an item in the combo box isn't already selected, then force
-     * select the first item. Take care, the combo box may not have been
-     * filled yet.  */
-    entry = GTK_ENTRY(gtk_combo_box_get_child (GTK_COMBO_BOX(cbwe)));
-    completion = gtk_entry_get_completion(entry);
-    index = gtk_combo_box_get_active(GTK_COMBO_BOX(cbwe));
-    if (index == -1)
-    {
-        model = gtk_entry_completion_get_model(completion);
-        if (gtk_tree_model_get_iter_first(model, &iter))
-        {
-            gtk_combo_box_set_active(GTK_COMBO_BOX(cbwe), 0);
-            index = 0;
-        }
-    }
-    g_object_set_data(G_OBJECT(cbwe), LAST_INDEX, GINT_TO_POINTER(index));
-
-    /* Now the signals to make sure the user can't leave the
-       widget without a valid match. */
-    id = g_signal_connect(cbwe, "changed",
-                          G_CALLBACK(gnc_cbwe_changed_cb), cbwe);
-    g_signal_connect(completion, "match_selected",
-                     G_CALLBACK(gnc_cbwe_match_selected_cb), cbwe);
-//FIXME gtk4    g_signal_connect(entry, "focus-out-event",
-//                     G_CALLBACK(gnc_cbwe_focus_out_cb), cbwe);
-
-    g_object_set_data(G_OBJECT(cbwe), CHANGED_ID, GINT_TO_POINTER(id));
-}
 
 /** Return whether the current gtk theme is a dark one. A theme is considered "dark" if
  *  it has a dark background color with a light foreground color (used for text and so on).
@@ -1141,22 +942,56 @@ gnc_menu_item_setup_tooltip_to_statusbar_callback (GtkWidget *menu_item,
 }
 
 
-static gboolean
-tool_item_enter_event (GtkWidget *button, GdkEvent *event,
-                       gpointer user_data)
+typedef struct
 {
-    GtkWidget *tool_item = gtk_widget_get_parent (button);
-    const gchar *tooltip = gtk_widget_get_tooltip_text (tool_item);
-    statusbar_push (user_data, tooltip);
-    return FALSE;
+    GWeakRef statusbar;
+    gboolean pushed;
+} GncToolItemTooltipBinding;
+
+static void
+tool_item_tooltip_binding_free (GncToolItemTooltipBinding *binding)
+{
+    g_weak_ref_clear (&binding->statusbar);
+    g_free (binding);
 }
 
-static gboolean
-tool_item_leave_event (GtkWidget *button, GdkEvent *event,
-                       gpointer user_data)
+static void
+tool_item_pointer_enter (GtkEventControllerMotion *controller,
+                         double                    x,
+                         double                    y,
+                         GncToolItemTooltipBinding *binding)
 {
-    statusbar_pop (user_data);
-    return FALSE;
+    GtkWidget *child = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+    GtkWidget *tool_item = child ? gtk_widget_get_parent (child) : NULL;
+    const gchar *tooltip = tool_item ? gtk_widget_get_tooltip_text (tool_item) : NULL;
+    GObject *statusbar = g_weak_ref_get (&binding->statusbar);
+
+    if (statusbar)
+    {
+        statusbar_push (GTK_WIDGET (statusbar), tooltip);
+        binding->pushed = TRUE;
+        g_object_unref (statusbar);
+    }
+    (void)x;
+    (void)y;
+}
+
+static void
+tool_item_pointer_leave (GtkEventControllerMotion *controller,
+                         GncToolItemTooltipBinding *binding)
+{
+    if (binding->pushed)
+    {
+        GObject *statusbar = g_weak_ref_get (&binding->statusbar);
+
+        if (statusbar)
+        {
+            statusbar_pop (GTK_WIDGET (statusbar));
+            g_object_unref (statusbar);
+        }
+        binding->pushed = FALSE;
+    }
+    (void)controller;
 }
 
 /** Setup the callbacks for tool bar items so the tooltip can be
@@ -1176,18 +1011,19 @@ gnc_tool_item_setup_tooltip_to_statusbar_callback (GtkWidget *tool_item,
     g_return_if_fail (statusbar != NULL);
 
     child = gtk_widget_get_first_child (GTK_WIDGET(tool_item));
+    if (!child || g_object_get_data (G_OBJECT (child), "gnc-tool-item-tooltip-controller"))
+        return;
 
-//FIXME gtk4    gtk_widget_add_events (GTK_WIDGET(child),
-//                           GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK
-//                           | GDK_FOCUS_CHANGE_MASK);
+    GncToolItemTooltipBinding *binding = g_new0 (GncToolItemTooltipBinding, 1);
+    GtkEventController *motion = gtk_event_controller_motion_new ();
 
-    g_signal_connect (child, "enter-notify-event",
-                      G_CALLBACK (tool_item_enter_event),
-                      statusbar);
-
-    g_signal_connect (child, "leave-notify-event",
-                      G_CALLBACK (tool_item_leave_event),
-                      statusbar);
+    g_weak_ref_init (&binding->statusbar, G_OBJECT (statusbar));
+    g_signal_connect (motion, "enter", G_CALLBACK (tool_item_pointer_enter), binding);
+    g_signal_connect_data (motion, "leave", G_CALLBACK (tool_item_pointer_leave), binding,
+                           (GClosureNotify)tool_item_tooltip_binding_free, 0);
+    gtk_widget_add_controller (child, motion);
+    g_object_set_data (G_OBJECT (child), "gnc-tool-item-tooltip-controller",
+                       GINT_TO_POINTER (1));
 
     g_object_set (G_OBJECT(tool_item), "has-tooltip", FALSE, NULL);
 }

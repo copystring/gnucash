@@ -303,21 +303,26 @@ gnc_plugin_add_menu_tooltip_callbacks (GtkWidget  *menubar,
 }
 
 static void
-for_each_tool_action (GtkWidget *widget, gpointer user_data)
+setup_toolbar_tooltip_callbacks (GtkWidget *toolbar, gpointer user_data)
 {
     GtkWidget *statusbar = user_data;
 
-    if (GTK_IS_ACTIONABLE(widget))
-        gnc_tool_item_setup_tooltip_to_statusbar_callback (widget, statusbar);
+    for (GtkWidget *child = gtk_widget_get_first_child (toolbar);
+         child;
+         child = gtk_widget_get_next_sibling (child))
+    {
+        if (GTK_IS_ACTIONABLE(child))
+            gnc_tool_item_setup_tooltip_to_statusbar_callback (child, statusbar);
+    }
 }
 
 void
 gnc_plugin_add_toolbar_tooltip_callbacks (GtkWidget *toolbar, GtkWidget *statusbar)
 {
-//FIXME gtk4    g_return_if_fail (GTK_IS_TOOLBAR(toolbar));
+    g_return_if_fail (GTK_IS_WIDGET(toolbar));
     g_return_if_fail (GTK_IS_STATUSBAR(statusbar));
 
-//FIXME gtk4    gtk_container_foreach (GTK_CONTAINER(toolbar), for_each_tool_action, statusbar);
+    setup_toolbar_tooltip_callbacks (toolbar, statusbar);
 }
 
 /** @} */
