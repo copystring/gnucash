@@ -141,11 +141,6 @@ void gnc_builder_connect_full_func (GtkBuilder *builder,
                                     GConnectFlags flags,
                                     gpointer user_data);
 
-/** Note: This dialog is modal! Uses preference settings for default
- */
-gint
-gnc_warning_dialog_run (GtkDialog *dialog, const gchar *pref_key);
-
 /** Receives a response from a non-blocking warning dialog. */
 typedef void (*GncWarningDialogResponseCallback) (gint response,
                                                   gpointer user_data);
@@ -153,8 +148,8 @@ typedef void (*GncWarningDialogResponseCallback) (gint response,
 /**
  * Present a non-blocking warning window without running a nested main loop.
  *
- * This preserves gnc_warning_dialog_run()'s permanent and session warning
- * preferences. The response callback is invoked exactly once, including when
+ * This preserves permanent and session warning preferences. The response
+ * callback is invoked exactly once, including when
  * the parent or warning window is destroyed.
  */
 void gnc_warning_dialog_async (GtkWindow *parent,
@@ -214,11 +209,6 @@ void gnc_ok_to_close_window_async (GtkWindow *window,
                                    GncOkToCloseWindowCallback completed,
                                    gpointer user_data);
 
-/* If this is a new book, this function can be used to display book options
- * dialog so user can specify options, before any transactions can be
- * imported/entered, since the book options can affect how transactions are
- * created. Note: This dialog is modal! */
-gboolean gnc_new_book_option_display (GtkWidget *parent);
 typedef void (*GncNewBookOptionsFinishedCB) (GtkWindow *parent,
                                               gboolean applied,
                                               gpointer user_data);

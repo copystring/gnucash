@@ -953,67 +953,6 @@ gnc_dialog_run_non_destructive (GtkDialog *dialog)
     return gnc_dialog_wait_for_response (dialog);
 }
 
-gint
-gnc_warning_dialog_run (GtkDialog *dialog, const gchar *pref_name)
-{
-    GtkWidget *perm, *temp;
-    gboolean ask = TRUE;
-    gint response;
-
-    /* Does the user want to see this question? If not, return the
-     * previous answer. */
-    response = gnc_prefs_get_int(GNC_PREFS_GROUP_WARNINGS_PERM, pref_name);
-    if (response != 0)
-        return response;
-    response = gnc_prefs_get_int(GNC_PREFS_GROUP_WARNINGS_TEMP, pref_name);
-    if (response != 0)
-        return response;
-
-    /* Add in the checkboxes to find out if the answer should be remembered. */
-    if (GTK_IS_MESSAGE_DIALOG(dialog))
-    {
-        GtkMessageType type;
-        g_object_get(dialog, "message-type", &type, (gchar*)NULL);
-        ask = (type == GTK_MESSAGE_QUESTION || type == GTK_MESSAGE_WARNING);
-    }
-    perm = gtk_check_button_new_with_mnemonic
-           (ask
-            ? _("Remember and don't _ask me again.")
-            : _("Don't _tell me again."));
-    temp = gtk_check_button_new_with_mnemonic
-           (ask
-            ? _("Remember and don't ask me again this _session.")
-            : _("Don't tell me again this _session."));
-    gtk_widget_set_visible (perm, TRUE);
-    gtk_widget_set_visible (temp, TRUE);
-    gtk_box_append (GTK_BOX (gtk_dialog_get_content_area (dialog)), perm);
-    gtk_box_append (GTK_BOX (gtk_dialog_get_content_area (dialog)), temp);
-    g_signal_connect(perm, "clicked", G_CALLBACK(gnc_perm_button_cb), temp);
-
-    /* OK. Present the dialog. */
-    GtkWidget *button_cancel = gtk_dialog_get_widget_for_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
-    gtk_widget_grab_focus(button_cancel);
-    response = gnc_dialog_run_non_destructive (dialog);
-    if ((response == GTK_RESPONSE_NONE) || (response == GTK_RESPONSE_DELETE_EVENT))
-    {
-        return GTK_RESPONSE_CANCEL;
-    }
-
-    if (response != GTK_RESPONSE_CANCEL)
-    {
-        /* Save the answer? */
-        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(perm)))
-        {
-            gnc_prefs_set_int(GNC_PREFS_GROUP_WARNINGS_PERM, pref_name, response);
-        }
-        else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(temp)))
-        {
-            gnc_prefs_set_int(GNC_PREFS_GROUP_WARNINGS_TEMP, pref_name, response);
-        }
-    }
-    return response;
-}
-
 typedef struct
 {
     GtkWindow *window;
@@ -1552,27 +1491,6 @@ gnc_new_book_option_display_async (GtkWidget *parent,
     gtk_window_set_modal (GTK_WINDOW (window), TRUE);
     gtk_window_present (GTK_WINDOW (window));
 }
-gboolean
-gnc_new_book_option_display (GtkWidget *parent)
-{
-    GtkWidget *window;
-    gint result = GTK_RESPONSE_HELP;
-
-    window = gnc_book_options_dialog_cb (TRUE, _( "New Book Options"),
-                                         GTK_WINDOW (parent));
-    if (window)
-    {
-        /* close dialog and proceed unless help button selected */
-        while (result == GTK_RESPONSE_HELP)
-        {
-            result = gnc_dialog_run_non_destructive(GTK_DIALOG(window));
-        }
-        gtk_window_destroy(GTK_WINDOW(window));
-        return FALSE;
-    }
-    return TRUE;
-}
-
 gchar*
 gnc_get_negative_color (void)
 {

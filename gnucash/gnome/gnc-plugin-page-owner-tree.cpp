@@ -752,13 +752,9 @@ static void gnc_ui_owner_edit (GtkWindow *parent, GncOwner *owner)
 
 /* Callbacks */
 
-/** This button press handler calls the common button press handler
- *  for all pages.  The GtkTreeView eats all button presses and
- *  doesn't pass them up the widget tree, even when doesn't do
- *  anything with them.  The only way to get access to the button
- *  presses in an owner tree page is here on the tree view widget.
- *  Button presses on all other pages are caught by the signal
- *  registered in gnc-main-window.c. */
+/** This gesture handler forwards presses from the owner ColumnView to the
+ *  common page handler.  It runs before the view updates its selection, so
+ *  the ensuing action still operates on the row beneath the pointer. */
 static gboolean
 gnc_plugin_page_owner_tree_button_press_cb  (GtkGestureClick *gesture,
                                              int n_press,
