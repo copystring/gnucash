@@ -47,6 +47,7 @@
 #include "gnc-state.h"
 
 #include "assistant-csv-price-import.h"
+#include "gnc-import-assistant.h"
 
 #include "go-charmap-sel.h"
 
@@ -132,7 +133,7 @@ private:
                                          gpointer user_data);
     bool set_selected_file (GFile *file);
 
-    GtkAssistant    *csv_imp_asst;
+    GncImportAssistant    *csv_imp_asst;
 
     GtkWidget       *file_page;                     /**< Assistant file page widget */
     GtkWidget       *file_select_button;            /**< Opens the native file dialog */
@@ -186,9 +187,9 @@ private:
 
 extern "C"
 {
-void csv_price_imp_assist_prepare_cb (GtkAssistant  *assistant, GtkWidget *page, CsvImpPriceAssist* info);
-void csv_price_imp_assist_close_cb (GtkAssistant *gtkassistant, CsvImpPriceAssist* info);
-void csv_price_imp_assist_finish_cb (GtkAssistant *gtkassistant, CsvImpPriceAssist* info);
+void csv_price_imp_assist_prepare_cb (GncImportAssistant  *assistant, GtkWidget *page, CsvImpPriceAssist* info);
+void csv_price_imp_assist_close_cb (GncImportAssistant *gtkassistant, CsvImpPriceAssist* info);
+void csv_price_imp_assist_finish_cb (GncImportAssistant *gtkassistant, CsvImpPriceAssist* info);
 void csv_price_imp_select_file_cb (GtkButton *button, CsvImpPriceAssist *info);
 void csv_price_imp_preview_del_settings_cb (GtkWidget *button, CsvImpPriceAssist *info);
 void csv_price_imp_preview_save_settings_cb (GtkWidget *button, CsvImpPriceAssist *info);
@@ -210,20 +211,20 @@ void csv_price_imp_preview_enc_sel_cb (GOCharmapSel* selector, const char* encod
 }
 
 void
-csv_price_imp_assist_prepare_cb (GtkAssistant *assistant, GtkWidget *page,
+csv_price_imp_assist_prepare_cb (GncImportAssistant *assistant, GtkWidget *page,
         CsvImpPriceAssist* info)
 {
     info->assist_prepare_cb(page);
 }
 
 void
-csv_price_imp_assist_close_cb (GtkAssistant *assistant, CsvImpPriceAssist* info)
+csv_price_imp_assist_close_cb (GncImportAssistant *assistant, CsvImpPriceAssist* info)
 {
     gnc_close_gui_component_by_data (ASSISTANT_CSV_IMPORT_PRICE_CM_CLASS, info);
 }
 
 void
-csv_price_imp_assist_finish_cb (GtkAssistant *assistant, CsvImpPriceAssist* info)
+csv_price_imp_assist_finish_cb (GncImportAssistant *assistant, CsvImpPriceAssist* info)
 {
     info->assist_finish ();
 }
@@ -482,7 +483,18 @@ CsvImpPriceAssist::CsvImpPriceAssist ()
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "start_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "end_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "CSV Price Assistant");
-    csv_imp_asst = GTK_ASSISTANT(gtk_builder_get_object (builder, "CSV Price Assistant"));
+    csv_imp_asst = gnc_import_assistant_new (
+        GTK_WINDOW (gtk_builder_get_object (builder, "CSV Price Assistant")),
+        GTK_STACK (gtk_builder_get_object (builder, "gnc_import_assistant_stack")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_page_title")),
+        GTK_BOX (gtk_builder_get_object (builder, "gnc_import_assistant_actions")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_back")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_next")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_apply")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_cancel")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_close")));
+    if (!csv_imp_asst)
+        throw std::runtime_error ("Unable to construct CSV price import assistant");
     g_object_set_data (G_OBJECT (csv_imp_asst), "gnc-csv-price-import-assistant-owner", this);
 
     // Set the name for this assistant so it can be easily manipulated with css
@@ -490,19 +502,19 @@ CsvImpPriceAssist::CsvImpPriceAssist ()
     gnc_widget_style_context_add_class (GTK_WIDGET(csv_imp_asst), "gnc-class-imports");
 
     /* Enable buttons on all page. */
-    gtk_assistant_set_page_complete (csv_imp_asst,
+    gnc_import_assistant_set_page_complete (csv_imp_asst,
                                      GTK_WIDGET(gtk_builder_get_object (builder, "start_page")),
                                      true);
-    gtk_assistant_set_page_complete (csv_imp_asst,
+    gnc_import_assistant_set_page_complete (csv_imp_asst,
                                      GTK_WIDGET(gtk_builder_get_object (builder, "file_page")),
                                      false);
-    gtk_assistant_set_page_complete (csv_imp_asst,
+    gnc_import_assistant_set_page_complete (csv_imp_asst,
                                      GTK_WIDGET(gtk_builder_get_object (builder, "preview_page")),
                                      false);
-    gtk_assistant_set_page_complete (csv_imp_asst,
+    gnc_import_assistant_set_page_complete (csv_imp_asst,
                                      GTK_WIDGET(gtk_builder_get_object (builder, "confirm_page")),
                                      true);
-    gtk_assistant_set_page_complete (csv_imp_asst,
+    gnc_import_assistant_set_page_complete (csv_imp_asst,
                                      GTK_WIDGET(gtk_builder_get_object (builder, "summary_page")),
                                      true);
 
@@ -668,6 +680,14 @@ CsvImpPriceAssist::CsvImpPriceAssist ()
                              GTK_WINDOW(csv_imp_asst), gnc_ui_get_main_window(nullptr));
 
 gnc_builder_connect_signals (builder, this);
+    gnc_import_assistant_set_page_action (csv_imp_asst, 3,
+                                          GNC_IMPORT_ASSISTANT_PAGE_APPLY);
+    gnc_import_assistant_set_page_action (csv_imp_asst, 4,
+                                          GNC_IMPORT_ASSISTANT_PAGE_CLOSE);
+    gnc_import_assistant_set_callbacks (csv_imp_asst, csv_price_imp_assist_prepare_cb,
+                                        csv_price_imp_assist_finish_cb,
+                                        csv_price_imp_assist_close_cb,
+                                        csv_price_imp_assist_close_cb, this);
     g_object_unref (G_OBJECT(builder));
 
     gnc_window_adjust_for_screen (GTK_WINDOW(csv_imp_asst));
@@ -732,9 +752,9 @@ CsvImpPriceAssist::file_dialog_finished_cb (GObject *source, GAsyncResult *resul
         {
             gtk_label_set_text (GTK_LABEL (info->file_name_label),
                                 info->m_fc_file_name.c_str());
-            gtk_assistant_set_page_complete (info->csv_imp_asst, info->file_page,
+            gnc_import_assistant_set_page_complete (info->csv_imp_asst, info->file_page,
                                              true);
-            gtk_assistant_next_page (info->csv_imp_asst);
+            gnc_import_assistant_next_page (info->csv_imp_asst);
         }
         else
         {
@@ -1476,7 +1496,7 @@ void CsvImpPriceAssist::preview_validate_settings ()
 {
     /* Allow the user to proceed only if there are no inconsistencies in the settings */
     auto error_msg = price_imp->verify();
-    gtk_assistant_set_page_complete (csv_imp_asst, preview_page, error_msg.empty());
+    gnc_import_assistant_set_page_complete (csv_imp_asst, preview_page, error_msg.empty());
     gtk_label_set_markup(GTK_LABEL(instructions_label), error_msg.c_str());
     gtk_widget_set_visible (GTK_WIDGET(instructions_image), !error_msg.empty());
 }
@@ -1491,9 +1511,9 @@ CsvImpPriceAssist::assist_file_page_prepare ()
     gtk_label_set_text (GTK_LABEL (file_name_label),
                         m_fc_file_name.empty () ? _("No file selected")
                                                : m_fc_file_name.c_str());
-    gtk_assistant_set_page_complete (csv_imp_asst, file_page,
+    gnc_import_assistant_set_page_complete (csv_imp_asst, file_page,
                                      !m_fc_file_name.empty ());
-    gtk_assistant_set_page_complete (csv_imp_asst, preview_page, false);
+    gnc_import_assistant_set_page_complete (csv_imp_asst, preview_page, false);
 }
 
 void
@@ -1521,7 +1541,7 @@ CsvImpPriceAssist::assist_preview_page_prepare ()
             price_imp->over_write (false);
 
             /* Disable the "Next" Assistant Button */
-            gtk_assistant_set_page_complete (csv_imp_asst, preview_page, false);
+            gnc_import_assistant_set_page_complete (csv_imp_asst, preview_page, false);
         }
         catch (std::ifstream::failure& e)
         {
@@ -1538,7 +1558,7 @@ CsvImpPriceAssist::assist_preview_page_prepare ()
     }
 
     if (go_back)
-        gtk_assistant_previous_page (csv_imp_asst);
+        gnc_import_assistant_previous_page (csv_imp_asst);
     else
     {
         m_final_file_name = m_fc_file_name;
@@ -1613,6 +1633,7 @@ CsvImpPriceAssist::assist_finish ()
     {
         price_imp->create_prices ();
         gnc_gui_refresh_all ();
+        gnc_import_assistant_set_current_page (csv_imp_asst, 4);
     }
     catch (const std::invalid_argument& err)
     {
@@ -1622,7 +1643,7 @@ CsvImpPriceAssist::assist_finish ()
         gnc_error_dialog (GTK_WINDOW(csv_imp_asst),
             _("An unexpected error has occurred while creating prices. Please report this as a bug.\n\n"
               "Error message:\n%s"), err.what());
-        gtk_assistant_set_current_page (csv_imp_asst, 2);
+        gnc_import_assistant_set_current_page (csv_imp_asst, 2);
     }
 }
 

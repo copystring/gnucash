@@ -41,6 +41,7 @@
 
 #include "assistant-csv-account-import.h"
 #include "csv-account-import.h"
+#include "gnc-import-assistant.h"
 
 #define GNC_PREFS_GROUP "dialogs.import.csv"
 #define ASSISTANT_CSV_IMPORT_CM_CLASS "assistant-csv-account-import"
@@ -50,16 +51,16 @@ static QofLogModule log_module = GNC_MOD_ASSISTANT;
 
 /*************************************************************************/
 
-void csv_import_assistant_prepare (GtkAssistant  *assistant, GtkWidget *page, gpointer user_data);
-void csv_import_assistant_finish (GtkAssistant *gtkassistant, gpointer user_data);
-void csv_import_assistant_cancel (GtkAssistant *gtkassistant, gpointer user_data);
-void csv_import_assistant_close (GtkAssistant *gtkassistant, gpointer user_data);
+void csv_import_assistant_prepare (GncImportAssistant  *assistant, GtkWidget *page, gpointer user_data);
+void csv_import_assistant_finish (GncImportAssistant *gtkassistant, gpointer user_data);
+void csv_import_assistant_cancel (GncImportAssistant *gtkassistant, gpointer user_data);
+void csv_import_assistant_close (GncImportAssistant *gtkassistant, gpointer user_data);
 
-void csv_import_assistant_start_page_prepare (GtkAssistant *gtkassistant, gpointer user_data);
-void csv_import_assistant_account_page_prepare (GtkAssistant *gtkassistant, gpointer user_data);
-void csv_import_assistant_file_page_prepare (GtkAssistant *assistant, gpointer user_data);
-void csv_import_assistant_finish_page_prepare (GtkAssistant *assistant, gpointer user_data);
-void csv_import_assistant_summary_page_prepare (GtkAssistant *assistant, gpointer user_data);
+void csv_import_assistant_start_page_prepare (GncImportAssistant *gtkassistant, gpointer user_data);
+void csv_import_assistant_account_page_prepare (GncImportAssistant *gtkassistant, gpointer user_data);
+void csv_import_assistant_file_page_prepare (GncImportAssistant *assistant, gpointer user_data);
+void csv_import_assistant_finish_page_prepare (GncImportAssistant *assistant, gpointer user_data);
+void csv_import_assistant_summary_page_prepare (GncImportAssistant *assistant, gpointer user_data);
 
 void csv_import_sep_cb (GtkWidget *radio, gpointer user_data );
 void csv_import_hrows_cb (GtkWidget *spin, gpointer user_data );
@@ -221,17 +222,17 @@ csv_import_file_dialog_finished (GObject *source, GAsyncResult *result,
         if (info && file_name && !g_file_test (file_name, G_FILE_TEST_IS_DIR))
         {
             gchar *filedir = g_path_get_dirname (file_name);
-            GtkAssistant *assistant = GTK_ASSISTANT (info->assistant);
+            GncImportAssistant *assistant = GNC_IMPORT_ASSISTANT (info->assistant);
 
             g_free (info->file_name);
             info->file_name = g_strdup (file_name);
             g_free (info->starting_dir);
             info->starting_dir = filedir;
             gtk_button_set_label (GTK_BUTTON (info->file_button), file_name);
-            gtk_assistant_set_page_complete (assistant, info->account_page,
+            gnc_import_assistant_set_page_complete (assistant, info->account_page,
                                              FALSE);
-            gtk_assistant_set_page_complete (assistant, info->file_page, TRUE);
-            gtk_assistant_next_page (assistant);
+            gnc_import_assistant_set_page_complete (assistant, info->file_page, TRUE);
+            gnc_import_assistant_next_page (assistant);
             DEBUG ("file_name selected is %s", info->file_name);
             DEBUG ("starting directory is %s", info->starting_dir);
         }
@@ -304,14 +305,14 @@ void csv_import_hrows_cb (GtkWidget *spin, gpointer user_data)
  *******************************************************/
 static void csv_import_assistant_enable_account_forward (CsvImportInfo *info)
 {
-    GtkAssistant *assistant = GTK_ASSISTANT(info->assistant);
+    GncImportAssistant *assistant = GNC_IMPORT_ASSISTANT(info->assistant);
     gboolean store_has_rows = TRUE;
 
     /* if the store is empty, disable "Next" button */
     if (g_list_model_get_n_items (G_LIST_MODEL (info->store)) == 0)
         store_has_rows = FALSE;
 
-    gtk_assistant_set_page_complete (assistant, info->account_page, store_has_rows);
+    gnc_import_assistant_set_page_complete (assistant, info->account_page, store_has_rows);
 }
 
 
@@ -447,19 +448,19 @@ void load_settings (CsvImportInfo *info)
  * Assistant page prepare functions
  *******************************************************/
 void
-csv_import_assistant_start_page_prepare (GtkAssistant *assistant,
+csv_import_assistant_start_page_prepare (GncImportAssistant *assistant,
         gpointer user_data)
 {
-    gint num = gtk_assistant_get_current_page (assistant);
-    GtkWidget *page = gtk_assistant_get_nth_page (assistant, num);
+    gint num = gnc_import_assistant_get_current_page (assistant);
+    GtkWidget *page = gnc_import_assistant_get_nth_page (assistant, num);
 
     /* Enable the Assistant Buttons */
-    gtk_assistant_set_page_complete (assistant, page, TRUE);
+    gnc_import_assistant_set_page_complete (assistant, page, TRUE);
 }
 
 
 void
-csv_import_assistant_file_page_prepare (GtkAssistant *assistant,
+csv_import_assistant_file_page_prepare (GncImportAssistant *assistant,
                                         gpointer user_data)
 {
     CsvImportInfo *info = user_data;
@@ -468,19 +469,19 @@ csv_import_assistant_file_page_prepare (GtkAssistant *assistant,
                           info->file_name ? info->file_name :
                           _("Choose File…"));
     /* Selecting a file is the only transition from this page. */
-    gtk_assistant_set_page_complete (assistant, info->file_page, FALSE);
+    gnc_import_assistant_set_page_complete (assistant, info->file_page, FALSE);
 }
 
 
 void
-csv_import_assistant_account_page_prepare (GtkAssistant *assistant,
+csv_import_assistant_account_page_prepare (GncImportAssistant *assistant,
         gpointer user_data)
 {
     CsvImportInfo *info = user_data;
     csv_import_result res;
 
     /* Disable the "Next" Assistant Button */
-    gtk_assistant_set_page_complete (assistant, info->account_page, FALSE);
+    gnc_import_assistant_set_page_complete (assistant, info->account_page, FALSE);
 
     /* test read one line */
     g_list_store_remove_all (info->store);
@@ -488,12 +489,12 @@ csv_import_assistant_account_page_prepare (GtkAssistant *assistant,
     if (res == RESULT_OPEN_FAILED)
     {
         gnc_error_dialog (GTK_WINDOW (info->assistant), _("The input file can not be opened."));
-        gtk_assistant_previous_page (assistant);
+        gnc_import_assistant_previous_page (assistant);
     }
     else if (res == RESULT_OK)
-        gtk_assistant_set_page_complete (assistant, info->account_page, TRUE);
+        gnc_import_assistant_set_page_complete (assistant, info->account_page, TRUE);
     else if (res == MATCH_FOUND)
-        gtk_assistant_set_page_complete (assistant, info->account_page, TRUE);
+        gnc_import_assistant_set_page_complete (assistant, info->account_page, TRUE);
 
     // generate preview
     g_list_store_remove_all (info->store);
@@ -511,7 +512,7 @@ csv_import_assistant_account_page_prepare (GtkAssistant *assistant,
 
 
 void
-csv_import_assistant_finish_page_prepare (GtkAssistant *assistant,
+csv_import_assistant_finish_page_prepare (GncImportAssistant *assistant,
         gpointer user_data)
 {
     CsvImportInfo *info = user_data;
@@ -532,21 +533,16 @@ csv_import_assistant_finish_page_prepare (GtkAssistant *assistant,
     gnc_set_default_directory (GNC_PREFS_GROUP, info->starting_dir);
 
     /* Enable the Assistant Buttons */
-    gtk_assistant_set_page_complete (assistant, info->finish_label, TRUE);
+    gnc_import_assistant_set_page_complete (assistant, info->finish_label, TRUE);
 }
 
 
 void
-csv_import_assistant_summary_page_prepare (GtkAssistant *assistant,
+csv_import_assistant_summary_page_prepare (GncImportAssistant *assistant,
         gpointer user_data)
 {
     CsvImportInfo *info = user_data;
     gchar *text, *errtext, *mtext;
-
-    /* Before creating accounts, if this is a new book, let user specify
-     * book options, since they affect how transactions are created */
-    if (info->new_book)
-        info->new_book = gnc_new_book_option_display (info->assistant);
 
     if (g_strcmp0 (info->error, "") != 0)
     {
@@ -573,10 +569,10 @@ csv_import_assistant_summary_page_prepare (GtkAssistant *assistant,
 
 
 void
-csv_import_assistant_prepare (GtkAssistant *assistant, GtkWidget *page,
+csv_import_assistant_prepare (GncImportAssistant *assistant, GtkWidget *page,
                               gpointer user_data)
 {
-    gint currentpage = gtk_assistant_get_current_page (assistant);
+    gint currentpage = gnc_import_assistant_get_current_page (assistant);
 
     switch (currentpage)
     {
@@ -618,27 +614,80 @@ csv_import_assistant_destroy_cb (GtkWidget *object, gpointer user_data)
 }
 
 void
-csv_import_assistant_cancel (GtkAssistant *assistant, gpointer user_data)
+csv_import_assistant_cancel (GncImportAssistant *assistant, gpointer user_data)
 {
     CsvImportInfo *info = user_data;
     gnc_close_gui_component_by_data (ASSISTANT_CSV_IMPORT_CM_CLASS, info);
 }
 
 void
-csv_import_assistant_close (GtkAssistant *assistant, gpointer user_data)
+csv_import_assistant_close (GncImportAssistant *assistant, gpointer user_data)
 {
     CsvImportInfo *info = user_data;
     gnc_close_gui_component_by_data (ASSISTANT_CSV_IMPORT_CM_CLASS, info);
 }
 
-void
-csv_import_assistant_finish (GtkAssistant *assistant, gpointer user_data)
+typedef struct
 {
-    CsvImportInfo *info = user_data;
+    GWeakRef assistant;
+    QofBook *book;
+} CsvImportNewBookRequest;
 
+static void
+csv_import_new_book_request_free (CsvImportNewBookRequest *request)
+{
+    g_weak_ref_clear (&request->assistant);
+    g_free (request);
+}
+
+static void
+csv_import_finish_import (GncImportAssistant *assistant, CsvImportInfo *info)
+{
     g_list_store_remove_all (info->store);
-    csv_import_read_file (GTK_WINDOW (info->assistant), info->file_name, info->regexp->str, info->store, 0 );
+    csv_import_read_file (GTK_WINDOW (assistant), info->file_name,
+                          info->regexp->str, info->store, 0);
     csv_account_import (info);
+    gnc_import_assistant_set_current_page (assistant, 4);
+}
+
+static void
+csv_import_new_book_options_finished (GtkWindow *parent, gboolean applied,
+                                      gpointer user_data)
+{
+    CsvImportNewBookRequest *request = user_data;
+    GtkWidget *assistant_widget = g_weak_ref_get (&request->assistant);
+    CsvImportInfo *info = assistant_widget ?
+        g_object_get_data (G_OBJECT (assistant_widget),
+                           "gnc-csv-account-import-info") : NULL;
+
+    if (applied && info && request->book == gnc_get_current_book () &&
+        !qof_book_shutting_down (request->book))
+    {
+        info->new_book = FALSE;
+        csv_import_finish_import (GNC_IMPORT_ASSISTANT (assistant_widget), info);
+    }
+    g_clear_object (&assistant_widget);
+    csv_import_new_book_request_free (request);
+    (void)parent;
+}
+
+void
+csv_import_assistant_finish (GncImportAssistant *assistant, gpointer user_data)
+{
+    CsvImportInfo *info = user_data;
+
+    if (info->new_book)
+    {
+        CsvImportNewBookRequest *request = g_new0 (CsvImportNewBookRequest, 1);
+
+        g_weak_ref_init (&request->assistant, GTK_WIDGET (assistant));
+        request->book = gnc_get_current_book ();
+        gnc_new_book_option_display_async (GTK_WIDGET (assistant),
+                                           csv_import_new_book_options_finished,
+                                           request);
+        return;
+    }
+    csv_import_finish_import (assistant, info);
 }
 
 static void
@@ -671,6 +720,21 @@ csv_import_assistant_create (CsvImportInfo *info)
     gnc_builder_add_from_file  (builder, "assistant-csv-account-import.glade", "num_hrows_adj");
     gnc_builder_add_from_file  (builder, "assistant-csv-account-import.glade", "csv_account_import_assistant");
     info->assistant = GTK_WIDGET(gtk_builder_get_object (builder, "csv_account_import_assistant"));
+    GncImportAssistant *assistant = gnc_import_assistant_new (
+        GTK_WINDOW (info->assistant),
+        GTK_STACK (gtk_builder_get_object (builder, "gnc_import_assistant_stack")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_page_title")),
+        GTK_BOX (gtk_builder_get_object (builder, "gnc_import_assistant_actions")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_back")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_next")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_apply")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_cancel")),
+        GTK_WIDGET (gtk_builder_get_object (builder, "gnc_import_assistant_close")));
+    if (!assistant)
+    {
+        g_object_unref (builder);
+        return NULL;
+    }
 
     // Set the name for this assistant so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(info->assistant), "gnc-id-assistant-csv-account-import");
@@ -680,19 +744,19 @@ csv_import_assistant_create (CsvImportInfo *info)
     load_settings (info);
 
     /* Enable buttons on all page. */
-    gtk_assistant_set_page_complete (GTK_ASSISTANT(info->assistant),
+    gnc_import_assistant_set_page_complete (GNC_IMPORT_ASSISTANT(info->assistant),
                                      GTK_WIDGET(gtk_builder_get_object(builder, "start_page")),
                                      TRUE);
-    gtk_assistant_set_page_complete (GTK_ASSISTANT(info->assistant),
+    gnc_import_assistant_set_page_complete (GNC_IMPORT_ASSISTANT(info->assistant),
                                      GTK_WIDGET(gtk_builder_get_object(builder, "file_page")),
                                      FALSE);
-    gtk_assistant_set_page_complete (GTK_ASSISTANT(info->assistant),
+    gnc_import_assistant_set_page_complete (GNC_IMPORT_ASSISTANT(info->assistant),
                                      GTK_WIDGET(gtk_builder_get_object(builder, "import_tree_page")),
                                      TRUE);
-    gtk_assistant_set_page_complete (GTK_ASSISTANT(info->assistant),
+    gnc_import_assistant_set_page_complete (GNC_IMPORT_ASSISTANT(info->assistant),
                                      GTK_WIDGET(gtk_builder_get_object(builder, "end_page")),
                                      FALSE);
-    gtk_assistant_set_page_complete (GTK_ASSISTANT(info->assistant),
+    gnc_import_assistant_set_page_complete (GNC_IMPORT_ASSISTANT(info->assistant),
                                      GTK_WIDGET(gtk_builder_get_object(builder, "summary_page")),
                                      TRUE);
 
@@ -754,6 +818,14 @@ csv_import_assistant_create (CsvImportInfo *info)
                              GTK_WINDOW(info->assistant), gnc_ui_get_main_window(NULL));
 
 gnc_builder_connect_signals (builder, info);
+    gnc_import_assistant_set_page_action (assistant, 3,
+                                          GNC_IMPORT_ASSISTANT_PAGE_APPLY);
+    gnc_import_assistant_set_page_action (assistant, 4,
+                                          GNC_IMPORT_ASSISTANT_PAGE_CLOSE);
+    gnc_import_assistant_set_callbacks (assistant, csv_import_assistant_prepare,
+                                        csv_import_assistant_finish,
+                                        csv_import_assistant_cancel,
+                                        csv_import_assistant_close, info);
     g_object_unref (G_OBJECT(builder));
     return info->assistant;
 }

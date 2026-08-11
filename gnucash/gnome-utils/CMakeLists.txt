@@ -29,6 +29,7 @@ add_custom_command(
 set (gnome_utils_SOURCES
   account-quickfill.c
   assistant-xml-encoding.c
+  gnc-import-assistant.c
   cursors.c
   dialog-account.c
   dialog-doclink-utils.c
@@ -115,6 +116,7 @@ set(gnome_utils_noinst_HEADERS
   gnc-autosave.h
   gnc-gobject-utils.h
   gnc-gtk-utils.h
+  gnc-import-assistant.h
   gnc-option-gtk-ui.hpp
   search-param.h
 )
