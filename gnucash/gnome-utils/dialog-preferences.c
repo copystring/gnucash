@@ -48,10 +48,10 @@
     to the preference named ccc in group aaa.bbb. This means that if
     the widget's value changes, the preference is automatically updated.
     The same goes the other way around. This code currently knows about
-    font buttons, radio buttons, check buttons, spin boxes, combo boxes,
+    font buttons, grouped and independent check buttons, spin boxes, drop-downs,
     gnucash currency select widgets, gnucash accounting period widgets,
-    and a gnucash date edit widget. (Combo boxes should not be used for
-    less than five choices. Use a radio button group instead.)
+    and a gnucash date edit widget. (Drop-downs should not be used for
+    less than five choices. Use a grouped check button instead.)
 
     The argument *is* a glade file, so if your code has special
     requirements (e.g. make one widget insensitive until another is
@@ -91,11 +91,14 @@
 /** The debugging module that this .o belongs to.  */
 static QofLogModule log_module = GNC_MOD_PREFS;
 
-void gnc_preferences_response_cb (GtkDialog *dialog, gint response, GtkDialog *unused);
 void gnc_account_separator_pref_changed_cb (GtkEntry *entry, GtkWidget *dialog);
 void gnc_save_on_close_expires_cb (GtkToggleButton *button, GtkWidget *dialog);
-gboolean gnc_preferences_delete_event_cb (GtkWidget *widget,
-                                          gpointer   user_data);
+static void gnc_preferences_help_clicked_cb (GtkButton *button,
+                                              gpointer user_data);
+static void gnc_preferences_close_clicked_cb (GtkButton *button,
+                                               gpointer user_data);
+static gboolean gnc_preferences_close_request_cb (GtkWindow *window,
+                                                   gpointer   user_data);
 
 /** This data structure holds the information for a single addition to
  *  the preferences dialog. */
@@ -194,7 +197,7 @@ gnc_account_separator_pref_changed_cb (GtkEntry *entry, GtkWidget *dialog)
 
 
 static void
-gnc_preferences_select_account_page (GtkDialog *dialog);
+gnc_preferences_select_account_page (GtkWindow *dialog);
 
 typedef struct
 {
@@ -202,7 +205,7 @@ typedef struct
 } SeparatorValidationRequest;
 
 static void
-gnc_preferences_close (GtkDialog *dialog)
+gnc_preferences_close (GtkWindow *dialog)
 {
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW(dialog));
     gnc_unregister_gui_component_by_data (DIALOG_PREFERENCES_CM_CLASS,
@@ -229,7 +232,7 @@ separator_validation_response_cb (GObject *source, GAsyncResult *result,
 
     if (object)
     {
-        GtkDialog *dialog = GTK_DIALOG (object);
+        GtkWindow *dialog = GTK_WINDOW (object);
         GtkWidget *entry = g_object_get_data (G_OBJECT(dialog),
                                               "account-separator");
 
@@ -255,7 +258,7 @@ separator_validation_response_cb (GObject *source, GAsyncResult *result,
  *  separator is valid. Conflicts are resolved asynchronously so that closing
  *  the preferences window never enters a nested main loop. */
 static void
-gnc_account_separator_validate_async (GtkDialog *dialog)
+gnc_account_separator_validate_async (GtkWindow *dialog)
 {
     GtkWidget *entry = g_object_get_data (G_OBJECT(dialog),
                                           "account-separator");
@@ -294,7 +297,7 @@ gnc_account_separator_validate_async (GtkDialog *dialog)
  *  @param user_data A pointer to the dialog.
  */
 static void
-gnc_preferences_select_account_page (GtkDialog *dialog)
+gnc_preferences_select_account_page (GtkWindow *dialog)
 {
     GtkWidget *notebook = g_object_get_data (G_OBJECT(dialog), NOTEBOOK);
     GtkWidget *acc_page = NULL;
@@ -1254,49 +1257,53 @@ gnc_prefs_connect_date_edit (GNCDateEdit *gde , const gchar *boxname )
 
 /****************************************************************************/
 
-/********************/
-/*    Callbacks     */
-/********************/
-
-gboolean
-gnc_preferences_delete_event_cb (GtkWidget *widget,
-                                 gpointer   user_data)
+static void
+gnc_preferences_help_clicked_cb (GtkButton *button, gpointer user_data)
 {
-    /* need to block this for the account separator test */
-    (void) widget;
-    (void) user_data;
+    (void)button;
+    gnc_gnome_help (GTK_WINDOW (user_data), DF_MANUAL, DL_GLOBPREFS);
+}
+
+static void
+gnc_preferences_close_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_account_separator_validate_async (GTK_WINDOW (user_data));
+}
+
+static gboolean
+gnc_preferences_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    (void)user_data;
+    gnc_account_separator_validate_async (window);
     return TRUE;
 }
 
-/** Handle a user click on one of the buttons at the bottom of the
- *  preference dialog.  Also handles delete_window events, which have
- *  conveniently converted to a response by GtkDialog.
- *
- *  @internal
- *
- *  @param dialog A pointer to the preferences dialog.
- *
- *  @param response Indicates which button was pressed by the user.
- *  The only expected values are HELP, CLOSE, and DELETE_EVENT.
- *
- *  @param unused
- */
-void
-gnc_preferences_response_cb (GtkDialog *dialog, gint response, GtkDialog *unused)
+static gboolean
+gnc_preferences_escape_cb (GtkWidget *widget, GVariant *args,
+                           gpointer user_data)
 {
-    switch (response)
-    {
-    case GTK_RESPONSE_HELP:
-        gnc_gnome_help (GTK_WINDOW(dialog), DF_MANUAL, DL_GLOBPREFS);
-        break;
-
-    case GTK_RESPONSE_DELETE_EVENT:
-    default:
-        gnc_account_separator_validate_async (dialog);
-        break;
-    }
+    (void)widget;
+    (void)args;
+    gnc_account_separator_validate_async (GTK_WINDOW (user_data));
+    return TRUE;
 }
 
+static void
+gnc_preferences_add_shortcuts (GtkWindow *window)
+{
+    GtkShortcutController *controller = GTK_SHORTCUT_CONTROLLER (
+        gtk_shortcut_controller_new ());
+
+    gtk_shortcut_controller_set_scope (controller, GTK_SHORTCUT_SCOPE_MANAGED);
+    gtk_shortcut_controller_add_shortcut (
+        controller,
+        gtk_shortcut_new (
+            gtk_keyval_trigger_new (GDK_KEY_Escape, 0),
+            gtk_callback_action_new (gnc_preferences_escape_cb, window, NULL)));
+    gtk_widget_add_controller (GTK_WIDGET (window),
+                               GTK_EVENT_CONTROLLER (controller));
+}
 
 /********************/
 /*    Creation      */
@@ -1400,6 +1407,7 @@ gnc_preferences_dialog_create (GtkWindow *parent)
     GtkBuilder *builder;
     GtkWidget *dialog, *notebook, *label, *image, *spinner, *entry;
     GtkWidget *box, *date, *period, *currency, *fcb, *button;
+    GtkWidget *help_button, *close_button;
     GHashTable *prefs_table;
     GDate* gdate = NULL;
     gchar buf[128];
@@ -1454,6 +1462,16 @@ gnc_preferences_dialog_create (GtkWindow *parent)
 
     DEBUG("autoconnect");
     gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
+
+    help_button = GTK_WIDGET (gtk_builder_get_object (builder, "helpbutton2"));
+    close_button = GTK_WIDGET (gtk_builder_get_object (builder, "closebutton2"));
+    g_signal_connect (help_button, "clicked",
+                      G_CALLBACK (gnc_preferences_help_clicked_cb), dialog);
+    g_signal_connect (close_button, "clicked",
+                      G_CALLBACK (gnc_preferences_close_clicked_cb), dialog);
+    g_signal_connect (dialog, "close-request",
+                      G_CALLBACK (gnc_preferences_close_request_cb), NULL);
+    gnc_preferences_add_shortcuts (GTK_WINDOW (dialog));
 
     DEBUG("done");
 
