@@ -1168,6 +1168,7 @@ typedef struct
     GtkWidget *parent;
     GncEntryLedgerFinishedCB callback;
     gpointer user_data;
+    GDestroyNotify user_data_destroy;
     char *cell_name;
     char *cell_value;
     gboolean ask_before_saving;
@@ -1178,7 +1179,8 @@ static EntryLedgerSaveRequest *
 entry_ledger_save_request_new (GncEntryLedger *ledger, GtkWidget *parent,
                                gboolean ask_before_saving,
                                GncEntryLedgerFinishedCB callback,
-                               gpointer user_data)
+                               gpointer user_data,
+                               GDestroyNotify user_data_destroy)
 {
     EntryLedgerSaveRequest *request = g_new0 (EntryLedgerSaveRequest, 1);
     GncEntry *entry = gnc_entry_ledger_get_current_entry (ledger);
@@ -1189,6 +1191,7 @@ entry_ledger_save_request_new (GncEntryLedger *ledger, GtkWidget *parent,
     request->ask_before_saving = ask_before_saving;
     request->callback = callback;
     request->user_data = user_data;
+    request->user_data_destroy = user_data_destroy;
     gnc_entry_ledger_async_request_track (ledger, &request->base);
     return request;
 }
@@ -1200,6 +1203,7 @@ entry_ledger_save_request_complete (EntryLedgerSaveRequest *request,
     GncEntryLedger *ledger;
     GncEntryLedgerFinishedCB callback;
     gpointer user_data;
+    GDestroyNotify user_data_destroy;
 
     if (!request)
         return;
@@ -1207,12 +1211,15 @@ entry_ledger_save_request_complete (EntryLedgerSaveRequest *request,
     ledger = request->base.ledger;
     callback = request->callback;
     user_data = request->user_data;
+    user_data_destroy = request->user_data_destroy;
     gnc_entry_ledger_async_request_untrack (&request->base);
     g_free (request->cell_name);
     g_free (request->cell_value);
     g_free (request);
     if (ledger && callback)
         callback (ledger, completed, user_data);
+    if (user_data_destroy)
+        user_data_destroy (user_data);
 }
 
 static gboolean
@@ -1519,7 +1526,7 @@ gnc_entry_ledger_commit_entry_async (GncEntryLedger *ledger,
         return;
     }
 
-    request = entry_ledger_save_request_new (ledger, NULL, FALSE, callback, user_data);
+    request = entry_ledger_save_request_new (ledger, NULL, FALSE, callback, user_data, NULL);
     entry_ledger_save_request_continue (request);
 }
 
@@ -1528,6 +1535,15 @@ gnc_entry_ledger_check_close_async (GtkWidget *parent, GncEntryLedger *ledger,
                                     GncEntryLedgerFinishedCB callback,
                                     gpointer user_data)
 {
+    gnc_entry_ledger_check_close_async_full (parent, ledger, callback, user_data, NULL);
+}
+
+void
+gnc_entry_ledger_check_close_async_full (GtkWidget *parent, GncEntryLedger *ledger,
+                                         GncEntryLedgerFinishedCB callback,
+                                         gpointer user_data,
+                                         GDestroyNotify user_data_destroy)
+{
     EntryLedgerSaveRequest *request;
     gboolean dontask = FALSE;
 
@@ -1535,6 +1551,8 @@ gnc_entry_ledger_check_close_async (GtkWidget *parent, GncEntryLedger *ledger,
     {
         if (callback)
             callback (ledger, TRUE, user_data);
+        if (user_data_destroy)
+            user_data_destroy (user_data);
         return;
     }
 
@@ -1548,6 +1566,7 @@ gnc_entry_ledger_check_close_async (GtkWidget *parent, GncEntryLedger *ledger,
             dontask = TRUE;
     }
 
-    request = entry_ledger_save_request_new (ledger, parent, !dontask, callback, user_data);
+    request = entry_ledger_save_request_new (ledger, parent, !dontask, callback,
+                                             user_data, user_data_destroy);
     entry_ledger_save_request_continue (request);
 }

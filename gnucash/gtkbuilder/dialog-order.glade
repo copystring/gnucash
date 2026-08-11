@@ -2,11 +2,19 @@
 <interface>
   <requires lib="gtk" version="4.0" />
   <object class="GtkTextBuffer" id="notes_buffer" />
-  <object class="GtkDialog" id="order_entry_dialog">
+  <object class="GtkWindow" id="order_entry_dialog">
     <property name="title" translatable="1">Order Entry</property>
     <property name="default-width">950</property>
 <signal name="destroy" handler="gnc_order_window_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
+    <child>
+      <object class="GtkBox" id="order_window_root">
+        <property name="orientation">vertical</property>
+        <property name="spacing">8</property>
+        <property name="margin-top">8</property>
+        <property name="margin-bottom">8</property>
+        <property name="margin-start">8</property>
+        <property name="margin-end">8</property>
+        <child>
       <object class="GtkBox" id="dialog-vbox4">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -227,16 +235,12 @@
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-11">helpbutton</action-widget>
-      <action-widget response="0">closebutton</action-widget>
-      <action-widget response="0">new_invoice_button</action-widget>
-      <action-widget response="0">close_order_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area4">
-        <property name="visible">True</property>
+        </child>
+        <child>
+          <object class="GtkBox" id="order_actions">
+            <property name="orientation">horizontal</property>
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <child>
           <object class="GtkButton" id="helpbutton">
             <property name="label" translatable="1">_Help</property>
@@ -277,14 +281,24 @@
           </object>
 
         </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>
   <object class="GtkTextBuffer" id="text_buffer" />
-  <object class="GtkDialog" id="new_order_dialog">
+  <object class="GtkWindow" id="new_order_dialog">
     <property name="title" translatable="1">New Order</property>
 <signal name="destroy" handler="gnc_order_window_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
+    <child>
+      <object class="GtkBox" id="new_order_window_root">
+        <property name="orientation">vertical</property>
+        <property name="spacing">8</property>
+        <property name="margin-top">8</property>
+        <property name="margin-bottom">8</property>
+        <property name="margin-start">8</property>
+        <property name="margin-end">8</property>
+        <child>
       <object class="GtkBox" id="dialog-vbox6">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -447,15 +461,12 @@
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-11">help_button</action-widget>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area6">
-        <property name="visible">True</property>
+        </child>
+        <child>
+          <object class="GtkBox" id="new_order_actions">
+            <property name="orientation">horizontal</property>
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <child>
           <object class="GtkButton" id="help_button">
             <property name="label" translatable="1">_Help</property>
@@ -485,6 +496,8 @@
             <signal name="clicked" handler="gnc_order_window_ok_cb" swapped="no" />
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>

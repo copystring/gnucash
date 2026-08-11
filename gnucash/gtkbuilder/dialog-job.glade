@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="job_dialog">
+  <object class="GtkWindow" id="job_dialog">
     <property name="title" translatable="1">Job Dialog</property>
     <property name="resizable">0</property>
 <signal name="destroy" handler="gnc_job_window_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
+    <child>
+      <object class="GtkBox" id="job_window_root">
+        <property name="orientation">vertical</property>
+        <property name="spacing">8</property>
+        <property name="margin-top">8</property>
+        <property name="margin-bottom">8</property>
+        <property name="margin-start">8</property>
+        <property name="margin-end">8</property>
+        <child>
       <object class="GtkBox" id="dialog-vbox3">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -179,15 +187,12 @@
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-11">helpbutton</action-widget>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area3">
-        <property name="visible">True</property>
+        </child>
+        <child>
+          <object class="GtkBox" id="job_actions">
+            <property name="orientation">horizontal</property>
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <child>
           <object class="GtkButton" id="helpbutton">
             <property name="label" translatable="1">_Help</property>
@@ -217,6 +222,8 @@
             <signal name="clicked" handler="gnc_job_window_ok_cb" swapped="no" />
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>

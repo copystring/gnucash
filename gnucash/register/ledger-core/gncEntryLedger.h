@@ -124,9 +124,17 @@ void gnc_entry_ledger_commit_entry_async (GncEntryLedger *ledger,
 
 /** Resolve current edits before closing without entering a nested event loop. */
 void gnc_entry_ledger_check_close_async (GtkWidget *parent,
-                                         GncEntryLedger *ledger,
-                                         GncEntryLedgerFinishedCB callback,
-                                         gpointer user_data);
+                                          GncEntryLedger *ledger,
+                                          GncEntryLedgerFinishedCB callback,
+                                          gpointer user_data);
+
+/** Like gnc_entry_ledger_check_close_async(), with deterministic user-data
+ *  cleanup after the completion callback or an invalidated request. */
+void gnc_entry_ledger_check_close_async_full (GtkWidget *parent,
+                                               GncEntryLedger *ledger,
+                                               GncEntryLedgerFinishedCB callback,
+                                               gpointer user_data,
+                                               GDestroyNotify user_data_destroy);
 void gnc_entry_ledger_reset_query (GncEntryLedger *ledger);
 
 /** Returns the GncEntry at the given location, or NULL if the
