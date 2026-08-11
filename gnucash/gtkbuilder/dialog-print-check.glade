@@ -122,126 +122,10 @@
     <property name="step-increment">0.10000000149</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkDialog" id="format_title_dialog">
-    <property name="visible">1</property>
-    <property name="title" translatable="1">Save Custom Check Format</property>
-<property name="default-width">500</property>
-<child internal-child="content_area">
-      <object class="GtkBox" id="dialog-vbox7">
-        <property name="orientation">vertical</property>
-        <child>
-          <object class="GtkBox">
-            <property name="valign">center</property>
-            <child>
-              <object class="GtkLabel" id="label847683">
-                <property name="focusable">1</property>
-                <property name="valign">start</property>
-                <property name="label" translatable="1">Enter a title for this custom format. This title will appear in the "Check format" selector of the Print Check dialog. Using the title of an existing custom format will cause that format to be overwritten.</property>
-                <property name="wrap">1</property>
-                <property name="selectable">1</property>
-              </object>
-            </child>
-          </object>
-        </child>
-        <child>
-          <object class="GtkEntry" id="format_title">
-            <property name="focusable">1</property>
-            <property name="valign">start</property>
-            <property name="margin-top">12</property>
-<property name="activates-default">1</property>
-            <signal name="changed" handler="gnc_check_format_title_changed" object="ok_button" swapped="no" />
-          </object>
-        </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area7">
-        <property name="visible">True</property>
-        <child>
-          <object class="GtkButton" id="cancel_button">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-          </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="ok_button">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="use-underline">1</property>
-          </object>
-
-        </child>
-      </object>
-    </child>
-  </object>
-  <object class="GtkListStore" id="liststore1">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Inches</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Centimeters</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Millimeters</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Points</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="liststore2">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Top</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Middle</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Bottom</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Custom</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="liststore3">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Quicken/QuickBooks (tm) US-Letter</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Deluxe(tm) Personal Checks US-Letter</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Quicken(tm) Wallet Checks w/ side stub</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Custom</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkDialog" id="print_check_dialog">
+  <object class="GtkWindow" id="print_check_dialog">
     <property name="title" translatable="1">Print Check</property>
-    <property name="resizable">0</property>
-<signal name="response" handler="gnc_ui_print_check_response_cb" swapped="no" />
-    <child internal-child="content_area">
+    <property name="resizable">False</property>
+    <child>
       <object class="GtkBox" id="dialog-vbox6">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -298,15 +182,7 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="check_format_combobox">
-                        <property name="model">liststore3</property>
-                        <signal name="changed" handler="gnc_print_check_format_changed" swapped="no" />
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext3" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
+                      <object class="GtkDropDown" id="check_format_combobox">
                         <layout>
                           <property name="column">1</property>
                           <property name="row">0</property>
@@ -314,15 +190,7 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="check_position_combobox">
-                        <property name="model">liststore2</property>
-                        <signal name="changed" handler="gnc_print_check_position_changed" swapped="no" />
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext2" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
+                      <object class="GtkDropDown" id="check_position_combobox">
                         <layout>
                           <property name="column">1</property>
                           <property name="row">1</property>
@@ -704,15 +572,7 @@ to print an address on the check.</property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="units_combobox">
-                        <property name="model">liststore1</property>
-                        <property name="button-sensitivity">on</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext1" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
+                      <object class="GtkDropDown" id="units_combobox">
                         <layout>
                           <property name="column">1</property>
                           <property name="row">14</property>
@@ -835,7 +695,6 @@ to print an address on the check.</property>
                         <property name="focusable">1</property>
                         <property name="margin-top">6</property>
                         <property name="use-underline">1</property>
-                        <signal name="clicked" handler="gnc_print_check_save_button_clicked" swapped="no" />
                         <layout>
                           <property name="column">2</property>
                           <property name="row">17</property>
@@ -1075,41 +934,35 @@ to print an address on the check.</property>
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-11">helpbutton</action-widget>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area6">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="helpbutton">
-            <property name="label" translatable="1">_Help</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
+          <object class="GtkBox" id="dialog-action_area6">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <property name="margin-top">8</property>
+            <child>
+              <object class="GtkButton" id="helpbutton">
+                <property name="label" translatable="1">_Help</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="cancelbutton">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="okbutton">
+                <property name="label" translatable="1">_Print</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="cancelbutton">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-          </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="okbutton">
-            <property name="label" translatable="1">_Print</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-          </object>
-
-        </child>
-      </object>
+        </child>      </object>
     </child>
   </object>
 </interface>
