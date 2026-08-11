@@ -42,7 +42,7 @@ struct _GncRecurrence
     GtkBox widget;
 
     GtkWidget *gde_start;
-    GtkComboBox *gcb_period;
+    GtkDropDown *gcb_period;
     GtkCheckButton *gcb_eom;
     GtkSpinButton *gsb_mult;
     GtkCheckButton *nth_weekday;
@@ -68,7 +68,9 @@ G_DEFINE_TYPE (GncRecurrence, gnc_recurrence, GTK_TYPE_BOX)
 
 static UIPeriodType get_pt_ui (GncRecurrence *gr)
 {
-    return (gtk_combo_box_get_active (gr->gcb_period));
+    guint selected = gtk_drop_down_get_selected (gr->gcb_period);
+
+    return selected <= GNCR_YEAR ? (UIPeriodType)selected : (UIPeriodType)-1;
 }
 
 static void set_pt_ui (GncRecurrence *gr, PeriodType pt)
@@ -94,7 +96,7 @@ static void set_pt_ui (GncRecurrence *gr, PeriodType pt)
     default:
         return;
     }
-    gtk_combo_box_set_active(gr->gcb_period, idx);
+    gtk_drop_down_set_selected (gr->gcb_period, idx);
 
     gtk_check_button_set_active (GTK_CHECK_BUTTON(gr->nth_weekday),
         (pt == PERIOD_NTH_WEEKDAY || pt == PERIOD_LAST_WEEKDAY));
@@ -120,7 +122,7 @@ is_ambiguous_absolute (const GDate *date)
 }
 
 static void
-something_changed (GtkWidget *wid, gpointer d)
+something_changed (G_GNUC_UNUSED GtkWidget *wid, gpointer d)
 {
     UIPeriodType pt;
     GDate start;
@@ -161,6 +163,14 @@ something_changed (GtkWidget *wid, gpointer d)
 }
 
 static void
+period_selection_changed (G_GNUC_UNUSED GtkDropDown *dropdown,
+                          G_GNUC_UNUSED GParamSpec *pspec,
+                          GncRecurrence *gr)
+{
+    something_changed (GTK_WIDGET (gr), gr);
+}
+
+static void
 gnc_recurrence_init (GncRecurrence *gr)
 {
     GtkBox  *vb;
@@ -175,7 +185,6 @@ gnc_recurrence_init (GncRecurrence *gr)
 
     /* Open up the builder file */
     builder = gtk_builder_new();
-    gnc_builder_add_from_file (builder, "gnc-recurrence.ui", "GCB_PeriodType_liststore");
     gnc_builder_add_from_file (builder, "gnc-recurrence.ui", "GSB_Mult_Adj");
     gnc_builder_add_from_file (builder, "gnc-recurrence.ui", "RecurrenceEntryVBox");
 
@@ -186,7 +195,14 @@ gnc_recurrence_init (GncRecurrence *gr)
     gtk_box_append (GTK_BOX(hb), GTK_WIDGET(w));
     gtk_widget_set_visible (GTK_WIDGET(w), TRUE);
 
-    gr->gcb_period = GTK_COMBO_BOX(gtk_builder_get_object (builder, "GCB_PeriodType"));
+    gr->gcb_period = GTK_DROP_DOWN (gtk_builder_get_object (builder, "GCB_PeriodType"));
+    {
+        GtkStringList *period_model = gtk_string_list_new (
+            (const char * const[]){ _("day(s)"), _("week(s)"), _("month(s)"), _("year(s)"), NULL });
+
+        gtk_drop_down_set_model (gr->gcb_period, G_LIST_MODEL (period_model));
+        g_object_unref (period_model);
+    }
     gr->gsb_mult = GTK_SPIN_BUTTON(gtk_builder_get_object (builder, "GSB_Mult"));
     gr->gcb_eom = GTK_CHECK_BUTTON(gtk_builder_get_object (builder, "GCB_EndOfMonth"));
     gr->nth_weekday = GTK_CHECK_BUTTON(gtk_builder_get_object (builder, "GCB_NthWeekday"));
@@ -199,8 +215,8 @@ gnc_recurrence_init (GncRecurrence *gr)
     /* Setup the signals */
     g_signal_connect (G_OBJECT(gr->gde_start), "date_changed",
                       G_CALLBACK(something_changed), gr);
-    g_signal_connect (G_OBJECT(gr->gcb_period), "changed",
-                      G_CALLBACK(something_changed), gr);
+    g_signal_connect (gr->gcb_period, "notify::selected",
+                      G_CALLBACK (period_selection_changed), gr);
     g_signal_connect (G_OBJECT(gr->gsb_mult), "value-changed",
                       G_CALLBACK(something_changed), gr);
     g_signal_connect (G_OBJECT(gr->gcb_eom), "toggled",

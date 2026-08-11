@@ -1,25 +1,6 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <object class="GtkListStore" id="GCB_PeriodType_liststore">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">day(s)</col>
-      </row>
-      <row>
-        <col id="0">week(s)</col>
-      </row>
-      <row>
-        <col id="0">month(s)</col>
-      </row>
-      <row>
-        <col id="0">year(s)</col>
-      </row>
-    </data>
-  </object>
   <object class="GtkAdjustment" id="GSB_Mult_Adj">
     <property name="lower">1</property>
     <property name="page-increment">10</property>
@@ -53,16 +34,8 @@
               </object>
             </child>
             <child>
-              <object class="GtkComboBox" id="GCB_PeriodType">
+              <object class="GtkDropDown" id="GCB_PeriodType">
                 <property name="hexpand">1</property>
-                <property name="model">GCB_PeriodType_liststore</property>
-                <child>
-                  <object class="GtkCellRendererText" id="cellrenderertext1"/>
-                  <!-- Custom child fragments -->
-                  <attributes>
-                    <attribute name="text">0</attribute>
-                  </attributes>
-                </child>
               </object>
             </child>
           </object>
