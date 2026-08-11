@@ -141,24 +141,6 @@ void gnc_builder_connect_full_func (GtkBuilder *builder,
                                     GConnectFlags flags,
                                     gpointer user_data);
 
-/** This function generates a button with icon and adds it to a
- *  GtkDialog.  This is similar to just adding a stock button to the
- *  dialog, only you can add an arbitrary pairing of button and label,
- *  which the stock system doesn't provide.
- *
- *  @param dialog The dialog where the button should be added.
- *
- *  @param label The text of the button.
- *
- *  @param icon_name The name of the icon button to use.
- *
- *  @param response The response id to return if this button is
- *  clicked.*/
-void gnc_gtk_dialog_add_button (GtkWidget *dialog,
-                                const gchar *label,
-                                const gchar *icon_name,
-                                guint response);
-
 /** Note: This dialog is modal! Uses preference settings for default
  */
 gint

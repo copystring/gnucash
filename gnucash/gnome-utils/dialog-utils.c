@@ -862,24 +862,6 @@ gnc_builder_connect_full_func(GtkBuilder *builder,
  *-------------------------------------------------------------------------*/
 
 
-void
-gnc_gtk_dialog_add_button (GtkWidget *dialog, const gchar *label, const gchar *icon_name, guint response)
-{
-    GtkWidget *button;
-
-    button = gtk_button_new_with_mnemonic(label);
-    if (icon_name)
-    {
-        GtkWidget *image;
-
-        image = gtk_image_new_from_icon_name (icon_name);
-        gtk_button_set_child (GTK_BUTTON(button), image);
-    }
-    g_object_set (button, "can-default", TRUE, NULL);
-    gtk_widget_set_visible(button, TRUE);
-    gtk_dialog_add_action_widget(GTK_DIALOG(dialog), button, response);
-}
-
 static void
 gnc_perm_button_cb (GtkButton *perm, gpointer user_data)
 {
