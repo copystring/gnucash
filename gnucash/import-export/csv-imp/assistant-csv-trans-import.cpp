@@ -209,6 +209,19 @@ private:
         GWeakRef assistant;
     };
 
+    struct SettingsConfirmationData
+    {
+        GWeakRef assistant;
+        std::string name;
+        bool deleting;
+    };
+
+    static void settings_confirmation_cb (GtkWindow *parent, gint response,
+                                          gpointer user_data);
+    static void settings_confirmation_data_free (SettingsConfirmationData *data);
+    void complete_settings_delete (const std::string& name);
+    void complete_settings_save (const std::string& name);
+
     static void file_dialog_finished_cb (GObject *source, GAsyncResult *result,
                                          gpointer user_data);
     bool set_selected_file (GFile *file);
@@ -908,6 +921,46 @@ csv_tximp_find_preset (GtkDropDown *dropdown, const std::string& name)
     return GTK_INVALID_LIST_POSITION;
 }
 
+void
+CsvImpTransAssist::settings_confirmation_data_free (SettingsConfirmationData *data)
+{
+    g_weak_ref_clear (&data->assistant);
+    delete data;
+}
+
+void
+CsvImpTransAssist::settings_confirmation_cb (GtkWindow *parent, gint response,
+                                              gpointer user_data)
+{
+    auto data = static_cast<SettingsConfirmationData *> (user_data);
+    auto assistant = static_cast<GncImportAssistant *> (
+        g_weak_ref_get (&data->assistant));
+
+    (void)parent;
+    if (!assistant)
+    {
+        settings_confirmation_data_free (data);
+        return;
+    }
+
+    auto owner = static_cast<CsvImpTransAssist *> (g_object_get_data (
+        G_OBJECT (assistant), "gnc-csv-import-assistant-owner"));
+    if (owner)
+    {
+        gtk_widget_set_sensitive (GTK_WIDGET (assistant), TRUE);
+        if (response == GTK_RESPONSE_OK)
+        {
+            if (data->deleting)
+                owner->complete_settings_delete (data->name);
+            else
+                owner->complete_settings_save (data->name);
+        }
+    }
+
+    g_object_unref (assistant);
+    settings_confirmation_data_free (data);
+}
+
 /* Set the available presets in the settings combo box
  */
 void CsvImpTransAssist::preview_populate_settings_combo()
@@ -992,16 +1045,35 @@ CsvImpTransAssist::preview_settings_delete ()
     if (!preset)
         return;
 
-    auto response = gnc_ok_cancel_dialog (GTK_WINDOW (csv_imp_asst),
-                                GTK_RESPONSE_CANCEL,
-                                "%s", _("Delete the Import Settings."));
-    if (response == GTK_RESPONSE_OK)
+    auto data = new SettingsConfirmationData{};
+    g_weak_ref_init (&data->assistant, csv_imp_asst);
+    data->name = preset->m_name;
+    data->deleting = true;
+    gnc_ok_cancel_dialog_async (GTK_WINDOW (csv_imp_asst), GTK_RESPONSE_CANCEL,
+                                settings_confirmation_cb, data, "%s",
+                                _("Delete the Import Settings."));
+    gtk_widget_set_sensitive (GTK_WIDGET (csv_imp_asst), FALSE);
+}
+
+void
+CsvImpTransAssist::complete_settings_delete (const std::string& name)
+{
+    if (preset_is_reserved_name (name))
+        return;
+
+    const auto& presets = get_import_presets_trans ();
+    auto it = std::find_if (presets.begin (), presets.end (), [&name] (const auto& preset)
     {
-        preset->remove();
-        preview_populate_settings_combo();
-        gtk_drop_down_set_selected (settings_dropdown, 0); // Default
-        preview_refresh (); // Reset the widgets
-    }
+        return preset && preset->m_name == name;
+    });
+    if (it == presets.end ())
+        return;
+
+    auto preset = *it;
+    preset->remove ();
+    preview_populate_settings_combo ();
+    gtk_drop_down_set_selected (settings_dropdown, 0); // Default
+    preview_refresh (); // Reset the widgets
 }
 
 /* Callback to save the current settings to the gnucash state file.
@@ -1009,36 +1081,43 @@ CsvImpTransAssist::preview_settings_delete ()
 void
 CsvImpTransAssist::preview_settings_save ()
 {
-    auto new_name = tx_imp->settings_name();
-
+    auto new_name = tx_imp->settings_name ();
     auto existing = csv_tximp_find_preset (settings_dropdown, new_name);
+
     if (existing != GTK_INVALID_LIST_POSITION &&
         gtk_drop_down_get_selected (settings_dropdown) != existing)
     {
-        auto response = gnc_ok_cancel_dialog (GTK_WINDOW (csv_imp_asst),
-                GTK_RESPONSE_OK,
-                "%s", _("Setting name already exists, overwrite?"));
-        if (response != GTK_RESPONSE_OK)
-            return;
+        auto data = new SettingsConfirmationData{};
+        g_weak_ref_init (&data->assistant, csv_imp_asst);
+        data->name = new_name;
+        data->deleting = false;
+        gnc_ok_cancel_dialog_async (GTK_WINDOW (csv_imp_asst), GTK_RESPONSE_OK,
+                                    settings_confirmation_cb, data, "%s",
+                                    _("Setting name already exists, overwrite?"));
+        gtk_widget_set_sensitive (GTK_WIDGET (csv_imp_asst), FALSE);
+        return;
     }
 
-    /* All checks passed, let's save this preset */
-    if (!tx_imp->save_settings())
+    complete_settings_save (new_name);
+}
+
+void
+CsvImpTransAssist::complete_settings_save (const std::string& name)
+{
+    tx_imp->settings_name (name);
+    if (!tx_imp->save_settings ())
     {
         gnc_info_dialog (GTK_WINDOW (csv_imp_asst),
-            "%s", _("The settings have been saved."));
-
-        // Update the settings store
-        preview_populate_settings_combo();
-        auto position = csv_tximp_find_preset (settings_dropdown, new_name);
+                         "%s", _("The settings have been saved."));
+        preview_populate_settings_combo ();
+        auto position = csv_tximp_find_preset (settings_dropdown, name);
         if (position != GTK_INVALID_LIST_POSITION)
             gtk_drop_down_set_selected (settings_dropdown, position);
     }
     else
         gnc_error_dialog (GTK_WINDOW (csv_imp_asst),
-            "%s", _("There was a problem saving the settings, please try again."));
+                          "%s", _("There was a problem saving the settings, please try again."));
 }
-
 /* Callback triggered when user adjusts skip start lines
  */
 void CsvImpTransAssist::preview_update_skipped_rows ()
