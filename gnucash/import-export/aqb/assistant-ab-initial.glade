@@ -1,37 +1,57 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <requires lib="gtk" version="4.0"/>
-  <object class="GtkAssistant" id="aqbanking_init_assistant">
-    <property name="title" translatable="1">AqBanking Initial Assistant</property>
-    <property name="default-width">400</property>
+  <object class="GtkWindow" id="aqbanking_init_assistant">
+    <property name="title" translatable="yes">AqBanking Initial Assistant</property>
+    <property name="default-width">600</property>
     <property name="default-height">500</property>
-    <signal name="cancel" handler="aai_on_cancel" swapped="no"/>
-    <signal name="close" handler="aai_on_finish" swapped="no"/>
-    <signal name="prepare" handler="aai_on_prepare" swapped="no"/>
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">intro</property>
-        <property name="title" translatable="1">Initial Online Banking Setup</property>
-        <property name="complete">True</property>
-        <property name="child">
-          <object class="GtkGrid" id="start_page">
+      <object class="GtkBox" id="assistant_root">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="GtkLabel" id="assistant_page_title">
+            <property name="halign">start</property>
             <property name="margin-start">12</property>
             <property name="margin-end">12</property>
+            <property name="margin-top">12</property>
+            <property name="margin-bottom">6</property>
+            <property name="label" translatable="yes">Initial Online Banking Setup</property>
+            <property name="xalign">0</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkStack" id="assistant_stack">
+            <property name="hexpand">1</property>
+            <property name="vexpand">1</property>
+            <property name="transition-type">slide-left-right</property>
             <child>
-              <object class="GtkLabel" id="start_label1">
-                <property name="halign">start</property>
-                <property name="label" translatable="1">This assistant helps you setting up your Online Banking connection with your bank.</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">0</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="start_label2">
-                <property name="halign">start</property>
-                <property name="label" translatable="1">The requirements for Online Banking vary between the different supported AqBanking backends, but usually you will need:
+              <object class="GtkStackPage">
+                <property name="name">intro</property>
+                <property name="title" translatable="yes">Initial Online Banking Setup</property>
+                <property name="child">
+                  <object class="GtkScrolledWindow">
+                    <property name="hscrollbar-policy">never</property>
+                    <property name="child">
+                      <object class="GtkGrid" id="start_page">
+                        <property name="column-spacing">12</property>
+                        <property name="row-spacing">12</property>
+                        <property name="margin-start">12</property>
+                        <property name="margin-end">12</property>
+                        <property name="margin-top">6</property>
+                        <property name="margin-bottom">12</property>
+                        <child>
+                          <object class="GtkLabel" id="start_label1">
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">This assistant helps you setting up your Online Banking connection with your bank.</property>
+                            <property name="wrap">1</property>
+                            <property name="xalign">0</property>
+                          <layout><property name="column">0</property><property name="row">0</property></layout>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="start_label2">
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">The requirements for Online Banking vary between the different supported AqBanking backends, but usually you will need:
 * Your bank needs to grant you online access. See on their website or ask their customer service for how to obtain it.
 They should also tell you:
 * Your user ID that identifies you to their server, often your base account number;
@@ -41,177 +61,214 @@ They should also tell you:
  * FinTS PIN/TAN: Some methods require a specific gadget like a card reader or a mobile;
  * FinTS HBCI: You have to exchange the public parts of asymmetric keys with your bank (&quot;Ini-Letter&quot;).
  * PayPal: registered email address, password, API signature;</property>
-                <property name="wrap">1</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">1</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="start_markup_label3">
-                <property name="focusable">1</property>
-                <property name="halign">start</property>
-                <property name="margin-start">6</property>
-                <property name="margin-end">6</property>
-                <property name="margin-top">6</property>
-                <property name="margin-bottom">6</property>
-                <property name="label" translatable="1" comments="See https://wiki.gnucash.org/wiki/AqBanking for the used terminology and replace the link, if a localized version exists.">See &lt;a href=&quot;https://wiki.gnucash.org/wiki/AqBanking&quot;&gt;https://wiki.gnucash.org/wiki/AqBanking&lt;/a&gt; for more details</property>
-                <property name="use-markup">1</property>
-                <property name="wrap">1</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">2</property>
-                </layout>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="start_label4">
-                <property name="label" translatable="1">Note: NO WARRANTIES FOR ANYTHING. Some banks run a poorly implemented Online Banking server. You should not rely on time-critical transfers through Online Banking, because sometimes the bank does not give you correct feedback when a transfer is rejected.</property>
-                <property name="wrap">1</property>
-                <layout>
-                  <property name="column">0</property>
-                  <property name="row">3</property>
-                </layout>
-              </object>
-            </child>
-          </object>
-        </property>
-      </object>
-    </child>
-    <child>
-      <object class="GtkAssistantPage">
-        <property name="title" translatable="1">Start Online Banking Setup</property>
-        <property name="complete">True</property>
-        <property name="child">
-          <object class="GtkBox" id="aqbanking_page">
-            <property name="halign">start</property>
-            <property name="valign">center</property>
-            <property name="margin-start">12</property>
-            <property name="margin-end">12</property>
-            <property name="orientation">vertical</property>
-            <property name="spacing">6</property>
-            <child>
-              <object class="GtkLabel" id="aqbanking_label1">
-                <property name="halign">start</property>
-                <property name="margin-bottom">6</property>
-                <property name="label" translatable="1">The Setup of your Online Banking connection is handled by the external program &quot;AqBanking Setup&quot;.</property>
-                <property name="wrap">1</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="aqbanking_label2">
-                <property name="halign">start</property>
-                <property name="label" translatable="1">That means:
-* It ignores GnuCash&apos;s preferences like &quot;Close log window when finished&quot;.
-* To report issues read</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="aqbanking_markup_label3">
-                <property name="halign">start</property>
-                <property name="margin-bottom">6</property>
-                <property name="label" translatable="1">&lt;a href=&quot;https://aquamaniac.de/rdm/projects/aqbanking/wiki/Bugreports/&quot;&gt;https://aquamaniac.de/rdm/projects/aqbanking/wiki/Bugreports/&lt;/a&gt;</property>
-                <property name="use-markup">1</property>
-                <property name="wrap">1</property>
-                <property name="wrap-mode">char</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="aqbanking_label4">
-                <property name="halign">start</property>
-                <property name="label" translatable="1">You have to set up at least one connection before you can continue.
-
-Please press the button below to start it.</property>
-                <property name="wrap">1</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkButton" id="ab_assistant_button">
-                <property name="label" translatable="1">_Start AqBanking Setup</property>
-                <property name="focusable">1</property>
-                <property name="receives-default">1</property>
-                <property name="halign">center</property>
-                <property name="use-underline">1</property>
-                <signal name="clicked" handler="aai_button_clicked_cb" swapped="no"/>
-              </object>
-            </child>
-          </object>
-        </property>
-      </object>
-    </child>
-    <child>
-      <object class="GtkAssistantPage">
-        <property name="title" translatable="1">Match Online accounts with GnuCash accounts</property>
-        <property name="child">
-          <object class="GtkBox" id="account_match_page">
-            <property name="margin-start">12</property>
-            <property name="margin-end">12</property>
-            <property name="orientation">vertical</property>
-            <property name="spacing">12</property>
-            <child>
-              <object class="GtkLabel" id="account_label">
-                <property name="label" translatable="1">Double Click on the line of an Online Banking account name if you want to match it to a GnuCash account or select incorrect matches and click &quot;Delete selected matches&quot;. Click &quot;Next&quot; when all desired accounts are matching.</property>
-                <property name="wrap">1</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkScrolledWindow" id="account_scrolledwindow">
-                <property name="vexpand">1</property>
-                <property name="focusable">1</property>
-                <property name="child">
-                  <object class="GtkBox" id="account_page_placeholder">
-                    <property name="focusable">1</property>
-                    <property name="margin-start">3</property>
-                    <property name="margin-end">3</property>
+                            <property name="wrap">1</property>
+                            <property name="xalign">0</property>
+                          <layout><property name="column">0</property><property name="row">1</property></layout>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="start_markup_label3">
+                            <property name="focusable">1</property>
+                            <property name="halign">start</property>
+                            <property name="margin-start">6</property>
+                            <property name="margin-end">6</property>
+                            <property name="label" translatable="yes" comments="See https://wiki.gnucash.org/wiki/AqBanking for the used terminology and replace the link, if a localized version exists.">See &lt;a href=&quot;https://wiki.gnucash.org/wiki/AqBanking&quot;&gt;https://wiki.gnucash.org/wiki/AqBanking&lt;/a&gt; for more details</property>
+                            <property name="use-markup">1</property>
+                            <property name="wrap">1</property>
+                            <property name="xalign">0</property>
+                          <layout><property name="column">0</property><property name="row">2</property></layout>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="start_label4">
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">Note: NO WARRANTIES FOR ANYTHING. Some banks run a poorly implemented Online Banking server. You should not rely on time-critical transfers through Online Banking, because sometimes the bank does not give you correct feedback when a transfer is rejected.</property>
+                            <property name="wrap">1</property>
+                            <property name="xalign">0</property>
+                          <layout><property name="column">0</property><property name="row">3</property></layout>
+                          </object>
+                        </child>
+                      </object>
+                    </property>
                   </object>
                 </property>
               </object>
             </child>
             <child>
-              <object class="GtkBox" id="button_box">
-                <child>
-                  <object class="GtkButton" id="ab_match_delete_button">
-                    <property name="label" translatable="1">_Delete selected matches</property>
-                    <property name="focusable">1</property>
-                    <property name="receives-default">1</property>
-                    <property name="halign">start</property>
-                    <property name="use-underline">1</property>
-                    <signal name="clicked" handler="aai_match_delete_button_clicked_cb" swapped="no"/>
+              <object class="GtkStackPage">
+                <property name="name">setup</property>
+                <property name="title" translatable="yes">Start Online Banking Setup</property>
+                <property name="child">
+                  <object class="GtkScrolledWindow">
+                    <property name="hscrollbar-policy">never</property>
+                    <property name="child">
+                      <object class="GtkBox" id="aqbanking_page">
+                        <property name="valign">center</property>
+                        <property name="margin-start">12</property>
+                        <property name="margin-end">12</property>
+                        <property name="margin-top">12</property>
+                        <property name="margin-bottom">12</property>
+                        <property name="orientation">vertical</property>
+                        <property name="spacing">6</property>
+                        <child>
+                          <object class="GtkLabel" id="aqbanking_label1">
+                            <property name="halign">start</property>
+                            <property name="margin-bottom">6</property>
+                            <property name="label" translatable="yes">The Setup of your Online Banking connection is handled by the external program &quot;AqBanking Setup&quot;.</property>
+                            <property name="wrap">1</property>
+                            <property name="xalign">0</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="aqbanking_label2">
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">That means:
+* It ignores GnuCash&apos;s preferences like &quot;Close log window when finished&quot;.
+* To report issues read</property>
+                            <property name="wrap">1</property>
+                            <property name="xalign">0</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="aqbanking_markup_label3">
+                            <property name="halign">start</property>
+                            <property name="margin-bottom">6</property>
+                            <property name="label" translatable="yes">&lt;a href=&quot;https://aquamaniac.de/rdm/projects/aqbanking/wiki/Bugreports/&quot;&gt;https://aquamaniac.de/rdm/projects/aqbanking/wiki/Bugreports/&lt;/a&gt;</property>
+                            <property name="use-markup">1</property>
+                            <property name="wrap">1</property>
+                            <property name="wrap-mode">char</property>
+                            <property name="xalign">0</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="aqbanking_label4">
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">You have to set up at least one connection before you can continue.
+
+Please press the button below to start it.</property>
+                            <property name="wrap">1</property>
+                            <property name="xalign">0</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkButton" id="ab_assistant_button">
+                            <property name="label" translatable="yes">_Start AqBanking Setup</property>
+                            <property name="focusable">1</property>
+                            <property name="receives-default">1</property>
+                            <property name="halign">center</property>
+                            <property name="use-underline">1</property>
+                          </object>
+                        </child>
+                      </object>
+                    </property>
                   </object>
-                </child>
+                </property>
               </object>
             </child>
-          </object>
-        </property>
-      </object>
-    </child>
-    <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">confirm</property>
-        <property name="title" translatable="1">Online Banking Setup Finished</property>
-        <property name="complete">True</property>
-        <property name="child">
-          <object class="GtkBox" id="finish_page">
-            <property name="orientation">vertical</property>
-            <property name="spacing">12</property>
             <child>
-              <object class="GtkLabel" id="finish_label">
-                <property name="label" translatable="1">The setup for matching Online Banking accounts to GnuCash accounts is now finished. You can now invoke Online Banking actions on those accounts.
+              <object class="GtkStackPage">
+                <property name="name">match</property>
+                <property name="title" translatable="yes">Match Online accounts with GnuCash accounts</property>
+                <property name="child">
+                  <object class="GtkBox" id="account_match_page">
+                    <property name="margin-start">12</property>
+                    <property name="margin-end">12</property>
+                    <property name="margin-top">6</property>
+                    <property name="margin-bottom">12</property>
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel" id="account_label">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="yes">Double Click on the line of an Online Banking account name if you want to match it to a GnuCash account or select incorrect matches and click &quot;Delete selected matches&quot;. Click &quot;Next&quot; when all desired accounts are matching.</property>
+                        <property name="wrap">1</property>
+                        <property name="xalign">0</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkScrolledWindow" id="account_scrolledwindow">
+                        <property name="vexpand">1</property>
+                        <property name="focusable">1</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkButton" id="ab_match_delete_button">
+                        <property name="label" translatable="yes">_Delete selected matches</property>
+                        <property name="focusable">1</property>
+                        <property name="receives-default">1</property>
+                        <property name="halign">start</property>
+                        <property name="use-underline">1</property>
+                      </object>
+                    </child>
+                  </object>
+                </property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkStackPage">
+                <property name="name">finish</property>
+                <property name="title" translatable="yes">Online Banking Setup Finished</property>
+                <property name="child">
+                  <object class="GtkBox" id="finish_page">
+                    <property name="margin-start">12</property>
+                    <property name="margin-end">12</property>
+                    <property name="margin-top">12</property>
+                    <property name="margin-bottom">12</property>
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel" id="finish_label">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="yes">The setup for matching Online Banking accounts to GnuCash accounts is now finished. You can now invoke Online Banking actions on those accounts.
 
 If you want to add another bank, user, or account, you can start this assistant again anytime.
 
 Press &quot;Apply&quot; now.</property>
-                <property name="wrap">1</property>
+                        <property name="wrap">1</property>
+                        <property name="xalign">0</property>
+                      </object>
+                    </child>
+                  </object>
+                </property>
               </object>
             </child>
           </object>
-        </property>
-      </object>
-    </child>
-    <child internal-child="action_area">
-      <object class="GtkBox">
-        <property name="visible">0</property>
+        </child>
+        <child><object class="GtkSeparator"/></child>
+        <child>
+          <object class="GtkBox" id="assistant_actions">
+            <property name="halign">end</property>
+            <property name="margin-start">12</property>
+            <property name="margin-end">12</property>
+            <property name="margin-top">6</property>
+            <property name="margin-bottom">12</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkButton" id="assistant_back_button">
+                <property name="label" translatable="yes">_Back</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="assistant_cancel_button">
+                <property name="label" translatable="yes">_Cancel</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="assistant_next_button">
+                <property name="label" translatable="yes">_Next</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="assistant_apply_button">
+                <property name="label" translatable="yes">_Apply</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>
