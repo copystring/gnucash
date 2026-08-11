@@ -136,7 +136,7 @@ gnc_html_init( GncHtml* self )
 
     /* GncHtml is a controller. A backend must provide the visible widget it
      * owns; creating a default GTK container here would keep the obsolete
-     * GtkBin-style ownership model alive and makes the controller need a
+     * single-child widget ownership model alive and makes the controller need a
      * display even when only its URL contract is used. */
     priv->container = nullptr;
 

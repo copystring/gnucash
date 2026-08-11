@@ -2414,7 +2414,6 @@ gnc_invoice_window_create_summary_bar (InvoiceWindow *iw)
         break;
     }
 
-//FIXME gtk4    gtk_widget_show_all(summarybar);
     return summarybar;
 }
 
@@ -2499,8 +2498,6 @@ gnc_invoice_update_job_choice (InvoiceWindow *iw)
             break;
         }
 
-//FIXME gtk4    if (iw->job_choice)
-//FIXME gtk4        gtk_widget_show_all (iw->job_choice);
 }
 
 static GNCSearchWindow *
@@ -2576,8 +2573,6 @@ gnc_invoice_update_proj_job (InvoiceWindow *iw)
         break;
     }
 
-//FIXME gtk4    if (iw->proj_job_choice)
-//FIXME gtk4        gtk_widget_show_all (iw->proj_job_choice);
 }
 
 static int
@@ -2823,9 +2818,7 @@ gnc_invoice_window_refresh_handler (GHashTable *changes, gpointer user_data)
  *  @param iw A pointer to the InvoiceWindow data structure.
  *
  *  @param widget If set, this is the widget that will be used for the
- *  call to gtk_widget_show_all().  This is needed at window/page
- *  creation time when all of the iw/page linkages haven't been set up
- *  yet.
+ *  initial page creation, before all of the iw/page linkages have been set\r\n *  up.
  */
 static void
 gnc_invoice_update_window (InvoiceWindow *iw, GtkWidget *widget)
@@ -2877,10 +2870,6 @@ gnc_invoice_update_window (InvoiceWindow *iw, GtkWidget *widget)
     gtk_label_set_text (GTK_LABEL(iw->type_label), iw->is_credit_note ? _("Credit Note")
                         : gtk_label_get_text (GTK_LABEL(iw->type_label)));
 
-//FIXME gtk4    if (iw->owner_choice)
-//FIXME gtk4        gtk_widget_show_all (iw->owner_choice);
-//FIXME gtk4    if (iw->proj_cust_choice)
-//FIXME gtk4        gtk_widget_show_all (iw->proj_cust_choice);
 
     gnc_invoice_update_job_choice (iw);
     gnc_invoice_update_proj_job (iw);
@@ -3858,7 +3847,6 @@ gnc_builder_add_from_file (builder, "dialog-invoice.glade", "new_invoice_dialog"
     {
     case NEW_INVOICE:
     case DUP_INVOICE:
-//FIXME gtk4        gtk_widget_show_all (iw->type_hbox);
         gtk_widget_set_visible (GTK_WIDGET(iw->type_label_hbox), FALSE);
         gtk_widget_set_visible (GTK_WIDGET(iw->type_label), FALSE);
         break;

@@ -2188,7 +2188,6 @@ gnc_ui_edit_account_window (GtkWindow *parent, Account *account)
 
     gnc_resume_gui_refresh ();
 
-//FIXME gtk4    gtk_widget_show_all (aw->dialog);
     if (xaccAccountGetSplitList (account) != 0)
         gtk_widget_set_visible (GTK_WIDGET(aw->opening_balance_page), FALSE);
 

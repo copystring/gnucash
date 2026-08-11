@@ -151,7 +151,6 @@ wrap_check_button (const GncOption& option, GtkWidget* widget, GtkGrid* page_box
     gtk_box_set_homogeneous (GTK_BOX (enclosing), FALSE);
     gtk_box_append (GTK_BOX(enclosing), GTK_WIDGET(widget));
     set_tool_tip(option, enclosing);
-//FIXME gtk4    gtk_widget_show_all(enclosing);
     /* attach the option widget to the second column of the grid */
     grid_attach_widget (GTK_GRID(page_box), enclosing, row);
 }
@@ -238,7 +237,6 @@ create_option_widget<GncOptionUIType::STRING> (GncOption& option,
     gtk_box_append (GTK_BOX(enclosing), GTK_WIDGET(widget));
     set_name_label(option, page_box, row, true);
     set_tool_tip(option, enclosing);
-//FIXME gtk4    gtk_widget_show_all(enclosing);
     grid_attach_widget (GTK_GRID(page_box), enclosing, row);
 }
 
@@ -294,7 +292,6 @@ create_option_widget<GncOptionUIType::TEXT> (GncOption& option, GtkGrid *page_bo
     gtk_box_append (GTK_BOX(enclosing), GTK_WIDGET(frame));
     set_name_label(option, page_box, row, true);
     set_tool_tip(option, enclosing);
-//FIXME gtk4    gtk_widget_show_all(enclosing);
     grid_attach_widget(GTK_GRID(page_box), enclosing, row);
 }
 
@@ -769,7 +766,6 @@ create_date_option_widget(GncOption& option, GtkGrid *page_box, int row)
         date_ui->block_signals(false);
     }
 
-//FIXME gtk4    gtk_widget_show_all(enclosing);
 }
 
 template<> void
@@ -1509,9 +1505,6 @@ create_option_widget<GncOptionUIType::ACCOUNT_SEL> (GncOption& option,
                      G_CALLBACK(gnc_option_changed_widget_cb), &option);
     wrap_widget(option, widget, page_box, row);
     // wrap_widget sets the parent so this comes after.
-//FIXME gtk4    gtk_container_child_set(GTK_CONTAINER(gtk_widget_get_parent(widget)),
-//                            widget, "fill", TRUE, "expand", TRUE,
-//                            nullptr);
 }
 
 static void
@@ -2185,7 +2178,6 @@ create_option_widget<GncOptionUIType::DATE_FORMAT> (GncOption& option,
 
     g_signal_connect(G_OBJECT(enclosing), "format_changed",
                      G_CALLBACK(gnc_option_changed_widget_cb), &option);
-//FIXME gtk4    gtk_widget_show_all(enclosing);
     grid_attach_widget(page_box, enclosing, row);
 }
 
@@ -2326,7 +2318,6 @@ create_option_widget<GncOptionUIType::PLOT_SIZE> (GncOption& option,
     auto widget{option_get_gtk_widget(&option)};
     gtk_frame_set_child (GTK_FRAME(enclosing), GTK_WIDGET(widget));
 
-//FIXME gtk4    gtk_widget_show_all(enclosing);
     grid_attach_widget(page_box, enclosing, row);
 
     auto ui_item{dynamic_cast<GncGtkPlotSizeUIItem*>(option.get_ui_item())};

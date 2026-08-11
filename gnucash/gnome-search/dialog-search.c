@@ -342,7 +342,6 @@ gnc_search_dialog_display_results (GNCSearchWindow *sw)
         gtk_box_set_spacing (GTK_BOX(sw->result_hbox), 3);
 
         /* And show the results */
-//FIXME gtk4        gtk_widget_show_all (sw->result_hbox);
 
         /* But may be hide the select button */
         if (!sw->selected_cb)

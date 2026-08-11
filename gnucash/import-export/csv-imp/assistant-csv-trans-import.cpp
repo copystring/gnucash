@@ -658,7 +658,6 @@ CsvImpTransAssist::CsvImpTransAssist ()
         auto encoding_box = GTK_BOX(gtk_builder_get_object (builder, "encoding_container"));
         gtk_box_prepend (GTK_BOX(encoding_box), GTK_WIDGET(encselector));
         gtk_widget_set_hexpand (GTK_WIDGET(encselector), true);
-//FIXME gtk4        gtk_widget_show_all (GTK_WIDGET(encoding_box));
 
         /* The instructions label and image */
         instructions_label = GTK_LABEL(gtk_builder_get_object (builder, "instructions_label"));

@@ -153,7 +153,6 @@ wrap_widget (const GncOption& option, GtkWidget* widget, GtkGrid* page_box, int 
     gtk_box_append (GTK_BOX(enclosing), GTK_WIDGET(widget));
     set_name_label(option, page_box, row, false);
     set_tool_tip(option, enclosing);
-//FIXME gtk4    gtk_widget_show_all(enclosing);
     grid_attach_widget(page_box, enclosing, row);
 }
 #endif //GNC_OPTION_GTK_UI_HPP
