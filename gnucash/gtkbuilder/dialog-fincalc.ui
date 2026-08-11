@@ -1,85 +1,20 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <object class="GtkListStore" id="liststore1">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">Annual</col>
-      </row>
-      <row>
-        <col id="0">Semi-annual</col>
-      </row>
-      <row>
-        <col id="0">Tri-annual</col>
-      </row>
-      <row>
-        <col id="0">Quarterly</col>
-      </row>
-      <row>
-        <col id="0">Bi-monthly</col>
-      </row>
-      <row>
-        <col id="0">Monthly</col>
-      </row>
-      <row>
-        <col id="0">Semi-monthly</col>
-      </row>
-      <row>
-        <col id="0">Bi-weekly</col>
-      </row>
-      <row>
-        <col id="0">Weekly</col>
-      </row>
-      <row>
-        <col id="0">Daily (360)</col>
-      </row>
-      <row>
-        <col id="0">Daily (365)</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="liststore2">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">Annual</col>
-      </row>
-      <row>
-        <col id="0">Semi-annual</col>
-      </row>
-      <row>
-        <col id="0">Tri-annual</col>
-      </row>
-      <row>
-        <col id="0">Quarterly</col>
-      </row>
-      <row>
-        <col id="0">Bi-monthly</col>
-      </row>
-      <row>
-        <col id="0">Monthly</col>
-      </row>
-      <row>
-        <col id="0">Semi-monthly</col>
-      </row>
-      <row>
-        <col id="0">Bi-weekly</col>
-      </row>
-      <row>
-        <col id="0">Weekly</col>
-      </row>
-      <row>
-        <col id="0">Daily (360)</col>
-      </row>
-      <row>
-        <col id="0">Daily (365)</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="periods_model">
+    <items>
+      <item translatable="yes">Annual</item>
+      <item translatable="yes">Semi-annual</item>
+      <item translatable="yes">Tri-annual</item>
+      <item translatable="yes">Quarterly</item>
+      <item translatable="yes">Bi-monthly</item>
+      <item translatable="yes">Monthly</item>
+      <item translatable="yes">Semi-monthly</item>
+      <item translatable="yes">Bi-weekly</item>
+      <item translatable="yes">Weekly</item>
+      <item translatable="yes">Daily (360)</item>
+      <item translatable="yes">Daily (365)</item>
+    </items>
   </object>
   <object class="GtkWindow" id="financial_calculator_window">
     <property name="resizable">0</property>
@@ -461,15 +396,8 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="payment_combo">
-                        <property name="model">liststore2</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext2"/>
-                          <!-- Custom child fragments -->
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
+                      <object class="GtkDropDown" id="payment_combo">
+                        <property name="model">periods_model</property>
                         <layout>
                           <property name="column">1</property>
                           <property name="column-span">2</property>
@@ -478,15 +406,8 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="compounding_combo">
-                        <property name="model">liststore1</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext1"/>
-                          <!-- Custom child fragments -->
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
+                      <object class="GtkDropDown" id="compounding_combo">
+                        <property name="model">periods_model</property>
                         <layout>
                           <property name="column">1</property>
                           <property name="column-span">2</property>
