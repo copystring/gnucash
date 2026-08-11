@@ -140,6 +140,8 @@ typedef struct
 } VirtualCell;
 
 typedef struct table Table;
+typedef void (*GncTableConfirmReplayFunc) (Table *table, gpointer user_data);
+
 
 typedef void (*TableCursorRefreshCB) (Table *table,
                                       VirtualCellLocation vcell_loc,
@@ -170,6 +172,13 @@ struct table
     CellBlock *current_cursor;
 
     VirtualLocation current_cursor_loc;
+
+    /* A deferred model confirmation owns exactly one pending edit or event.
+     * Its completion either replays that operation or discards it. */
+    gboolean confirm_pending;
+    GncTableConfirmReplayFunc confirm_replay;
+    gpointer confirm_replay_data;
+    GDestroyNotify confirm_replay_destroy;
 
     /* private data */
 
@@ -395,7 +404,13 @@ gboolean     gnc_table_enter_update(Table *table,
 
 void         gnc_table_leave_update(Table *table, VirtualLocation virt_loc);
 
-gboolean     gnc_table_confirm_change(Table *table, VirtualLocation virt_loc);
+GncTableConfirmResult gnc_table_confirm_change (Table *table,
+                                                 VirtualLocation virt_loc);
+void         gnc_table_confirm_change_set_replay
+    (Table *table, GncTableConfirmReplayFunc replay, gpointer user_data,
+     GDestroyNotify destroy);
+gboolean     gnc_table_confirm_change_complete (Table *table,
+                                                gboolean accepted);
 
 const char * gnc_table_modify_update(Table *table,
                                      VirtualLocation virt_loc,

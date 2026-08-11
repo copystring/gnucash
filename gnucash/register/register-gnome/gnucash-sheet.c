@@ -1727,6 +1727,47 @@ gnucash_sheet_need_horizontal_scroll (GnucashSheet *sheet,
         gtk_adjustment_set_value (sheet->hadj, offset);
 }
 
+typedef struct
+{
+    GWeakRef sheet;
+    VirtualLocation virt_loc;
+} GnucashSheetPopupReplay;
+
+static void
+gnucash_sheet_popup_replay_destroy (gpointer user_data)
+{
+    GnucashSheetPopupReplay *replay = user_data;
+
+    g_weak_ref_clear (&replay->sheet);
+    g_free (replay);
+}
+
+static void
+gnucash_sheet_popup_replay (Table *table, gpointer user_data)
+{
+    GnucashSheetPopupReplay *replay = user_data;
+    GnucashSheet *sheet = GNUCASH_SHEET (g_weak_ref_get (&replay->sheet));
+
+    if (sheet && sheet->table == table &&
+        virt_loc_equal (table->current_cursor_loc, replay->virt_loc) &&
+        sheet->item_editor && GNC_IS_ITEM_EDIT (sheet->item_editor))
+        gnc_item_edit_show_popup (GNC_ITEM_EDIT (sheet->item_editor));
+    g_clear_object (&sheet);
+}
+
+static void
+gnucash_sheet_defer_popup_replay (GnucashSheet *sheet,
+                                  VirtualLocation virt_loc)
+{
+    GnucashSheetPopupReplay *replay = g_new0 (GnucashSheetPopupReplay, 1);
+
+    replay->virt_loc = virt_loc;
+    g_weak_ref_init (&replay->sheet, sheet);
+    gnc_table_confirm_change_set_replay (sheet->table,
+                                         gnucash_sheet_popup_replay, replay,
+                                         gnucash_sheet_popup_replay_destroy);
+}
+
 static gboolean
 process_motion_keys (GnucashSheet *sheet, guint keyval,
                      GdkModifierType state, gboolean *pass_on,
@@ -1795,8 +1836,13 @@ process_motion_keys (GnucashSheet *sheet, guint keyval,
         {
             GncItemEdit *item_edit = GNC_ITEM_EDIT (sheet->item_editor);
 
-            if (gnc_table_confirm_change (sheet->table, cur_virt_loc))
+            GncTableConfirmResult confirmation =
+                gnc_table_confirm_change (sheet->table, cur_virt_loc);
+
+            if (confirmation == GNC_TABLE_CONFIRM_ACCEPT)
                 gnc_item_edit_show_popup (item_edit);
+            else if (confirmation == GNC_TABLE_CONFIRM_DEFERRED)
+                gnucash_sheet_defer_popup_replay (sheet, cur_virt_loc);
             sheet->pos = sheet->bound;
             return TRUE;
         }

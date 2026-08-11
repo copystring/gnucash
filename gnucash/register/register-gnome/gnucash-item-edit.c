@@ -441,6 +441,50 @@ gnc_item_edit_update_popup_icon (GncItemEdit *item_edit)
                                               "pan-up-symbolic");
 }
 
+typedef struct
+{
+    GWeakRef item_edit;
+    VirtualLocation virt_loc;
+} GncItemEditPopupReplay;
+
+static void
+gnc_item_edit_popup_replay_destroy (gpointer user_data)
+{
+    GncItemEditPopupReplay *replay = user_data;
+
+    g_weak_ref_clear (&replay->item_edit);
+    g_free (replay);
+}
+
+static void
+gnc_item_edit_popup_replay (Table *table, gpointer user_data)
+{
+    GncItemEditPopupReplay *replay = user_data;
+    GncItemEdit *item_edit =
+        GNC_ITEM_EDIT (g_weak_ref_get (&replay->item_edit));
+
+    if (item_edit && item_edit->sheet &&
+        item_edit->sheet->table == table &&
+        virt_loc_equal (table->current_cursor_loc, replay->virt_loc) &&
+        item_edit->popup_toggle.tbutton)
+        gtk_toggle_button_set_active
+            (GTK_TOGGLE_BUTTON (item_edit->popup_toggle.tbutton), TRUE);
+    g_clear_object (&item_edit);
+}
+
+static void
+gnc_item_edit_defer_popup_replay (GncItemEdit *item_edit,
+                                  VirtualLocation virt_loc)
+{
+    GncItemEditPopupReplay *replay = g_new0 (GncItemEditPopupReplay, 1);
+
+    replay->virt_loc = virt_loc;
+    g_weak_ref_init (&replay->item_edit, item_edit);
+    gnc_table_confirm_change_set_replay (item_edit->sheet->table,
+                                         gnc_item_edit_popup_replay, replay,
+                                         gnc_item_edit_popup_replay_destroy);
+}
+
 static void
 gnc_item_edit_popup_toggled (GtkToggleButton *button, gpointer data)
 {
@@ -461,8 +505,13 @@ gnc_item_edit_popup_toggled (GtkToggleButton *button, gpointer data)
     if (show_popup)
     {
         VirtualLocation virt_loc = item_edit->sheet->table->current_cursor_loc;
-        if (!gnc_table_confirm_change (item_edit->sheet->table, virt_loc))
+        GncTableConfirmResult confirmation =
+            gnc_table_confirm_change (item_edit->sheet->table, virt_loc);
+
+        if (confirmation != GNC_TABLE_CONFIRM_ACCEPT)
         {
+            if (confirmation == GNC_TABLE_CONFIRM_DEFERRED)
+                gnc_item_edit_defer_popup_replay (item_edit, virt_loc);
             g_signal_handlers_block_matched (button, G_SIGNAL_MATCH_DATA,
                                              0, 0, NULL, NULL, data);
             gtk_toggle_button_set_active (button, FALSE);
