@@ -187,9 +187,6 @@ gnc_order_window_verify_ok (OrderWindow *ow)
 static gboolean
 gnc_order_window_ok_save (OrderWindow *ow)
 {
-    if (!gnc_entry_ledger_check_close (ow->dialog, ow->ledger))
-        return FALSE;
-
     if (!gnc_order_window_verify_ok (ow))
         return FALSE;
 
@@ -206,18 +203,31 @@ gnc_order_window_ok_save (OrderWindow *ow)
     return TRUE;
 }
 
+static void
+gnc_order_window_ok_ledger_finished (GncEntryLedger *ledger,
+                                     gboolean completed, gpointer user_data)
+{
+    OrderWindow *ow = user_data;
+
+    (void)ledger;
+    if (!completed || !ow || !gnc_order_window_ok_save (ow))
+        return;
+
+    ow->order_guid = *guid_null ();
+    gnc_close_gui_component (ow->component_id);
+}
+
 void
 gnc_order_window_ok_cb (GtkWidget *widget, gpointer data)
 {
     OrderWindow *ow = data;
 
-    if (!gnc_order_window_ok_save (ow))
+    (void)widget;
+    if (!ow || !ow->ledger)
         return;
 
-    /* Ok, we don't need this anymore */
-    ow->order_guid = *guid_null ();
-
-    gnc_close_gui_component (ow->component_id);
+    gnc_entry_ledger_check_close_async (ow->dialog, ow->ledger,
+                                        gnc_order_window_ok_ledger_finished, ow);
 }
 
 void
@@ -285,6 +295,29 @@ order_close_request_free (OrderCloseRequest *request)
 }
 
 static void
+order_close_ledger_finished (GncEntryLedger *ledger, gboolean completed,
+                             gpointer user_data)
+{
+    OrderCloseRequest *request = user_data;
+    GncOrder *order;
+
+    (void)ledger;
+    if (completed && request->ow && !qof_book_shutting_down (request->book))
+    {
+        order = gncOrderLookup (request->book, &request->order_guid);
+        if (order && gnc_order_window_ok_save (request->ow))
+        {
+            request->ow->dialog_type = VIEW_ORDER;
+            gnc_entry_ledger_set_readonly (request->ow->ledger, TRUE);
+            gnc_order_update_window (request->ow);
+            request->restore_close_button = FALSE;
+        }
+    }
+
+    order_close_request_free (request);
+}
+
+static void
 order_close_date_finished (GObject *source, GAsyncResult *result,
                            gpointer user_data)
 {
@@ -301,13 +334,11 @@ order_close_date_finished (GObject *source, GAsyncResult *result,
         if (order)
         {
             gncOrderSetDateClosed (order, date);
-            if (gnc_order_window_ok_save (request->ow))
-            {
-                request->ow->dialog_type = VIEW_ORDER;
-                gnc_entry_ledger_set_readonly (request->ow->ledger, TRUE);
-                gnc_order_update_window (request->ow);
-                request->restore_close_button = FALSE;
-            }
+            gnc_entry_ledger_check_close_async (
+                request->ow->dialog, request->ow->ledger,
+                order_close_ledger_finished, request);
+            g_clear_error (&error);
+            return;
         }
     }
 

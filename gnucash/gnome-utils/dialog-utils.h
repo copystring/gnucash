@@ -195,6 +195,19 @@ void gnc_warning_dialog_async (GtkWindow *parent,
                                gboolean action_is_default,
                                GncWarningDialogResponseCallback completed,
                                gpointer user_data);
+/** Present a non-blocking warning window with an additional non-cancel
+ * response while preserving the warning preferences. */
+void gnc_warning_dialog_choice_async (GtkWindow *parent,
+                                      const gchar *pref_key,
+                                      const gchar *title,
+                                      const gchar *message,
+                                      const gchar *alternate_action,
+                                      gint alternate_response,
+                                      const gchar *action,
+                                      gint action_response,
+                                      gboolean action_is_default,
+                                      GncWarningDialogResponseCallback completed,
+                                      gpointer user_data);
 
 /** Note: This dialog is modal!
  */

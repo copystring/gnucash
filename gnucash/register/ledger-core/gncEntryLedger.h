@@ -113,12 +113,20 @@ gboolean gnc_entry_ledger_changed (GncEntryLedger *ledger);
 
 void gnc_entry_ledger_cancel_cursor_changes (GncEntryLedger *ledger);
 
-/** This will act just like hitting 'return' to record an entry */
-gboolean gnc_entry_ledger_commit_entry (GncEntryLedger *ledger);
+typedef void (*GncEntryLedgerFinishedCB) (GncEntryLedger *ledger,
+                                          gboolean completed,
+                                          gpointer user_data);
 
-/** This will ask the user if they really want to make a change */
-gboolean gnc_entry_ledger_check_close (GtkWidget *parent, GncEntryLedger *ledger);
+/** Record the current entry without entering a nested event loop. */
+void gnc_entry_ledger_commit_entry_async (GncEntryLedger *ledger,
+                                          GncEntryLedgerFinishedCB callback,
+                                          gpointer user_data);
 
+/** Resolve current edits before closing without entering a nested event loop. */
+void gnc_entry_ledger_check_close_async (GtkWidget *parent,
+                                         GncEntryLedger *ledger,
+                                         GncEntryLedgerFinishedCB callback,
+                                         gpointer user_data);
 void gnc_entry_ledger_reset_query (GncEntryLedger *ledger);
 
 /** Returns the GncEntry at the given location, or NULL if the

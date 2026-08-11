@@ -597,9 +597,6 @@ gnc_invoice_window_verify_ok (InvoiceWindow *iw)
     const char *res;
     gchar *string;
 
-    /* save the current entry in the ledger? */
-    if (!gnc_entry_ledger_check_close (iw_get_window(iw), iw->ledger))
-        return FALSE;
 
     /* Check the Owner */
     gnc_owner_get_owner (iw->owner_choice, &(iw->owner));
@@ -650,26 +647,35 @@ gnc_invoice_window_ok_save (InvoiceWindow *iw)
     return TRUE;
 }
 
+static void
+gnc_invoice_window_ok_ledger_finished (GncEntryLedger *ledger,
+                                       gboolean completed, gpointer user_data)
+{
+    InvoiceWindow *iw = user_data;
+
+    (void)ledger;
+    if (!completed || !gnc_invoice_window_ok_save (iw))
+        return;
+
+    iw->invoice_guid = *guid_null ();
+    if ((iw->dialog_type == NEW_INVOICE || iw->dialog_type == DUP_INVOICE) &&
+        iw->created_invoice)
+        gnc_ui_invoice_edit (gnc_ui_get_main_window (iw->dialog), iw->created_invoice);
+
+    gnc_close_gui_component (iw->component_id);
+}
+
 void
 gnc_invoice_window_ok_cb (GtkWidget *widget, gpointer data)
 {
     InvoiceWindow *iw = data;
 
-    if (!gnc_invoice_window_ok_save (iw))
+    (void)widget;
+    if (!iw || !iw->ledger)
         return;
 
-    /* Ok, we don't need this anymore */
-    iw->invoice_guid = *guid_null ();
-
-    /* if this is a new or duplicated invoice, and created_invoice is NON-NULL,
-     * then open up a new window with the invoice.  This used to be done
-     * in gnc_ui_invoice_new() but cannot be done anymore
-     */
-    if ((iw->dialog_type == NEW_INVOICE || iw->dialog_type == DUP_INVOICE)
-            && iw->created_invoice)
-        gnc_ui_invoice_edit (gnc_ui_get_main_window (iw->dialog), iw->created_invoice);
-
-    gnc_close_gui_component (iw->component_id);
+    gnc_entry_ledger_check_close_async (iw_get_window (iw), iw->ledger,
+                                        gnc_invoice_window_ok_ledger_finished, iw);
 }
 
 void
@@ -817,18 +823,26 @@ void gnc_invoice_window_entryDownCB (GtkWidget *widget, gpointer data)
     gnc_entry_ledger_move_current_entry_updown(iw->ledger, FALSE);
 }
 
+static void
+gnc_invoice_window_record_finished (GncEntryLedger *ledger, gboolean completed,
+                                    gpointer user_data)
+{
+    InvoiceWindow *iw = user_data;
+
+    (void)ledger;
+    if (completed)
+        gnucash_register_goto_next_virt_row (iw->reg);
+}
+
 void
 gnc_invoice_window_recordCB (GtkWidget *widget, gpointer data)
 {
     InvoiceWindow *iw = data;
 
-    if (!iw || !iw->ledger)
-        return;
-
-    if (!gnc_entry_ledger_commit_entry (iw->ledger))
-        return;
-
-    gnucash_register_goto_next_virt_row (iw->reg);
+    (void)widget;
+    if (iw && iw->ledger)
+        gnc_entry_ledger_commit_entry_async (iw->ledger,
+                                             gnc_invoice_window_record_finished, iw);
 }
 
 void
@@ -954,28 +968,32 @@ gnc_invoice_window_duplicateCB (GtkWidget *widget, gpointer data)
     gnc_entry_ledger_duplicate_current_entry (iw->ledger);
 }
 
+static void
+gnc_invoice_window_blank_finished (GncEntryLedger *ledger, gboolean completed,
+                                   gpointer user_data)
+{
+    InvoiceWindow *iw = user_data;
+    VirtualCellLocation vcell_loc;
+    GncEntry *blank;
+
+    (void)ledger;
+    if (!completed)
+        return;
+
+    blank = gnc_entry_ledger_get_blank_entry (iw->ledger);
+    if (blank && gnc_entry_ledger_get_entry_virt_loc (iw->ledger, blank, &vcell_loc))
+        gnucash_register_goto_virt_cell (iw->reg, vcell_loc);
+}
+
 void
 gnc_invoice_window_blankCB (GtkWidget *widget, gpointer data)
 {
     InvoiceWindow *iw = data;
 
-    if (!iw || !iw->ledger)
-        return;
-
-    if (!gnc_entry_ledger_commit_entry (iw->ledger))
-        return;
-
-    {
-        VirtualCellLocation vcell_loc;
-        GncEntry *blank;
-
-        blank = gnc_entry_ledger_get_blank_entry (iw->ledger);
-        if (blank == NULL)
-            return;
-
-        if (gnc_entry_ledger_get_entry_virt_loc (iw->ledger, blank, &vcell_loc))
-            gnucash_register_goto_virt_cell (iw->reg, vcell_loc);
-    }
+    (void)widget;
+    if (iw && iw->ledger)
+        gnc_entry_ledger_commit_entry_async (iw->ledger,
+                                             gnc_invoice_window_blank_finished, iw);
 }
 
 typedef void (*InvoiceReportTemplateCallback) (GtkWindow *parent,
@@ -1474,6 +1492,8 @@ typedef struct
     gboolean multiple;
 } InvoicePostRequest;
 
+static void gnc_invoice_post_after_ledger (
+    InvoiceWindow *iw, struct post_invoice_params *post_params);
 static void gnc_invoice_post (InvoiceWindow *iw,
                               struct post_invoice_params *post_params);
 
@@ -1481,6 +1501,103 @@ static void
 post_invoice_params_clear (struct post_invoice_params *post_params)
 {
     g_clear_pointer (&post_params->memo, g_free);
+}
+
+typedef struct
+{
+    InvoiceWindow *iw;
+    GWeakRef window;
+    gulong destroy_handler;
+    QofBook *book;
+    GncGUID invoice_guid;
+    struct post_invoice_params post_params;
+    gboolean has_post_params;
+} InvoicePostLedgerRequest;
+
+static void
+invoice_post_ledger_request_destroyed (GtkWidget *widget,
+                                       InvoicePostLedgerRequest *request)
+{
+    (void)widget;
+    request->iw = NULL;
+    request->destroy_handler = 0;
+}
+
+static void
+invoice_post_ledger_request_free (InvoicePostLedgerRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    post_invoice_params_clear (&request->post_params);
+    g_free (request);
+}
+
+static InvoicePostLedgerRequest *
+invoice_post_ledger_request_new (InvoiceWindow *iw,
+                                 const struct post_invoice_params *post_params)
+{
+    GtkWidget *window;
+    InvoicePostLedgerRequest *request;
+
+    if (!iw || !iw->ledger || !iw_get_invoice (iw) ||
+        !(window = iw_get_window (iw)))
+        return NULL;
+
+    request = g_new0 (InvoicePostLedgerRequest, 1);
+    request->iw = iw;
+    request->book = iw->book;
+    request->invoice_guid = iw->invoice_guid;
+    request->has_post_params = post_params != NULL;
+    if (post_params)
+    {
+        request->post_params = *post_params;
+        request->post_params.memo = g_strdup (post_params->memo);
+    }
+    g_weak_ref_init (&request->window, window);
+    request->destroy_handler = g_signal_connect (
+        window, "destroy", G_CALLBACK (invoice_post_ledger_request_destroyed), request);
+    return request;
+}
+
+static gboolean
+invoice_post_ledger_request_is_current (const InvoicePostLedgerRequest *request)
+{
+    GncInvoice *invoice;
+
+    if (!request->iw || qof_book_shutting_down (request->book))
+        return FALSE;
+
+    invoice = gncInvoiceLookup (request->book, &request->invoice_guid);
+    return invoice && iw_get_invoice (request->iw) == invoice;
+}
+
+static void
+invoice_post_ledger_finished (GncEntryLedger *ledger, gboolean completed,
+                              gpointer user_data)
+{
+    InvoicePostLedgerRequest *request = user_data;
+
+    (void)ledger;
+    if (completed && invoice_post_ledger_request_is_current (request))
+        gnc_invoice_post_after_ledger (
+            request->iw, request->has_post_params ? &request->post_params : NULL);
+    invoice_post_ledger_request_free (request);
+}
+
+static void
+gnc_invoice_post (InvoiceWindow *iw, struct post_invoice_params *post_params)
+{
+    InvoicePostLedgerRequest *request = invoice_post_ledger_request_new (iw, post_params);
+
+    if (!request)
+        return;
+
+    gnc_entry_ledger_check_close_async (
+        iw_get_window (iw), iw->ledger, invoice_post_ledger_finished, request);
 }
 
 static void
@@ -1692,8 +1809,8 @@ invoice_post_request (InvoiceWindow *iw, const char *message,
 }
 
 static void
-gnc_invoice_post (InvoiceWindow *iw, struct post_invoice_params *post_params)
-
+gnc_invoice_post_after_ledger (InvoiceWindow *iw,
+                               struct post_invoice_params *post_params)
 {
     GncInvoice *invoice;
     char *memo;

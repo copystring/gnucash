@@ -38,6 +38,7 @@
 #include "qof.h"
 #include "gnc-amount-edit.h"
 #include "gnc-tree-view-account.h"
+#include "gnc-account-sel.h"
 
 #include "gncTaxTable.h"
 #include "dialog-tax-table.h"
@@ -1100,4 +1101,309 @@ gnc_ui_tax_table_new_from_name (GtkWindow *parent, QofBook *book, const char *na
     if (!ttw) return NULL;
 
     return new_tax_table_dialog (ttw, TRUE, NULL, name);
+}
+
+typedef struct
+{
+    GtkWindow *window;
+    QofBook *book;
+    GtkEntry *name_entry;
+    GtkDropDown *type_dropdown;
+    GNCAmountEdit *amount_edit;
+    GNCAccountSel *account_selector;
+    GncTaxTableCreatedCB callback;
+    gpointer user_data;
+    gboolean completed;
+} TaxTableCreateRequest;
+
+static void
+new_tax_table_async_update_amount_format (TaxTableCreateRequest *request)
+{
+    GNCPrintAmountInfo print_info;
+    Account *account;
+
+    if (gtk_drop_down_get_selected (request->type_dropdown) == 0)
+    {
+        account = gnc_account_sel_get_account (request->account_selector);
+        if (account)
+        {
+            gnc_commodity *currency = xaccAccountGetCommodity (account);
+            print_info = gnc_commodity_print_info (currency, FALSE);
+            gnc_amount_edit_set_fraction (request->amount_edit,
+                                          gnc_commodity_get_fraction (currency));
+        }
+        else
+        {
+            print_info = gnc_integral_print_info ();
+            gnc_amount_edit_set_fraction (request->amount_edit, 100000);
+        }
+    }
+    else
+    {
+        print_info = gnc_integral_print_info ();
+        print_info.max_decimal_places = 5;
+        gnc_amount_edit_set_fraction (request->amount_edit, 100000);
+    }
+
+    gnc_amount_edit_set_print_info (request->amount_edit, print_info);
+}
+
+static void
+new_tax_table_async_type_changed (GObject *object, GParamSpec *pspec,
+                                  gpointer user_data)
+{
+    (void)object;
+    (void)pspec;
+    new_tax_table_async_update_amount_format (user_data);
+}
+
+static void
+new_tax_table_async_account_changed (GNCAccountSel *selector, gpointer user_data)
+{
+    (void)selector;
+    new_tax_table_async_update_amount_format (user_data);
+}
+
+static void
+new_tax_table_async_request_free (TaxTableCreateRequest *request)
+{
+    g_clear_object (&request->window);
+    g_free (request);
+}
+
+static void
+new_tax_table_async_complete (TaxTableCreateRequest *request,
+                              GncTaxTable *table, gboolean accepted,
+                              gboolean destroy_window)
+{
+    if (!request || request->completed)
+        return;
+
+    request->completed = TRUE;
+    if (destroy_window)
+        gtk_window_destroy (request->window);
+    if (request->callback)
+        request->callback (table, accepted, request->user_data);
+    new_tax_table_async_request_free (request);
+}
+
+static gboolean
+new_tax_table_async_close_request (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    new_tax_table_async_complete (user_data, NULL, FALSE, TRUE);
+    return TRUE;
+}
+
+static void
+new_tax_table_async_destroyed (GtkWidget *widget, gpointer user_data)
+{
+    TaxTableCreateRequest *request = user_data;
+
+    (void)widget;
+    new_tax_table_async_complete (request, NULL, FALSE, FALSE);
+}
+
+static void
+new_tax_table_async_cancel_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    new_tax_table_async_complete (user_data, NULL, FALSE, TRUE);
+}
+
+static void
+new_tax_table_async_accept_clicked (GtkButton *button, gpointer user_data)
+{
+    TaxTableCreateRequest *request = user_data;
+    const char *name;
+    Account *account;
+    gnc_numeric amount;
+    GncTaxTable *table;
+    GncTaxTableEntry *entry;
+    GError *error = NULL;
+    gint result;
+    gint type;
+
+    (void)button;
+    if (qof_book_shutting_down (request->book))
+    {
+        new_tax_table_async_complete (request, NULL, FALSE, TRUE);
+        return;
+    }
+
+    name = gtk_editable_get_text (GTK_EDITABLE (request->name_entry));
+    if (!name || !*name)
+    {
+        gnc_error_dialog (request->window, "%s",
+                          _("You must provide a name for this Tax Table."));
+        return;
+    }
+    if (gncTaxTableLookupByName (request->book, name))
+    {
+        char *message = g_strdup_printf (
+            _("You must provide a unique name for this Tax Table. "
+              "Your choice \"%s\" is already in use."), name);
+        gnc_error_dialog (request->window, "%s", message);
+        g_free (message);
+        return;
+    }
+
+    account = gnc_account_sel_get_account (request->account_selector);
+    if (!account)
+    {
+        gnc_error_dialog (request->window, "%s", _("You must choose a Tax Account."));
+        return;
+    }
+
+    result = gnc_amount_edit_expr_is_valid (request->amount_edit, &amount,
+                                            TRUE, &error);
+    if (result == 1)
+    {
+        gnc_error_dialog (request->window, "%s", error->message);
+        g_clear_error (&error);
+        return;
+    }
+
+    amount = gnc_amount_edit_get_amount (request->amount_edit);
+    type = gtk_drop_down_get_selected (request->type_dropdown) == 0
+        ? GNC_AMT_TYPE_VALUE : GNC_AMT_TYPE_PERCENT;
+    if (type == GNC_AMT_TYPE_PERCENT &&
+        gnc_numeric_compare (gnc_numeric_abs (amount),
+                             gnc_numeric_create (100, 1)) > 0)
+    {
+        gnc_error_dialog (request->window, "%s",
+                          _("Percentage amount must be between -100 and 100."));
+        return;
+    }
+
+    gnc_suspend_gui_refresh ();
+    table = gncTaxTableCreate (request->book);
+    gncTaxTableBeginEdit (table);
+    gncTaxTableSetName (table, name);
+    entry = gncTaxTableEntryCreate ();
+    gncTaxTableAddEntry (table, entry);
+    gncTaxTableEntrySetAccount (entry, account);
+    gncTaxTableEntrySetType (entry, type);
+    gncTaxTableEntrySetAmount (entry, amount);
+    gncTaxTableChanged (table);
+    gncTaxTableCommitEdit (table);
+    gnc_resume_gui_refresh ();
+
+    new_tax_table_async_complete (request, table, TRUE, TRUE);
+}
+
+void
+gnc_ui_tax_table_new_from_name_async (GtkWindow *parent, QofBook *book,
+                                      const char *name,
+                                      GncTaxTableCreatedCB callback,
+                                      gpointer user_data)
+{
+    TaxTableCreateRequest *request;
+    GtkWidget *content;
+    GtkWidget *grid;
+    GtkWidget *label;
+    GtkWidget *button_box;
+    GtkWidget *cancel_button;
+    GtkWidget *accept_button;
+    GtkStringList *types;
+
+    if (!book || qof_book_shutting_down (book))
+    {
+        if (callback)
+            callback (NULL, FALSE, user_data);
+        return;
+    }
+
+    request = g_new0 (TaxTableCreateRequest, 1);
+    request->book = book;
+    request->callback = callback;
+    request->user_data = user_data;
+    request->window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_title (request->window, _("New Tax Table"));
+    gtk_window_set_modal (request->window, TRUE);
+    gtk_window_set_resizable (request->window, FALSE);
+    if (parent)
+    {
+        gtk_window_set_transient_for (request->window, parent);
+        g_signal_connect_object (parent, "destroy",
+                                 G_CALLBACK (gtk_window_destroy), request->window,
+                                 G_CONNECT_SWAPPED);
+    }
+
+    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start (content, 18);
+    gtk_widget_set_margin_end (content, 18);
+    gtk_widget_set_margin_top (content, 18);
+    gtk_widget_set_margin_bottom (content, 18);
+    gtk_window_set_child (request->window, content);
+
+    grid = gtk_grid_new ();
+    gtk_grid_set_row_spacing (GTK_GRID (grid), 8);
+    gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
+    gtk_box_append (GTK_BOX (content), grid);
+
+    label = gtk_label_new_with_mnemonic (_("_Name"));
+    gtk_widget_set_halign (label, GTK_ALIGN_END);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, 0, 1, 1);
+    request->name_entry = GTK_ENTRY (gtk_entry_new ());
+    gtk_editable_set_text (GTK_EDITABLE (request->name_entry), name ? name : "");
+    gtk_widget_set_hexpand (GTK_WIDGET (request->name_entry), TRUE);
+    gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (request->name_entry), 1, 0, 1, 1);
+    gtk_label_set_mnemonic_widget (GTK_LABEL (label), GTK_WIDGET (request->name_entry));
+
+    label = gtk_label_new_with_mnemonic (_("_Type"));
+    gtk_widget_set_halign (label, GTK_ALIGN_END);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, 1, 1, 1);
+    types = gtk_string_list_new ((const char * const[]){ _("Value"), _("Percent"), NULL });
+    request->type_dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (types), NULL));
+    gtk_drop_down_set_selected (request->type_dropdown, 1);
+    gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (request->type_dropdown), 1, 1, 1, 1);
+    gtk_label_set_mnemonic_widget (GTK_LABEL (label), GTK_WIDGET (request->type_dropdown));
+    g_object_unref (types);
+
+    label = gtk_label_new_with_mnemonic (_("_Value"));
+    gtk_widget_set_halign (label, GTK_ALIGN_END);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, 2, 1, 1);
+    request->amount_edit = GNC_AMOUNT_EDIT (gnc_amount_edit_new ());
+    gnc_amount_edit_set_evaluate_on_enter (request->amount_edit, TRUE);
+    gtk_widget_set_hexpand (GTK_WIDGET (request->amount_edit), TRUE);
+    gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (request->amount_edit), 1, 2, 1, 1);
+    gtk_label_set_mnemonic_widget (GTK_LABEL (label),
+                                   gnc_amount_edit_gtk_entry (request->amount_edit));
+
+    label = gtk_label_new_with_mnemonic (_("_Account"));
+    gtk_widget_set_halign (label, GTK_ALIGN_END);
+    gtk_widget_set_valign (label, GTK_ALIGN_START);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, 3, 1, 1);
+    request->account_selector = GNC_ACCOUNT_SEL (gnc_account_sel_new ());
+    gtk_widget_set_hexpand (GTK_WIDGET (request->account_selector), TRUE);
+    gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (request->account_selector), 1, 3, 1, 1);
+    gtk_label_set_mnemonic_widget (GTK_LABEL (label),
+                                   GTK_WIDGET (request->account_selector));
+
+    button_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign (button_box, GTK_ALIGN_END);
+    cancel_button = gtk_button_new_with_mnemonic (_("_Cancel"));
+    accept_button = gtk_button_new_with_mnemonic (_("_OK"));
+    gtk_box_append (GTK_BOX (button_box), cancel_button);
+    gtk_box_append (GTK_BOX (button_box), accept_button);
+    gtk_box_append (GTK_BOX (content), button_box);
+    gtk_window_set_default_widget (request->window, accept_button);
+
+    g_signal_connect (request->type_dropdown, "notify::selected",
+                      G_CALLBACK (new_tax_table_async_type_changed), request);
+    g_signal_connect (request->account_selector, "account_sel_changed",
+                      G_CALLBACK (new_tax_table_async_account_changed), request);
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (new_tax_table_async_cancel_clicked), request);
+    g_signal_connect (accept_button, "clicked",
+                      G_CALLBACK (new_tax_table_async_accept_clicked), request);
+    g_signal_connect (request->window, "close-request",
+                      G_CALLBACK (new_tax_table_async_close_request), request);
+    g_signal_connect (request->window, "destroy",
+                      G_CALLBACK (new_tax_table_async_destroyed), request);
+
+    new_tax_table_async_update_amount_format (request);
+    gtk_widget_grab_focus (GTK_WIDGET (request->name_entry));
+    gtk_window_present (request->window);
 }

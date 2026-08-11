@@ -1136,6 +1136,7 @@ typedef struct
     gulong destroy_handler;
     gulong parent_destroy_handler;
     gint action_response;
+    gint alternate_response;
     gint stored_response;
 } GncWarningDialogRequest;
 
@@ -1225,6 +1226,14 @@ gnc_warning_dialog_action_clicked_cb (GtkButton *button, gpointer user_data)
     (void)button;
     gnc_warning_dialog_respond (request, request->action_response);
 }
+static void
+gnc_warning_dialog_alternate_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    GncWarningDialogRequest *request = user_data;
+
+    (void)button;
+    gnc_warning_dialog_respond (request, request->alternate_response);
+}
 
 static gboolean
 gnc_warning_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
@@ -1263,13 +1272,15 @@ gnc_warning_dialog_stored_response_cb (gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
-void
-gnc_warning_dialog_async (GtkWindow *parent, const gchar *pref_name,
-                          const gchar *title, const gchar *message,
-                          const gchar *action, gint action_response,
-                          gboolean action_is_default,
-                          GncWarningDialogResponseCallback completed,
-                          gpointer user_data)
+static void
+gnc_warning_dialog_async_full (GtkWindow *parent, const gchar *pref_name,
+                               const gchar *title, const gchar *message,
+                               const gchar *alternate_action,
+                               gint alternate_response,
+                               const gchar *action, gint action_response,
+                               gboolean action_is_default,
+                               GncWarningDialogResponseCallback completed,
+                               gpointer user_data)
 {
     GncWarningDialogRequest *request;
     GtkWidget *content;
@@ -1279,6 +1290,7 @@ gnc_warning_dialog_async (GtkWindow *parent, const gchar *pref_name,
     GtkWidget *button_box;
     GtkWidget *cancel_button;
     GtkWidget *action_button;
+    GtkWidget *alternate_button;
     gint response;
 
     g_return_if_fail (!parent || GTK_IS_WINDOW (parent));
@@ -1296,6 +1308,7 @@ gnc_warning_dialog_async (GtkWindow *parent, const gchar *pref_name,
     request->completed = completed;
     request->user_data = user_data;
     request->action_response = action_response;
+    request->alternate_response = alternate_response;
 
     response = gnc_prefs_get_int (GNC_PREFS_GROUP_WARNINGS_PERM, pref_name);
     if (response == 0)
@@ -1353,17 +1366,26 @@ gnc_warning_dialog_async (GtkWindow *parent, const gchar *pref_name,
     button_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_halign (button_box, GTK_ALIGN_END);
     cancel_button = gtk_button_new_with_mnemonic (_("_Cancel"));
+    alternate_button = alternate_action
+        ? gtk_button_new_with_mnemonic (alternate_action) : NULL;
     action_button = gtk_button_new_with_mnemonic (action);
     gtk_box_append (GTK_BOX (button_box), cancel_button);
+    if (alternate_button)
+        gtk_box_append (GTK_BOX (button_box), alternate_button);
     gtk_box_append (GTK_BOX (button_box), action_button);
     gtk_box_append (GTK_BOX (content), button_box);
     gtk_widget_set_visible (cancel_button, TRUE);
+    if (alternate_button)
+        gtk_widget_set_visible (alternate_button, TRUE);
     gtk_widget_set_visible (action_button, TRUE);
     gtk_widget_set_visible (button_box, TRUE);
     gtk_widget_set_visible (content, TRUE);
 
     g_signal_connect (cancel_button, "clicked",
                       G_CALLBACK (gnc_warning_dialog_cancel_clicked_cb), request);
+    if (alternate_button)
+        g_signal_connect (alternate_button, "clicked",
+                          G_CALLBACK (gnc_warning_dialog_alternate_clicked_cb), request);
     g_signal_connect (action_button, "clicked",
                       G_CALLBACK (gnc_warning_dialog_action_clicked_cb), request);
     request->close_handler = g_signal_connect (
@@ -1375,6 +1397,36 @@ gnc_warning_dialog_async (GtkWindow *parent, const gchar *pref_name,
     gtk_window_present (request->window);
 }
 
+void
+gnc_warning_dialog_async (GtkWindow *parent, const gchar *pref_name,
+                          const gchar *title, const gchar *message,
+                          const gchar *action, gint action_response,
+                          gboolean action_is_default,
+                          GncWarningDialogResponseCallback completed,
+                          gpointer user_data)
+{
+    gnc_warning_dialog_async_full (parent, pref_name, title, message,
+                                   NULL, GTK_RESPONSE_NONE, action,
+                                   action_response, action_is_default,
+                                   completed, user_data);
+}
+
+void
+gnc_warning_dialog_choice_async (GtkWindow *parent, const gchar *pref_name,
+                                 const gchar *title, const gchar *message,
+                                 const gchar *alternate_action,
+                                 gint alternate_response,
+                                 const gchar *action, gint action_response,
+                                 gboolean action_is_default,
+                                 GncWarningDialogResponseCallback completed,
+                                 gpointer user_data)
+{
+    g_return_if_fail (alternate_action != NULL);
+    gnc_warning_dialog_async_full (parent, pref_name, title, message,
+                                   alternate_action, alternate_response,
+                                   action, action_response, action_is_default,
+                                   completed, user_data);
+}
 gint
 gnc_dialog_run (GtkDialog *dialog)
 {
