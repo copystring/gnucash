@@ -1,10 +1,10 @@
-<?xml version='1.0' encoding='UTF-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <interface>
-  <requires lib="gtk" version="4.0"/>
+  <requires lib="gtk" version="4.0" />
   <object class="GtkWindow" id="account_deletion_dialog">
     <property name="default-height">240</property>
     <property name="default-width">320</property>
-   <property name="title" translatable="yes">Account Deletion</property>
+    <property name="title" translatable="yes">Account Deletion</property>
     <child>
       <object class="GtkBox" id="dialog-vbox24">
         <property name="orientation">vertical</property>
@@ -26,13 +26,7 @@
             <child>
               <object class="GtkScrolledWindow" id="scrolledwindow20">
                 <property name="child">
-                  <object class="GtkTreeView" id="sx_list">
-                    <property name="enable-search">0</property>
-                    <property name="headers-visible">0</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection1"/>
-                    </child>
-                  </object>
+                  <object class="GtkColumnView" id="sx_list"></object>
                 </property>
                 <property name="focusable">1</property>
                 <property name="vexpand">1</property>
@@ -44,7 +38,7 @@
           <object class="GtkBox" id="dialog-action_area24">
             <child>
               <object class="GtkButton" id="okbutton1">
-               <property name="focusable">1</property>
+                <property name="focusable">1</property>
                 <property name="halign">center</property>
                 <property name="label" translatable="yes">_OK</property>
                 <property name="use-underline">1</property>
@@ -71,30 +65,15 @@
     <property name="upper">1000</property>
     <property name="value">1</property>
   </object>
-  <object class="GtkListStore" id="freq_liststore">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">Daily</col>
-      </row>
-      <row>
-        <col id="0">Weekly</col>
-      </row>
-      <row>
-        <col id="0">Bi-Weekly</col>
-      </row>
-      <row>
-        <col id="0">Monthly</col>
-      </row>
-      <row>
-        <col id="0">Quarterly</col>
-      </row>
-      <row>
-        <col id="0">Yearly</col>
-     </row>
-    </data>
+  <object class="GtkStringList" id="freq_liststore">
+    <items>
+      <item>Daily</item>
+      <item>Weekly</item>
+      <item>Bi-Weekly</item>
+      <item>Monthly</item>
+      <item>Quarterly</item>
+      <item>Yearly</item>
+    </items>
   </object>
   <object class="GtkWindow" id="sx_from_real_trans_dialog">
     <property name="title" translatable="yes">Make Scheduled Transaction</property>
@@ -163,15 +142,8 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="freq_combo_box">
+                      <object class="GtkDropDown" id="freq_combo_box">
                         <property name="model">freq_liststore</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext1"/>
-                          <!-- Custom child fragments -->
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
                         <layout>
                           <property name="column">1</property>
                           <property name="row">1</property>
@@ -354,7 +326,7 @@
             <property name="label" translatable="yes">_Run when data file opened</property>
             <property name="tooltip-text" translatable="yes">Run the "since last run" process when a file is opened.</property>
             <property name="use-underline">1</property>
-            <signal name="toggled" handler="on_sx_check_toggled_cb"/>
+            <signal name="toggled" handler="on_sx_check_toggled_cb" />
             <layout>
               <property name="column">0</property>
               <property name="row">1</property>
@@ -368,7 +340,7 @@
             <property name="label" translatable="yes">_Show notification window</property>
             <property name="tooltip-text" translatable="yes">Show the notification window for the "since last run" process when a file is opened.</property>
             <property name="use-underline">1</property>
-            <signal name="toggled" handler="on_sx_check_toggled_cb"/>
+            <signal name="toggled" handler="on_sx_check_toggled_cb" />
             <layout>
               <property name="column">0</property>
               <property name="row">2</property>
@@ -382,7 +354,7 @@
             <property name="label" translatable="yes">_Auto-create new transactions</property>
             <property name="tooltip-text" translatable="yes">Set the 'auto-create' flag on newly created scheduled transactions.</property>
             <property name="use-underline">1</property>
-            <signal name="toggled" handler="on_sx_check_toggled_cb"/>
+            <signal name="toggled" handler="on_sx_check_toggled_cb" />
             <layout>
               <property name="column">0</property>
               <property name="row">6</property>
@@ -444,7 +416,7 @@
             <property name="sensitive">0</property>
             <property name="tooltip-text" translatable="yes">Set the 'notify' flag on newly created scheduled transactions.</property>
             <property name="use-underline">1</property>
-            <signal name="toggled" handler="on_sx_check_toggled_cb"/>
+            <signal name="toggled" handler="on_sx_check_toggled_cb" />
             <layout>
               <property name="column">0</property>
               <property name="column-span">2</property>
@@ -522,7 +494,7 @@
                     <property name="label" translatable="yes">Name</property>
                     <property name="use-underline">1</property>
                     <attributes>
-                      <attribute name="weight" value="bold"/>
+                      <attribute name="weight" value="bold" />
                     </attributes>
                   </object>
                 </child>
@@ -557,7 +529,7 @@
                             <property name="label" translatable="yes">Options</property>
                             <property name="valign">center</property>
                             <attributes>
-                              <attribute name="weight" value="bold"/>
+                              <attribute name="weight" value="bold" />
                             </attributes>
                           </object>
                         </child>
@@ -701,7 +673,7 @@
                         </child>
                         <child>
                           <object class="GtkBox" id="vbox179">
-                           <property name="orientation">vertical</property>
+                            <property name="orientation">vertical</property>
                             <child>
                               <object class="GtkBox" id="hbox172">
                                 <property name="valign">center</property>
@@ -844,7 +816,7 @@
                       <object class="GtkBox" id="vbox184">
                         <property name="orientation">vertical</property>
                         <child>
-                          <object class="GtkBox" id="gncfreq_hbox"/>
+                          <object class="GtkBox" id="gncfreq_hbox" />
                         </child>
                         <child>
                           <object class="GtkBox" id="example_cal_hbox">
@@ -935,11 +907,8 @@
             <child>
               <object class="GtkScrolledWindow" id="scrolledwindow21">
                 <property name="child">
-                  <object class="GtkTreeView" id="instance_view">
+                  <object class="GtkColumnView" id="instance_view">
                     <property name="focusable">1</property>
-                    <child internal-child="selection">
-                      <object class="GtkTreeSelection" id="treeview-selection2"/>
-                    </child>
                   </object>
                 </property>
                 <property name="focusable">1</property>
