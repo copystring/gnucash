@@ -127,6 +127,12 @@ struct _xferDialog
     gnc_xfer_dialog_cb transaction_cb;
     /* , and its user_data */
     gpointer transaction_user_data;
+
+    /* The non-blocking completion contract. It is resolved exactly once by
+     * close_handler before this structure is released. */
+    gboolean completed;
+    gnc_xfer_dialog_finished_cb finished_cb;
+    gpointer finished_user_data;
 };
 
 /** Structure passed to "filter tree accounts" function to provide it information */
@@ -173,6 +179,14 @@ void price_amount_radio_toggled_cb(GtkToggleButton *togglebutton, gpointer data)
 
 void gnc_xfer_dialog_response_cb (GtkDialog *dialog, gint response, gpointer data);
 void gnc_xfer_dialog_close_cb(GtkDialog *dialog, gpointer data);
+}
+
+static gboolean
+gnc_xfer_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    gnc_xfer_dialog_response_cb (GTK_DIALOG (window), GTK_RESPONSE_CANCEL,
+                                 user_data);
+    return TRUE;
 }
 
 /** Implementations **********************************************/
@@ -1637,6 +1651,7 @@ gnc_xfer_dialog_response_cb (GtkDialog *dialog, gint response, gpointer data)
     g_return_if_fail (data);
     auto xferData = static_cast<XferDialog *> (data);
 
+    (void)dialog;
     ENTER(" ");
 
     if (response == GTK_RESPONSE_APPLY)
@@ -1645,15 +1660,13 @@ gnc_xfer_dialog_response_cb (GtkDialog *dialog, gint response, gpointer data)
         return;
     }
 
-    /* We're closing, either by cancel, esc or ok
-     * Remove date changed handler to prevent it from triggering
-     * on a focus-out event while we're already destroying the widget */
-    g_signal_handlers_disconnect_by_func (G_OBJECT (xferData->date_entry),
-                                            (gpointer)gnc_xfer_date_changed_cb,
-                                            xferData);
-
     if (response != GTK_RESPONSE_OK)
     {
+        /* The date edit must remain connected while validation keeps the
+         * dialog open. Disconnect it only for the actual close path. */
+        g_signal_handlers_disconnect_by_func (G_OBJECT (xferData->date_entry),
+                                               (gpointer)gnc_xfer_date_changed_cb,
+                                               xferData);
         gnc_close_gui_component_by_data (DIALOG_TRANSFER_CM_CLASS, xferData);
         LEAVE("cancel, etc.");
         return;
@@ -1722,6 +1735,10 @@ gnc_xfer_dialog_response_cb (GtkDialog *dialog, gint response, gpointer data)
     /* Refresh everything */
     gnc_resume_gui_refresh ();
 
+    xferData->completed = TRUE;
+    g_signal_handlers_disconnect_by_func (G_OBJECT (xferData->date_entry),
+                                           (gpointer)gnc_xfer_date_changed_cb,
+                                           xferData);
     DEBUG("close component");
     gnc_close_gui_component_by_data (DIALOG_TRANSFER_CM_CLASS, xferData);
     LEAVE("ok");
@@ -1731,6 +1748,10 @@ void
 gnc_xfer_dialog_close_cb(GtkDialog *dialog, gpointer data)
 {
     auto xferData = static_cast<XferDialog *> (data);
+
+    auto completed = xferData->completed;
+    auto finished_cb = xferData->finished_cb;
+    auto finished_user_data = xferData->finished_user_data;
 
     /* Notify transaction callback to unregister here */
     if (xferData->transaction_cb)
@@ -1760,6 +1781,10 @@ gnc_xfer_dialog_close_cb(GtkDialog *dialog, gpointer data)
 
     if (xferData->desc_selection_source_id)
         g_source_remove (xferData->desc_selection_source_id);
+
+    gtk_window_destroy (GTK_WINDOW (dialog));
+    if (finished_cb)
+        finished_cb (completed, finished_user_data);
 
     g_free(xferData);
     xferData = NULL;
@@ -1829,6 +1854,8 @@ gnc_xfer_dialog_create(GtkWidget *parent, XferDialog *xferData)
     /* parent */
     if (parent != NULL)
         gtk_window_set_transient_for (GTK_WINDOW (xferData->dialog), GTK_WINDOW (parent));
+    g_signal_connect (xferData->dialog, "close-request",
+                      G_CALLBACK (gnc_xfer_dialog_close_request_cb), xferData);
 
     /* default to quickfilling off of the "From" account. */
     xferData->quickfill = XFER_DIALOG_FROM;
@@ -2026,9 +2053,8 @@ close_handler (gpointer user_data)
     auto dialog = GTK_WIDGET (xferData->dialog);
 
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW (dialog));
-    gtk_widget_set_visible (GTK_WIDGET(dialog), false);
-    gnc_xfer_dialog_close_cb(GTK_DIALOG(dialog), xferData);
-//FIXME gtk4    gtk_window_destroy (GTK_WINDOW(dialog));
+    gtk_widget_set_visible (GTK_WIDGET(dialog), FALSE);
+    gnc_xfer_dialog_close_cb (GTK_DIALOG (dialog), xferData);
     g_free (to_info);
     to_info = NULL;
     g_free (from_info);
@@ -2059,6 +2085,9 @@ gnc_xfer_dialog (GtkWidget * parent, Account * initial)
     xferData->desc_selection_source_id = 0;
     xferData->quickfill = XFER_DIALOG_FROM;
     xferData->transaction_cb = NULL;
+    xferData->completed = FALSE;
+    xferData->finished_cb = NULL;
+    xferData->finished_user_data = NULL;
 
     if (initial)
     {
@@ -2088,11 +2117,25 @@ gnc_xfer_dialog (GtkWidget * parent, Account * initial)
 
     gnc_xfer_dialog_curr_acct_activate(xferData);
 
-//FIXME gtk4    gtk_widget_show_all(xferData->dialog);
-
-    gnc_window_adjust_for_screen(GTK_WINDOW(xferData->dialog));
+    gtk_window_present (GTK_WINDOW (xferData->dialog));
+    gnc_window_adjust_for_screen (GTK_WINDOW (xferData->dialog));
 
     return xferData;
+}
+
+void
+gnc_xfer_dialog_run_async (XferDialog *xferData,
+                           gnc_xfer_dialog_finished_cb finished_cb,
+                           gpointer user_data)
+{
+    g_return_if_fail (xferData != NULL);
+    g_return_if_fail (xferData->dialog != NULL);
+    g_return_if_fail (xferData->finished_cb == NULL);
+
+    xferData->finished_cb = finished_cb;
+    xferData->finished_user_data = user_data;
+    gtk_window_set_modal (GTK_WINDOW (xferData->dialog), TRUE);
+    gtk_window_present (GTK_WINDOW (xferData->dialog));
 }
 
 void

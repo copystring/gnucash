@@ -46,6 +46,21 @@ XferDialog * gnc_xfer_dialog(GtkWidget * parent, Account *initial);
  */
 gboolean gnc_xfer_dialog_run_until_done( XferDialog * );
 
+/** Callback invoked exactly once when an asynchronous transfer dialog closes.
+ * @param completed TRUE only if the transaction or exchange-rate update was
+ *                  committed; FALSE for cancel, close, or session shutdown.
+ * @param user_data Caller-owned pointer supplied to gnc_xfer_dialog_run_async().
+ */
+typedef void (*gnc_xfer_dialog_finished_cb)(gboolean completed,
+                                            gpointer user_data);
+
+/** Present a transfer dialog without entering a nested main loop. The callback
+ * is invoked exactly once during dialog teardown and the XferDialog is invalid
+ * after it returns. */
+void gnc_xfer_dialog_run_async (XferDialog *xferData,
+                                gnc_xfer_dialog_finished_cb finished_cb,
+                                gpointer user_data);
+
 void gnc_xfer_dialog_close( XferDialog * );
 
 /*********** Access routines ***********/
