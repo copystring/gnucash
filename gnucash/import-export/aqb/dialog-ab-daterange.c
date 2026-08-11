@@ -55,10 +55,49 @@ void ddr_toggled_cb (GtkToggleButton *button, gpointer user_data);
 static void daterange_complete (DaterangeInfo *info, gboolean accepted);
 
 static void
-daterange_dialog_response (GtkDialog *dialog, gint response, gpointer user_data)
+daterange_accept_clicked (GtkButton *button, gpointer user_data)
 {
-    (void)dialog;
-    daterange_complete (user_data, response == GTK_RESPONSE_OK);
+    (void)button;
+    daterange_complete (user_data, TRUE);
+}
+
+static void
+daterange_cancel_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    daterange_complete (user_data, FALSE);
+}
+
+static gboolean
+daterange_close_requested (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    daterange_complete (user_data, FALSE);
+    return TRUE;
+}
+
+static gboolean
+daterange_escape_pressed (GtkWidget *widget, GVariant *args, gpointer user_data)
+{
+    (void)widget;
+    (void)args;
+    daterange_complete (user_data, FALSE);
+    return TRUE;
+}
+
+static void
+daterange_add_shortcuts (DaterangeInfo *info)
+{
+    GtkShortcutController *controller = GTK_SHORTCUT_CONTROLLER (
+        gtk_shortcut_controller_new ());
+
+    gtk_shortcut_controller_set_scope (controller, GTK_SHORTCUT_SCOPE_MANAGED);
+    gtk_shortcut_controller_add_shortcut (
+        controller,
+        gtk_shortcut_new (
+            gtk_keyval_trigger_new (GDK_KEY_Escape, 0),
+            gtk_callback_action_new (daterange_escape_pressed, info, NULL)));
+    gtk_widget_add_controller (info->dialog, GTK_EVENT_CONTROLLER (controller));
 }
 
 static void
@@ -136,10 +175,15 @@ gnc_ab_enter_daterange_async (GtkWidget *parent, const char *heading,
 
     gnc_builder_connect_signals_full (info->builder, gnc_builder_connect_full_func,
                                       info);
-    g_signal_connect (info->dialog, "response",
-                      G_CALLBACK (daterange_dialog_response), info);
+    g_signal_connect (gtk_builder_get_object (info->builder, "ok_button"),
+                      "clicked", G_CALLBACK (daterange_accept_clicked), info);
+    g_signal_connect (gtk_builder_get_object (info->builder, "cancel_button1"),
+                      "clicked", G_CALLBACK (daterange_cancel_clicked), info);
+    g_signal_connect (info->dialog, "close-request",
+                      G_CALLBACK (daterange_close_requested), info);
     g_signal_connect (info->dialog, "destroy",
                       G_CALLBACK (daterange_dialog_destroyed), info);
+    daterange_add_shortcuts (info);
 
     if (parent)
         gtk_window_set_transient_for (GTK_WINDOW (info->dialog),

@@ -85,19 +85,24 @@ void gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkColumnView *view,
         guint position, gpointer user_data);
 
 typedef struct _GncABTransDialogRunData GncABTransDialogRunData;
+typedef struct _TemplateDeleteRequest TemplateDeleteRequest;
 static void gnc_ab_trans_dialog_verify_values(GncABTransDialog *td);
 static gboolean gnc_ab_trans_dialog_prepare (GncABTransDialog *td);
 static void gnc_ab_trans_dialog_complete (GncABTransDialogRunData *data,
                                           gint response);
+static void gnc_ab_trans_dialog_window_destroyed (GtkWidget *widget,
+                                                  gpointer user_data);
 
 struct _GncABTransDialogRunData
 {
     GTask *task;
     GncABTransDialog *dialog;
-    gulong response_handler;
-    gulong destroy_handler;
+    gulong now_handler;
+    gulong later_handler;
+    gulong cancel_handler;
+    gulong close_handler;
+    GtkEventController *shortcuts;
 };
-
 
 
 struct _GncABTransDialog
@@ -136,8 +141,13 @@ struct _GncABTransDialog
     GListStore *template_store;
     GtkSingleSelection *template_selection;
 
-    /* Exec button */
+    /* Execution controls */
     GtkWidget *exec_button;
+    GtkWidget *exec_later_button;
+    GtkWidget *cancel_button;
+
+    /* A pending confirmation owns itself; td_free() only invalidates td. */
+    TemplateDeleteRequest *template_delete_request;
 
     /* Flag, if template list has been changed */
     gboolean templ_changed;
@@ -355,6 +365,9 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     td->purpose_cont2_entry = GTK_WIDGET(gtk_builder_get_object (builder, "purpose_cont2_entry"));
     td->purpose_cont3_entry = GTK_WIDGET(gtk_builder_get_object (builder, "purpose_cont3_entry"));
     td->exec_button = GTK_WIDGET(gtk_builder_get_object(builder, "exec_now_button"));
+    td->exec_later_button = GTK_WIDGET(gtk_builder_get_object(
+        builder, "exec_later_button"));
+    td->cancel_button = GTK_WIDGET(gtk_builder_get_object(builder, "cancel_button"));
     orig_name_heading = GTK_WIDGET(gtk_builder_get_object (builder, "orig_name_heading"));
     td->orig_name_entry = GTK_WIDGET(gtk_builder_get_object (builder, "orig_name_label"));
     orig_account_heading = GTK_WIDGET(gtk_builder_get_object (builder, "orig_account_heading"));
@@ -381,9 +394,17 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     gnc_amount_edit_set_fraction(GNC_AMOUNT_EDIT(td->amount_edit),
                                  commodity_scu);
 
-    /* Use "focus-out" signal because "amount-changed" is only sent when ENTER is pressed */
-    g_signal_connect_swapped (gnc_amount_edit_gtk_entry(GNC_AMOUNT_EDIT(td->amount_edit)), "focus-out-event",
-                              G_CALLBACK(gnc_ab_trans_dialog_verify_values), td);
+    /* Amount changes are evaluated on Enter. Evaluate again when focus leaves
+     * the entry with GTK4's event controller. */
+    {
+        GtkEventController *focus = gtk_event_controller_focus_new ();
+
+        g_signal_connect_swapped (focus, "leave",
+                                  G_CALLBACK (gnc_ab_trans_dialog_verify_values),
+                                  td);
+        gtk_widget_add_controller (
+            gnc_amount_edit_gtk_entry (GNC_AMOUNT_EDIT (td->amount_edit)), focus);
+    }
 
     /* Check for what kind of transaction this should be, and change the
      * labels accordingly */
@@ -436,10 +457,10 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     	gtk_widget_set_sensitive(td->recp_bankcode_entry, FALSE);
     	gtk_widget_set_sensitive(add_templ_button, FALSE);
     	gtk_widget_set_visible(add_templ_button, FALSE);
-    	gtk_widget_set_can_focus(add_templ_button, FALSE);
+        gtk_widget_set_focusable (add_templ_button, FALSE);
     	gtk_widget_set_sensitive(del_templ_button, FALSE);
     	gtk_widget_set_visible(del_templ_button, FALSE);
-    	gtk_widget_set_can_focus(del_templ_button, FALSE);
+        gtk_widget_set_focusable (del_templ_button, FALSE);
         gtk_label_set_text(GTK_LABEL(template_label),
                            _("Target Accounts"));
         gtk_expander_set_expanded(template_expander, TRUE);
@@ -524,6 +545,9 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
 
     /* Connect the Signals */
     gnc_builder_connect_signals_full(builder, gnc_builder_connect_full_func, td);
+    g_signal_connect (td->dialog, "destroy",
+                      G_CALLBACK (gnc_ab_trans_dialog_window_destroyed), td);
+    gtk_window_set_default_widget (GTK_WINDOW (td->dialog), td->exec_button);
 
     g_object_unref(G_OBJECT(builder));
 
@@ -750,21 +774,69 @@ gnc_ab_trans_dialog_prepare (GncABTransDialog *td)
 }
 
 static void
-gnc_ab_trans_dialog_response (GtkDialog *dialog, gint response,
-                              gpointer user_data)
+gnc_ab_trans_dialog_now_clicked (GtkButton *button, gpointer user_data)
 {
-    (void)dialog;
-    gnc_ab_trans_dialog_complete (user_data, response);
+    (void)button;
+    gnc_ab_trans_dialog_complete (user_data, GNC_RESPONSE_NOW);
 }
 
 static void
-gnc_ab_trans_dialog_destroyed (GtkWidget *widget, gpointer user_data)
+gnc_ab_trans_dialog_later_clicked (GtkButton *button, gpointer user_data)
 {
-    GncABTransDialogRunData *data = user_data;
+    (void)button;
+    gnc_ab_trans_dialog_complete (user_data, GNC_RESPONSE_LATER);
+}
 
-    if (data->dialog->dialog == widget)
-        data->dialog->dialog = NULL;
-    gnc_ab_trans_dialog_complete (data, GTK_RESPONSE_CANCEL);
+static void
+gnc_ab_trans_dialog_cancel_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_ab_trans_dialog_complete (user_data, GTK_RESPONSE_CANCEL);
+}
+
+static gboolean
+gnc_ab_trans_dialog_close_requested (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    gnc_ab_trans_dialog_complete (user_data, GTK_RESPONSE_CANCEL);
+    return TRUE;
+}
+
+static gboolean
+gnc_ab_trans_dialog_escape_pressed (GtkWidget *widget, GVariant *args,
+                                    gpointer user_data)
+{
+    (void)widget;
+    (void)args;
+    gnc_ab_trans_dialog_complete (user_data, GTK_RESPONSE_CANCEL);
+    return TRUE;
+}
+
+static void
+gnc_ab_trans_dialog_add_shortcuts (GncABTransDialogRunData *data)
+{
+    GtkShortcutController *controller = GTK_SHORTCUT_CONTROLLER (
+        gtk_shortcut_controller_new ());
+
+    gtk_shortcut_controller_set_scope (controller, GTK_SHORTCUT_SCOPE_MANAGED);
+    gtk_shortcut_controller_add_shortcut (
+        controller,
+        gtk_shortcut_new (
+            gtk_keyval_trigger_new (GDK_KEY_Escape, 0),
+            gtk_callback_action_new (gnc_ab_trans_dialog_escape_pressed, data, NULL)));
+    data->shortcuts = GTK_EVENT_CONTROLLER (controller);
+    gtk_widget_add_controller (data->dialog->dialog, data->shortcuts);
+}
+
+static void
+gnc_ab_trans_dialog_window_destroyed (GtkWidget *widget, gpointer user_data)
+{
+    GncABTransDialog *td = user_data;
+
+    if (td->dialog == widget)
+        td->dialog = NULL;
+    if (td->run_data)
+        gnc_ab_trans_dialog_complete (td->run_data, GTK_RESPONSE_CANCEL);
 }
 
 static void
@@ -781,8 +853,19 @@ gnc_ab_trans_dialog_complete (GncABTransDialogRunData *data, gint response)
     task = data->task;
     if (td->dialog)
     {
-        g_signal_handler_disconnect (td->dialog, data->response_handler);
-        g_signal_handler_disconnect (td->dialog, data->destroy_handler);
+        if (data->now_handler)
+            g_signal_handler_disconnect (td->exec_button, data->now_handler);
+        if (data->later_handler)
+            g_signal_handler_disconnect (td->exec_later_button, data->later_handler);
+        if (data->cancel_handler)
+            g_signal_handler_disconnect (td->cancel_button, data->cancel_handler);
+        if (data->close_handler)
+            g_signal_handler_disconnect (td->dialog, data->close_handler);
+        if (data->shortcuts)
+        {
+            gtk_widget_remove_controller (td->dialog, data->shortcuts);
+            data->shortcuts = NULL;
+        }
     }
 
     if (response == GNC_RESPONSE_NOW || response == GNC_RESPONSE_LATER)
@@ -835,10 +918,18 @@ gnc_ab_trans_dialog_run_async (GncABTransDialog *td,
     data->dialog = td;
     td->run_data = data;
     g_task_set_source_tag (data->task, gnc_ab_trans_dialog_run_async);
-    data->response_handler = g_signal_connect (
-        td->dialog, "response", G_CALLBACK (gnc_ab_trans_dialog_response), data);
-    data->destroy_handler = g_signal_connect (
-        td->dialog, "destroy", G_CALLBACK (gnc_ab_trans_dialog_destroyed), data);
+    data->now_handler = g_signal_connect (
+        td->exec_button, "clicked", G_CALLBACK (gnc_ab_trans_dialog_now_clicked), data);
+    data->later_handler = g_signal_connect (
+        td->exec_later_button, "clicked",
+        G_CALLBACK (gnc_ab_trans_dialog_later_clicked), data);
+    data->cancel_handler = g_signal_connect (
+        td->cancel_button, "clicked",
+        G_CALLBACK (gnc_ab_trans_dialog_cancel_clicked), data);
+    data->close_handler = g_signal_connect (
+        td->dialog, "close-request",
+        G_CALLBACK (gnc_ab_trans_dialog_close_requested), data);
+    gnc_ab_trans_dialog_add_shortcuts (data);
     gtk_window_present (GTK_WINDOW (td->dialog));
 }
 
@@ -867,6 +958,8 @@ gnc_ab_trans_dialog_free(GncABTransDialog *td)
     if (!td) return;
     if (td->ab_trans)
         AB_Transaction_free(td->ab_trans);
+    if (td->template_delete_request)
+        td->template_delete_request->dialog = NULL;
     if (td->dialog)
         gtk_window_destroy (GTK_WINDOW(td->dialog));
 
@@ -1099,8 +1192,7 @@ template_name_dialog_destroyed (GtkWidget *widget, gpointer user_data)
 }
 
 static void
-template_name_dialog_response (GtkDialog *dialog, gint response,
-                               gpointer user_data)
+template_name_dialog_accept_clicked (GtkButton *button, gpointer user_data)
 {
     TemplateNameDialog *info = user_data;
     const gchar *name;
@@ -1108,13 +1200,7 @@ template_name_dialog_response (GtkDialog *dialog, gint response,
     GtkStringObject *row;
     guint position;
 
-    (void)dialog;
-    if (response != GTK_RESPONSE_OK)
-    {
-        template_name_dialog_free (info);
-        return;
-    }
-
+    (void)button;
     name = gnc_entry_get_text (GTK_ENTRY (info->entry));
     if (!*name)
     {
@@ -1153,6 +1239,46 @@ template_name_dialog_response (GtkDialog *dialog, gint response,
     template_name_dialog_free (info);
 }
 
+static void
+template_name_dialog_cancel_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    template_name_dialog_free (user_data);
+}
+
+static gboolean
+template_name_dialog_close_requested (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    template_name_dialog_free (user_data);
+    return TRUE;
+}
+
+static gboolean
+template_name_dialog_escape_pressed (GtkWidget *widget, GVariant *args,
+                                     gpointer user_data)
+{
+    (void)widget;
+    (void)args;
+    template_name_dialog_free (user_data);
+    return TRUE;
+}
+
+static void
+template_name_dialog_add_shortcuts (TemplateNameDialog *info)
+{
+    GtkShortcutController *controller = GTK_SHORTCUT_CONTROLLER (
+        gtk_shortcut_controller_new ());
+
+    gtk_shortcut_controller_set_scope (controller, GTK_SHORTCUT_SCOPE_MANAGED);
+    gtk_shortcut_controller_add_shortcut (
+        controller,
+        gtk_shortcut_new (
+            gtk_keyval_trigger_new (GDK_KEY_Escape, 0),
+            gtk_callback_action_new (template_name_dialog_escape_pressed, info, NULL)));
+    gtk_widget_add_controller (info->dialog, GTK_EVENT_CONTROLLER (controller));
+}
+
 void
 gnc_ab_trans_dialog_add_templ_cb (GtkButton *button, gpointer user_data)
 {
@@ -1184,10 +1310,18 @@ gnc_ab_trans_dialog_add_templ_cb (GtkButton *button, gpointer user_data)
     if (td->dialog)
         gtk_window_set_transient_for (GTK_WINDOW (info->dialog),
                                       GTK_WINDOW (td->dialog));
-    g_signal_connect (info->dialog, "response",
-                      G_CALLBACK (template_name_dialog_response), info);
+    g_signal_connect (gtk_builder_get_object (info->builder, "okbutton1"),
+                      "clicked", G_CALLBACK (template_name_dialog_accept_clicked), info);
+    g_signal_connect (gtk_builder_get_object (info->builder, "cancelbutton1"),
+                      "clicked", G_CALLBACK (template_name_dialog_cancel_clicked), info);
+    g_signal_connect (info->dialog, "close-request",
+                      G_CALLBACK (template_name_dialog_close_requested), info);
     g_signal_connect (info->dialog, "destroy",
                       G_CALLBACK (template_name_dialog_destroyed), info);
+    gtk_window_set_default_widget (
+        GTK_WINDOW (info->dialog),
+        GTK_WIDGET (gtk_builder_get_object (info->builder, "okbutton1")));
+    template_name_dialog_add_shortcuts (info);
     gtk_window_present (GTK_WINDOW (info->dialog));
     LEAVE (" ");
 }
@@ -1281,37 +1415,94 @@ gnc_ab_trans_dialog_sort_templ_cb(GtkButton *button, gpointer user_data)
     LEAVE(" ");
 }
 
+struct _TemplateDeleteRequest
+{
+    GncABTransDialog *dialog;
+    GtkStringObject *row;
+};
+
+static void
+template_delete_request_free (TemplateDeleteRequest *request)
+{
+    if (!request)
+        return;
+
+    g_clear_object (&request->row);
+    g_free (request);
+}
+
+static void
+template_delete_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    TemplateDeleteRequest *request = user_data;
+    GncABTransDialog *td = request->dialog;
+
+    (void)parent;
+    if (td && td->template_delete_request == request)
+        td->template_delete_request = NULL;
+
+    if (response == GTK_RESPONSE_YES && td)
+    {
+        guint n_items = g_list_model_get_n_items (G_LIST_MODEL (td->template_store));
+
+        for (guint position = 0; position < n_items; position++)
+        {
+            GtkStringObject *candidate = g_list_model_get_item (
+                G_LIST_MODEL (td->template_store), position);
+            gboolean is_target = candidate == request->row;
+
+            g_object_unref (candidate);
+            if (!is_target)
+                continue;
+
+            g_list_store_remove (td->template_store, position);
+            td->templ_changed = TRUE;
+            DEBUG ("Deleted template with name %s",
+                   gtk_string_object_get_string (request->row));
+            break;
+        }
+    }
+
+    template_delete_request_free (request);
+}
+
 void
 gnc_ab_trans_dialog_del_templ_cb(GtkButton *button, gpointer user_data)
 {
     GncABTransDialog *td = user_data;
     guint position;
     GtkStringObject *row;
-    const gchar *name;
+    TemplateDeleteRequest *request;
 
-    g_return_if_fail(td);
+    (void)button;
+    g_return_if_fail (td);
+    if (td->template_delete_request)
+        return;
 
-    ENTER("td=%p", td);
+    ENTER ("td=%p", td);
     position = gtk_single_selection_get_selected (td->template_selection);
     if (position == GTK_INVALID_LIST_POSITION)
     {
-        LEAVE("None selected");
+        LEAVE ("None selected");
         return;
     }
 
     row = g_list_model_get_item (G_LIST_MODEL (td->template_store), position);
-    name = gtk_string_object_get_string (row);
-    if (gnc_verify_dialog (
-                GTK_WINDOW (td->parent), FALSE,
-                _("Do you really want to delete the template with the name \"%s\"?"),
-                name))
+    if (!row)
     {
-        g_list_store_remove (td->template_store, position);
-        td->templ_changed = TRUE;
-        DEBUG("Deleted template with name %s", name);
+        LEAVE ("Could not get selected template");
+        return;
     }
-    g_object_unref (row);
-    LEAVE(" ");
+
+    request = g_new0 (TemplateDeleteRequest, 1);
+    request->dialog = td;
+    request->row = row;
+    td->template_delete_request = request;
+    gnc_verify_dialog_async (
+        GTK_WINDOW (td->dialog), FALSE, template_delete_finished, request,
+        _("Do you really want to delete the template with the name \"%s\"?"),
+        gtk_string_object_get_string (row));
+    LEAVE (" ");
 }
 
 void

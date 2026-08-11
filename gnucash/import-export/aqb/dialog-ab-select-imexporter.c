@@ -48,6 +48,7 @@ struct _GncABSelectImExDlg
     GtkWidget *select_imexporter;
     GtkWidget *select_profile;
     GtkWidget *ok_button;
+    GtkWidget *cancel_button;
     ImExDialogRunData *run_data;
 
     AB_BANKING* abi;
@@ -92,10 +93,50 @@ imex_dialog_result_free (ImExDialogResult *result)
 }
 
 static void
-imex_dialog_response (GtkDialog *dialog, gint response, gpointer user_data)
+imex_dialog_accept_clicked (GtkButton *button, gpointer user_data)
 {
-    (void)dialog;
-    imex_dialog_complete (user_data, response == GTK_RESPONSE_OK);
+    (void)button;
+    imex_dialog_complete (user_data, TRUE);
+}
+
+static void
+imex_dialog_cancel_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    imex_dialog_complete (user_data, FALSE);
+}
+
+static gboolean
+imex_dialog_close_requested (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    imex_dialog_complete (user_data, FALSE);
+    return TRUE;
+}
+
+static gboolean
+imex_dialog_escape_pressed (GtkWidget *widget, GVariant *args, gpointer user_data)
+{
+    (void)widget;
+    (void)args;
+    imex_dialog_complete (user_data, FALSE);
+    return TRUE;
+}
+
+static void
+imex_dialog_add_shortcuts (GncABSelectImExDlg *imexd,
+                           ImExDialogRunData *data)
+{
+    GtkShortcutController *controller = GTK_SHORTCUT_CONTROLLER (
+        gtk_shortcut_controller_new ());
+
+    gtk_shortcut_controller_set_scope (controller, GTK_SHORTCUT_SCOPE_MANAGED);
+    gtk_shortcut_controller_add_shortcut (
+        controller,
+        gtk_shortcut_new (
+            gtk_keyval_trigger_new (GDK_KEY_Escape, 0),
+            gtk_callback_action_new (imex_dialog_escape_pressed, data, NULL)));
+    gtk_widget_add_controller (imexd->dialog, GTK_EVENT_CONTROLLER (controller));
 }
 
 static void
@@ -212,6 +253,10 @@ gnc_ab_select_imex_dlg_new (GtkWidget* parent, AB_BANKING* abi)
                                        builder, "profile-scroll")), imexd->select_profile);
     imexd->ok_button =
         GTK_WIDGET (gtk_builder_get_object (builder, "imex-okbutton"));
+    imexd->cancel_button =
+        GTK_WIDGET (gtk_builder_get_object (builder, "imex-cancelbutton"));
+
+    gtk_window_set_default_widget (GTK_WINDOW (imexd->dialog), imexd->ok_button);
 
     populate_list_store (imexd->imexporter_list,
                          imexporters);
@@ -255,6 +300,10 @@ gnc_ab_select_imex_dlg_destroy (GncABSelectImExDlg* imexd)
     if (imexd->dialog)
         gtk_window_destroy (GTK_WINDOW (imexd->dialog));
 
+    g_clear_object (&imexd->imexporter_selection);
+    g_clear_object (&imexd->profile_selection);
+    g_clear_object (&imexd->imexporter_list);
+    g_clear_object (&imexd->profile_list);
     g_free (imexd);
 }
 
@@ -357,10 +406,15 @@ gnc_ab_select_imex_dlg_run_async (GncABSelectImExDlg *imexd,
     data->imexd = imexd;
     imexd->run_data = data;
     g_task_set_source_tag (data->task, gnc_ab_select_imex_dlg_run_async);
-    g_signal_connect (imexd->dialog, "response", G_CALLBACK (imex_dialog_response),
-                      data);
+    g_signal_connect (imexd->ok_button, "clicked",
+                      G_CALLBACK (imex_dialog_accept_clicked), data);
+    g_signal_connect (imexd->cancel_button, "clicked",
+                      G_CALLBACK (imex_dialog_cancel_clicked), data);
+    g_signal_connect (imexd->dialog, "close-request",
+                      G_CALLBACK (imex_dialog_close_requested), data);
     g_signal_connect (imexd->dialog, "destroy", G_CALLBACK (imex_dialog_destroyed),
                       data);
+    imex_dialog_add_shortcuts (imexd, data);
     gtk_window_present (GTK_WINDOW (imexd->dialog));
 }
 

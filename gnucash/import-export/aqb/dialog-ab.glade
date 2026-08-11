@@ -195,10 +195,15 @@
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="aqbanking_date_range_dialog">
+  <object class="GtkWindow" id="aqbanking_date_range_dialog">
 <property name="title" translatable="1">Get Transactions Online</property>
-<child internal-child="content_area">
+    <property name="destroy-with-parent">True</property>
+<child>
       <object class="GtkBox" id="dialog-vbox1">
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
         <property name="orientation">vertical</property>
         <property name="spacing">2</property>
         <child>
@@ -350,34 +355,33 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button1</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area1">
-        <property name="visible">True</property>
-        <property name="can-focus">False</property>
-<child>
-          <object class="GtkButton" id="cancel_button1">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
+
         <child>
-          <object class="GtkButton" id="ok_button">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
+          <object class="GtkBox" id="dialog-action_area1">
+                    <property name="halign">end</property>
+                    <property name="spacing">6</property>
+                    <property name="margin-top">12</property>
+                  <property name="visible">True</property>
+                  <property name="focusable">False</property>
+          <child>
+                    <object class="GtkButton" id="cancel_button1">
+                      <property name="label" translatable="1">_Cancel</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                  <child>
+                    <object class="GtkButton" id="ok_button">
+                      <property name="label" translatable="1">_OK</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                </object>
+        </child>
       </object>
     </child>
+
   </object>
   <object class="GtkDialog" id="aqbanking_password_dialog">
 <property name="title" translatable="1">Enter Password</property>
@@ -567,10 +571,15 @@
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="aqbanking_template_name_dialog">
+  <object class="GtkWindow" id="aqbanking_template_name_dialog">
 <property name="title" translatable="1">Name for new template</property>
-<child internal-child="content_area">
+    <property name="destroy-with-parent">True</property>
+<child>
       <object class="GtkBox" id="dialog-vbox2">
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
         <property name="orientation">vertical</property>
         <child>
           <object class="GtkBox" id="vbox159">
@@ -599,39 +608,43 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton1</action-widget>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area2">
-        <property name="visible">True</property>
-        <property name="can-focus">False</property>
-<child>
-          <object class="GtkButton" id="cancelbutton1">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
+
         <child>
-          <object class="GtkButton" id="okbutton1">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
+          <object class="GtkBox" id="dialog-action_area2">
+                    <property name="halign">end</property>
+                    <property name="spacing">6</property>
+                    <property name="margin-top">12</property>
+                  <property name="visible">True</property>
+                  <property name="focusable">False</property>
+          <child>
+                    <object class="GtkButton" id="cancelbutton1">
+                      <property name="label" translatable="1">_Cancel</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                  <child>
+                    <object class="GtkButton" id="okbutton1">
+                      <property name="label" translatable="1">_OK</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                </object>
+        </child>
       </object>
     </child>
+
   </object>
-  <object class="GtkDialog" id="aqbanking_transaction_dialog">
+  <object class="GtkWindow" id="aqbanking_transaction_dialog">
 <property name="title" translatable="1">Online Transaction</property>
-<child internal-child="content_area">
+    <property name="destroy-with-parent">True</property>
+<child>
       <object class="GtkBox" id="dialog-vbox7">
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
         <property name="orientation">vertical</property>
         <property name="spacing">2</property>
         <child>
@@ -1008,14 +1021,13 @@
                           <object class="GtkBox" id="vbutonbox158">
                             <property name="halign">center</property>
                             <property name="visible">True</property>
-                            <property name="can-focus">False</property>
+                            <property name="focusable">False</property>
                             <property name="orientation">vertical</property>
                             <property name="homogeneous">True</property>
                             <child>
                               <object class="GtkButton" id="add_templ_button">
                                 <property name="label" translatable="1">_Add current</property>
                                 <property name="focusable">1</property>
-                                <property name="receives-default">1</property>
                                 <property name="has-tooltip">1</property>
                                 <property name="tooltip-markup">Add the current online transaction as a new transaction template</property>
                                 <property name="tooltip-text" translatable="1">Add the current online transaction as a new transaction template</property>
@@ -1027,7 +1039,6 @@
                               <object class="GtkButton" id="moveup_templ_button">
                                 <property name="label" translatable="1">_Up</property>
                                 <property name="focusable">1</property>
-                                <property name="receives-default">1</property>
                                 <property name="has-tooltip">1</property>
                                 <property name="tooltip-markup">Move the selected transaction template one row up</property>
                                 <property name="tooltip-text" translatable="1">Move the selected transaction template one row up</property>
@@ -1039,7 +1050,6 @@
                               <object class="GtkButton" id="movedown_templ_button">
                                 <property name="label" translatable="1">_Down</property>
                                 <property name="focusable">1</property>
-                                <property name="receives-default">1</property>
                                 <property name="has-tooltip">1</property>
                                 <property name="tooltip-markup">Move the selected transaction template one row down</property>
                                 <property name="tooltip-text" translatable="1">Move the selected transaction template one row down</property>
@@ -1051,7 +1061,6 @@
                               <object class="GtkButton" id="sort_templ_button">
                                 <property name="label" translatable="1">_Sort</property>
                                 <property name="focusable">1</property>
-                                <property name="receives-default">1</property>
                                 <property name="has-tooltip">1</property>
                                 <property name="tooltip-markup">Sort the list of transaction templates alphabetically</property>
                                 <property name="tooltip-text" translatable="1">Sort the list of transaction templates alphabetically</property>
@@ -1063,7 +1072,6 @@
                               <object class="GtkButton" id="del_templ_button">
                                 <property name="label" translatable="1">D_elete</property>
                                 <property name="focusable">1</property>
-                                <property name="receives-default">1</property>
                                 <property name="has-tooltip">1</property>
                                 <property name="tooltip-markup">Delete the currently selected transaction template</property>
                                 <property name="tooltip-text" translatable="1">Delete the currently selected transaction template</property>
@@ -1092,52 +1100,54 @@
             </child>
           </object>
         </child>
+
+        <child>
+          <object class="GtkBox" id="dialog-action_area7">
+                    <property name="halign">end</property>
+                    <property name="spacing">6</property>
+                    <property name="margin-top">12</property>
+                  <property name="visible">True</property>
+                  <property name="focusable">False</property>
+          <child>
+                    <object class="GtkButton" id="exec_later_button">
+                      <property name="visible">0</property>
+                      <property name="label" translatable="1">Execute _later (unimpl.)</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                  <child>
+                    <object class="GtkButton" id="cancel_button">
+                      <property name="label" translatable="1">_Cancel</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                  <child>
+                    <object class="GtkButton" id="exec_now_button">
+                      <property name="label" translatable="1">Execute _Now</property>
+                      <property name="focusable">1</property>
+                      <property name="has-tooltip">1</property>
+                      <property name="tooltip-markup">Execute this online transaction now</property>
+                      <property name="tooltip-text" translatable="1">Execute this online transaction now</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                </object>
+        </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-9">exec_later_button</action-widget>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-8">exec_now_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area7">
-        <property name="visible">True</property>
-        <property name="can-focus">False</property>
-<child>
-          <object class="GtkButton" id="exec_later_button">
-            <property name="visible">0</property>
-            <property name="label" translatable="1">Execute _later (unimpl.)</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
-        <child>
-          <object class="GtkButton" id="cancel_button">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
-        <child>
-          <object class="GtkButton" id="exec_now_button">
-            <property name="label" translatable="1">Execute _Now</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="has-tooltip">1</property>
-            <property name="tooltip-markup">Execute this online transaction now</property>
-            <property name="tooltip-text" translatable="1">Execute this online transaction now</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
-      </object>
-    </child>
+
   </object>
-  <object class="GtkDialog" id="aqbanking-select-imexporter-dialog">
+  <object class="GtkWindow" id="aqbanking-select-imexporter-dialog">
 <property name="title" translatable="1">Select File Import Format and Template</property>
-<child internal-child="content_area">
+    <property name="destroy-with-parent">True</property>
+<child>
       <object class="GtkBox" id="dialog-vbox4">
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
         <property name="orientation">vertical</property>
         <child>
           <object class="GtkBox" id="selector-box">
@@ -1172,33 +1182,32 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">imex-cancelbutton</action-widget>
-      <action-widget response="-5">imex-okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area4">
-        <property name="visible">True</property>
-        <property name="can-focus">False</property>
-<child>
-          <object class="GtkButton" id="imex-cancelbutton">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
+
         <child>
-          <object class="GtkButton" id="imex-okbutton">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
+          <object class="GtkBox" id="dialog-action_area4">
+                    <property name="halign">end</property>
+                    <property name="spacing">6</property>
+                    <property name="margin-top">12</property>
+                  <property name="visible">True</property>
+                  <property name="focusable">False</property>
+          <child>
+                    <object class="GtkButton" id="imex-cancelbutton">
+                      <property name="label" translatable="1">_Cancel</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                  <child>
+                    <object class="GtkButton" id="imex-okbutton">
+                      <property name="label" translatable="1">_OK</property>
+                      <property name="focusable">1</property>
+                      <property name="use-underline">1</property>
+                    </object>
+          </child>
+                </object>
+        </child>
       </object>
     </child>
+
   </object>
 </interface>

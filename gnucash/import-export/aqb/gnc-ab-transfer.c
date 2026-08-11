@@ -49,23 +49,6 @@ G_GNUC_UNUSED static QofLogModule log_module = G_LOG_DOMAIN;
 
 static void txn_created_cb(Transaction *trans, gpointer user_data);
 
-#if (AQBANKING_VERSION_INT >= 60400)
-static void
-save_templates(GtkWidget *parent, Account *gnc_acc, GList *templates,
-               gboolean dont_ask)
-{
-    g_return_if_fail(gnc_acc);
-    if (dont_ask || gnc_verify_dialog (
-                GTK_WINDOW (parent), FALSE, "%s",
-                _("You have changed the list of online transfer templates, "
-                  "but you cancelled the transfer dialog. "
-                  "Do you nevertheless want to store the changes?")))
-    {
-        gnc_ab_set_book_template_list(gnc_account_get_book(gnc_acc), templates);
-    }
-}
-#endif
-
 static void
 txn_created_cb(Transaction *trans, gpointer user_data)
 {
@@ -153,6 +136,34 @@ typedef struct
     Transaction *gnc_trans;
 } TransferExecution;
 
+typedef struct
+{
+    TransferData *data;
+    gint response;
+    GList *templates;
+} TransferTemplateSaveRequest;
+
+typedef struct
+{
+    TransferData *data;
+} TransferRetryRequest;
+
+typedef struct
+{
+    TransferExecution *execution;
+} TransferExecutionRetryRequest;
+
+static void transfer_process_dialog_response (TransferData *data, gint response);
+static void transfer_handle_template_changes (TransferData *data, gint response);
+static void transfer_retry_finished (GtkWindow *parent, gint response,
+                                    gpointer user_data);
+static void transfer_execution_retry_finished (GtkWindow *parent, gint response,
+                                               gpointer user_data);
+#if (AQBANKING_VERSION_INT >= 60400)
+static void transfer_template_save_finished (GtkWindow *parent, gint response,
+                                             gpointer user_data);
+#endif
+
 static void transfer_execution_finish (TransferExecution *execution,
                                        gboolean successful, gboolean retry);
 
@@ -165,8 +176,6 @@ transfer_execution_xfer_finished_cb (gboolean completed, gpointer user_data)
     AB_IMEXPORTER_CONTEXT *context = NULL;
     GncABImExContextImport *ieci = NULL;
     GNC_AB_JOB_STATUS job_status;
-    gboolean retry = FALSE;
-
     if (!completed || !execution->gnc_trans || !parent)
         goto cleanup;
     if (!execution->send_now)
@@ -188,12 +197,21 @@ transfer_execution_xfer_finished_cb (gboolean completed, gpointer user_data)
     if (job_status != AB_Transaction_StatusAccepted &&
         job_status != AB_Transaction_StatusPending)
     {
-        if (gnc_verify_dialog (GTK_WINDOW (parent), FALSE, "%s",
-                _("An error occurred while executing the job. Please check "
-                  "the log window for the exact error message.\n\n"
-                  "Do you want to enter the job again?")))
-            retry = TRUE;
-        goto cleanup;
+        TransferExecutionRetryRequest *request = g_new0 (
+            TransferExecutionRetryRequest, 1);
+
+        if (context)
+            AB_ImExporterContext_free (context);
+        if (gui)
+            gnc_GWEN_Gui_release (gui);
+        request->execution = execution;
+        gnc_verify_dialog_async (
+            GTK_WINDOW (parent), FALSE, transfer_execution_retry_finished, request,
+            "%s", _("An error occurred while executing the job. Please check "
+                     "the log window for the exact error message.\n\n"
+                     "Do you want to enter the job again?"));
+        g_clear_object (&parent);
+        return;
     }
     ieci = gnc_ab_import_context (context, 0, FALSE, NULL, parent);
     if (ieci)
@@ -214,7 +232,19 @@ cleanup:
     if (gui)
         gnc_GWEN_Gui_release (gui);
     g_clear_object (&parent);
-    transfer_execution_finish (execution, FALSE, retry);
+    transfer_execution_finish (execution, FALSE, FALSE);
+}
+
+static void
+transfer_execution_retry_finished (GtkWindow *parent, gint response,
+                                   gpointer user_data)
+{
+    TransferExecutionRetryRequest *request = user_data;
+
+    (void)parent;
+    transfer_execution_finish (request->execution, FALSE,
+                               response == GTK_RESPONSE_YES);
+    g_free (request);
 }
 
 static void
@@ -269,17 +299,157 @@ transfer_create_gnucash_transaction_async (TransferExecution *execution,
                                execution);
 }
 static void
+transfer_retry_finished (GtkWindow *parent, gint response, gpointer user_data)
+{
+    TransferRetryRequest *request = user_data;
+
+    (void)parent;
+    if (response == GTK_RESPONSE_YES)
+        transfer_request_input (request->data);
+    else
+        transfer_data_free (request->data);
+    g_free (request);
+}
+
+static void
+transfer_process_dialog_response (TransferData *data, gint response)
+{
+    GtkWidget *parent;
+    GNC_AB_JOB *job = NULL;
+    GNC_AB_JOB_LIST2 *job_list = NULL;
+    const AB_TRANSACTION *ab_trans;
+
+    parent = g_weak_ref_get (&data->parent);
+    if (!parent)
+    {
+        transfer_data_free (data);
+        return;
+    }
+
+    if (response != GNC_RESPONSE_NOW && response != GNC_RESPONSE_LATER)
+        goto cleanup;
+
+    ab_trans = gnc_ab_trans_dialog_get_ab_trans (data->td);
+    job = gnc_ab_trans_dialog_get_job (data->td);
+    if (!job || !AB_AccountSpec_GetTransactionLimitsForCommand (
+            data->ab_acc, AB_Transaction_GetCommand (job)))
+    {
+        TransferRetryRequest *request = g_new0 (TransferRetryRequest, 1);
+
+        if (job)
+            AB_Transaction_free (job);
+        request->data = data;
+        gnc_verify_dialog_async (
+            GTK_WINDOW (parent), FALSE, transfer_retry_finished, request,
+            "%s", _("The backend found an error during the preparation "
+                     "of the job. It is not possible to execute this job.\n"
+                     "\n"
+                     "Most probable the bank does not support your chosen "
+                     "job or your Online Banking account does not have the permission "
+                     "to execute this job. More error messages might be "
+                     "visible on your console log.\n"
+                     "\n"
+                     "Do you want to enter the job again?"));
+        g_object_unref (parent);
+        return;
+    }
+
+    job_list = AB_Transaction_List2_new ();
+    AB_Transaction_List2_PushBack (job_list, job);
+    {
+        TransferExecution *execution = g_new0 (TransferExecution, 1);
+
+        execution->data = data;
+        execution->job = job;
+        execution->job_list = job_list;
+        execution->send_now = response == GNC_RESPONSE_NOW;
+        g_weak_ref_init (&execution->parent, parent);
+        transfer_create_gnucash_transaction_async (execution, parent, ab_trans);
+    }
+    g_object_unref (parent);
+    return;
+
+cleanup:
+    if (job_list)
+        AB_Transaction_List2_free (job_list);
+    if (job)
+        AB_Transaction_free (job);
+    g_object_unref (parent);
+    transfer_data_free (data);
+}
+
+#if (AQBANKING_VERSION_INT >= 60400)
+static void
+transfer_template_save_finished (GtkWindow *parent, gint response,
+                                 gpointer user_data)
+{
+    TransferTemplateSaveRequest *request = user_data;
+
+    (void)parent;
+    if (response == GTK_RESPONSE_YES)
+        gnc_ab_set_book_template_list (gnc_account_get_book (request->data->gnc_acc),
+                                       request->templates);
+    g_list_free (request->templates);
+    transfer_process_dialog_response (request->data, request->response);
+    g_free (request);
+}
+#endif
+
+static void
+transfer_handle_template_changes (TransferData *data, gint response)
+{
+#if (AQBANKING_VERSION_INT >= 60400)
+    gboolean changed;
+    GList *templates = gnc_ab_trans_dialog_get_templ (data->td, &changed);
+
+    if (data->trans_type != SEPA_INTERNAL_TRANSFER && changed)
+    {
+        if (response == GNC_RESPONSE_NOW)
+        {
+            gnc_ab_set_book_template_list (gnc_account_get_book (data->gnc_acc),
+                                           templates);
+            g_list_free (templates);
+        }
+        else
+        {
+            GtkWidget *parent = g_weak_ref_get (&data->parent);
+            TransferTemplateSaveRequest *request;
+
+            if (!parent)
+            {
+                g_list_free (templates);
+                transfer_data_free (data);
+                return;
+            }
+
+            request = g_new0 (TransferTemplateSaveRequest, 1);
+            request->data = data;
+            request->response = response;
+            request->templates = templates;
+            gnc_verify_dialog_async (
+                GTK_WINDOW (parent), FALSE, transfer_template_save_finished, request,
+                "%s", _("You have changed the list of online transfer templates, "
+                         "but you cancelled the transfer dialog. "
+                         "Do you nevertheless want to store the changes?"));
+            g_object_unref (parent);
+            return;
+        }
+    }
+    else
+    {
+        g_list_free (templates);
+    }
+#endif
+    transfer_process_dialog_response (data, response);
+}
+
+static void
 transfer_dialog_finished (GObject *source, GAsyncResult *result,
                           gpointer user_data)
 {
     TransferData *data = user_data;
-    GtkWidget *parent;
     GError *error = NULL;
     gint response;
-    GNC_AB_JOB *job = NULL;
-    GNC_AB_JOB_LIST2 *job_list = NULL;
-    const AB_TRANSACTION *ab_trans;
-    gboolean retry = FALSE;
 
     (void)source;
     if (!gnc_ab_trans_dialog_run_finish (result, &response, &error))
@@ -291,73 +461,7 @@ transfer_dialog_finished (GObject *source, GAsyncResult *result,
         return;
     }
 
-    parent = g_weak_ref_get (&data->parent);
-    if (!parent)
-    {
-        transfer_data_free (data);
-        return;
-    }
-
-#if (AQBANKING_VERSION_INT >= 60400)
-    {
-        gboolean changed;
-        GList *templates = gnc_ab_trans_dialog_get_templ (data->td, &changed);
-
-        if (data->trans_type != SEPA_INTERNAL_TRANSFER && changed)
-            save_templates (parent, data->gnc_acc, templates,
-                            response == GNC_RESPONSE_NOW);
-        g_list_free (templates);
-    }
-#endif
-
-    if (response != GNC_RESPONSE_NOW && response != GNC_RESPONSE_LATER)
-        goto cleanup;
-
-    ab_trans = gnc_ab_trans_dialog_get_ab_trans (data->td);
-    job = gnc_ab_trans_dialog_get_job (data->td);
-    if (!job || !AB_AccountSpec_GetTransactionLimitsForCommand (
-            data->ab_acc, AB_Transaction_GetCommand (job)))
-    {
-        if (gnc_verify_dialog (
-                GTK_WINDOW (parent), FALSE, "%s",
-                _("The backend found an error during the preparation "
-                  "of the job. It is not possible to execute this job.\n"
-                  "\n"
-                  "Most probable the bank does not support your chosen "
-                  "job or your Online Banking account does not have the permission "
-                  "to execute this job. More error messages might be "
-                  "visible on your console log.\n"
-                  "\n"
-                  "Do you want to enter the job again?")))
-            retry = TRUE;
-        goto cleanup;
-    }
-
-    job_list = AB_Transaction_List2_new ();
-    AB_Transaction_List2_PushBack (job_list, job);
-    TransferExecution *execution = g_new0 (TransferExecution, 1);
-    execution->data = data;
-    execution->job = job;
-    execution->job_list = job_list;
-    execution->send_now = response == GNC_RESPONSE_NOW;
-    g_weak_ref_init (&execution->parent, parent);
-    job = NULL;
-    job_list = NULL;
-    transfer_create_gnucash_transaction_async (execution, parent, ab_trans);
-    g_object_unref (parent);
-    return;
-
-cleanup:
-    if (job_list)
-        AB_Transaction_List2_free (job_list);
-    if (job)
-        AB_Transaction_free (job);
-    g_object_unref (parent);
-
-    if (retry)
-        transfer_request_input (data);
-    else
-        transfer_data_free (data);
+    transfer_handle_template_changes (data, response);
 }
 
 static void
