@@ -545,7 +545,7 @@ gboolean gnc_main_window_just_plugin_prefs (GncMainWindow* window);
  *
  *  @param title Title of the dialog; "Book Options" if NULL.
  *
- *  @param parent The toplevel GdkWindow with which the dialog will
+ *  @param parent The toplevel GtkWindow with which the dialog will
  *  be transient for.
  *
  *  @return A pointer to the GtkWidget for the dialog that can be used
