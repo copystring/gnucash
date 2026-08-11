@@ -134,10 +134,11 @@ gnc_html_init( GncHtml* self )
 {
     GncHtmlPrivate *priv = self->priv = g_new0( GncHtmlPrivate, 1 );
 
-    priv->container = GTK_WIDGET(g_object_ref_sink(gtk_scrolled_window_new()));
-    gtk_scrolled_window_set_policy( GTK_SCROLLED_WINDOW(priv->container),
-                                    GTK_POLICY_AUTOMATIC,
-                                    GTK_POLICY_AUTOMATIC );
+    /* GncHtml is a controller. A backend must provide the visible widget it
+     * owns; creating a default GTK container here would keep the obsolete
+     * GtkBin-style ownership model alive and makes the controller need a
+     * display even when only its URL contract is used. */
+    priv->container = nullptr;
 
     priv->request_info = g_hash_table_new( g_str_hash, g_str_equal );
     priv->history = gnc_html_history_new();
@@ -669,7 +670,10 @@ gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
     g_return_val_if_fail (url != nullptr, FALSE);
 
     const auto type = gnc_html_parse_url (html, url, &location, &label);
-    const auto handled = gnc_html_urltype_is_internal (type);
+    /* An internal action without a target is malformed. Do not report it as
+     * handled because that would silently consume a navigation decision while
+     * the backend's show_url implementation rejects the null location. */
+    const auto handled = gnc_html_urltype_is_internal (type) && location;
     if (handled)
         gnc_html_show_url (html, type, location, label, new_window_hint);
 
