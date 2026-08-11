@@ -579,19 +579,6 @@ gnc_handle_date_accelerator_input (const GncRegisterInput *input,
     return TRUE;
 }
 
-gboolean
-gnc_handle_date_accelerator (GdkEvent *event,
-                             struct tm *tm,
-                             const char *date_str)
-{
-    GncRegisterInput input;
-
-    if (!gnc_register_input_from_event (event, &input))
-        return FALSE;
-
-    return gnc_handle_date_accelerator_input (&input, tm, date_str);
-}
-
 /*--------------------------------------------------------------------------
  *   GtkBuilder support functions
  *-------------------------------------------------------------------------*/

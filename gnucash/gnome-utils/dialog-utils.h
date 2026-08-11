@@ -120,14 +120,10 @@ gboolean gnc_gdate_in_valid_range (GDate *test_date, gboolean warn);
 void gnc_register_input_from_keyval (GncRegisterInput *input,
                                       guint keyval,
                                       GdkModifierType state);
-gboolean gnc_register_input_from_event (GdkEvent *event,
-                                        GncRegisterInput *input);
+
 gboolean gnc_handle_date_accelerator_input (const GncRegisterInput *input,
                                              struct tm *tm,
                                              const char *date_str);
-gboolean gnc_handle_date_accelerator (GdkEvent *event,
-                                      struct tm *tm,
-                                      const char *date_str);
 
 gboolean gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char *root);
 

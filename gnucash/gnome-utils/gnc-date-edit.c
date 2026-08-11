@@ -547,21 +547,18 @@ date_accel_key_pressed (GtkEventControllerKey *controller, guint keyval,
     GNCDateEdit *gde = data;
     const char *string;
     struct tm tm;
-    GdkEvent *event;
+    GncRegisterInput input;
 
-    (void)keyval;
+    (void)controller;
     (void)keycode;
-    (void)state;
-
-    event = gtk_event_controller_get_current_event (GTK_EVENT_CONTROLLER (controller));
-    if (!event)
-        return FALSE;
 
     string = gtk_entry_get_text (GTK_ENTRY (gde->date_entry));
 
     tm = gnc_date_edit_get_date_internal (gde);
 
-    if (!gnc_handle_date_accelerator (event, &tm, string))
+    gnc_register_input_from_keyval (&input, keyval, state);
+
+    if (!gnc_handle_date_accelerator_input (&input, &tm, string))
         return FALSE;
 
     gnc_date_edit_set_time (gde, gnc_mktime (&tm));

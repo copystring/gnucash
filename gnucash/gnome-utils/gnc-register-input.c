@@ -83,18 +83,3 @@ gnc_register_input_from_keyval (GncRegisterInput *input,
     if (state & gtk_accelerator_get_default_mod_mask ())
         input->modifiers |= GNC_REGISTER_MODIFIER_DEFAULT;
 }
-
-gboolean
-gnc_register_input_from_event (GdkEvent *event, GncRegisterInput *input)
-{
-    g_return_val_if_fail (event != NULL, FALSE);
-    g_return_val_if_fail (input != NULL, FALSE);
-
-    if (gdk_event_get_event_type (event) != GDK_KEY_PRESS)
-        return FALSE;
-
-    gnc_register_input_from_keyval (input,
-                                    gdk_key_event_get_keyval (event),
-                                    gdk_event_get_modifier_state (event));
-    return TRUE;
-}
