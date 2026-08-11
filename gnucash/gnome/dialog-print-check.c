@@ -266,6 +266,8 @@ typedef struct _check_format
 } check_format_t;
 
 
+typedef struct _print_check_request PrintCheckRequest;
+
 /* This data structure is used to manage the print check dialog, and
  * the overall check printing process.  It contains pointers to many
  * of the widgets in the dialog, pointers to the check descriptions
@@ -310,7 +312,17 @@ struct _print_check_dialog
     check_format_t *selected_format;
     GListStore *format_model;
     GtkWindow *format_title_window;
+    PrintCheckRequest *print_request;
+    gboolean close_after_print;
     gboolean closing;
+};
+
+struct _print_check_request
+{
+    GWeakRef window;
+    GtkPrintDialog *dialog;
+    GCancellable *cancellable;
+    GFile *file;
 };
 
 static GQuark format_data_quark (void)
@@ -1572,6 +1584,8 @@ initialize_format_dropdown (PrintCheckDialog *pcd)
 static void
 print_check_dialog_free (PrintCheckDialog *pcd)
 {
+    if (pcd->print_request)
+        g_cancellable_cancel (pcd->print_request->cancellable);
     if (pcd->format_title_window)
     {
         FormatTitleRequest *request = g_object_get_data (G_OBJECT (pcd->format_title_window), "gnc-print-check-format-title-request");
@@ -2425,31 +2439,236 @@ begin_print(GtkPrintOperation *operation,
 }
 
 
-/************************************
- * gnc_ui_print_check_dialog_ok_cb  *
- ************************************/
 static void
-gnc_ui_print_check_dialog_ok_cb(PrintCheckDialog *pcd)
+print_check_request_free (PrintCheckRequest *request)
 {
-    GtkPrintOperation *print;
-    GtkPrintOperationResult res;
+    if (!request)
+        return;
+    g_weak_ref_clear (&request->window);
+    g_clear_object (&request->dialog);
+    g_clear_object (&request->cancellable);
+    g_clear_object (&request->file);
+    g_free (request);
+}
 
-    print = gtk_print_operation_new();
+static void
+print_check_request_remove_file (PrintCheckRequest *request)
+{
+    GError *error = NULL;
 
-    gnc_print_operation_init(print, "GnuCash-Checks");
-    gtk_print_operation_set_unit(print, GTK_UNIT_POINTS);
-    gtk_print_operation_set_use_full_page(print, TRUE);
-    g_signal_connect(print, "begin_print", G_CALLBACK(begin_print), pcd);
-    g_signal_connect(print, "draw_page", G_CALLBACK(draw_page), pcd);
+    if (!request->file)
+        return;
+    if (!g_file_delete (request->file, NULL, &error) &&
+        !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
+        g_warning ("Could not remove temporary check PDF: %s",
+                   error ? error->message : "unknown error");
+    g_clear_error (&error);
+    g_clear_object (&request->file);
+}
 
-    res = gtk_print_operation_run(print,
-                                  GTK_PRINT_OPERATION_ACTION_PRINT_DIALOG,
-                                  pcd->caller_window, NULL);
+static PrintCheckDialog *
+print_check_request_get_dialog (PrintCheckRequest *request,
+                                GtkWindow **window_out)
+{
+    GtkWindow *window = GTK_WINDOW (g_weak_ref_get (&request->window));
+    PrintCheckDialog *pcd = NULL;
 
-    if (res == GTK_PRINT_OPERATION_RESULT_APPLY)
-        gnc_print_operation_save_print_settings(print);
+    if (window && !gtk_widget_in_destruction (GTK_WIDGET (window)))
+        pcd = g_object_get_data (G_OBJECT (window), "gnc-print-check-dialog");
+    if (!pcd || pcd->print_request != request)
+        pcd = NULL;
+    if (window_out)
+        *window_out = window;
+    else
+        g_clear_object (&window);
+    return pcd;
+}
 
-    g_object_unref(print);
+static void
+print_check_dialog_destroy (PrintCheckDialog *pcd)
+{
+    if (pcd->closing)
+        return;
+    pcd->closing = TRUE;
+    gnc_save_window_size (GNC_PREFS_GROUP, pcd->window);
+    gtk_window_destroy (pcd->window);
+}
+
+static void
+print_check_request_complete (PrintCheckRequest *request, gboolean printed,
+                              const GError *error)
+{
+    GtkWindow *window = NULL;
+    PrintCheckDialog *pcd = print_check_request_get_dialog (request, &window);
+
+    if (pcd)
+    {
+        pcd->print_request = NULL;
+        if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
+            !pcd->close_after_print)
+            gnc_error_dialog (window, "%s", error->message);
+        if (printed)
+        {
+            gnc_ui_print_save_dialog (pcd);
+            print_check_dialog_destroy (pcd);
+        }
+        else if (pcd->close_after_print)
+            print_check_dialog_destroy (pcd);
+        else
+            gtk_widget_set_sensitive (GTK_WIDGET (window), TRUE);
+    }
+    g_clear_object (&window);
+    print_check_request_remove_file (request);
+    print_check_request_free (request);
+}
+
+static gboolean
+print_check_export_pdf (PrintCheckRequest *request, PrintCheckDialog *pcd,
+                        GtkPrintSetup *setup, GError **error)
+{
+    GtkPrintOperation *operation;
+    GtkPrintOperationResult result;
+    GFileIOStream *stream = NULL;
+    GtkPrintSettings *settings;
+    GtkPageSetup *page_setup;
+    gchar *filename;
+    gboolean exported;
+
+    request->file = g_file_new_tmp ("gnucash-checks-XXXXXX.pdf", &stream, error);
+    if (!request->file)
+        return FALSE;
+    if (!g_io_stream_close (G_IO_STREAM (stream), NULL, error))
+    {
+        g_object_unref (stream);
+        print_check_request_remove_file (request);
+        return FALSE;
+    }
+    g_object_unref (stream);
+
+    filename = g_file_get_path (request->file);
+    if (!filename)
+    {
+        g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                     "%s", _("The temporary check file has no local path."));
+        print_check_request_remove_file (request);
+        return FALSE;
+    }
+
+    operation = gtk_print_operation_new ();
+    gnc_print_operation_init (operation, "GnuCash-Checks");
+    settings = gtk_print_setup_get_print_settings (setup);
+    page_setup = gtk_print_setup_get_page_setup (setup);
+    if (settings)
+        gtk_print_operation_set_print_settings (operation, settings);
+    if (page_setup)
+        gtk_print_operation_set_default_page_setup (operation, page_setup);
+    gtk_print_operation_set_unit (operation, GTK_UNIT_POINTS);
+    gtk_print_operation_set_use_full_page (operation, TRUE);
+    gtk_print_operation_set_allow_async (operation, FALSE);
+    gtk_print_operation_set_export_filename (operation, filename);
+    g_signal_connect (operation, "begin_print", G_CALLBACK (begin_print), pcd);
+    g_signal_connect (operation, "draw_page", G_CALLBACK (draw_page), pcd);
+    result = gtk_print_operation_run (operation, GTK_PRINT_OPERATION_ACTION_EXPORT,
+                                      pcd->window, error);
+    exported = result == GTK_PRINT_OPERATION_RESULT_APPLY;
+    if (!exported && error && !*error)
+        g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                     "%s", _("Could not create the temporary check PDF."));
+    g_object_unref (operation);
+    g_free (filename);
+    if (!exported)
+        print_check_request_remove_file (request);
+    return exported;
+}
+
+static void
+print_check_file_finished (GObject *source, GAsyncResult *result,
+                           gpointer user_data)
+{
+    PrintCheckRequest *request = user_data;
+    GError *error = NULL;
+    gboolean printed = gtk_print_dialog_print_file_finish (
+        GTK_PRINT_DIALOG (source), result, &error);
+
+    print_check_request_complete (request, printed, error);
+    g_clear_error (&error);
+}
+
+static void
+print_check_setup_finished (GObject *source, GAsyncResult *result,
+                            gpointer user_data)
+{
+    PrintCheckRequest *request = user_data;
+    GError *error = NULL;
+    GtkPrintSetup *setup = gtk_print_dialog_setup_finish (
+        GTK_PRINT_DIALOG (source), result, &error);
+    GtkWindow *window = NULL;
+    PrintCheckDialog *pcd;
+
+    if (!setup)
+    {
+        print_check_request_complete (request, FALSE, error);
+        g_clear_error (&error);
+        return;
+    }
+
+    pcd = print_check_request_get_dialog (request, &window);
+    if (!pcd)
+    {
+        gtk_print_setup_unref (setup);
+        g_clear_object (&window);
+        print_check_request_complete (request, FALSE, NULL);
+        return;
+    }
+
+    gnc_print_setup_save (setup);
+    if (!print_check_export_pdf (request, pcd, setup, &error))
+    {
+        gtk_print_setup_unref (setup);
+        g_clear_object (&window);
+        print_check_request_complete (request, FALSE, error);
+        g_clear_error (&error);
+        return;
+    }
+
+    gtk_print_dialog_print_file (request->dialog, window, setup, request->file,
+                                 request->cancellable, print_check_file_finished,
+                                 request);
+    gtk_print_setup_unref (setup);
+    g_clear_object (&window);
+}
+
+static void
+print_check_request_start (PrintCheckDialog *pcd)
+{
+    PrintCheckRequest *request;
+    GtkPrintOperation *operation;
+    GtkPrintSettings *settings;
+    GtkPageSetup *page_setup;
+
+    if (pcd->print_request || pcd->closing)
+        return;
+
+    request = g_new0 (PrintCheckRequest, 1);
+    g_weak_ref_init (&request->window, pcd->window);
+    request->dialog = gtk_print_dialog_new ();
+    request->cancellable = g_cancellable_new ();
+    pcd->print_request = request;
+
+    operation = gtk_print_operation_new ();
+    gnc_print_operation_init (operation, "GnuCash-Checks");
+    settings = gtk_print_operation_get_print_settings (operation);
+    page_setup = gtk_print_operation_get_default_page_setup (operation);
+    gtk_print_dialog_set_title (request->dialog, _("Print Checks"));
+    gtk_print_dialog_set_accept_label (request->dialog, _("_Print"));
+    gtk_print_dialog_set_modal (request->dialog, TRUE);
+    if (settings)
+        gtk_print_dialog_set_print_settings (request->dialog, settings);
+    if (page_setup)
+        gtk_print_dialog_set_page_setup (request->dialog, page_setup);
+    gtk_print_dialog_setup (request->dialog, pcd->window, request->cancellable,
+                            print_check_setup_finished, request);
+    g_object_unref (operation);
 }
 
 
@@ -2458,14 +2677,21 @@ print_check_dialog_finish (PrintCheckDialog *pcd, gboolean print)
 {
     if (pcd->closing)
         return;
-    pcd->closing = TRUE;
-    if (print)
+    if (!print)
     {
-        gnc_ui_print_check_dialog_ok_cb (pcd);
-        gnc_ui_print_save_dialog (pcd);
+        if (pcd->print_request)
+        {
+            pcd->close_after_print = TRUE;
+            g_cancellable_cancel (pcd->print_request->cancellable);
+            return;
+        }
+        print_check_dialog_destroy (pcd);
+        return;
     }
-    gnc_save_window_size (GNC_PREFS_GROUP, pcd->window);
-    gtk_window_destroy (pcd->window);
+    if (pcd->print_request)
+        return;
+    gtk_widget_set_sensitive (GTK_WIDGET (pcd->window), FALSE);
+    print_check_request_start (pcd);
 }
 
 static void
@@ -2493,6 +2719,12 @@ static gboolean
 print_check_close_request (GtkWindow *window, PrintCheckDialog *pcd)
 {
     (void)window;
+    if (pcd->print_request)
+    {
+        pcd->close_after_print = TRUE;
+        g_cancellable_cancel (pcd->print_request->cancellable);
+        return TRUE;
+    }
     if (!pcd->closing)
     {
         pcd->closing = TRUE;

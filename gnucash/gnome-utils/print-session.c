@@ -68,6 +68,22 @@ page_setup_request_free (PageSetupRequest *request)
 }
 
 static void
+save_print_state (GtkPrintSettings *settings, GtkPageSetup *new_page_setup)
+{
+    G_LOCK (print_settings);
+    g_clear_object (&print_settings);
+    if (settings)
+        print_settings = g_object_ref (settings);
+    G_UNLOCK (print_settings);
+
+    G_LOCK (page_setup);
+    g_clear_object (&page_setup);
+    if (new_page_setup)
+        page_setup = g_object_ref (new_page_setup);
+    G_UNLOCK (page_setup);
+}
+
+static void
 page_setup_request_finished (GObject *source, GAsyncResult *result,
                              gpointer user_data)
 {
@@ -84,17 +100,7 @@ page_setup_request_finished (GObject *source, GAsyncResult *result,
         GtkPageSetup *new_page_setup =
             gtk_print_setup_get_page_setup (setup);
 
-        G_LOCK (print_settings);
-        g_clear_object (&print_settings);
-        if (settings)
-            print_settings = g_object_ref (settings);
-        G_UNLOCK (print_settings);
-
-        G_LOCK (page_setup);
-        g_clear_object (&page_setup);
-        if (new_page_setup)
-            page_setup = g_object_ref (new_page_setup);
-        G_UNLOCK (page_setup);
+        save_print_state (settings, new_page_setup);
 
         gtk_print_setup_unref (setup);
     }
@@ -118,6 +124,15 @@ gnc_print_operation_save_print_settings(GtkPrintOperation *op)
         g_object_unref(print_settings);
     print_settings = g_object_ref(gtk_print_operation_get_print_settings(op));
     G_UNLOCK(print_settings);
+}
+
+void
+gnc_print_setup_save (GtkPrintSetup *setup)
+{
+    g_return_if_fail (setup);
+
+    save_print_state (gtk_print_setup_get_print_settings (setup),
+                      gtk_print_setup_get_page_setup (setup));
 }
 
 void
