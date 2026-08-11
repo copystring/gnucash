@@ -58,9 +58,9 @@ void gnc_vendor_window_cancel_cb (GtkWidget *widget, gpointer data);
 void gnc_vendor_window_help_cb (GtkWidget *widget, gpointer data);
 void gnc_vendor_window_destroy_cb (GtkWidget *widget, gpointer data);
 void gnc_vendor_name_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_vendor_terms_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_vendor_taxincluded_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_vendor_taxtable_changed_cb (GtkWidget *widget, gpointer data);
+void gnc_vendor_terms_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
+void gnc_vendor_taxincluded_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
+void gnc_vendor_taxtable_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
 
 typedef enum
 {
@@ -278,39 +278,39 @@ gnc_vendor_name_changed_cb (GtkWidget *widget, gpointer data)
 }
 
 void
-gnc_vendor_terms_changed_cb (GtkWidget *widget, gpointer data)
+gnc_vendor_terms_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data)
 {
-    GtkComboBox *cbox = GTK_COMBO_BOX (widget);
-    VendorWindow *vw = data;
+    (void)pspec;
+        VendorWindow *vw = data;
 
     if (!vw) return;
-    if (!cbox) return;
+    if (!dropdown) return;
 
-    vw->terms = gnc_simple_combo_get_value (cbox);
+    vw->terms = gnc_simple_dropdown_get_value (dropdown);
 }
 
 void
-gnc_vendor_taxincluded_changed_cb (GtkWidget *widget, gpointer data)
+gnc_vendor_taxincluded_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data)
 {
-    GtkComboBox *cbox = GTK_COMBO_BOX (widget);
-    VendorWindow *vw = data;
+    (void)pspec;
+        VendorWindow *vw = data;
 
     if (!vw) return;
-    if (!cbox) return;
+    if (!dropdown) return;
 
-    vw->taxincluded = GPOINTER_TO_INT (gnc_simple_combo_get_value (cbox));
+    vw->taxincluded = GPOINTER_TO_INT (gnc_simple_dropdown_get_value (dropdown));
 }
 
 void
-gnc_vendor_taxtable_changed_cb (GtkWidget *widget, gpointer data)
+gnc_vendor_taxtable_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data)
 {
-    GtkComboBox *cbox = GTK_COMBO_BOX (widget);
-    VendorWindow *vw = data;
+    (void)pspec;
+        VendorWindow *vw = data;
 
     if (!vw) return;
-    if (!cbox) return;
+    if (!dropdown) return;
 
-    vw->taxtable = gnc_simple_combo_get_value (cbox);
+    vw->taxtable = gnc_simple_dropdown_get_value (dropdown);
 }
 
 static void
@@ -399,9 +399,6 @@ gnc_vendor_new_window (GtkWindow *parent, QofBook *bookp, GncVendor *vendor)
     /* Find the dialog */
     builder = gtk_builder_new();
     gtk_builder_set_current_object (builder, G_OBJECT(vw));
-    gnc_builder_add_from_file (builder, "dialog-vendor.glade", "terms_store");
-    gnc_builder_add_from_file (builder, "dialog-vendor.glade", "tax_included_store");
-    gnc_builder_add_from_file (builder, "dialog-vendor.glade", "taxtable_store");
     gnc_builder_add_from_file (builder, "dialog-vendor.glade", "vendor_dialog");
     vw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "vendor_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(vw->dialog), parent);
@@ -504,11 +501,11 @@ gnc_vendor_new_window (GtkWindow *parent, QofBook *bookp, GncVendor *vendor)
     /* I know that vendor exists here -- either passed in or just created */
 
     vw->taxincluded = gncVendorGetTaxIncluded (vendor);
-    gnc_taxincluded_combo (GTK_COMBO_BOX(vw->taxincluded_menu), vw->taxincluded);
-    gnc_billterms_combo (GTK_COMBO_BOX(vw->terms_menu), bookp, TRUE, vw->terms);
+    gnc_taxincluded_dropdown (GTK_DROP_DOWN(vw->taxincluded_menu), vw->taxincluded);
+    gnc_billterms_dropdown (GTK_DROP_DOWN(vw->terms_menu), bookp, TRUE, vw->terms);
 
     vw->taxtable = gncVendorGetTaxTable (vendor);
-    gnc_taxtables_combo (GTK_COMBO_BOX(vw->taxtable_menu), bookp, TRUE, vw->taxtable);
+    gnc_taxtables_dropdown (GTK_DROP_DOWN(vw->taxtable_menu), bookp, TRUE, vw->taxtable);
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vw->taxtable_check),
                                   gncVendorGetTaxTableOverride (vendor));
     gnc_vendor_taxtable_check_cb (GTK_TOGGLE_BUTTON (vw->taxtable_check), vw);

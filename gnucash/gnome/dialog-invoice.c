@@ -97,7 +97,7 @@ void gnc_invoice_window_cancel_cb (GtkWidget *widget, gpointer data);
 void gnc_invoice_window_help_cb (GtkWidget *widget, gpointer data);
 void gnc_invoice_type_toggled_cb (GtkWidget *widget, gpointer data);
 void gnc_invoice_id_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_invoice_terms_changed_cb (GtkWidget *widget, gpointer data);
+void gnc_invoice_terms_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
 
 #define ENUM_INVOICE_TYPE(_) \
   _(NEW_INVOICE, )  \
@@ -2536,7 +2536,7 @@ gnc_invoice_owner_changed_cb (GtkWidget *widget, gpointer data)
 
     /* XXX: I'm not sure -- should we change the terms if this happens? */
     iw->terms = term;
-    gnc_simple_combo_set_value (GTK_COMBO_BOX(iw->terms_menu), iw->terms);
+    gnc_simple_dropdown_set_value (GTK_DROP_DOWN(iw->terms_menu), iw->terms);
 
     gnc_invoice_update_job_choice (iw);
 
@@ -2848,7 +2848,7 @@ gnc_invoice_update_window (InvoiceWindow *iw, GtkWidget *widget)
             case NEW_INVOICE:
             case MOD_INVOICE:
             case DUP_INVOICE: //??
-                gnc_simple_combo_set_value (GTK_COMBO_BOX(iw->terms_menu), iw->terms);
+                gnc_simple_dropdown_set_value (GTK_DROP_DOWN(iw->terms_menu), iw->terms);
                 break;
 
             case EDIT_INVOICE:
@@ -3125,15 +3125,15 @@ gnc_invoice_id_changed_cb (GtkWidget *unused, gpointer data)
 }
 
 void
-gnc_invoice_terms_changed_cb (GtkWidget *widget, gpointer data)
+gnc_invoice_terms_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data)
 {
-    GtkComboBox *cbox = GTK_COMBO_BOX (widget);
+    (void)pspec;
     InvoiceWindow *iw = data;
 
     if (!iw) return;
-    if (!cbox) return;
+    if (!dropdown) return;
 
-    iw->terms = gnc_simple_combo_get_value (cbox);
+    iw->terms = gnc_simple_dropdown_get_value (dropdown);
 }
 
 
@@ -3372,8 +3372,7 @@ gnc_invoice_create_page (InvoiceWindow *iw, gpointer page)
     /* Find the dialog */
     iw->builder = builder = gtk_builder_new();
     gtk_builder_set_current_object (builder, G_OBJECT(iw));
-    gnc_builder_add_from_file (builder, "dialog-invoice.glade", "terms_store");
-    gnc_builder_add_from_file (builder, "dialog-invoice.glade", "invoice_entry_vbox");
+gnc_builder_add_from_file (builder, "dialog-invoice.glade", "invoice_entry_vbox");
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "invoice_entry_vbox"));
 
     /* Autoconnect all the signals */
@@ -3721,8 +3720,7 @@ gnc_invoice_window_new_invoice (GtkWindow *parent, InvoiceDialogType dialog_type
     /* Find the glade page layout */
     iw->builder = builder = gtk_builder_new();
     gtk_builder_set_current_object (builder, G_OBJECT(iw));
-    gnc_builder_add_from_file (builder, "dialog-invoice.glade", "terms_store");
-    gnc_builder_add_from_file (builder, "dialog-invoice.glade", "new_invoice_dialog");
+gnc_builder_add_from_file (builder, "dialog-invoice.glade", "new_invoice_dialog");
     iw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "new_invoice_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(iw->dialog), parent);
 
@@ -3844,7 +3842,7 @@ gnc_invoice_window_new_invoice (GtkWindow *parent, InvoiceDialogType dialog_type
         case NEW_INVOICE:
         case MOD_INVOICE:
         case DUP_INVOICE:
-            gnc_billterms_combo (GTK_COMBO_BOX(iw->terms_menu), iw->book, TRUE, iw->terms);
+            gnc_billterms_dropdown (GTK_DROP_DOWN(iw->terms_menu), iw->book, TRUE, iw->terms);
             break;
         case EDIT_INVOICE:
         case VIEW_INVOICE:

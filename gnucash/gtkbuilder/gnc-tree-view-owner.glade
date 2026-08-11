@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="filter_by_dialog">
+  <object class="GtkWindow" id="filter_by_dialog">
 <property name="title" translatable="1">Filter By…</property>
-<signal name="response" handler="gppot_filter_response_cb" swapped="no" />
-    <child internal-child="content_area">
-      <object class="GtkBox" id="dialog-vbox13">
+    <child>
+      <object class="GtkBox" id="owner_filter_window_root">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="GtkBox" id="dialog-vbox13">
         <property name="orientation">vertical</property>
         <property name="spacing">6</property>
         <child>
@@ -30,15 +32,12 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton1</action-widget>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+        <child>
       <object class="GtkBox" id="dialog-action_area13">
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancelbutton1">
+            <signal name="clicked" handler="gppot_filter_cancel_cb" swapped="no" />
             <property name="label" translatable="1">_Cancel</property>
             <property name="focusable">1</property>
 <property name="use-underline">1</property>
@@ -47,11 +46,14 @@
         </child>
         <child>
           <object class="GtkButton" id="okbutton1">
+            <signal name="clicked" handler="gppot_filter_apply_cb" swapped="no" />
             <property name="label" translatable="1">_OK</property>
             <property name="focusable">1</property>
 <property name="use-underline">1</property>
           </object>
 
+        </child>
+      </object>
         </child>
       </object>
     </child>

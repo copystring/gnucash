@@ -65,9 +65,9 @@ void gnc_customer_window_cancel_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_window_help_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_window_destroy_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_name_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_customer_terms_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_customer_taxincluded_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_customer_taxtable_changed_cb (GtkWidget *widget, gpointer data);
+void gnc_customer_terms_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
+void gnc_customer_taxincluded_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
+void gnc_customer_taxtable_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
 void gnc_customer_addr2_insert_cb(GtkEditable *editable,
                                   gchar *new_text, gint new_text_length,
                                   gint *position, gpointer user_data);
@@ -425,39 +425,39 @@ gnc_customer_name_changed_cb (GtkWidget *widget, gpointer data)
 }
 
 void
-gnc_customer_terms_changed_cb (GtkWidget *widget, gpointer data)
+gnc_customer_terms_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data)
 {
-    GtkComboBox *cbox = GTK_COMBO_BOX (widget);
-    CustomerWindow *cw = data;
+    (void)pspec;
+        CustomerWindow *cw = data;
 
     if (!cw) return;
-    if (!cbox) return;
+    if (!dropdown) return;
 
-    cw->terms = gnc_simple_combo_get_value (cbox);
+    cw->terms = gnc_simple_dropdown_get_value (dropdown);
 }
 
 void
-gnc_customer_taxincluded_changed_cb (GtkWidget *widget, gpointer data)
+gnc_customer_taxincluded_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data)
 {
-    GtkComboBox *cbox = GTK_COMBO_BOX (widget);
-    CustomerWindow *cw = data;
+    (void)pspec;
+        CustomerWindow *cw = data;
 
     if (!cw) return;
-    if (!cbox) return;
+    if (!dropdown) return;
 
-    cw->taxincluded = GPOINTER_TO_INT (gnc_simple_combo_get_value (cbox));
+    cw->taxincluded = GPOINTER_TO_INT (gnc_simple_dropdown_get_value (dropdown));
 }
 
 void
-gnc_customer_taxtable_changed_cb (GtkWidget *widget, gpointer data)
+gnc_customer_taxtable_changed_cb (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data)
 {
-    GtkComboBox *cbox = GTK_COMBO_BOX (widget);
-    CustomerWindow *cw = data;
+    (void)pspec;
+        CustomerWindow *cw = data;
 
     if (!cw) return;
-    if (!cbox) return;
+    if (!dropdown) return;
 
-    cw->taxtable = gnc_simple_combo_get_value (cbox);
+    cw->taxtable = gnc_simple_dropdown_get_value (dropdown);
 }
 
 static void
@@ -549,9 +549,6 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
     /* Find the dialog */
     builder = gtk_builder_new();
     gtk_builder_set_current_object (builder, G_OBJECT(cw));
-    gnc_builder_add_from_file (builder, "dialog-customer.glade", "terms_store");
-    gnc_builder_add_from_file (builder, "dialog-customer.glade", "tax_included_store");
-    gnc_builder_add_from_file (builder, "dialog-customer.glade", "taxtable_store");
     gnc_builder_add_from_file (builder, "dialog-customer.glade", "customer_dialog");
     cw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "customer_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(cw->dialog), parent);
@@ -715,11 +712,11 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
     /* I know that cust exists here -- either passed in or just created */
 
     cw->taxincluded = gncCustomerGetTaxIncluded (cust);
-    gnc_taxincluded_combo (GTK_COMBO_BOX(cw->taxincluded_menu), cw->taxincluded);
-    gnc_billterms_combo (GTK_COMBO_BOX(cw->terms_menu), bookp, TRUE, cw->terms);
+    gnc_taxincluded_dropdown (GTK_DROP_DOWN(cw->taxincluded_menu), cw->taxincluded);
+    gnc_billterms_dropdown (GTK_DROP_DOWN(cw->terms_menu), bookp, TRUE, cw->terms);
 
     cw->taxtable = gncCustomerGetTaxTable (cust);
-    gnc_taxtables_combo (GTK_COMBO_BOX(cw->taxtable_menu), bookp, TRUE, cw->taxtable);
+    gnc_taxtables_dropdown (GTK_DROP_DOWN(cw->taxtable_menu), bookp, TRUE, cw->taxtable);
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (cw->taxtable_check),
                                   gncCustomerGetTaxTableOverride (cust));
     gnc_customer_taxtable_check_cb (GTK_TOGGLE_BUTTON (cw->taxtable_check), cw);

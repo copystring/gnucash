@@ -1,29 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkListStore" id="liststore_print_invoice">
-    <columns>
-      <column type="gchararray" />
-      <column type="gchararray" />
-      <column type="gboolean" />
-    </columns>
-  </object>
-  <object class="GtkListStore" id="taxtable_store">
-    <columns>
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
-  <object class="GtkWindow" id="dummy_toplevel_window">
+<object class="GtkWindow" id="dummy_toplevel_window">
     <property name="child">
-      <object class="GtkComboBox" id="taxtable_menu">
-        <property name="model">taxtable_store</property>
-        <child>
-          <object class="GtkCellRendererText" id="taxtable_cell_renderer_text" />
-          <attributes>
-            <attribute name="text">0</attribute>
-          </attributes>
-        </child>
+      <object class="GtkDropDown" id="taxtable_menu">
       </object>
     </property>
   </object>

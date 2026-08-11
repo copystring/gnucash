@@ -81,7 +81,7 @@ enum
 typedef struct GncPluginPageOwnerTreePrivate
 {
     GtkWidget   *widget;
-    GtkTreeView *tree_view;
+    GncTreeViewOwner *tree_view;
     gint         component_id;
     GncOwnerType owner_type;
     OwnerFilterDialog fd;
@@ -112,20 +112,17 @@ static gboolean gnc_plugin_page_owner_tree_button_press_cb (GtkGestureClick *ges
                                                             double y,
                                                             gpointer user_data);
 
-static void gnc_plugin_page_owner_tree_double_click_cb (GtkTreeView *treeview,
-                                                        GtkTreePath *path,
-                                                        GtkTreeViewColumn  *col,
+static void gnc_plugin_page_owner_tree_double_click_cb (GtkGestureClick *gesture,
+                                                        int n_press, double x, double y,
                                                         GncPluginPageOwnerTree *page);
 
-static void gnc_plugin_page_owner_tree_selection_changed_cb (GtkTreeSelection *selection,
+static void gnc_plugin_page_owner_tree_selection_changed_cb (GObject *selection,
+                                                             GParamSpec *pspec,
                                                              GncPluginPageOwnerTree *page);
 
 /* Command callbacks */
 static void gnc_plugin_page_owner_tree_cmd_new_owner (GSimpleAction *simple, GVariant *parameter, gpointer user_data);
 static void gnc_plugin_page_owner_tree_cmd_edit_owner (GSimpleAction *simple, GVariant *parameter, gpointer user_data);
-#if 0 /* Disabled due to crash */
-static void gnc_plugin_page_owner_tree_cmd_delete_owner (GSimpleAction *simple, GVariant *parameter, gpointer user_data);
-#endif
 static void gnc_plugin_page_owner_tree_cmd_view_filter_by (GSimpleAction *simple, GVariant *parameter, gpointer user_data);
 static void gnc_plugin_page_owner_tree_cmd_refresh (GSimpleAction *simple, GVariant *parameter, gpointer user_data);
 static void gnc_plugin_page_owner_tree_cmd_new_invoice (GSimpleAction *simple, GVariant *parameter, gpointer user_data);
@@ -147,9 +144,6 @@ static GActionEntry gnc_plugin_page_owner_tree_actions [] =
     { "OTNewCustomerAction", gnc_plugin_page_owner_tree_cmd_new_owner, NULL, NULL, NULL },
     { "OTNewEmployeeAction", gnc_plugin_page_owner_tree_cmd_new_owner, NULL, NULL, NULL },
 
-#if 0 /* Disabled due to crash */
-    { "EditDeleteOwnerAction", gnc_plugin_page_owner_tree_cmd_delete_owner, NULL, NULL, NULL },
-#endif /* Disabled due to crash */
 
     { "ViewFilterByAction", gnc_plugin_page_owner_tree_cmd_view_filter_by, NULL, NULL, NULL },
     { "ViewRefreshAction", gnc_plugin_page_owner_tree_cmd_refresh, NULL, NULL, NULL },
@@ -291,7 +285,7 @@ gnc_plugin_page_owner_focus_widget (GncPluginPage *owner_plugin_page)
     if (GNC_IS_PLUGIN_PAGE_OWNER_TREE(owner_plugin_page))
     {
         GncPluginPageOwnerTreePrivate *priv = GNC_PLUGIN_PAGE_OWNER_TREE_GET_PRIVATE(owner_plugin_page);
-        GtkTreeView *tree_view = priv->tree_view;
+        GncTreeViewOwner *tree_view = priv->tree_view;
 
         /* Disable the Transaction Menu */
         GAction *action = gnc_main_window_find_action (GNC_MAIN_WINDOW(owner_plugin_page->window), "TransactionAction");
@@ -312,7 +306,7 @@ gnc_plugin_page_owner_focus_widget (GncPluginPage *owner_plugin_page)
          // setup any short toolbar names
         gnc_main_window_init_short_names (GNC_MAIN_WINDOW(owner_plugin_page->window), toolbar_labels);
 
-        if (GTK_IS_TREE_VIEW(tree_view))
+        if (GNC_IS_TREE_VIEW_OWNER(tree_view))
         {
             if (!gtk_widget_is_focus (GTK_WIDGET(tree_view)))
                 gtk_widget_grab_focus (GTK_WIDGET(tree_view));
@@ -501,11 +495,10 @@ gnc_plugin_page_owner_tree_create_widget (GncPluginPage *plugin_page)
 {
     GncPluginPageOwnerTree *page;
     GncPluginPageOwnerTreePrivate *priv;
-    GtkTreeSelection *selection;
-    GtkTreeView *tree_view;
+    GtkSelectionModel *selection;
+    GncTreeViewOwner *tree_view;
     GtkWidget *scrolled_window;
-    GtkTreeViewColumn *col;
-    const gchar *state_section = NULL;
+const gchar *state_section = NULL;
     const gchar* label = "";
     const gchar *style_label = NULL;
 
@@ -531,22 +524,8 @@ gnc_plugin_page_owner_tree_create_widget (GncPluginPage *plugin_page)
     gtk_widget_set_visible (GTK_WIDGET(scrolled_window), true);
     gtk_box_append (GTK_BOX(priv->widget), GTK_WIDGET(scrolled_window));
 
-    tree_view = gnc_tree_view_owner_new(priv->owner_type);
+    tree_view = GNC_TREE_VIEW_OWNER (gnc_tree_view_owner_new (priv->owner_type));
 
-    /* Show default columns */
-    col = gnc_tree_view_find_column_by_name(
-              GNC_TREE_VIEW(tree_view), GNC_OWNER_TREE_ID_COL);
-    g_object_set_data(G_OBJECT(col), DEFAULT_VISIBLE, GINT_TO_POINTER(1));
-    col = gnc_tree_view_find_column_by_name(
-              GNC_TREE_VIEW(tree_view), GNC_OWNER_TREE_ADDRESS_1_COL);
-    g_object_set_data(G_OBJECT(col), DEFAULT_VISIBLE, GINT_TO_POINTER(1));
-    col = gnc_tree_view_find_column_by_name(
-              GNC_TREE_VIEW(tree_view), GNC_OWNER_TREE_ADDRESS_2_COL);
-    g_object_set_data(G_OBJECT(col), DEFAULT_VISIBLE, GINT_TO_POINTER(1));
-    col = gnc_tree_view_find_column_by_name(
-              GNC_TREE_VIEW(tree_view), GNC_OWNER_TREE_PHONE_COL);
-    g_object_set_data(G_OBJECT(col), DEFAULT_VISIBLE, GINT_TO_POINTER(1));
-    gnc_tree_view_configure_columns(GNC_TREE_VIEW(tree_view));
 
     switch (priv->owner_type)
     {
@@ -581,15 +560,12 @@ gnc_plugin_page_owner_tree_create_widget (GncPluginPage *plugin_page)
     // Set a secondary style context for this page so it can be easily manipulated with css
     gnc_widget_style_context_add_class (GTK_WIDGET(priv->widget), style_label);
 
-    g_object_set(G_OBJECT(tree_view), "state-section", state_section,
-                                      "show-column-menu", TRUE,
-                                      NULL);
 
     g_object_set(G_OBJECT(plugin_page), "page-name", label, NULL);
 
     priv->tree_view = tree_view;
-    selection = gtk_tree_view_get_selection(tree_view);
-    g_signal_connect (G_OBJECT (selection), "changed",
+    selection = gnc_tree_view_owner_get_selection_model (tree_view);
+    g_signal_connect (selection, "notify::selected",
                       G_CALLBACK (gnc_plugin_page_owner_tree_selection_changed_cb), page);
 
     GtkGesture *event_gesture = gtk_gesture_click_new ();
@@ -598,11 +574,13 @@ gnc_plugin_page_owner_tree_create_widget (GncPluginPage *plugin_page)
     g_signal_connect (G_OBJECT(event_gesture), "pressed",
                       G_CALLBACK(gnc_plugin_page_owner_tree_button_press_cb), page);
 
-    g_signal_connect (G_OBJECT (tree_view), "row-activated",
+    GtkGesture *double_click = gtk_gesture_click_new ();
+    gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (double_click), GDK_BUTTON_PRIMARY);
+    gtk_widget_add_controller (GTK_WIDGET (tree_view), GTK_EVENT_CONTROLLER (double_click));
+    g_signal_connect (double_click, "pressed",
                       G_CALLBACK (gnc_plugin_page_owner_tree_double_click_cb), page);
 
-    gtk_tree_view_set_headers_visible(tree_view, TRUE);
-    gnc_plugin_page_owner_tree_selection_changed_cb (NULL, page);
+    gnc_plugin_page_owner_tree_selection_changed_cb (G_OBJECT (selection), NULL, page);
     gtk_widget_set_visible (GTK_WIDGET(tree_view), true);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(scrolled_window),
                                    GTK_WIDGET(tree_view));
@@ -821,37 +799,34 @@ gnc_plugin_page_owner_tree_button_press_cb  (GtkGestureClick *gesture,
 }
 
 static void
-gnc_plugin_page_owner_tree_double_click_cb (GtkTreeView *treeview,
-                                            GtkTreePath *path,
-                                            GtkTreeViewColumn *col,
+gnc_plugin_page_owner_tree_double_click_cb (GtkGestureClick *gesture,
+                                            int n_press, double x, double y,
                                             GncPluginPageOwnerTree *page)
 {
-    gnc_plugin_page_owner_tree_cmd_owner_report (NULL, NULL, (gpointer*)page);
+    (void)gesture;
+    (void)x;
+    (void)y;
+    if (n_press == 2)
+        gnc_plugin_page_owner_tree_cmd_owner_report (NULL, NULL, (gpointer*)page);
 }
 
 static void
-gnc_plugin_page_owner_tree_selection_changed_cb (GtkTreeSelection *selection,
+gnc_plugin_page_owner_tree_selection_changed_cb (GObject *selection,
+                                                 GParamSpec *pspec,
                                                  GncPluginPageOwnerTree *page)
 {
     GSimpleActionGroup *simple_action_group;
-    GtkTreeView *view;
-    GncOwner *owner = NULL;
+    GncPluginPageOwnerTreePrivate *priv;
+    GncOwner *owner;
     gboolean sensitive;
     gboolean is_readwrite = !qof_book_is_readonly(gnc_get_current_book());
 
+    (void)selection;
+    (void)pspec;
     g_return_if_fail(GNC_IS_PLUGIN_PAGE_OWNER_TREE(page));
-
-    if (!selection)
-    {
-        sensitive = FALSE;
-    }
-    else
-    {
-        g_return_if_fail(GTK_IS_TREE_SELECTION(selection));
-        view = gtk_tree_selection_get_tree_view (selection);
-        owner = gnc_tree_view_owner_get_selected_owner (GNC_TREE_VIEW_OWNER(view));
-        sensitive = (owner != NULL);
-    }
+    priv = GNC_PLUGIN_PAGE_OWNER_TREE_GET_PRIVATE(page);
+    owner = priv->tree_view ? gnc_tree_view_owner_get_selected_owner(priv->tree_view) : NULL;
+    sensitive = (owner != NULL);
 
     simple_action_group = gnc_plugin_page_get_action_group (GNC_PLUGIN_PAGE(page));
     gnc_plugin_set_actions_enabled (G_ACTION_MAP(simple_action_group), actions_requiring_owner_always,
@@ -1060,77 +1035,6 @@ gnc_plugin_page_owner_tree_cmd_search_invoices (GSimpleAction *simple,
 }
 
 
-#if 0 /* Disabled due to crash */
-static void
-gnc_plugin_page_owner_tree_cmd_delete_owner (GSimpleAction *simple,
-                                             GVariant *parameter,
-                                             gpointer user_data)
-
-{
-    auto page = GNC_PLUGIN_PAGE_OWNER_TREE (user_data);
-    GncOwner *owner = gnc_plugin_page_owner_tree_get_current_owner (page);
-    gchar *owner_name;
-    GtkWidget *window;
-    GtkWidget *dialog = NULL;
-    gint response;
-    GList* list;
-
-    if (NULL == owner) return;
-
-    /* If the owner has objects referring to it, show the list - the owner can't be deleted until these
-       references are dealt with. */
-    list = qof_instance_get_referring_object_list(QOF_INSTANCE(gncOwnerGetUndefined(owner)));
-    if (list != NULL)
-    {
-#define EXPLANATION "The list below shows objects which make use of the owner which you want to delete.\nBefore you can delete it, you must either delete those objects or else modify them so they make use\nof another owner"
-
-        gnc_ui_object_references_show( _(EXPLANATION), list);
-        g_list_free(list);
-        return;
-    }
-
-    window = gnc_plugin_page_get_window(GNC_PLUGIN_PAGE(page));
-    owner_name = g_strdup (gncOwnerGetName(owner));
-    if (!owner_name)
-    {
-        owner_name = g_strdup (_("(no name)"));
-    }
-
-    /*
-     * Present a message to the user which specifies what will be
-     * deleted, then ask for verification.
-     */
-    {
-        char *message = g_strdup_printf(_("The owner %s will be deleted.\nAre you sure you want to do this?"), owner_name);
-
-        dialog =  gtk_message_dialog_new(GTK_WINDOW(window),
-                                         GTK_DIALOG_DESTROY_WITH_PARENT,
-                                         GTK_MESSAGE_QUESTION,
-                                         GTK_BUTTONS_NONE,
-                                         "%s", message);
-        g_free(message);
-        gtk_dialog_add_buttons(GTK_DIALOG(dialog),
-                               _("_Cancel"), GTK_RESPONSE_CANCEL,
-                               _("_Delete"), GTK_RESPONSE_ACCEPT,
-                               (gchar *)NULL);
-        gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
-        response = gnc_dialog_run (GTK_DIALOG(dialog));
-
-        if (GTK_RESPONSE_ACCEPT == response)
-        {
-            /* FIXME The code below results in a crash.
-             *       The corresponding menu item/toolbar button is disabled until this is fixed. */
-            gnc_set_busy_cursor(NULL, TRUE);
-            gnc_suspend_gui_refresh ();
-            gncOwnerBeginEdit (owner);
-            gncOwnerDestroy (owner);
-            gnc_resume_gui_refresh ();
-            gnc_unset_busy_cursor(NULL);
-        }
-    }
-    g_free(owner_name);
-}
-#endif /* Disabled due to crash */
 
 /*********************/
 

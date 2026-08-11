@@ -1,29 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkListStore" id="tax_included_store">
-    <columns>
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
-  <object class="GtkListStore" id="taxtable_store">
-    <columns>
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
-  <object class="GtkListStore" id="terms_store">
-    <columns>
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
-  <object class="GtkDialog" id="customer_dialog">
+
+<object class="GtkWindow" id="customer_dialog">
     <property name="title" translatable="1">New Customer</property>
 <signal name="destroy" handler="gnc_customer_window_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
-      <object class="GtkBox" id="dialog-vbox1">
+    <child>
+      <object class="GtkBox" id="customer_window_root">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="GtkBox" id="dialog-vbox1">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
         <child>
@@ -403,16 +389,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="tax_included_menu">
+                              <object class="GtkDropDown" id="tax_included_menu">
                                 <property name="hexpand">1</property>
-                                <property name="model">tax_included_store</property>
-                                <signal name="changed" handler="gnc_customer_taxincluded_changed_cb" swapped="no" />
-                                <child>
-                                  <object class="GtkCellRendererText" id="taxincluded_cell_renderer_text" />
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
+                                <signal name="notify::selected" handler="gnc_customer_taxincluded_changed_cb" swapped="no" />
                                 <layout>
                                   <property name="column">1</property>
                                   <property name="row">4</property>
@@ -444,16 +423,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="terms_menu">
+                              <object class="GtkDropDown" id="terms_menu">
                                 <property name="hexpand">1</property>
-                                <property name="model">terms_store</property>
-                                <signal name="changed" handler="gnc_customer_terms_changed_cb" swapped="no" />
-                                <child>
-                                  <object class="GtkCellRendererText" id="terms_cell_renderer_text" />
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
+                                <signal name="notify::selected" handler="gnc_customer_terms_changed_cb" swapped="no" />
                                 <layout>
                                   <property name="column">1</property>
                                   <property name="row">1</property>
@@ -488,15 +460,8 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="taxtable_menu">
-                                <property name="model">taxtable_store</property>
-                                <signal name="changed" handler="gnc_customer_taxtable_changed_cb" swapped="no" />
-                                <child>
-                                  <object class="GtkCellRendererText" id="taxtable_cell_renderer_text" />
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
+                              <object class="GtkDropDown" id="taxtable_menu">
+                                <signal name="notify::selected" handler="gnc_customer_taxtable_changed_cb" swapped="no" />
                                 <layout>
                                   <property name="column">1</property>
                                   <property name="row">5</property>
@@ -722,12 +687,7 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-11">helpbutton</action-widget>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+        <child>
       <object class="GtkBox" id="dialog-action_area1">
         <property name="visible">True</property>
         <child>
@@ -756,6 +716,8 @@
             <signal name="clicked" handler="gnc_customer_window_ok_cb" swapped="no" />
           </object>
 
+        </child>
+      </object>
         </child>
       </object>
     </child>

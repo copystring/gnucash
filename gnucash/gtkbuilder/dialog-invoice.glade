@@ -486,13 +486,7 @@
       </object>
     </child>
   </object>
-  <object class="GtkListStore" id="terms_store">
-    <columns>
-      <column type="gchararray" />
-      <column type="gpointer" />
-    </columns>
-  </object>
-  <object class="GtkDialog" id="new_invoice_dialog">
+<object class="GtkDialog" id="new_invoice_dialog">
     <property name="title" translatable="1">New Invoice</property>
 <signal name="destroy" handler="gnc_invoice_window_destroy_cb" swapped="no" />
     <child internal-child="content_area">
@@ -714,16 +708,9 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="dialog_terms_menu">
+                      <object class="GtkDropDown" id="dialog_terms_menu">
                         <property name="hexpand">1</property>
-                        <property name="model">terms_store</property>
-                        <signal name="changed" handler="gnc_invoice_terms_changed_cb" swapped="no" />
-                        <child>
-                          <object class="GtkCellRendererText" id="dialog_cell_renderer_text" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
+                        <signal name="notify::selected" handler="gnc_invoice_terms_changed_cb" swapped="no" />
                         <layout>
                           <property name="column">1</property>
                           <property name="row">3</property>
