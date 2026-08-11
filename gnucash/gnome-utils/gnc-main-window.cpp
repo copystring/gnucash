@@ -5899,9 +5899,9 @@ add_textview_css_class (GtkTextView *textview)
 }
 
 static void
-add_about_paths (GtkDialog *dialog)
+add_about_paths (GtkAboutDialog *dialog)
 {
-    GtkWidget *page_vbox = gnc_get_dialog_widget_from_id (dialog, "page_vbox");
+    GtkWidget *page_vbox = gnc_get_widget_from_id (GTK_WIDGET (dialog), "page_vbox");
 
     if (!page_vbox)
     {
@@ -6017,7 +6017,7 @@ gnc_main_window_cmd_help_about (GSimpleAction *simple,
                                       gnc_quote_source_fq_version ()
                                       ? gnc_quote_source_fq_version ()
                                       : "-");
-    GtkDialog *dialog = GTK_DIALOG (gtk_about_dialog_new ());
+    GtkAboutDialog *dialog = GTK_ABOUT_DIALOG (gtk_about_dialog_new ());
     g_object_set(G_OBJECT(dialog), "authors", authors, "documenters",
                  documenters, "comments",
                  _("Accounting for personal and small business finance."),

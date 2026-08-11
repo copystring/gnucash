@@ -69,7 +69,7 @@ void gnc_style_context_get_background_color (GtkStyleContext *context,
 void gnc_style_context_get_border_color (GtkStyleContext *context,
                                          GdkRGBA         *color);
 
-GtkWidget *gnc_get_dialog_widget_from_id (GtkDialog *dialog, const gchar *id);
+GtkWidget *gnc_get_widget_from_id (GtkWidget *root, const gchar *id);
 
 void gnc_disable_all_actions_in_group (GSimpleActionGroup *action_group);
 

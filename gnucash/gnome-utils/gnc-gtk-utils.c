@@ -168,7 +168,12 @@ gnc_style_context_get_border_color (GtkStyleContext *context,
 static gpointer
 find_widget_func (GtkWidget *widget, const gchar *id)
 {
-    const gchar *name = gtk_buildable_get_buildable_id (GTK_BUILDABLE(widget));
+    const gchar *name;
+
+    if (!widget)
+        return NULL;
+
+    name = gtk_buildable_get_buildable_id (GTK_BUILDABLE(widget));
     GtkWidget *ret = NULL;
 
     if (g_strcmp0 (name, id) == 0)
@@ -186,19 +191,19 @@ find_widget_func (GtkWidget *widget, const gchar *id)
     return ret;
 }
 
-/** Find the Widget defined by 'id' in the dialog
+/** Find the Widget defined by id below a widget root.
  *
- *  @param dialog The dialog to search for 'id'.
- *
- *  @param id The widget name to find in the dialog.
- *
- *  @returns The widget defined by id in the dialog or NULL.
+ *  @param root The root widget to search.
+ *  @param id The GTK Builder ID to find.
+ *  @returns The widget defined by id or NULL.
  */
 GtkWidget *
-gnc_get_dialog_widget_from_id (GtkDialog *dialog, const gchar *id)
+gnc_get_widget_from_id (GtkWidget *root, const gchar *id)
 {
-    GtkWidget *first_child = gtk_widget_get_first_child (GTK_WIDGET(dialog));
-    return find_widget_func (first_child, id);
+    g_return_val_if_fail (GTK_IS_WIDGET (root), NULL);
+    g_return_val_if_fail (id != NULL, NULL);
+
+    return find_widget_func (root, id);
 }
 
 
