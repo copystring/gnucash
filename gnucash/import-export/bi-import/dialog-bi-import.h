@@ -74,10 +74,30 @@ gnc_bi_import_read_file (const gchar *filename, const gchar *parser_regexp, GLis
 void
 gnc_bi_import_fix_bis (GListStore *store, guint *fixed, guint *deleted, GString *info, gchar *type);
 
+/** Completion for gnc_bi_import_create_bis_async.
+ * @param completed TRUE when the import ran; FALSE after cancellation, destroyed
+ *                  parent, or an invalid/shutting-down book.
+ * @param info Borrowed processing details, valid only for the callback.
+ */
+typedef void (*GncBiImportCreateCallback) (gboolean completed,
+                                           guint n_invoices_created,
+                                           guint n_invoices_updated,
+                                           guint n_rows_ignored,
+                                           const gchar *info,
+                                           gpointer user_data);
+
+/**
+ * Continue validated import rows without a nested event loop. Ownership of
+ * @a info transfers to the request. @a parent protects the pending decision;
+ * @a open_parent remains the owner of any invoice tabs opened after import.
+ */
 void
-gnc_bi_import_create_bis (GListStore *store, QofBook *book, guint *n_invoices_created,
-                          guint *n_invoices_updated, guint *n_rows_ignored,	gchar *type, gchar *open_mode, GString * info,
-                          GtkWindow *parent);
+gnc_bi_import_create_bis_async (GListStore *store, QofBook *book,
+                                const gchar *type, const gchar *open_mode,
+                                guint n_rows_ignored, GString *info,
+                                GtkWindow *parent, GtkWindow *open_parent,
+                                GncBiImportCreateCallback completed,
+                                gpointer user_data);
 
 
 G_END_DECLS

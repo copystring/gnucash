@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="bi_import_dialog">
+  <object class="GtkWindow" id="bi_import_dialog">
     <property name="title" translatable="1">Import transactions from text file</property>
-<signal name="destroy" handler="gnc_bi_import_gui_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
-      <object class="GtkBox" id="dialog-vbox3">
+    <signal name="destroy" handler="gnc_bi_import_gui_destroy_cb" swapped="no" />
+    <child>
+      <object class="GtkBox" id="bi_import_root">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="GtkBox" id="dialog-vbox3">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
         <child>
@@ -227,16 +230,17 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-11">helpbutton</action-widget>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area3">
-        <property name="visible">True</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="dialog-action_area3">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <property name="margin-start">12</property>
+            <property name="margin-end">12</property>
+            <property name="margin-top">8</property>
+            <property name="margin-bottom">12</property>
         <child>
           <object class="GtkButton" id="helpbutton">
             <property name="label" translatable="1">_Help</property>
@@ -263,6 +267,8 @@
             <signal name="clicked" handler="gnc_bi_import_gui_ok_cb" swapped="no" />
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>

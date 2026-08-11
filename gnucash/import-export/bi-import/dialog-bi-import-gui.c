@@ -50,8 +50,10 @@ struct _bi_import_gui
     GtkWidget    *dialog;
     GtkColumnView *preview_view;
     GtkWidget    *entryFilename;
+    GtkWidget    *ok_button;
     GListStore   *store;
     gint          component_id;
+    gboolean      import_pending;
     GString      *regexp;
     QofBook      *book;
     gchar        *type;
@@ -68,6 +70,79 @@ bi_import_file_dialog_data_free (BiImportFileDialogData *data)
 {
     g_weak_ref_clear (&data->dialog);
     g_free (data);
+}
+
+typedef struct
+{
+    GWeakRef dialog;
+    QofBook *book;
+    gint n_input_ignored;
+    gint n_input_imported;
+    guint n_fixed;
+    GString *ignored_lines;
+} BiImportRunRequest;
+
+static BiImportRunRequest *
+bi_import_run_request_new (BillImportGui *gui, bi_import_stats *stats,
+                           guint n_fixed)
+{
+    BiImportRunRequest *request = g_new0 (BiImportRunRequest, 1);
+
+    g_weak_ref_init (&request->dialog, gui->dialog);
+    request->book = gui->book;
+    request->n_input_ignored = stats->n_ignored;
+    request->n_input_imported = stats->n_imported;
+    request->n_fixed = n_fixed;
+    request->ignored_lines = g_steal_pointer (&stats->ignored_lines);
+    return request;
+}
+
+static void
+bi_import_run_request_free (BiImportRunRequest *request)
+{
+    g_weak_ref_clear (&request->dialog);
+    if (request->ignored_lines)
+        g_string_free (request->ignored_lines, TRUE);
+    g_free (request);
+}
+
+static void
+bi_import_run_finished (gboolean completed, guint n_invoices_created,
+                        guint n_invoices_updated, guint n_rows_ignored,
+                        const gchar *info, gpointer user_data)
+{
+    BiImportRunRequest *request = user_data;
+    GtkWidget *dialog = g_weak_ref_get (&request->dialog);
+    BillImportGui *gui = NULL;
+
+    if (dialog)
+        gui = g_object_get_data (G_OBJECT (dialog), "gnc-bi-import-gui");
+    if (gui)
+    {
+        gui->import_pending = FALSE;
+        gtk_widget_set_sensitive (gui->ok_button, TRUE);
+    }
+
+    if (completed && gui && gui->book == request->book &&
+        request->book == gnc_get_current_book () &&
+        !qof_book_shutting_down (request->book))
+    {
+        if (info && *info)
+            gnc_info_dialog (GTK_WINDOW (gui->dialog), "%s", info);
+        gnc_info_dialog (GTK_WINDOW (gui->dialog),
+                         _("Import:\n- rows ignored: %i\n- rows imported: %i\n\nValidation & processing:\n- rows fixed: %u\n- rows ignored: %u\n- invoices created: %u\n- invoices updated: %u"),
+                         request->n_input_ignored, request->n_input_imported,
+                         request->n_fixed, n_rows_ignored,
+                         n_invoices_created, n_invoices_updated);
+        if (request->n_input_ignored > 0 && request->ignored_lines)
+            gnc_info2_dialog (gui->dialog,
+                              _("These lines were ignored during import"),
+                              request->ignored_lines->str);
+        gnc_close_gui_component (gui->component_id);
+    }
+
+    g_clear_object (&dialog);
+    bi_import_run_request_free (request);
 }
 
 void gnc_bi_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer data);
@@ -213,6 +288,7 @@ gnc_plugin_bi_import_showGUI (GtkWindow *parent)
     gtk_window_set_transient_for(GTK_WINDOW(gui->dialog), GTK_WINDOW(parent));
     gui->parent = parent;
     gui->entryFilename = GTK_WIDGET(gtk_builder_get_object (builder, "entryFilename"));
+    gui->ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton"));
     preview_scrolledwindow = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder,
                                                    "scrolledwindow2"));
 
@@ -325,41 +401,46 @@ void
 gnc_bi_import_gui_ok_cb (GtkWidget *widget, gpointer data)
 {
     BillImportGui *gui = data;
-    gchar *filename = g_strdup( gnc_entry_get_text( GTK_ENTRY(gui->entryFilename) ) );
+    gchar *filename;
     bi_import_stats stats;
     bi_import_result res;
-    guint n_fixed, n_deleted, n_invoices_created, n_invoices_updated;
+    guint n_fixed;
+    guint n_deleted;
     GString *info;
+    BiImportRunRequest *request;
 
-    // import
-    info = g_string_new("");
+    (void)widget;
+    if (gui->import_pending)
+        return;
+    if (gui->book != gnc_get_current_book () || qof_book_shutting_down (gui->book))
+        return;
 
+    filename = g_strdup (gnc_entry_get_text (GTK_ENTRY (gui->entryFilename)));
     g_list_store_remove_all (gui->store);
     res = gnc_bi_import_read_file (filename, gui->regexp->str, gui->store, 0, &stats);
     if (res == RESULT_OK)
     {
+        info = g_string_new ("");
         gnc_bi_import_fix_bis (gui->store, &n_fixed, &n_deleted, info, gui->type);
-        gnc_bi_import_create_bis (gui->store, gui->book, &n_invoices_created, &n_invoices_updated, &n_deleted,
-                                  gui->type, gui->open_mode, info, gui->parent);
-        if (info->len > 0)
-            gnc_info_dialog (GTK_WINDOW (gui->dialog), "%s", info->str);
-        g_string_free( info, TRUE );
-        gnc_info_dialog (GTK_WINDOW (gui->dialog), _("Import:\n- rows ignored: %i\n- rows imported: %i\n\nValidation & processing:\n- rows fixed: %u\n- rows ignored: %u\n- invoices created: %u\n- invoices updated: %u"),
-                         stats.n_ignored, stats.n_imported, n_fixed, n_deleted, n_invoices_created, n_invoices_updated);
-        if (stats.n_ignored > 0)
-            gnc_info2_dialog (gui->dialog, _("These lines were ignored during import"), stats.ignored_lines->str);
+        request = bi_import_run_request_new (gui, &stats, n_fixed);
+        gui->import_pending = TRUE;
+        gtk_widget_set_sensitive (gui->ok_button, FALSE);
+        gnc_bi_import_create_bis_async (gui->store, gui->book, gui->type,
+                                        gui->open_mode, n_deleted, info,
+                                        GTK_WINDOW (gui->dialog), gui->parent,
+                                        bi_import_run_finished, request);
+    }
+    else if (res == RESULT_OPEN_FAILED)
+    {
+        gnc_error_dialog (GTK_WINDOW (gui->dialog),
+                          _("The input file can not be opened."));
+    }
+    else if (res == RESULT_ERROR_IN_REGEXP)
+    {
+        /* gnc_bi_import_read_file already reports the expression error. */
+    }
 
-        g_string_free (stats.ignored_lines, TRUE);
-        gnc_close_gui_component (gui->component_id);
-    }
-    else if (res ==  RESULT_OPEN_FAILED)
-    {
-        gnc_error_dialog (GTK_WINDOW (gui->dialog), _("The input file can not be opened."));
-    }
-    else if (res ==  RESULT_ERROR_IN_REGEXP)
-    {
-        //gnc_error_dialog (GTK_WINDOW (gui->dialog), "The regular expression is faulty:\n\n%s", stats.err->str);
-    }
+    g_free (filename);
 }
 
 void

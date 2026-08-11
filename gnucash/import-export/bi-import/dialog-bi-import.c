@@ -40,8 +40,6 @@
 #include "gnc-date.h"
 #include "gnc-ui.h"
 #include "gnc-ui-util.h"
-#include "dialog-utils.h"
-#include "gnc-gui-query.h"
 #include "gncAddress.h"
 #include "gncVendorP.h"
 #include "gncVendor.h"
@@ -576,13 +574,14 @@ gnc_bi_import_fix_bis (GListStore *store, guint *n_rows_fixed,
 
  */
 
-void
-gnc_bi_import_create_bis (GListStore * store, QofBook * book,
-                          guint * n_invoices_created,
-                          guint * n_invoices_updated,
-                          guint * n_rows_ignored,
-                          gchar * type, gchar * open_mode, GString * info,
-                          GtkWindow *parent)
+static void
+bi_import_create_bis_process (GListStore *store, QofBook *book,
+                              guint *n_invoices_created,
+                              guint *n_invoices_updated,
+                              guint *n_rows_ignored,
+                              const gchar *type, const gchar *open_mode,
+                              GString *info, GtkWindow *parent,
+                              gboolean update_existing)
 {
     gboolean valid, on_first_row_of_invoice, invoice_posted;
     guint position = 0, first_row_of_invoice;
@@ -600,8 +599,6 @@ gnc_bi_import_create_bis (GListStore * store, QofBook * book,
     gnc_numeric value;
     GncOwner *owner;
     Account *acc = NULL;
-    enum update {YES = GTK_RESPONSE_YES, NO = GTK_RESPONSE_NO, NOT_ASKED = GTK_RESPONSE_NONE} update;
-    GtkWidget *dialog;
     time64 today;
     InvoiceWindow *iw;
     GString *running_id;
@@ -621,7 +618,6 @@ gnc_bi_import_create_bis (GListStore * store, QofBook * book,
     *n_invoices_updated = 0;
 
     invoice = NULL;
-    update = NOT_ASKED;
     on_first_row_of_invoice = TRUE;
     running_id = g_string_new("");
 
@@ -700,20 +696,7 @@ gnc_bi_import_create_bis (GListStore * store, QofBook * book,
             }
             else			// Dealing with an existing invoice.
             {
-                // For the first existing invoice in the import file,
-                // ask the user to confirm update of existing invoices.
-                if (update == NOT_ASKED)
-                {
-                    dialog = gtk_message_dialog_new (parent,
-                                                     GTK_DIALOG_MODAL,
-                                                     GTK_MESSAGE_ERROR,
-                                                     GTK_BUTTONS_YES_NO,
-                                                     "%s",
-                                                     _("Do you want to update existing bills/invoices?"));
-                    update = gnc_dialog_run (GTK_DIALOG(dialog));
-                }
-
-                if (update == NO)
+                if (!update_existing)
                 {
                     // If the user does not want to update existing invoices, ignore all rows of the invoice.
                     g_string_append_printf (info,_("Invoice %s not updated because it already exists.\n"),id);
@@ -950,6 +933,235 @@ next_row:
         g_string_append_printf (info, _("Nothing to process.\n"));
 
     g_string_free (running_id, TRUE);
+}
+
+typedef struct
+{
+    GListStore *store;
+    QofBook *book;
+    gchar *type;
+    gchar *open_mode;
+    GString *info;
+    guint n_invoices_created;
+    guint n_invoices_updated;
+    guint n_rows_ignored;
+    GWeakRef parent;
+    GWeakRef open_parent;
+    gboolean has_parent;
+    gboolean has_open_parent;
+    GCancellable *cancellable;
+    gulong parent_destroy_handler;
+    GncBiImportCreateCallback completed;
+    gpointer user_data;
+    gboolean completed_once;
+} BiImportCreateRequest;
+
+static void
+bi_import_create_request_free (BiImportCreateRequest *request)
+{
+    GtkWindow *parent;
+
+    if (!request)
+        return;
+
+    parent = g_weak_ref_get (&request->parent);
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    g_clear_object (&parent);
+    g_weak_ref_clear (&request->parent);
+    g_weak_ref_clear (&request->open_parent);
+    g_clear_object (&request->store);
+    g_clear_object (&request->cancellable);
+    g_clear_pointer (&request->type, g_free);
+    g_clear_pointer (&request->open_mode, g_free);
+    if (request->info)
+        g_string_free (request->info, TRUE);
+    g_free (request);
+}
+
+static gboolean
+bi_import_create_request_context_valid (BiImportCreateRequest *request,
+                                        GtkWindow **open_parent)
+{
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+    GtkWindow *opened_parent = g_weak_ref_get (&request->open_parent);
+    gboolean valid;
+
+    valid = request->book && request->book == gnc_get_current_book () &&
+            !qof_book_shutting_down (request->book) &&
+            (!request->has_parent || parent != NULL) &&
+            (!request->has_open_parent || opened_parent != NULL);
+    g_clear_object (&parent);
+    if (!valid)
+    {
+        g_clear_object (&opened_parent);
+        return FALSE;
+    }
+
+    if (open_parent)
+        *open_parent = opened_parent;
+    else
+        g_clear_object (&opened_parent);
+    return TRUE;
+}
+
+static void
+bi_import_create_request_complete (BiImportCreateRequest *request,
+                                   gboolean continue_import,
+                                   gboolean update_existing)
+{
+    GtkWindow *open_parent = NULL;
+    gboolean completed = FALSE;
+
+    if (!request || request->completed_once)
+        return;
+
+    request->completed_once = TRUE;
+    if (continue_import &&
+        bi_import_create_request_context_valid (request, &open_parent))
+    {
+        bi_import_create_bis_process (request->store, request->book,
+                                      &request->n_invoices_created,
+                                      &request->n_invoices_updated,
+                                      &request->n_rows_ignored,
+                                      request->type, request->open_mode,
+                                      request->info, open_parent,
+                                      update_existing);
+        completed = TRUE;
+    }
+    g_clear_object (&open_parent);
+
+    request->completed (completed, request->n_invoices_created,
+                        request->n_invoices_updated,
+                        request->n_rows_ignored,
+                        request->info ? request->info->str : "",
+                        request->user_data);
+    bi_import_create_request_free (request);
+}
+
+static void
+bi_import_create_parent_destroyed (GtkWidget *parent,
+                                   BiImportCreateRequest *request)
+{
+    (void)parent;
+    request->parent_destroy_handler = 0;
+    g_cancellable_cancel (request->cancellable);
+}
+
+static void
+bi_import_create_existing_finished (GObject *source, GAsyncResult *result,
+                                    gpointer user_data)
+{
+    BiImportCreateRequest *request = user_data;
+    GError *error = NULL;
+    gint response;
+
+    response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
+                                               &error);
+    if (error)
+    {
+        g_clear_error (&error);
+        bi_import_create_request_complete (request, FALSE, FALSE);
+        return;
+    }
+
+    if (response == 0)
+        bi_import_create_request_complete (request, TRUE, FALSE);
+    else if (response == 1)
+        bi_import_create_request_complete (request, TRUE, TRUE);
+    else
+        bi_import_create_request_complete (request, FALSE, FALSE);
+}
+
+static gboolean
+bi_import_has_existing_invoice (GListStore *store, QofBook *book,
+                                const gchar *type)
+{
+    guint position;
+    guint count = g_list_model_get_n_items (G_LIST_MODEL (store));
+
+    for (position = 0; position < count; position++)
+    {
+        GObject *row = g_list_model_get_item (G_LIST_MODEL (store), position);
+        gchar *id = gnc_bi_import_row_dup (row, ID);
+        GncInvoice *invoice = NULL;
+
+        if (*id)
+        {
+            if (g_ascii_strcasecmp (type, "BILL") == 0)
+                invoice = gnc_search_bill_on_id (book, id);
+            else
+                invoice = gnc_search_invoice_on_id (book, id);
+        }
+        g_free (id);
+        g_object_unref (row);
+        if (invoice)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+void
+gnc_bi_import_create_bis_async (GListStore *store, QofBook *book,
+                                const gchar *type, const gchar *open_mode,
+                                guint n_rows_ignored, GString *info,
+                                GtkWindow *parent, GtkWindow *open_parent,
+                                GncBiImportCreateCallback completed,
+                                gpointer user_data)
+{
+    BiImportCreateRequest *request;
+
+    g_return_if_fail (G_IS_LIST_STORE (store));
+    g_return_if_fail (book != NULL);
+    g_return_if_fail (info != NULL);
+    g_return_if_fail (completed != NULL);
+    g_return_if_fail (g_ascii_strcasecmp (type, "INVOICE") == 0 ||
+                      g_ascii_strcasecmp (type, "BILL") == 0);
+
+    request = g_new0 (BiImportCreateRequest, 1);
+    request->store = g_object_ref (store);
+    request->book = book;
+    request->type = g_strdup (type);
+    request->open_mode = g_strdup (open_mode);
+    request->info = info;
+    request->n_rows_ignored = n_rows_ignored;
+    request->completed = completed;
+    request->user_data = user_data;
+    request->has_parent = parent != NULL;
+    request->has_open_parent = open_parent != NULL;
+    request->cancellable = g_cancellable_new ();
+    g_weak_ref_init (&request->parent, parent);
+    g_weak_ref_init (&request->open_parent, open_parent);
+    if (parent)
+        request->parent_destroy_handler = g_signal_connect (
+            parent, "destroy", G_CALLBACK (bi_import_create_parent_destroyed), request);
+
+    if (!bi_import_create_request_context_valid (request, NULL))
+    {
+        bi_import_create_request_complete (request, FALSE, FALSE);
+        return;
+    }
+
+    if (!bi_import_has_existing_invoice (store, book, type))
+    {
+        bi_import_create_request_complete (request, TRUE, TRUE);
+        return;
+    }
+
+    {
+        const gchar *buttons[] = { _("No"), _("Yes"), NULL };
+        GtkAlertDialog *dialog = gtk_alert_dialog_new (
+            "%s", _("Do you want to update existing bills/invoices?"));
+        GtkWindow *alert_parent = g_weak_ref_get (&request->parent);
+
+        gtk_alert_dialog_set_buttons (dialog, buttons);
+        gtk_alert_dialog_set_cancel_button (dialog, -1);
+        gtk_alert_dialog_set_default_button (dialog, 0);
+        gtk_alert_dialog_choose (dialog, alert_parent, request->cancellable,
+                                 bi_import_create_existing_finished, request);
+        g_clear_object (&alert_parent);
+        g_object_unref (dialog);
+    }
 }
 
 /* Change any escaped quotes ("") to (")
