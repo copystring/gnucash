@@ -1,6 +1,6 @@
-<?xml version='1.0' encoding='UTF-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <interface>
-  <requires lib="gtk" version="4.0"/>
+  <requires lib="gtk" version="4.0" />
   <object class="GtkAdjustment" id="adjustment1">
     <property name="lower">1</property>
     <property name="page-increment">10</property>
@@ -29,534 +29,193 @@
     <property name="upper">731</property>
     <property name="value">1</property>
   </object>
-  <object class="GtkListStore" id="liststore1">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">1st</col>
-      </row>
-      <row>
-        <col id="0">2nd</col>
-      </row>
-      <row>
-        <col id="0">3rd</col>
-      </row>
-      <row>
-        <col id="0">4th</col>
-      </row>
-      <row>
-        <col id="0">5th</col>
-      </row>
-      <row>
-        <col id="0">6th</col>
-      </row>
-      <row>
-        <col id="0">7th</col>
-      </row>
-      <row>
-        <col id="0">8th</col>
-      </row>
-      <row>
-        <col id="0">9th</col>
-      </row>
-      <row>
-        <col id="0">10th</col>
-      </row>
-      <row>
-        <col id="0">11th</col>
-      </row>
-      <row>
-        <col id="0">12th</col>
-      </row>
-      <row>
-        <col id="0">13th</col>
-      </row>
-      <row>
-        <col id="0">14th</col>
-      </row>
-      <row>
-        <col id="0">15th</col>
-      </row>
-      <row>
-        <col id="0">16th</col>
-      </row>
-      <row>
-        <col id="0">17th</col>
-      </row>
-      <row>
-        <col id="0">18th</col>
-      </row>
-      <row>
-        <col id="0">19th</col>
-      </row>
-      <row>
-        <col id="0">20th</col>
-      </row>
-      <row>
-        <col id="0">21st</col>
-      </row>
-      <row>
-        <col id="0">22nd</col>
-      </row>
-      <row>
-        <col id="0">23rd</col>
-      </row>
-      <row>
-        <col id="0">24th</col>
-      </row>
-      <row>
-        <col id="0">25th</col>
-      </row>
-      <row>
-        <col id="0">26th</col>
-      </row>
-      <row>
-        <col id="0">27th</col>
-      </row>
-      <row>
-        <col id="0">28th</col>
-      </row>
-      <row>
-        <col id="0">29th</col>
-      </row>
-      <row>
-        <col id="0">30th</col>
-      </row>
-      <row>
-        <col id="0">31st</col>
-      </row>
-      <row>
-        <col id="0">Last day of month</col>
-      </row>
-      <row>
-        <col id="0">Last Monday</col>
-      </row>
-      <row>
-        <col id="0">Last Tuesday</col>
-      </row>
-      <row>
-        <col id="0">Last Wednesday</col>
-      </row>
-      <row>
-        <col id="0">Last Thursday</col>
-      </row>
-      <row>
-        <col id="0">Last Friday</col>
-      </row>
-      <row>
-        <col id="0">Last Saturday</col>
-      </row>
-      <row>
-        <col id="0">Last Sunday</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="liststore1">
+    <items>
+      <item>1st</item>
+      <item>2nd</item>
+      <item>3rd</item>
+      <item>4th</item>
+      <item>5th</item>
+      <item>6th</item>
+      <item>7th</item>
+      <item>8th</item>
+      <item>9th</item>
+      <item>10th</item>
+      <item>11th</item>
+      <item>12th</item>
+      <item>13th</item>
+      <item>14th</item>
+      <item>15th</item>
+      <item>16th</item>
+      <item>17th</item>
+      <item>18th</item>
+      <item>19th</item>
+      <item>20th</item>
+      <item>21st</item>
+      <item>22nd</item>
+      <item>23rd</item>
+      <item>24th</item>
+      <item>25th</item>
+      <item>26th</item>
+      <item>27th</item>
+      <item>28th</item>
+      <item>29th</item>
+      <item>30th</item>
+      <item>31st</item>
+      <item>Last day of month</item>
+      <item>Last Monday</item>
+      <item>Last Tuesday</item>
+      <item>Last Wednesday</item>
+      <item>Last Thursday</item>
+      <item>Last Friday</item>
+      <item>Last Saturday</item>
+      <item>Last Sunday</item>
+    </items>
   </object>
-  <object class="GtkListStore" id="liststore2">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">None</col>
-      </row>
-      <row>
-        <col id="0">Once</col>
-      </row>
-      <row>
-        <col id="0">Daily</col>
-      </row>
-      <row>
-        <col id="0">Weekly</col>
-      </row>
-      <row>
-        <col id="0">Semi-Monthly</col>
-      </row>
-      <row>
-        <col id="0">Monthly</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="liststore2">
+    <items>
+      <item>None</item>
+      <item>Once</item>
+      <item>Daily</item>
+      <item>Weekly</item>
+      <item>Semi-Monthly</item>
+      <item>Monthly</item>
+    </items>
   </object>
-  <object class="GtkListStore" id="liststore3">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">No change</col>
-      </row>
-      <row>
-        <col id="0">Use previous weekday</col>
-      </row>
-      <row>
-        <col id="0">Use next weekday</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="liststore3">
+    <items>
+      <item>No change</item>
+      <item>Use previous weekday</item>
+      <item>Use next weekday</item>
+    </items>
   </object>
-  <object class="GtkListStore" id="liststore4">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">1st</col>
-      </row>
-      <row>
-        <col id="0">2nd</col>
-      </row>
-      <row>
-        <col id="0">3rd</col>
-      </row>
-      <row>
-        <col id="0">4th</col>
-      </row>
-      <row>
-        <col id="0">5th</col>
-      </row>
-      <row>
-        <col id="0">6th</col>
-      </row>
-      <row>
-        <col id="0">7th</col>
-      </row>
-      <row>
-        <col id="0">8th</col>
-      </row>
-      <row>
-        <col id="0">9th</col>
-      </row>
-      <row>
-        <col id="0">10th</col>
-      </row>
-      <row>
-        <col id="0">11th</col>
-      </row>
-      <row>
-        <col id="0">12th</col>
-      </row>
-      <row>
-        <col id="0">13th</col>
-      </row>
-      <row>
-        <col id="0">14th</col>
-      </row>
-      <row>
-        <col id="0">15th</col>
-      </row>
-      <row>
-        <col id="0">16th</col>
-      </row>
-      <row>
-        <col id="0">17th</col>
-      </row>
-      <row>
-        <col id="0">18th</col>
-      </row>
-      <row>
-        <col id="0">19th</col>
-      </row>
-      <row>
-        <col id="0">20th</col>
-      </row>
-      <row>
-        <col id="0">21st</col>
-      </row>
-      <row>
-        <col id="0">22nd</col>
-      </row>
-      <row>
-        <col id="0">23rd</col>
-      </row>
-      <row>
-        <col id="0">24th</col>
-      </row>
-      <row>
-        <col id="0">25th</col>
-      </row>
-      <row>
-        <col id="0">26th</col>
-      </row>
-      <row>
-        <col id="0">27th</col>
-      </row>
-      <row>
-        <col id="0">28th</col>
-      </row>
-      <row>
-        <col id="0">29th</col>
-      </row>
-      <row>
-        <col id="0">30th</col>
-      </row>
-      <row>
-        <col id="0">31st</col>
-      </row>
-      <row>
-        <col id="0">Last day of month</col>
-      </row>
-      <row>
-        <col id="0">Last Monday</col>
-      </row>
-      <row>
-        <col id="0">Last Tuesday</col>
-      </row>
-      <row>
-        <col id="0">Last Wednesday</col>
-      </row>
-      <row>
-        <col id="0">Last Thursday</col>
-      </row>
-      <row>
-        <col id="0">Last Friday</col>
-      </row>
-      <row>
-        <col id="0">Last Saturday</col>
-      </row>
-      <row>
-        <col id="0">Last Sunday</col>
-      </row>
-      <row>
-        <col id="0">1st Mon</col>
-      </row>
-      <row>
-        <col id="0">1st Tue</col>
-      </row>
-      <row>
-        <col id="0">1st Wed</col>
-      </row>
-      <row>
-        <col id="0">1st Thu</col>
-      </row>
-      <row>
-        <col id="0">1st Fri</col>
-      </row>
-      <row>
-        <col id="0">1st Sat</col>
-      </row>
-      <row>
-        <col id="0">1st Sun</col>
-      </row>
-      <row>
-        <col id="0">2nd Mon</col>
-      </row>
-      <row>
-        <col id="0">2nd Tue</col>
-      </row>
-      <row>
-        <col id="0">2nd Wed</col>
-      </row>
-      <row>
-        <col id="0">2nd Thu</col>
-      </row>
-      <row>
-        <col id="0">2nd Fri</col>
-      </row>
-      <row>
-        <col id="0">2nd Sat</col>
-      </row>
-      <row>
-        <col id="0">2nd Sun</col>
-      </row>
-      <row>
-        <col id="0">3rd Mon</col>
-      </row>
-      <row>
-        <col id="0">3rd Tue</col>
-      </row>
-      <row>
-        <col id="0">3rd Wed</col>
-      </row>
-      <row>
-        <col id="0">3rd Thu</col>
-      </row>
-      <row>
-        <col id="0">3rd Fri</col>
-      </row>
-      <row>
-        <col id="0">3rd Sat</col>
-      </row>
-      <row>
-        <col id="0">3rd Sun</col>
-      </row>
-      <row>
-        <col id="0">4th Mon</col>
-      </row>
-      <row>
-        <col id="0">4th Tue</col>
-      </row>
-      <row>
-        <col id="0">4th Wed</col>
-      </row>
-      <row>
-        <col id="0">4th Thu</col>
-      </row>
-      <row>
-        <col id="0">4th Fri</col>
-      </row>
-      <row>
-        <col id="0">4th Sat</col>
-      </row>
-      <row>
-        <col id="0">4th Sun</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="liststore4">
+    <items>
+      <item>1st</item>
+      <item>2nd</item>
+      <item>3rd</item>
+      <item>4th</item>
+      <item>5th</item>
+      <item>6th</item>
+      <item>7th</item>
+      <item>8th</item>
+      <item>9th</item>
+      <item>10th</item>
+      <item>11th</item>
+      <item>12th</item>
+      <item>13th</item>
+      <item>14th</item>
+      <item>15th</item>
+      <item>16th</item>
+      <item>17th</item>
+      <item>18th</item>
+      <item>19th</item>
+      <item>20th</item>
+      <item>21st</item>
+      <item>22nd</item>
+      <item>23rd</item>
+      <item>24th</item>
+      <item>25th</item>
+      <item>26th</item>
+      <item>27th</item>
+      <item>28th</item>
+      <item>29th</item>
+      <item>30th</item>
+      <item>31st</item>
+      <item>Last day of month</item>
+      <item>Last Monday</item>
+      <item>Last Tuesday</item>
+      <item>Last Wednesday</item>
+      <item>Last Thursday</item>
+      <item>Last Friday</item>
+      <item>Last Saturday</item>
+      <item>Last Sunday</item>
+      <item>1st Mon</item>
+      <item>1st Tue</item>
+      <item>1st Wed</item>
+      <item>1st Thu</item>
+      <item>1st Fri</item>
+      <item>1st Sat</item>
+      <item>1st Sun</item>
+      <item>2nd Mon</item>
+      <item>2nd Tue</item>
+      <item>2nd Wed</item>
+      <item>2nd Thu</item>
+      <item>2nd Fri</item>
+      <item>2nd Sat</item>
+      <item>2nd Sun</item>
+      <item>3rd Mon</item>
+      <item>3rd Tue</item>
+      <item>3rd Wed</item>
+      <item>3rd Thu</item>
+      <item>3rd Fri</item>
+      <item>3rd Sat</item>
+      <item>3rd Sun</item>
+      <item>4th Mon</item>
+      <item>4th Tue</item>
+      <item>4th Wed</item>
+      <item>4th Thu</item>
+      <item>4th Fri</item>
+      <item>4th Sat</item>
+      <item>4th Sun</item>
+    </items>
   </object>
-  <object class="GtkListStore" id="liststore5">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">No change</col>
-      </row>
-      <row>
-        <col id="0">Use previous weekday</col>
-      </row>
-      <row>
-        <col id="0">Use next weekday</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="liststore5">
+    <items>
+      <item>No change</item>
+      <item>Use previous weekday</item>
+      <item>Use next weekday</item>
+    </items>
   </object>
-  <object class="GtkListStore" id="liststore6">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">1st</col>
-      </row>
-      <row>
-        <col id="0">2nd</col>
-      </row>
-      <row>
-        <col id="0">3rd</col>
-      </row>
-      <row>
-        <col id="0">4th</col>
-      </row>
-      <row>
-        <col id="0">5th</col>
-      </row>
-      <row>
-        <col id="0">6th</col>
-      </row>
-      <row>
-        <col id="0">7th</col>
-      </row>
-      <row>
-        <col id="0">8th</col>
-      </row>
-      <row>
-        <col id="0">9th</col>
-      </row>
-      <row>
-        <col id="0">10th</col>
-      </row>
-      <row>
-        <col id="0">11th</col>
-      </row>
-      <row>
-        <col id="0">12th</col>
-      </row>
-      <row>
-        <col id="0">13th</col>
-      </row>
-      <row>
-        <col id="0">14th</col>
-      </row>
-      <row>
-        <col id="0">15th</col>
-      </row>
-      <row>
-        <col id="0">16th</col>
-      </row>
-      <row>
-        <col id="0">17th</col>
-      </row>
-      <row>
-        <col id="0">18th</col>
-      </row>
-      <row>
-        <col id="0">19th</col>
-      </row>
-      <row>
-        <col id="0">20th</col>
-      </row>
-      <row>
-        <col id="0">21st</col>
-      </row>
-      <row>
-        <col id="0">22nd</col>
-      </row>
-      <row>
-        <col id="0">23rd</col>
-      </row>
-      <row>
-        <col id="0">24th</col>
-      </row>
-      <row>
-        <col id="0">25th</col>
-      </row>
-      <row>
-        <col id="0">26th</col>
-      </row>
-      <row>
-        <col id="0">27th</col>
-      </row>
-      <row>
-        <col id="0">28th</col>
-      </row>
-      <row>
-        <col id="0">29th</col>
-      </row>
-      <row>
-        <col id="0">30th</col>
-      </row>
-      <row>
-        <col id="0">31st</col>
-      </row>
-      <row>
-        <col id="0">Last day of month</col>
-      </row>
-      <row>
-        <col id="0">Last Monday</col>
-      </row>
-      <row>
-        <col id="0">Last Tuesday</col>
-      </row>
-      <row>
-        <col id="0">Last Wednesday</col>
-      </row>
-      <row>
-        <col id="0">Last Thursday</col>
-      </row>
-      <row>
-        <col id="0">Last Friday</col>
-      </row>
-      <row>
-        <col id="0">Last Saturday</col>
-      </row>
-      <row>
-        <col id="0">Last Sunday</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="liststore6">
+    <items>
+      <item>1st</item>
+      <item>2nd</item>
+      <item>3rd</item>
+      <item>4th</item>
+      <item>5th</item>
+      <item>6th</item>
+      <item>7th</item>
+      <item>8th</item>
+      <item>9th</item>
+      <item>10th</item>
+      <item>11th</item>
+      <item>12th</item>
+      <item>13th</item>
+      <item>14th</item>
+      <item>15th</item>
+      <item>16th</item>
+      <item>17th</item>
+      <item>18th</item>
+      <item>19th</item>
+      <item>20th</item>
+      <item>21st</item>
+      <item>22nd</item>
+      <item>23rd</item>
+      <item>24th</item>
+      <item>25th</item>
+      <item>26th</item>
+      <item>27th</item>
+      <item>28th</item>
+      <item>29th</item>
+      <item>30th</item>
+      <item>31st</item>
+      <item>Last day of month</item>
+      <item>Last Monday</item>
+      <item>Last Tuesday</item>
+      <item>Last Wednesday</item>
+      <item>Last Thursday</item>
+      <item>Last Friday</item>
+      <item>Last Saturday</item>
+      <item>Last Sunday</item>
+    </items>
   </object>
-  <object class="GtkListStore" id="liststore7">
-    <columns>
-      <column type="gchararray"/>
-    </columns>
-    <data>
-      <row>
-        <col id="0">No change</col>
-      </row>
-      <row>
-        <col id="0">Use previous weekday</col>
-      </row>
-      <row>
-        <col id="0">Use next weekday</col>
-      </row>
-    </data>
+  <object class="GtkStringList" id="liststore7">
+    <items>
+      <item>No change</item>
+      <item>Use previous weekday</item>
+      <item>Use next weekday</item>
+    </items>
   </object>
   <object class="GtkWindow" id="gnc_frequency_window">
     <property name="title">This window should never be realized.</property>
@@ -590,15 +249,8 @@
               </object>
             </child>
             <child>
-              <object class="GtkComboBox" id="freq_combobox">
+              <object class="GtkDropDown" id="freq_combobox">
                 <property name="model">liststore2</property>
-                <child>
-                  <object class="GtkCellRendererText" id="cellrenderertext2"/>
-                  <!-- Custom child fragments -->
-                  <attributes>
-                    <attribute name="text">0</attribute>
-                  </attributes>
-                </child>
                 <layout>
                   <property name="column">1</property>
                   <property name="row">0</property>
@@ -933,16 +585,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="semimonthly_first">
+                              <object class="GtkDropDown" id="semimonthly_first">
                                 <property name="halign">center</property>
                                 <property name="model">liststore1</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext1"/>
-                                  <!-- Custom child fragments -->
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
                               </object>
                             </child>
                             <child>
@@ -953,16 +598,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="semimonthly_first_weekend">
+                              <object class="GtkDropDown" id="semimonthly_first_weekend">
                                 <property name="halign">center</property>
                                 <property name="model">liststore7</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext7"/>
-                                  <!-- Custom child fragments -->
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
                               </object>
                             </child>
                           </object>
@@ -979,16 +617,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="semimonthly_second">
+                              <object class="GtkDropDown" id="semimonthly_second">
                                 <property name="halign">center</property>
                                 <property name="model">liststore6</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext6"/>
-                                  <!-- Custom child fragments -->
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
                               </object>
                             </child>
                             <child>
@@ -999,16 +630,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="semimonthly_second_weekend">
+                              <object class="GtkDropDown" id="semimonthly_second_weekend">
                                 <property name="halign">center</property>
                                 <property name="model">liststore5</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext5"/>
-                                  <!-- Custom child fragments -->
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
                               </object>
                             </child>
                           </object>
@@ -1084,16 +708,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="monthly_day">
+                              <object class="GtkDropDown" id="monthly_day">
                                 <property name="halign">center</property>
                                 <property name="model">liststore4</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext4"/>
-                                  <!-- Custom child fragments -->
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
                               </object>
                             </child>
                             <child>
@@ -1104,16 +721,9 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkComboBox" id="monthly_weekend">
+                              <object class="GtkDropDown" id="monthly_weekend">
                                 <property name="halign">center</property>
                                 <property name="model">liststore3</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext3"/>
-                                  <!-- Custom child fragments -->
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
                               </object>
                             </child>
                           </object>
