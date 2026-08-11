@@ -66,6 +66,7 @@ typedef struct
     GtkWidget    *column_view;
     GListModel   *column_model;
     guint         column_model_position;
+    GWeakRef      update_window;
 
     DoclinkReturn *ret_dlr;
 }DoclinkDialog;
@@ -623,43 +624,44 @@ gnc_doclink_get_uri_dialog (GtkWindow *parent, const gchar *title,
 static void close_handler (gpointer user_data);
 
 static void
-gnc_doclink_dialog_window_destroy_cb (GtkWidget *object, gpointer user_data)
+gnc_doclink_dialog_window_destroy_cb (G_GNUC_UNUSED GtkWidget *object,
+                                      gpointer user_data)
 {
     DoclinkDialog *doclink_dialog = user_data;
+    GtkWidget *update_window;
 
     ENTER(" ");
-    gnc_unregister_gui_component (doclink_dialog->component_id);
-
-    if (doclink_dialog->window)
+    update_window = g_weak_ref_get (&doclink_dialog->update_window);
+    if (update_window)
     {
-        g_free (doclink_dialog->path_head);
-        g_object_unref (doclink_dialog->column_model);
-
-        gtk_window_destroy (GTK_WINDOW(doclink_dialog->window));
-        doclink_dialog->window = NULL;
+        gtk_window_destroy (GTK_WINDOW (update_window));
+        g_object_unref (update_window);
     }
+    g_weak_ref_clear (&doclink_dialog->update_window);
+
+    if (doclink_dialog->component_id != NO_COMPONENT)
+        gnc_unregister_gui_component (doclink_dialog->component_id);
+
+    g_clear_pointer (&doclink_dialog->path_head, g_free);
+    g_clear_object (&doclink_dialog->column_model);
+    doclink_dialog->window = NULL;
     g_free (doclink_dialog);
     LEAVE(" ");
 }
 
 static gboolean
-gnc_doclink_dialog_close_trans_event_cb (GtkWidget       *widget,
-                                         const GdkEvent  *event,
-                                         gpointer         user_data)
+gnc_doclink_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
 {
-    // this cb allows the window size to be saved on closing with the X
-    gnc_save_window_size (GNC_PREFS_GROUP_TRANS, GTK_WINDOW(widget));
-    return false;
-}
+    DoclinkDialog *doclink_dialog = user_data;
+    const gchar *prefs_group;
 
-static gboolean
-gnc_doclink_dialog_close_bus_event_cb (GtkWidget       *widget,
-                                       const GdkEvent  *event,
-                                       gpointer         user_data)
-{
-    // this cb allows the window size to be saved on closing with the X
-    gnc_save_window_size (GNC_PREFS_GROUP_BUS, GTK_WINDOW(widget));
-    return false;
+    g_return_val_if_fail (doclink_dialog, FALSE);
+    g_return_val_if_fail (doclink_dialog->window == GTK_WIDGET (window), FALSE);
+
+    prefs_group = doclink_dialog->is_list_trans ? GNC_PREFS_GROUP_TRANS
+                                                 : GNC_PREFS_GROUP_BUS;
+    gnc_save_window_size (prefs_group, window);
+    return FALSE;
 }
 
 static gboolean
@@ -843,6 +845,9 @@ update_bus_gui_destroy_cb (GtkWidget *object, gpointer user_data)
             }
         }
     }
+    if (doclink_dialog->ret_dlr == dlr)
+        doclink_dialog->ret_dlr = NULL;
+    g_weak_ref_set (&doclink_dialog->update_window, NULL);
     g_free (dlr->existing_uri);
     g_free (dlr->updated_uri);
     g_free (dlr);
@@ -943,6 +948,7 @@ row_selected_bus_cb (GtkGestureClick *gesture, int n_press,
             gnc_doclink_get_uri_dialog (GTK_WINDOW(doclink_dialog->window),
                                         _("Manage Document Link"), dlr);
 
+        g_weak_ref_set (&doclink_dialog->update_window, win);
         g_signal_connect (G_OBJECT(win), "destroy",
                           G_CALLBACK(update_bus_gui_destroy_cb), doclink_dialog);
     }
@@ -976,6 +982,9 @@ update_trans_gui_destroy_cb (GtkWidget *object, gpointer user_data)
             }
         }
     }
+    if (doclink_dialog->ret_dlr == dlr)
+        doclink_dialog->ret_dlr = NULL;
+    g_weak_ref_set (&doclink_dialog->update_window, NULL);
     g_free (dlr->existing_uri);
     g_free (dlr->updated_uri);
     g_free (dlr);
@@ -1085,6 +1094,7 @@ row_selected_trans_cb (GtkGestureClick *gesture, int n_press,
             gnc_doclink_get_uri_dialog (GTK_WINDOW(doclink_dialog->window),
                                         _("Manage Document Link"), dlr);
 
+        g_weak_ref_set (&doclink_dialog->update_window, win);
         g_signal_connect (G_OBJECT(win), "destroy",
                           G_CALLBACK(update_trans_gui_destroy_cb), doclink_dialog);
     }
@@ -1371,12 +1381,9 @@ gnc_doclink_dialog_create (GtkWindow *parent, DoclinkDialog *doclink_dialog)
     g_signal_connect (G_OBJECT(doclink_dialog->window), "destroy",
                       G_CALLBACK(gnc_doclink_dialog_window_destroy_cb), doclink_dialog);
 
-    if (doclink_dialog->is_list_trans)
-        g_signal_connect (G_OBJECT(doclink_dialog->window), "close-request",
-                          G_CALLBACK(gnc_doclink_dialog_close_trans_event_cb), NULL);
-    else
-        g_signal_connect (G_OBJECT(doclink_dialog->window), "close-request",
-                          G_CALLBACK(gnc_doclink_dialog_close_bus_event_cb), NULL);
+    g_signal_connect (doclink_dialog->window, "close-request",
+                      G_CALLBACK (gnc_doclink_dialog_close_request_cb),
+                      doclink_dialog);
 
     GtkEventController *event_controller_window = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(doclink_dialog->window), event_controller_window);
@@ -1496,7 +1503,8 @@ gnc_doclink_business_dialog (GtkWindow *parent)
         return;
     }
     doclink_dialog = g_new0 (DoclinkDialog, 1);
-
+    doclink_dialog->component_id = NO_COMPONENT;
+    g_weak_ref_init (&doclink_dialog->update_window, NULL);
     doclink_dialog->is_list_trans = FALSE;
 
     gnc_doclink_dialog_create (parent, doclink_dialog);
@@ -1528,6 +1536,8 @@ gnc_doclink_trans_dialog (GtkWindow *parent)
         return;
     }
     doclink_dialog = g_new0 (DoclinkDialog, 1);
+    doclink_dialog->component_id = NO_COMPONENT;
+    g_weak_ref_init (&doclink_dialog->update_window, NULL);
     doclink_dialog->is_list_trans = TRUE;
 
     gnc_doclink_dialog_create (parent, doclink_dialog);
