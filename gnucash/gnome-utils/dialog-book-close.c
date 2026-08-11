@@ -308,22 +308,47 @@ ok_button_cb (GtkWidget *widget, gpointer user_data)
     gtk_window_destroy (GTK_WINDOW(cbw->window));
 }
 
+static void
+close_book_window_close_confirmed (GtkWindow *window, gboolean close_allowed,
+                                   gpointer user_data)
+{
+    (void)user_data;
+
+    if (close_allowed && window)
+        gtk_window_destroy (window);
+}
+
+static void
+close_book_window_request_close (struct CloseBookWindow *cbw)
+{
+    gnc_ok_to_close_window_async (GTK_WINDOW (cbw->window),
+                                  close_book_window_close_confirmed, NULL);
+}
+
+static gboolean
+close_book_window_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    close_book_window_request_close (user_data);
+    return TRUE;
+}
+
 static gboolean
 dialog_key_press_cb (GtkEventControllerKey *key, guint keyval,
                      guint keycode, GdkModifierType state,
                      gpointer user_data)
 {
-    struct CloseBookWindow *cbw = user_data;
+    (void)key;
+    (void)keycode;
+    (void)state;
 
     if (keyval == GDK_KEY_Escape)
     {
-        if (gnc_ok_to_close_window (GTK_WIDGET(cbw->window)))
-            close_handler (cbw);
-
+        close_book_window_request_close (user_data);
         return TRUE;
     }
-    else
-        return FALSE;
+
+    return FALSE;
 }
 
 void gnc_ui_close_book (QofBook* book, GtkWindow *parent)
@@ -399,12 +424,14 @@ void gnc_ui_close_book (QofBook* book, GtkWindow *parent)
     g_signal_connect (G_OBJECT(event_controller_window),
                       "key-pressed",
                       G_CALLBACK(dialog_key_press_cb), cbw);
+    g_signal_connect (G_OBJECT(cbw->window), "close-request",
+                      G_CALLBACK(close_book_window_close_request_cb), cbw);
 
     /* Register dialog with component manager */
     cbw->component_manager_id = gnc_register_gui_component (
                                    DIALOG_BOOK_CLOSE_CM_CLASS,
                                    NULL, close_handler,
-                                   cbw->window);
+                                   cbw);
     gnc_gui_component_set_session (cbw->component_manager_id,
                                    gnc_get_current_session());
 

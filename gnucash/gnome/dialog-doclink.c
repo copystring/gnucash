@@ -50,6 +50,7 @@
 #define DIALOG_DOCLINK_CM_CLASS  "dialog-doclink"
 #define GNC_PREFS_GROUP_BUS      "dialogs.business-doclink"
 #define GNC_PREFS_GROUP_TRANS    "dialogs.trans-doclink"
+#define GNC_DOCLINK_UPDATE_DATA  "gnc-doclink-update"
 
 typedef struct
 {
@@ -90,6 +91,15 @@ typedef struct
     DoclinkReturn *ret_dlr;
 }DoclinkUpdate;
 
+static void
+doclink_update_free (DoclinkUpdate *dlu)
+{
+    if (!dlu)
+        return;
+
+    g_free (dlu->uri);
+    g_free (dlu);
+}
 
 /* This static indicates the debugging module that this .o belongs to. */
 static QofLogModule log_module = GNC_MOD_GUI;
@@ -372,8 +382,15 @@ static void
 get_uri_dialog_update_reponse_cb (GtkWidget *widget, gpointer user_data)
 {
     DoclinkUpdate *dlu = user_data;
-    DoclinkReturn *dlr = dlu->ret_dlr;
+    GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (widget));
+    GtkWindow *window = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
+    DoclinkReturn *dlr;
 
+    if (!window || g_object_steal_data (G_OBJECT (window),
+                                        GNC_DOCLINK_UPDATE_DATA) != dlu)
+        return;
+
+    dlr = dlu->ret_dlr;
     if (widget == dlu->ok_button)
     {
         g_free (dlr->updated_uri);
@@ -415,10 +432,24 @@ get_uri_dialog_update_reponse_cb (GtkWidget *widget, gpointer user_data)
         dlr->updated_uri = g_strdup ("");
         dlr->response = GTK_RESPONSE_REJECT;
     }
-    g_free (dlu->uri);
-    g_free (dlu);
 
-    gtk_window_destroy (GTK_WINDOW(gtk_widget_get_root (GTK_WIDGET(widget))));
+    doclink_update_free (dlu);
+    gtk_window_destroy (window);
+}
+
+static void
+get_uri_dialog_close_confirmed (GtkWindow *window, gboolean close_allowed,
+                                gpointer user_data)
+{
+    DoclinkUpdate *dlu;
+
+    (void)user_data;
+    if (!close_allowed || !window)
+        return;
+
+    dlu = g_object_get_data (G_OBJECT (window), GNC_DOCLINK_UPDATE_DATA);
+    if (dlu)
+        get_uri_dialog_update_reponse_cb (dlu->cancel_button, dlu);
 }
 
 static gboolean
@@ -426,30 +457,27 @@ get_uri_dialog_uri_event_cb (GtkEventControllerKey *key, guint keyval,
                              guint keycode, GdkModifierType state,
                              gpointer user_data)
 {
-    DoclinkUpdate *dlu = user_data;
+    GtkWidget *widget;
 
-    if (keyval == GDK_KEY_Escape)
-    {
-        GtkWidget *widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER(key));
-
-        if (gnc_ok_to_close_window (GTK_WIDGET(widget)))
-            get_uri_dialog_update_reponse_cb (dlu->cancel_button, dlu);
-
-        return TRUE;
-    }
-    else
+    (void)keycode;
+    (void)state;
+    (void)user_data;
+    if (keyval != GDK_KEY_Escape)
         return FALSE;
+
+    widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (key));
+    if (GTK_IS_WINDOW (widget))
+        gnc_ok_to_close_window_async (GTK_WINDOW (widget),
+                                      get_uri_dialog_close_confirmed, NULL);
+    return TRUE;
 }
 
 static gboolean
-get_uri_dialog_close_request_cb (GtkWindow* window, gpointer user_data)
+get_uri_dialog_close_request_cb (GtkWindow *window, gpointer user_data)
 {
-    DoclinkUpdate *dlu = user_data;
-
-    g_free (dlu->uri);
-    g_free (dlu);
-
-    return FALSE;
+    (void)user_data;
+    gnc_ok_to_close_window_async (window, get_uri_dialog_close_confirmed, NULL);
+    return TRUE;
 }
 
 GtkWidget *
@@ -471,6 +499,8 @@ gnc_doclink_get_uri_dialog (GtkWindow *parent, const gchar *title,
     builder = gtk_builder_new();
     gnc_builder_add_from_file (builder, "dialog-doclink.ui", "linked_doc_uri_window");
     window = GTK_WIDGET(gtk_builder_get_object (builder, "linked_doc_uri_window"));
+    g_object_set_data_full (G_OBJECT (window), GNC_DOCLINK_UPDATE_DATA, dlu,
+                            (GDestroyNotify)doclink_update_free);
     gtk_window_set_title (GTK_WINDOW(window), title);
 
     if (parent != NULL)
@@ -486,7 +516,7 @@ gnc_doclink_get_uri_dialog (GtkWindow *parent, const gchar *title,
     GtkEventController *event_controller_window = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(window), event_controller_window);
     g_signal_connect (G_OBJECT(event_controller_window), "key-pressed",
-                      G_CALLBACK(get_uri_dialog_uri_event_cb), dlu);
+                      G_CALLBACK(get_uri_dialog_uri_event_cb), NULL);
 
     head_label = GTK_WIDGET(gtk_builder_get_object (builder, "path_head_label"));
     dlu->ok_button = GTK_WIDGET(gtk_builder_get_object (builder, "ok_button"));
@@ -521,7 +551,7 @@ gnc_doclink_get_uri_dialog (GtkWindow *parent, const gchar *title,
                       G_CALLBACK(get_uri_dialog_location_ok_cb), dlu->ok_button);
 
     g_signal_connect (G_OBJECT(window), "close-request",
-                      G_CALLBACK(get_uri_dialog_close_request_cb), dlu);
+                      G_CALLBACK(get_uri_dialog_close_request_cb), NULL);
 
     gtk_widget_set_visible (GTK_WIDGET(window), TRUE);
     gtk_widget_set_visible (GTK_WIDGET(gtk_builder_get_object (builder, "location_hbox")), FALSE);

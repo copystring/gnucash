@@ -1427,6 +1427,172 @@ gnc_warning_dialog_choice_async (GtkWindow *parent, const gchar *pref_name,
                                    action, action_response, action_is_default,
                                    completed, user_data);
 }
+#define GNC_OK_TO_CLOSE_REQUEST "gnc-ok-to-close-window-request"
+
+typedef struct
+{
+    GncOkToCloseWindowCallback completed;
+    gpointer user_data;
+} GncOkToCloseWindowCallbackData;
+
+typedef struct
+{
+    gint ref_count;
+    GWeakRef window;
+    GCancellable *cancellable;
+    GPtrArray *callbacks;
+    gchar **buttons;
+    gulong destroy_handler;
+    gboolean completed;
+} GncOkToCloseWindowRequest;
+
+static GncOkToCloseWindowRequest *
+gnc_ok_to_close_window_request_ref (GncOkToCloseWindowRequest *request)
+{
+    g_atomic_int_inc (&request->ref_count);
+    return request;
+}
+
+static void
+gnc_ok_to_close_window_request_free (GncOkToCloseWindowRequest *request)
+{
+    g_assert (request->destroy_handler == 0);
+    g_weak_ref_clear (&request->window);
+    g_clear_object (&request->cancellable);
+    g_clear_pointer (&request->callbacks, g_ptr_array_unref);
+    g_strfreev (request->buttons);
+    g_free (request);
+}
+
+static void
+gnc_ok_to_close_window_request_unref (GncOkToCloseWindowRequest *request)
+{
+    if (g_atomic_int_dec_and_test (&request->ref_count))
+        gnc_ok_to_close_window_request_free (request);
+}
+
+static void
+gnc_ok_to_close_window_request_destroy_notify (gpointer data,
+                                                GClosure *closure)
+{
+    (void)closure;
+    gnc_ok_to_close_window_request_unref (data);
+}
+
+static void
+gnc_ok_to_close_window_request_complete (GncOkToCloseWindowRequest *request,
+                                         GtkWindow *window,
+                                         gboolean close_allowed)
+{
+    GPtrArray *callbacks;
+    guint index;
+
+    if (request->completed)
+        return;
+
+    request->completed = TRUE;
+    if (window && g_object_get_data (G_OBJECT (window),
+                                     GNC_OK_TO_CLOSE_REQUEST) == request)
+        g_object_set_data (G_OBJECT (window), GNC_OK_TO_CLOSE_REQUEST, NULL);
+
+    if (request->destroy_handler)
+    {
+        g_signal_handler_disconnect (window, request->destroy_handler);
+        request->destroy_handler = 0;
+    }
+
+    callbacks = g_steal_pointer (&request->callbacks);
+    for (index = 0; index < callbacks->len; index++)
+    {
+        GncOkToCloseWindowCallbackData *callback =
+            g_ptr_array_index (callbacks, index);
+        callback->completed (window, close_allowed, callback->user_data);
+    }
+    g_ptr_array_unref (callbacks);
+}
+
+static void
+gnc_ok_to_close_window_request_window_destroyed (GtkWidget *widget,
+                                                  gpointer user_data)
+{
+    GncOkToCloseWindowRequest *request = user_data;
+
+    (void)widget;
+    request->destroy_handler = 0;
+    gnc_ok_to_close_window_request_complete (request, NULL, FALSE);
+    g_cancellable_cancel (request->cancellable);
+}
+
+static void
+gnc_ok_to_close_window_request_finished (GObject *source,
+                                          GAsyncResult *result,
+                                          gpointer user_data)
+{
+    GncOkToCloseWindowRequest *request = user_data;
+    GError *error = NULL;
+    GtkWindow *window = GTK_WINDOW (g_weak_ref_get (&request->window));
+    gint choice = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
+                                                  &error);
+    gboolean close_allowed = !error && choice == 1 && window != NULL;
+
+    if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_warning ("Close confirmation failed: %s", error->message);
+
+    gnc_ok_to_close_window_request_complete (request, window, close_allowed);
+    g_clear_error (&error);
+    g_clear_object (&window);
+    gnc_ok_to_close_window_request_unref (request);
+}
+
+void
+gnc_ok_to_close_window_async (GtkWindow *window,
+                              GncOkToCloseWindowCallback completed,
+                              gpointer user_data)
+{
+    GncOkToCloseWindowRequest *request;
+    GncOkToCloseWindowCallbackData *callback;
+    GtkAlertDialog *dialog;
+
+    g_return_if_fail (GTK_IS_WINDOW (window));
+    g_return_if_fail (completed != NULL);
+
+    request = g_object_get_data (G_OBJECT (window), GNC_OK_TO_CLOSE_REQUEST);
+    if (!request)
+    {
+        request = g_new0 (GncOkToCloseWindowRequest, 1);
+        request->ref_count = 1;
+        g_weak_ref_init (&request->window, window);
+        request->cancellable = g_cancellable_new ();
+        request->callbacks = g_ptr_array_new_with_free_func (g_free);
+        request->buttons = g_new0 (gchar *, 3);
+        request->buttons[0] = g_strdup (_("No"));
+        request->buttons[1] = g_strdup (_("Yes"));
+        g_object_set_data (G_OBJECT (window), GNC_OK_TO_CLOSE_REQUEST, request);
+        gnc_ok_to_close_window_request_ref (request);
+        request->destroy_handler = g_signal_connect_data (
+            window, "destroy",
+            G_CALLBACK (gnc_ok_to_close_window_request_window_destroyed), request,
+            gnc_ok_to_close_window_request_destroy_notify, 0);
+    }
+
+    callback = g_new0 (GncOkToCloseWindowCallbackData, 1);
+    callback->completed = completed;
+    callback->user_data = user_data;
+    g_ptr_array_add (request->callbacks, callback);
+
+    if (request->callbacks->len != 1)
+        return;
+
+    dialog = gtk_alert_dialog_new ("%s", _("Close Window ?"));
+    gtk_alert_dialog_set_buttons (dialog, (const char * const *)request->buttons);
+    gtk_alert_dialog_set_default_button (dialog, 0);
+    gtk_alert_dialog_set_cancel_button (dialog, 0);
+    gnc_ok_to_close_window_request_ref (request);
+    gtk_alert_dialog_choose (dialog, window, request->cancellable,
+                             gnc_ok_to_close_window_request_finished, request);
+    g_object_unref (dialog);
+    gnc_ok_to_close_window_request_unref (request);
+}
 gint
 gnc_dialog_run (GtkDialog *dialog)
 {

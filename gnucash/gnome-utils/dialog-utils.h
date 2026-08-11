@@ -223,11 +223,25 @@ gnc_dialog_run (GtkDialog *dialog);
 gint
 gnc_dialog_run_non_destructive (GtkDialog *dialog);
 
-/** Note: This dialog is modal!
- *  Ask OK to close window
+/** Callback for gnc_ok_to_close_window_async().
+ *
+ * @a window is NULL and @a close_allowed is FALSE when the target window was
+ * destroyed while its confirmation was open. The callback is invoked exactly
+ * once for every accepted request.
  */
-gboolean
-gnc_ok_to_close_window (GtkWidget *parent);
+typedef void (*GncOkToCloseWindowCallback) (GtkWindow *window,
+                                            gboolean close_allowed,
+                                            gpointer user_data);
+
+/** Ask whether @a window may be closed without entering a nested event loop.
+ *
+ * Requests made while a confirmation for the same window is pending are
+ * coalesced. Every callback is invoked exactly once; it receives TRUE only
+ * after an explicit affirmative response while the target window still exists.
+ */
+void gnc_ok_to_close_window_async (GtkWindow *window,
+                                   GncOkToCloseWindowCallback completed,
+                                   gpointer user_data);
 
 /* If this is a new book, this function can be used to display book options
  * dialog so user can specify options, before any transactions can be
