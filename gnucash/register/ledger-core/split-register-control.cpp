@@ -1323,6 +1323,33 @@ gnc_split_register_xfer_dialog (SplitRegister *reg, Transaction *txn,
     return xfer;
 }
 
+typedef struct
+{
+    GWeakRef parent;
+    SplitRegister *reg;
+    PriceCell *rate_cell;
+    Account *rate_account;
+} RegisterExchangeRequest;
+
+static void
+register_exchange_request_finished_cb (gboolean completed, gnc_numeric exch_rate,
+                                       gpointer user_data)
+{
+    RegisterExchangeRequest *request = user_data;
+    GtkWidget *parent = static_cast<GtkWidget*>(g_weak_ref_get (&request->parent));
+    if (completed && parent && gnc_split_register_get_parent (request->reg) == parent)
+    {
+        SRInfo *info = gnc_split_register_get_info (request->reg);
+        gnc_price_cell_set_value (request->rate_cell, exch_rate);
+        gnc_basic_cell_set_changed (&request->rate_cell->cell, TRUE);
+        info->rate_account = request->rate_account;
+        info->rate_reset = RATE_RESET_DONE;
+        gnc_table_refresh_gui (request->reg->table, FALSE);
+    }
+    g_clear_object (&parent);
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+}
 /** If needed display the transfer dialog to get a price/exchange rate and
  * adjust the price cell accordingly.
  * If the dialog does not complete successfully, then return TRUE.
@@ -1545,25 +1572,19 @@ gnc_split_register_handle_exchange (SplitRegister *reg, gboolean force_dialog)
         return FALSE;
     }
 
-    /* Show the exchange-rate dialog */
+    /* The exchange-rate dialog owns the deferred continuation. Returning
+     * TRUE keeps the current register edit in place until it resolves. */
     xfer = gnc_split_register_xfer_dialog (reg, txn, split);
-    gnc_xfer_dialog_is_exchange_dialog (xfer, &exch_rate);
-    if (gnc_xfer_dialog_run_exchange_dialog (xfer, &exch_rate, amount,
-                                             reg_acc, txn, xfer_com, expanded))
-    {
-        /* FIXME: How should the dialog be destroyed? */
-        LEAVE("leaving rate unchanged");
-        return TRUE;
-    }
-    /* FIXME: How should the dialog be destroyed? */
-
-    /* Set the RATE_CELL on this cursor and mark it changed */
-    gnc_price_cell_set_value (rate_cell, exch_rate);
-    gnc_basic_cell_set_changed (&rate_cell->cell, TRUE);
-    info->rate_account = xfer_acc;
-    info->rate_reset = RATE_RESET_DONE;
-    LEAVE("set rate=%s", gnc_num_dbg_to_string (exch_rate));
-    return FALSE;
+    RegisterExchangeRequest *request = g_new0 (RegisterExchangeRequest, 1);
+    request->reg = reg;
+    request->rate_cell = rate_cell;
+    request->rate_account = xfer_acc;
+    g_weak_ref_init (&request->parent, gnc_split_register_get_parent (reg));
+    gnc_xfer_dialog_run_exchange_async (xfer, exch_rate, amount, reg_acc, txn,
+                                        xfer_com, expanded,
+                                        register_exchange_request_finished_cb, request);
+    LEAVE("exchange rate requested asynchronously");
+    return TRUE;
 }
 
 /* Returns FALSE if dialog was canceled. */

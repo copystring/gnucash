@@ -1236,64 +1236,119 @@ input_new_fields_async (GNCImportMainMatcher *info,
     gtk_window_present (dialog->window);
 }
 
+struct TransferPriceSelection
+{
+    GWeakRef matcher_window;
+    GNCImportMainMatcher *info;
+    std::vector<GObjectPtr> rows;
+    std::size_t index;
+    gnc_numeric exch_rate;
+    gulong destroy_handler;
+};
+
+static void transfer_price_selection_next (TransferPriceSelection *selection);
+
+static void
+transfer_price_selection_destroyed (GtkWidget *widget,
+                                    TransferPriceSelection *selection)
+{
+    (void)widget;
+    selection->info = nullptr;
+    selection->destroy_handler = 0;
+}
+
+static void
+transfer_price_selection_free (TransferPriceSelection *selection)
+{
+    if (!selection)
+        return;
+    auto window = static_cast<GtkWidget*>(g_weak_ref_get (&selection->matcher_window));
+    if (window && selection->destroy_handler)
+        g_signal_handler_disconnect (window, selection->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&selection->matcher_window);
+    delete selection;
+}
+
+static void
+transfer_price_selection_finished_cb (gboolean completed, gpointer user_data)
+{
+    auto selection = static_cast<TransferPriceSelection*>(user_data);
+    auto window = static_cast<GtkWidget*>(g_weak_ref_get (&selection->matcher_window));
+    if (!completed || !window || !selection->info)
+    {
+        g_clear_object (&window);
+        transfer_price_selection_free (selection);
+        return;
+    }
+
+    auto& object = selection->rows[selection->index];
+    RowInfo row { object.get () };
+    if (!gnc_numeric_zero_p (selection->exch_rate))
+    {
+        gnc_import_TransInfo_set_price (row.get_trans_info (),
+                                        gnc_numeric_invert (selection->exch_rate));
+        refresh_model_row (selection->info, row.get_object (), row.get_trans_info ());
+    }
+    g_object_unref (window);
+    ++selection->index;
+    transfer_price_selection_next (selection);
+}
+
+static void
+transfer_price_selection_next (TransferPriceSelection *selection)
+{
+    auto window = static_cast<GtkWidget*>(g_weak_ref_get (&selection->matcher_window));
+    if (!window || !selection->info || selection->index >= selection->rows.size ())
+    {
+        g_clear_object (&window);
+        transfer_price_selection_free (selection);
+        return;
+    }
+
+    RowInfo row { selection->rows[selection->index].get () };
+    auto trans = gnc_import_TransInfo_get_trans (row.get_trans_info ());
+    auto split = gnc_import_TransInfo_get_fsplit (row.get_trans_info ());
+    auto src_acc = xaccSplitGetAccount (split);
+    auto dest_acc = gnc_import_TransInfo_get_destacc (row.get_trans_info ());
+    auto dest_value = gnc_import_TransInfo_get_dest_value (row.get_trans_info ());
+    selection->exch_rate = gnc_import_TransInfo_get_price (row.get_trans_info ());
+
+    auto xfer = gnc_xfer_dialog (window, src_acc);
+    gnc_xfer_dialog_select_to_account (xfer, dest_acc);
+    gnc_xfer_dialog_set_amount (xfer, dest_value);
+    gnc_xfer_dialog_set_date (xfer, xaccTransGetDate (trans));
+    gnc_xfer_dialog_set_from_show_button_active (xfer, FALSE);
+    gnc_xfer_dialog_set_to_show_button_active (xfer, FALSE);
+    gnc_xfer_dialog_hide_from_account_tree (xfer);
+    gnc_xfer_dialog_hide_to_account_tree (xfer);
+    gnc_xfer_dialog_is_exchange_dialog (xfer, &selection->exch_rate);
+    gnc_xfer_dialog_run_async (xfer, transfer_price_selection_finished_cb, selection);
+    g_object_unref (window);
+}
+
 static void
 gnc_gen_trans_set_price_to_selection_cb (GtkButton *button,
                                          GNCImportMainMatcher *info)
 {
     ENTER("");
     g_return_if_fail (info);
-
-    auto selected_rows = matcher_selected_rows (info);
+    auto rows = matcher_selected_rows (info);
     (void)button;
-
-    if (selected_rows.empty ())
+    if (rows.empty ())
     {
         LEAVE ("No selected rows");
         return;
     }
 
-    for (const auto& object : selected_rows)
-    {
-        RowInfo row { object.get () };
-        auto trans = gnc_import_TransInfo_get_trans (row.get_trans_info ());
-        time64 post_date = xaccTransGetDate(trans);
-        auto split = gnc_import_TransInfo_get_fsplit (row.get_trans_info ());
-        Account *src_acc = xaccSplitGetAccount (split);
-        auto dest_acc = gnc_import_TransInfo_get_destacc (row.get_trans_info ());
-        auto dest_value = gnc_import_TransInfo_get_dest_value (row.get_trans_info ());
-
-        XferDialog *xfer = gnc_xfer_dialog(GTK_WIDGET (info->main_widget), src_acc);
-        gnc_xfer_dialog_select_to_account(xfer, dest_acc);
-        gnc_xfer_dialog_set_amount(xfer, dest_value);
-        gnc_xfer_dialog_set_date (xfer, post_date);
-
-        /* All we want is the exchange rate so prevent the user from thinking
-            *      it makes sense to mess with other stuff */
-        gnc_xfer_dialog_set_from_show_button_active(xfer, false);
-        gnc_xfer_dialog_set_to_show_button_active(xfer, false);
-        gnc_xfer_dialog_hide_from_account_tree(xfer);
-        gnc_xfer_dialog_hide_to_account_tree(xfer);
-        gnc_numeric exch = gnc_import_TransInfo_get_price (row.get_trans_info ());
-        gnc_xfer_dialog_is_exchange_dialog(xfer, &exch);
-
-        if (!gnc_xfer_dialog_run_until_done(xfer))
-            break; /* If the user cancels, return to the payment dialog without changes */
-
-
-        /* Note the exchange rate we received is backwards from what we really need:
-         * it converts value to amount, but the remainder of the code expects
-         * an exchange rate that converts from amount to value. So let's invert
-         * the result (though only if that doesn't result in a division by 0). */
-        if (!gnc_numeric_zero_p(exch))
-        {
-            gnc_import_TransInfo_set_price (row.get_trans_info (),
-                                            gnc_numeric_invert(exch));
-            refresh_model_row (info, row.get_object (), row.get_trans_info ());
-        }
-    }
-    LEAVE("");
+    auto selection = new TransferPriceSelection { {}, info, std::move (rows), 0,
+                                                   gnc_numeric_zero (), 0 };
+    g_weak_ref_init (&selection->matcher_window, info->main_widget);
+    selection->destroy_handler = g_signal_connect (info->main_widget, "destroy",
+                                                    G_CALLBACK (transfer_price_selection_destroyed), selection);
+    transfer_price_selection_next (selection);
+    LEAVE ("");
 }
-
 static void
 gnc_gen_trans_edit_fields (GtkButton *button, GNCImportMainMatcher *info)
 {

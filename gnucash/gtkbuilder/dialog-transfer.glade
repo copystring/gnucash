@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="transfer_dialog">
+  <object class="GtkWindow" id="transfer_dialog">
 <property name="title" translatable="1">Transfer Funds</property>
-<signal name="response" handler="gnc_xfer_dialog_response_cb" swapped="no" />
-    <child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="vbox">
         <property name="orientation">vertical</property>
         <property name="spacing">2</property>
@@ -472,15 +471,11 @@
         </child>
       </object>
     </child>
-    <action-widgets>
-      <action-widget response="-6">button</action-widget>
-      <action-widget response="-5">button1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
+    <child>
       <object class="GtkBox" id="hbbox">
         <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="button">
+          <object class="GtkButton" id="cancel_button">
             <property name="label" translatable="1">_Cancel</property>
             <property name="focusable">1</property>
 <property name="use-underline">1</property>
@@ -488,7 +483,7 @@
 
         </child>
         <child>
-          <object class="GtkButton" id="button1">
+          <object class="GtkButton" id="ok_button">
             <property name="label" translatable="1">_OK</property>
             <property name="focusable">1</property>
             <property name="use-underline">1</property>

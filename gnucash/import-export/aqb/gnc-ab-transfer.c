@@ -143,39 +143,131 @@ transfer_set_xfer_dialog_title (XferDialog *xfer_dialog,
     }
 }
 
-static gboolean
-transfer_create_gnucash_transaction (TransferData *data, GtkWidget *parent,
-                                     const AB_TRANSACTION *ab_trans,
-                                     Transaction **gnc_trans)
+typedef struct
+{
+    TransferData *data;
+    GWeakRef parent;
+    GNC_AB_JOB *job;
+    GNC_AB_JOB_LIST2 *job_list;
+    gboolean send_now;
+    Transaction *gnc_trans;
+} TransferExecution;
+
+static void transfer_execution_finish (TransferExecution *execution,
+                                       gboolean successful, gboolean retry);
+
+static void
+transfer_execution_xfer_finished_cb (gboolean completed, gpointer user_data)
+{
+    TransferExecution *execution = user_data;
+    GtkWidget *parent = g_weak_ref_get (&execution->parent);
+    GncGWENGui *gui = NULL;
+    AB_IMEXPORTER_CONTEXT *context = NULL;
+    GncABImExContextImport *ieci = NULL;
+    GNC_AB_JOB_STATUS job_status;
+    gboolean retry = FALSE;
+
+    if (!completed || !execution->gnc_trans || !parent)
+        goto cleanup;
+    if (!execution->send_now)
+    {
+        transfer_execution_finish (execution, TRUE, FALSE);
+        g_clear_object (&parent);
+        return;
+    }
+
+    context = AB_ImExporterContext_new ();
+    gui = gnc_GWEN_Gui_get (parent);
+    if (!gui)
+    {
+        g_warning ("gnc_ab_maketrans: Couldn't initialize Gwenhywfar GUI");
+        goto cleanup;
+    }
+    AB_Banking_SendCommands (execution->data->api, execution->job_list, context);
+    job_status = AB_Transaction_GetStatus (execution->job);
+    if (job_status != AB_Transaction_StatusAccepted &&
+        job_status != AB_Transaction_StatusPending)
+    {
+        if (gnc_verify_dialog (GTK_WINDOW (parent), FALSE, "%s",
+                _("An error occurred while executing the job. Please check "
+                  "the log window for the exact error message.\n\n"
+                  "Do you want to enter the job again?")))
+            retry = TRUE;
+        goto cleanup;
+    }
+    ieci = gnc_ab_import_context (context, 0, FALSE, NULL, parent);
+    if (ieci)
+        g_free (ieci);
+    if (context)
+        AB_ImExporterContext_free (context);
+    if (gui)
+        gnc_GWEN_Gui_release (gui);
+    transfer_execution_finish (execution, TRUE, FALSE);
+    g_object_unref (parent);
+    return;
+
+cleanup:
+    if (ieci)
+        g_free (ieci);
+    if (context)
+        AB_ImExporterContext_free (context);
+    if (gui)
+        gnc_GWEN_Gui_release (gui);
+    g_clear_object (&parent);
+    transfer_execution_finish (execution, FALSE, retry);
+}
+
+static void
+transfer_execution_finish (TransferExecution *execution, gboolean successful,
+                           gboolean retry)
+{
+    if (execution->gnc_trans && !successful)
+    {
+        xaccTransBeginEdit (execution->gnc_trans);
+        xaccTransDestroy (execution->gnc_trans);
+        xaccTransCommitEdit (execution->gnc_trans);
+    }
+    if (execution->job_list)
+        AB_Transaction_List2_free (execution->job_list);
+    if (execution->job)
+        AB_Transaction_free (execution->job);
+    g_weak_ref_clear (&execution->parent);
+    if (retry)
+        transfer_request_input (execution->data);
+    else
+        transfer_data_free (execution->data);
+    g_free (execution);
+}
+
+static void
+transfer_create_gnucash_transaction_async (TransferExecution *execution,
+                                           GtkWidget *parent,
+                                           const AB_TRANSACTION *ab_trans)
 {
     XferDialog *xfer_dialog;
     gnc_numeric amount;
     gchar *description;
     gchar *memo;
 
-    xfer_dialog = gnc_xfer_dialog (parent, data->gnc_acc);
-    transfer_set_xfer_dialog_title (xfer_dialog, data->trans_type);
+    xfer_dialog = gnc_xfer_dialog (parent, execution->data->gnc_acc);
+    transfer_set_xfer_dialog_title (xfer_dialog, execution->data->trans_type);
     gnc_xfer_dialog_set_to_show_button_active (xfer_dialog, TRUE);
-
-    amount = double_to_gnc_numeric (
-        AB_Value_GetValueAsDouble (AB_Transaction_GetValue (ab_trans)),
-        xaccAccountGetCommoditySCU (data->gnc_acc), GNC_HOW_RND_ROUND_HALF_UP);
+    amount = double_to_gnc_numeric (AB_Value_GetValueAsDouble (AB_Transaction_GetValue (ab_trans)),
+                                    xaccAccountGetCommoditySCU (execution->data->gnc_acc),
+                                    GNC_HOW_RND_ROUND_HALF_UP);
     gnc_xfer_dialog_set_amount (xfer_dialog, amount);
     gnc_xfer_dialog_set_amount_sensitive (xfer_dialog, FALSE);
     gnc_xfer_dialog_set_date_sensitive (xfer_dialog, FALSE);
-
     description = gnc_ab_description_to_gnc (ab_trans, FALSE);
     gnc_xfer_dialog_set_description (xfer_dialog, description);
     g_free (description);
-
     memo = gnc_ab_memo_to_gnc (ab_trans);
     gnc_xfer_dialog_set_memo (xfer_dialog, memo);
     g_free (memo);
-
-    gnc_xfer_dialog_set_txn_cb (xfer_dialog, txn_created_cb, gnc_trans);
-    return gnc_xfer_dialog_run_until_done (xfer_dialog);
+    gnc_xfer_dialog_set_txn_cb (xfer_dialog, txn_created_cb, &execution->gnc_trans);
+    gnc_xfer_dialog_run_async (xfer_dialog, transfer_execution_xfer_finished_cb,
+                               execution);
 }
-
 static void
 transfer_dialog_finished (GObject *source, GAsyncResult *result,
                           gpointer user_data)
@@ -187,12 +279,6 @@ transfer_dialog_finished (GObject *source, GAsyncResult *result,
     GNC_AB_JOB *job = NULL;
     GNC_AB_JOB_LIST2 *job_list = NULL;
     const AB_TRANSACTION *ab_trans;
-    GncGWENGui *gui = NULL;
-    AB_IMEXPORTER_CONTEXT *context = NULL;
-    GncABImExContextImport *ieci = NULL;
-    Transaction *gnc_trans = NULL;
-    GNC_AB_JOB_STATUS job_status;
-    gboolean successful = FALSE;
     gboolean retry = FALSE;
 
     (void)source;
@@ -249,58 +335,19 @@ transfer_dialog_finished (GObject *source, GAsyncResult *result,
 
     job_list = AB_Transaction_List2_new ();
     AB_Transaction_List2_PushBack (job_list, job);
-    if (!transfer_create_gnucash_transaction (data, parent, ab_trans,
-                                              &gnc_trans))
-        goto cleanup;
-
-    if (!gnc_trans)
-        goto cleanup;
-
-    if (response == GNC_RESPONSE_LATER)
-    {
-        successful = TRUE;
-        goto cleanup;
-    }
-
-    context = AB_ImExporterContext_new ();
-    gui = gnc_GWEN_Gui_get (parent);
-    if (!gui)
-    {
-        g_warning ("gnc_ab_maketrans: Couldn't initialize Gwenhywfar GUI");
-        goto cleanup;
-    }
-
-    AB_Banking_SendCommands (data->api, job_list, context);
-    job_status = AB_Transaction_GetStatus (job);
-    if (job_status != AB_Transaction_StatusAccepted
-        && job_status != AB_Transaction_StatusPending)
-    {
-        if (gnc_verify_dialog (
-                GTK_WINDOW (parent), FALSE, "%s",
-                _("An error occurred while executing the job. Please check "
-                  "the log window for the exact error message.\n"
-                  "\n"
-                  "Do you want to enter the job again?")))
-            retry = TRUE;
-        goto cleanup;
-    }
-
-    successful = TRUE;
-    ieci = gnc_ab_import_context (context, 0, FALSE, NULL, parent);
+    TransferExecution *execution = g_new0 (TransferExecution, 1);
+    execution->data = data;
+    execution->job = job;
+    execution->job_list = job_list;
+    execution->send_now = response == GNC_RESPONSE_NOW;
+    g_weak_ref_init (&execution->parent, parent);
+    job = NULL;
+    job_list = NULL;
+    transfer_create_gnucash_transaction_async (execution, parent, ab_trans);
+    g_object_unref (parent);
+    return;
 
 cleanup:
-    if (gnc_trans && !successful)
-    {
-        xaccTransBeginEdit (gnc_trans);
-        xaccTransDestroy (gnc_trans);
-        xaccTransCommitEdit (gnc_trans);
-    }
-    if (ieci)
-        g_free (ieci);
-    if (context)
-        AB_ImExporterContext_free (context);
-    if (gui)
-        gnc_GWEN_Gui_release (gui);
     if (job_list)
         AB_Transaction_List2_free (job_list);
     if (job)

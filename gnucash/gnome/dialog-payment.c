@@ -942,112 +942,125 @@ get_selected_lots (GtkTreeModel *model,
         *return_list = g_list_insert_sorted (*return_list, lot, (GCompareFunc)gncOwnerLotsSortFunc);
 }
 
+typedef struct
+{
+    GWeakRef window;
+    PaymentWindow *pw;
+    GList *selected_lots;
+    gchar *memo;
+    gchar *num;
+    time64 date;
+    gnc_numeric exch_rate;
+} PaymentApplyRequest;
+
+static void
+payment_apply_request_free (PaymentApplyRequest *request)
+{
+    if (!request)
+        return;
+    g_list_free (request->selected_lots);
+    g_free (request->memo);
+    g_free (request->num);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+payment_apply_request_finish (PaymentApplyRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+    PaymentWindow *pw = request->pw;
+
+    if (!window || !pw || pw->dialog != window)
+        goto cleanup;
+
+    /* The dialog remained alive through the modal exchange request, so this
+     * is the same confirmed payment snapshot the user accepted. */
+    gnc_gui_component_clear_watches (pw->component_id);
+    gnc_suspend_gui_refresh ();
+    {
+        gboolean auto_pay;
+        if (gncOwnerGetType (&pw->owner) == GNC_OWNER_CUSTOMER)
+            auto_pay = gnc_prefs_get_bool (GNC_PREFS_GROUP_INVOICE, GNC_PREF_AUTO_PAY);
+        else
+            auto_pay = gnc_prefs_get_bool (GNC_PREFS_GROUP_BILL, GNC_PREF_AUTO_PAY);
+        gncOwnerApplyPaymentSecs (&pw->owner, &pw->tx_info->txn, request->selected_lots,
+                                  pw->post_acct, pw->xfer_acct, pw->amount_tot,
+                                  request->exch_rate, request->date, request->memo,
+                                  request->num, auto_pay);
+    }
+    gnc_resume_gui_refresh ();
+
+    gnc_payment_dialog_remember_account (pw, pw->xfer_acct);
+    if (gtk_widget_is_sensitive (pw->print_check) &&
+        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (pw->print_check)))
+    {
+        Split *split = xaccTransFindSplitByAccount (pw->tx_info->txn, pw->xfer_acct);
+        GList *splits = g_list_append (NULL, split);
+        gnc_ui_print_check_dialog_create (NULL, splits, NULL);
+        g_list_free (splits);
+    }
+    gnc_ui_payment_window_destroy (pw);
+
+cleanup:
+    g_clear_object (&window);
+    payment_apply_request_free (request);
+}
+
+static void
+payment_exchange_finished_cb (gboolean completed, gpointer user_data)
+{
+    PaymentApplyRequest *request = user_data;
+    if (completed)
+        payment_apply_request_finish (request);
+    else
+        payment_apply_request_free (request);
+}
+
 void
 gnc_payment_ok_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {
     PaymentWindow *pw = data;
-    const char *text = NULL;
-
-    if (!pw)
+    if (!pw || !gnc_payment_window_check_payment (pw))
         return;
 
-    /* The gnc_payment_window_check_payment function
-     * ensures we have valid owner, post account, transfer account
-     * and amount so we can proceed with the payment.
-     * Note: make sure it's called before all entry points to this function !
-     */
-
-    /* We're on our way out, stop watching for object changes that could
-     * trigger a gui refresh. Without this the gui suspend/resume
-     * pair could still trigger a gui update on the payment dialog
-     * before we close it. This is undesired because the lots may be in
-     * an inconsistent state until after all events are handled. So
-     * the gui refresh may result in a crash.
-     * See https://bugs.gnucash.org/show_bug.cgi?id=740471
-     */
-    gnc_gui_component_clear_watches (pw->component_id);
-
-    gnc_suspend_gui_refresh ();
+    PaymentApplyRequest *request = g_new0 (PaymentApplyRequest, 1);
+    request->pw = pw;
+    request->exch_rate = gnc_numeric_create (1, 1);
+    request->memo = g_strdup (gnc_entry_get_text (GTK_ENTRY (pw->memo_entry)));
+    request->num = g_strdup (gnc_entry_get_text (GTK_ENTRY (pw->num_entry)));
+    g_weak_ref_init (&request->window, pw->dialog);
     {
-        const char *memo, *num;
         GDate date;
-        time64 t;
-        gnc_numeric exch = gnc_numeric_create(1, 1); //default to "one to one" rate
-        GList *selected_lots = NULL;
-        GtkTreeSelection *selection;
-        gboolean auto_pay;
-
-        /* Obtain all our ancillary information */
-        memo = gnc_entry_get_text (GTK_ENTRY (pw->memo_entry));
-        num = gnc_entry_get_text (GTK_ENTRY (pw->num_entry));
+        GtkTreeSelection *selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (pw->docs_list_tree_view));
         g_date_clear (&date, 1);
         gnc_date_edit_get_gdate (GNC_DATE_EDIT (pw->date_edit), &date);
-        t = gdate_to_time64 (date);
-
-        /* Obtain the list of selected lots (documents/payments) from the dialog */
-        selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(pw->docs_list_tree_view));
-        gtk_tree_selection_selected_foreach (selection, get_selected_lots, &selected_lots);
-
-        /* When the payment amount is 0, the selected documents cancel each other out
-         * so no money is actually transferred.
-         * For non-zero payments money will be transferred between the post account
-         * and the transfer account. In that case if these two accounts don't have
-         * the same currency the user is asked to enter the exchange rate.
-         */
-        if (!gnc_numeric_zero_p (pw->amount_tot) &&
-            !gnc_commodity_equal(xaccAccountGetCommodity(pw->xfer_acct), xaccAccountGetCommodity(pw->post_acct)))
-        {
-            XferDialog* xfer;
-
-            text = _("The transfer and post accounts are associated with different currencies. Please specify the conversion rate.");
-
-            xfer = gnc_xfer_dialog(pw->dialog, pw->post_acct);
-            gnc_info_dialog (GTK_WINDOW (pw->dialog), "%s", text);
-
-            gnc_xfer_dialog_select_to_account(xfer, pw->xfer_acct);
-            gnc_xfer_dialog_set_amount(xfer, pw->amount_tot);
-            gnc_xfer_dialog_set_date (xfer, t);
-
-            /* All we want is the exchange rate so prevent the user from thinking
-               it makes sense to mess with other stuff */
-            gnc_xfer_dialog_set_from_show_button_active(xfer, FALSE);
-            gnc_xfer_dialog_set_to_show_button_active(xfer, FALSE);
-            gnc_xfer_dialog_hide_from_account_tree(xfer);
-            gnc_xfer_dialog_hide_to_account_tree(xfer);
-            gnc_xfer_dialog_is_exchange_dialog(xfer, &exch);
-
-            if (!gnc_xfer_dialog_run_until_done(xfer))
-                return; /* If the user cancels, return to the payment dialog without changes */
-        }
-
-        /* Perform the payment */
-        if (gncOwnerGetType (&(pw->owner)) == GNC_OWNER_CUSTOMER)
-            auto_pay = gnc_prefs_get_bool (GNC_PREFS_GROUP_INVOICE, GNC_PREF_AUTO_PAY);
-        else
-            auto_pay = gnc_prefs_get_bool (GNC_PREFS_GROUP_BILL, GNC_PREF_AUTO_PAY);
-
-        gncOwnerApplyPaymentSecs (&pw->owner, &(pw->tx_info->txn), selected_lots,
-                                  pw->post_acct, pw->xfer_acct, pw->amount_tot,
-                                  exch, t, memo, num, auto_pay);
+        request->date = gdate_to_time64 (date);
+        gtk_tree_selection_selected_foreach (selection, get_selected_lots,
+                                             &request->selected_lots);
     }
-    gnc_resume_gui_refresh ();
 
-    /* Save the transfer account, xfer_acct */
-    gnc_payment_dialog_remember_account(pw, pw->xfer_acct);
-
-    if (gtk_widget_is_sensitive (pw->print_check) &&
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(pw->print_check)))
+    if (gnc_numeric_zero_p (pw->amount_tot) ||
+        gnc_commodity_equal (xaccAccountGetCommodity (pw->xfer_acct),
+                              xaccAccountGetCommodity (pw->post_acct)))
     {
-        Split *split = xaccTransFindSplitByAccount (pw->tx_info->txn, pw->xfer_acct);
-        GList *splits = NULL;
-        splits = g_list_append(splits, split);
-        gnc_ui_print_check_dialog_create(NULL, splits, NULL);
-        g_list_free (splits);
+        payment_apply_request_finish (request);
+        return;
     }
 
-    gnc_ui_payment_window_destroy (pw);
+    const char *text = _("The transfer and post accounts are associated with different currencies. Please specify the conversion rate.");
+    XferDialog *xfer = gnc_xfer_dialog (pw->dialog, pw->post_acct);
+    gnc_info_dialog (GTK_WINDOW (pw->dialog), "%s", text);
+    gnc_xfer_dialog_select_to_account (xfer, pw->xfer_acct);
+    gnc_xfer_dialog_set_amount (xfer, pw->amount_tot);
+    gnc_xfer_dialog_set_date (xfer, request->date);
+    gnc_xfer_dialog_set_from_show_button_active (xfer, FALSE);
+    gnc_xfer_dialog_set_to_show_button_active (xfer, FALSE);
+    gnc_xfer_dialog_hide_from_account_tree (xfer);
+    gnc_xfer_dialog_hide_to_account_tree (xfer);
+    gnc_xfer_dialog_is_exchange_dialog (xfer, &request->exch_rate);
+    gnc_xfer_dialog_run_async (xfer, payment_exchange_finished_cb, request);
 }
-
 void
 gnc_payment_cancel_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {

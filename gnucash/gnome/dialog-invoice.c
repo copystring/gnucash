@@ -1808,215 +1808,240 @@ invoice_post_request (InvoiceWindow *iw, const char *message,
         invoice_post_request_free (request);
 }
 
+typedef struct
+{
+    gnc_commodity *currency;
+    gnc_numeric amount;
+} InvoiceExchangeCurrency;
+
+typedef struct
+{
+    GWeakRef window;
+    InvoiceWindow *iw;
+    QofBook *book;
+    GncGUID invoice_guid;
+    GncGUID account_guid;
+    time64 ddue;
+    time64 postdate;
+    gboolean accumulate;
+    gboolean is_customer;
+    gchar *memo;
+    GList *currencies;
+    GList *current;
+    gnc_numeric exch_rate;
+    gulong destroy_handler;
+} InvoiceExchangeRequest;
+
+static void invoice_exchange_request_next (InvoiceExchangeRequest *request);
+
+static void
+invoice_exchange_request_destroyed (GtkWidget *widget, InvoiceExchangeRequest *request)
+{
+    (void)widget;
+    request->iw = NULL;
+    request->destroy_handler = 0;
+}
+
+static GncInvoice *
+invoice_exchange_request_invoice (const InvoiceExchangeRequest *request)
+{
+    if (!request->iw || qof_book_shutting_down (request->book))
+        return NULL;
+    GncInvoice *invoice = gncInvoiceLookup (request->book, &request->invoice_guid);
+    return invoice && iw_get_invoice (request->iw) == invoice ? invoice : NULL;
+}
+
+static void
+invoice_exchange_request_free (InvoiceExchangeRequest *request)
+{
+    if (!request)
+        return;
+    GtkWidget *window = g_weak_ref_get (&request->window);
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    g_list_free_full (request->currencies, g_free);
+    g_free (request->memo);
+    g_free (request);
+}
+
+static void
+invoice_exchange_request_complete (InvoiceExchangeRequest *request, gboolean post_ok)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+    GncInvoice *invoice = invoice_exchange_request_invoice (request);
+    Account *account = xaccAccountLookup (&request->account_guid, request->book);
+
+    if (invoice && account && post_ok)
+    {
+        QofInstance *owner_inst = qofOwnerGetOwner (gncOwnerGetEndOwner (&request->iw->owner));
+        const GncGUID *guid = qof_instance_get_guid (QOF_INSTANCE (account));
+        qof_begin_edit (owner_inst);
+        qof_instance_set (owner_inst, "invoice-last-posted-account", guid, NULL);
+        qof_commit_edit (owner_inst);
+        gboolean auto_pay = gnc_prefs_get_bool (request->is_customer ? GNC_PREFS_GROUP_INVOICE :
+                                              GNC_PREFS_GROUP_BILL, GNC_PREF_AUTO_PAY);
+        gncInvoicePostToAccount (invoice, account, request->postdate, request->ddue,
+                                 request->memo, request->accumulate, auto_pay);
+    }
+    if (invoice)
+        gncInvoiceCommitEdit (invoice);
+    gnc_resume_gui_refresh ();
+
+    if (window && invoice && request->iw)
+    {
+        if (post_ok)
+        {
+            request->iw->dialog_type = VIEW_INVOICE;
+            gnc_entry_ledger_set_readonly (request->iw->ledger, TRUE);
+        }
+        else
+            gnc_info_dialog (GTK_WINDOW (window), "%s",
+                             _("The post action was canceled because not all exchange rates were given."));
+        gnc_invoice_update_window (request->iw, NULL);
+        gnc_table_refresh_gui (gnc_entry_ledger_get_table (request->iw->ledger), FALSE);
+    }
+    g_clear_object (&window);
+    invoice_exchange_request_free (request);
+}
+
+static void
+invoice_exchange_request_finished_cb (gboolean completed, gpointer user_data)
+{
+    InvoiceExchangeRequest *request = user_data;
+    GncInvoice *invoice = invoice_exchange_request_invoice (request);
+    InvoiceExchangeCurrency *item = request->current->data;
+    if (!completed || !invoice)
+    {
+        invoice_exchange_request_complete (request, FALSE);
+        return;
+    }
+
+    gnc_numeric rate = request->exch_rate;
+    if (!gnc_numeric_zero_p (rate))
+        rate = gnc_numeric_div ((gnc_numeric){1, 1}, rate, GNC_DENOM_AUTO,
+                                GNC_HOW_RND_ROUND_HALF_UP);
+    GNCPrice *convprice = gnc_price_create (request->book);
+    gnc_price_begin_edit (convprice);
+    gnc_price_set_commodity (convprice, item->currency);
+    gnc_price_set_currency (convprice, gncInvoiceGetCurrency (invoice));
+    gnc_price_set_time64 (convprice, request->postdate);
+    gnc_price_set_source (convprice, PRICE_SOURCE_TEMP);
+    gnc_price_set_typestr (convprice, PRICE_TYPE_LAST);
+    gnc_price_set_value (convprice, rate);
+    gncInvoiceAddPrice (invoice, convprice);
+    gnc_price_commit_edit (convprice);
+    request->current = request->current->next;
+    invoice_exchange_request_next (request);
+}
+
+static void
+invoice_exchange_request_next (InvoiceExchangeRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+    GncInvoice *invoice = invoice_exchange_request_invoice (request);
+    if (!window || !invoice)
+    {
+        g_clear_object (&window);
+        invoice_exchange_request_complete (request, FALSE);
+        return;
+    }
+    if (!request->current)
+    {
+        g_object_unref (window);
+        invoice_exchange_request_complete (request, TRUE);
+        return;
+    }
+
+    Account *account = xaccAccountLookup (&request->account_guid, request->book);
+    InvoiceExchangeCurrency *item = request->current->data;
+    if (!account)
+    {
+        g_object_unref (window);
+        invoice_exchange_request_complete (request, FALSE);
+        return;
+    }
+    XferDialog *xfer = gnc_xfer_dialog (window, account);
+    request->exch_rate = gnc_numeric_zero ();
+    { GNCPrice *convprice = gncInvoiceGetPrice (invoice, item->currency); if (convprice)
+    {
+        request->exch_rate = gnc_price_get_value (convprice);
+        if (!gnc_numeric_zero_p (request->exch_rate))
+            request->exch_rate = gnc_numeric_div ((gnc_numeric){1, 1}, request->exch_rate,
+                                                   GNC_DENOM_AUTO, GNC_HOW_RND_ROUND_HALF_UP);
+    } }
+    gnc_xfer_dialog_is_exchange_dialog (xfer, &request->exch_rate);
+    gnc_xfer_dialog_select_to_currency (xfer, item->currency);
+    gnc_xfer_dialog_set_date (xfer, request->postdate);
+    gnc_xfer_dialog_set_amount (xfer, gnc_numeric_zero_p (item->amount)
+                                       ? (gnc_numeric){1, 1} : item->amount);
+    gnc_xfer_dialog_set_from_show_button_active (xfer, FALSE);
+    gnc_xfer_dialog_set_to_show_button_active (xfer, FALSE);
+    gnc_xfer_dialog_hide_from_account_tree (xfer);
+    gnc_xfer_dialog_hide_to_account_tree (xfer);
+    gnc_xfer_dialog_set_price_edit (xfer, request->exch_rate);
+    gnc_xfer_dialog_run_async (xfer, invoice_exchange_request_finished_cb, request);
+    g_object_unref (window);
+}
+
 static void
 gnc_invoice_post_after_ledger (InvoiceWindow *iw,
                                struct post_invoice_params *post_params)
 {
-    GncInvoice *invoice;
-    char *memo;
-    Account *acc = NULL;
-    time64 ddue, postdate;
-    gboolean accumulate;
-    QofInstance *owner_inst;
-    const char *text;
-    GHashTable *foreign_currs;
-    GHashTableIter foreign_currs_iter;
-    gpointer key,value;
-    gboolean is_cust_doc, auto_pay;
-    gboolean show_dialog = TRUE;
-    gboolean post_ok = TRUE;
-
-    /* Make sure the invoice is ok */
     if (!gnc_invoice_window_verify_ok (iw))
         return;
-
-    invoice = iw_get_invoice (iw);
+    GncInvoice *invoice = iw_get_invoice (iw);
     if (!invoice)
         return;
-
-    /* Check that there is at least one Entry */
-    if (gncInvoiceGetEntries (invoice) == NULL)
+    if (!gncInvoiceGetEntries (invoice))
     {
-        gnc_error_dialog (GTK_WINDOW (iw_get_window(iw)), "%s",
+        gnc_error_dialog (GTK_WINDOW (iw_get_window (iw)), "%s",
                           _("The Invoice must have at least one Entry."));
         return;
     }
-
-    is_cust_doc = (gncInvoiceGetOwnerType (invoice) == GNC_OWNER_CUSTOMER);
-
-    /* Ok, we can post this invoice.  Ask for verification, set the due date,
-     * post date, and posted account
-     */
-    if (post_params)
+    if (!post_params)
     {
-        ddue = post_params->ddue;
-        postdate = post_params->postdate;
-        // Dup it since it will free it below
-        memo = g_strdup (post_params->memo);
-        acc = post_params->acc;
-        accumulate = post_params->accumulate;
-    }
-    else
-    {
-        invoice_post_request (iw, _("Do you really want to post the invoice?"),
-                              NULL);
+        invoice_post_request (iw, _("Do you really want to post the invoice?"), NULL);
         return;
     }
 
-    /* Yep, we're posting.  So, save the invoice...
-     * Note that we can safely ignore the return value; we checked
-     * the verify_ok earlier, so we know it's ok.
-     * Additionally make sure the invoice has the owner's currency
-     * refer to https://bugs.gnucash.org/show_bug.cgi?id=728074
-     */
+    InvoiceExchangeRequest *request = g_new0 (InvoiceExchangeRequest, 1);
+    request->iw = iw;
+    request->book = iw->book;
+    request->invoice_guid = iw->invoice_guid;
+    request->account_guid = *xaccAccountGetGUID (post_params->acc);
+    request->ddue = post_params->ddue;
+    request->postdate = post_params->postdate;
+    request->accumulate = post_params->accumulate;
+    request->is_customer = gncInvoiceGetOwnerType (invoice) == GNC_OWNER_CUSTOMER;
+    request->memo = g_strdup (post_params->memo);
+    g_weak_ref_init (&request->window, iw_get_window (iw));
+    request->destroy_handler = g_signal_connect (iw_get_window (iw), "destroy",
+                                                 G_CALLBACK (invoice_exchange_request_destroyed), request);
+
     gnc_suspend_gui_refresh ();
     gncInvoiceBeginEdit (invoice);
     gnc_invoice_window_ok_save (iw);
     gncInvoiceSetCurrency (invoice, gncOwnerGetCurrency (gncInvoiceGetOwner (invoice)));
-
-    /* Fill in the conversion prices with feedback from the user */
-    text = _("One or more of the entries are for accounts different from the invoice/bill currency. You will be asked to enter a conversion rate for each.");
-
-    /* Ask the user for conversion rates for all foreign currencies
-     * (relative to the invoice currency) */
-    foreign_currs = gncInvoiceGetForeignCurrencies (invoice);
-    g_hash_table_iter_init (&foreign_currs_iter, foreign_currs);
-    while (g_hash_table_iter_next (&foreign_currs_iter, &key, &value))
+    GHashTable *foreign_currs = gncInvoiceGetForeignCurrencies (invoice);
+    GHashTableIter iter;
+    gpointer key, value;
+    g_hash_table_iter_init (&iter, foreign_currs);
+    while (g_hash_table_iter_next (&iter, &key, &value))
     {
-        GNCPrice *convprice;
-        gnc_commodity *account_currency = (gnc_commodity*)key;
-        gnc_numeric *amount = (gnc_numeric*)value;
-        XferDialog *xfer;
-        gnc_numeric exch_rate;
-
-
-        /* Explain to the user we're about to ask for an exchange rate.
-         * Only show this dialog once, right before the first xfer dialog pops up.
-         */
-        if (show_dialog)
-        {
-            gnc_info_dialog(GTK_WINDOW (iw_get_window(iw)), "%s", text);
-            show_dialog = FALSE;
-        }
-
-        /* Note some twisted logic here:
-         * We ask the exchange rate
-         *  FROM invoice currency
-         *  TO other account currency
-         *  Because that's what happens logically.
-         *  But the internal posting logic works backwards:
-         *  It searches for an exchange rate
-         *  FROM other account currency
-         *  TO invoice currency
-         *  So we will store the inverted exchange rate
-         */
-
-        /* create the exchange-rate dialog */
-        xfer = gnc_xfer_dialog (iw_get_window(iw), acc);
-        gnc_xfer_dialog_is_exchange_dialog(xfer, &exch_rate);
-        gnc_xfer_dialog_select_to_currency(xfer, account_currency);
-        gnc_xfer_dialog_set_date (xfer, postdate);
-        /* Even if amount is 0 ask for an exchange rate. It's required
-         * for the transaction generating code. Use an amount of 1 in
-         * that case as the dialog won't allow to specify an exchange
-         * rate for 0. */
-        gnc_xfer_dialog_set_amount(xfer, gnc_numeric_zero_p (*amount) ?
-                                         (gnc_numeric){1, 1} : *amount);
-        /* If we already had an exchange rate from a previous post operation,
-         * set it here */
-        convprice = gncInvoiceGetPrice (invoice, account_currency);
-        if (convprice)
-        {
-            exch_rate = gnc_price_get_value (convprice);
-            /* Invert the exchange rate as explained above */
-            if (!gnc_numeric_zero_p (exch_rate))
-            {
-                exch_rate = gnc_numeric_div ((gnc_numeric){1, 1}, exch_rate,
-                            GNC_DENOM_AUTO, GNC_HOW_RND_ROUND_HALF_UP);
-                gnc_xfer_dialog_set_price_edit (xfer, exch_rate);
-            }
-        }
-
-        /* All we want is the exchange rate so prevent the user from thinking
-           it makes sense to mess with other stuff */
-        gnc_xfer_dialog_set_from_show_button_active(xfer, FALSE);
-        gnc_xfer_dialog_set_to_show_button_active(xfer, FALSE);
-        gnc_xfer_dialog_hide_from_account_tree(xfer);
-        gnc_xfer_dialog_hide_to_account_tree(xfer);
-        if (gnc_xfer_dialog_run_until_done(xfer))
-        {
-            /* User finished the transfer dialog successfully */
-
-            /* Invert the exchange rate as explained above */
-            if (!gnc_numeric_zero_p (exch_rate))
-                exch_rate = gnc_numeric_div ((gnc_numeric){1, 1}, exch_rate,
-            GNC_DENOM_AUTO, GNC_HOW_RND_ROUND_HALF_UP);
-            convprice = gnc_price_create(iw->book);
-            gnc_price_begin_edit (convprice);
-            gnc_price_set_commodity (convprice, account_currency);
-            gnc_price_set_currency (convprice, gncInvoiceGetCurrency (invoice));
-            gnc_price_set_time64 (convprice, postdate);
-            gnc_price_set_source (convprice, PRICE_SOURCE_TEMP);
-            gnc_price_set_typestr (convprice, PRICE_TYPE_LAST);
-            gnc_price_set_value (convprice, exch_rate);
-            gncInvoiceAddPrice(invoice, convprice);
-            gnc_price_commit_edit (convprice);
-        }
-        else
-        {
-            /* User canceled the transfer dialog, abort posting */
-            post_ok = FALSE;
-            goto cleanup;
-        }
+        InvoiceExchangeCurrency *item = g_new0 (InvoiceExchangeCurrency, 1);
+        item->currency = (gnc_commodity*)key;
+        item->amount = *(gnc_numeric*)value;
+        request->currencies = g_list_append (request->currencies, item);
     }
-
-
-    /* Save account as last used account in the owner's
-     * invoice-last-posted-account property.
-     */
-    owner_inst = qofOwnerGetOwner (gncOwnerGetEndOwner (&(iw->owner)));
-    {
-    const GncGUID *guid = qof_instance_get_guid (QOF_INSTANCE (acc));
-    qof_begin_edit (owner_inst);
-    qof_instance_set (owner_inst,
-                      "invoice-last-posted-account", guid,
-                      NULL);
-    qof_commit_edit (owner_inst);
-    }
-
-    /* ... post it ... */
-    if (is_cust_doc)
-        auto_pay = gnc_prefs_get_bool (GNC_PREFS_GROUP_INVOICE, GNC_PREF_AUTO_PAY);
-    else
-        auto_pay = gnc_prefs_get_bool (GNC_PREFS_GROUP_BILL, GNC_PREF_AUTO_PAY);
-
-    gncInvoicePostToAccount (invoice, acc, postdate, ddue, memo, accumulate, auto_pay);
-
-cleanup:
-    gncInvoiceCommitEdit (invoice);
     g_hash_table_unref (foreign_currs);
-    gnc_resume_gui_refresh ();
-
-    if (memo)
-        g_free (memo);
-
-    if (post_ok)
-    {
-        /* Reset the type; change to read-only! */
-        iw->dialog_type = VIEW_INVOICE;
-        gnc_entry_ledger_set_readonly (iw->ledger, TRUE);
-    }
-    else
-    {
-        text = _("The post action was canceled because not all exchange rates were given.");
-        gnc_info_dialog(GTK_WINDOW (iw_get_window(iw)), "%s", text);
-    }
-
-    /* ... and redisplay here. */
-    gnc_invoice_update_window (iw, NULL);
-    gnc_table_refresh_gui (gnc_entry_ledger_get_table (iw->ledger), FALSE);
+    request->current = request->currencies;
+    if (request->current)
+        gnc_info_dialog (GTK_WINDOW (iw_get_window (iw)), "%s",
+                         _("One or more of the entries are for accounts different from the invoice/bill currency. You will be asked to enter a conversion rate for each."));
+    invoice_exchange_request_next (request);
 }
-
 void
 gnc_invoice_window_postCB (GtkWidget *unused_widget, gpointer data)
 {
