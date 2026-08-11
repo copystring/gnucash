@@ -435,8 +435,25 @@ gnc_import_assistant_add_action_widget (GncImportAssistant *assistant,
                                          GtkWidget *widget)
 {
     GncImportAssistantState *state = assistant_state (assistant);
-    if (state && state->actions && widget)
-        gtk_box_append (state->actions, widget);
+    GtkWidget *spacer;
+
+    if (!state || !state->actions || !widget)
+        return;
+
+    gtk_widget_set_halign (GTK_WIDGET (state->actions), GTK_ALIGN_FILL);
+    gtk_widget_set_hexpand (GTK_WIDGET (state->actions), TRUE);
+    spacer = g_object_get_data (G_OBJECT (state->actions),
+                                "gnc-import-assistant-action-spacer");
+    if (!spacer)
+    {
+        spacer = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_set_hexpand (spacer, TRUE);
+        gtk_box_prepend (state->actions, spacer);
+        g_object_set_data (G_OBJECT (state->actions),
+                           "gnc-import-assistant-action-spacer", spacer);
+    }
+
+    gtk_box_prepend (state->actions, widget);
 }
 
 void

@@ -2072,23 +2072,6 @@ CsvImpTransAssist::assist_match_page_prepare ()
     /* Add the help button for the matcher */
     help_button = gtk_button_new_with_mnemonic (_("_Help"));
     gnc_import_assistant_add_action_widget (csv_imp_asst, help_button);
-    auto button_area = gtk_widget_get_parent (help_button);
-
-    if (GTK_IS_HEADER_BAR(button_area))
-    {
-//FIXME gtk4        gtk_container_child_set (GTK_CONTAINER(button_area),
-//                                 help_button,
-//                                 "pack-type", GTK_PACK_START,
-//                                 nullptr);
-    }
-    else
-    {
-        // align the help button on the left side
-        gtk_widget_set_halign (GTK_WIDGET(button_area), GTK_ALIGN_FILL);
-        gtk_widget_set_hexpand (GTK_WIDGET(button_area), TRUE);
-//FIXME gtk4        gtk_box_set_child_packing (GTK_BOX(button_area), help_button,
-//                                   FALSE, FALSE, 0, GTK_PACK_START);
-    }
     g_signal_connect (help_button, "clicked",
                      G_CALLBACK(on_matcher_help_clicked), gnc_csv_importer_gui);
 
