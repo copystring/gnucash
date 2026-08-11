@@ -243,6 +243,12 @@ gboolean gnc_file_open_file (GtkWindow *parent,
 typedef void (*GncFileQuerySaveCallback) (GtkWindow *parent,
                                           gboolean can_continue,
                                           gpointer user_data);
+/**
+ * Save the current session and invoke @completed once the save or a possible
+ * native Save As flow has either completed or been cancelled.
+ */
+void gnc_file_save_async (GtkWindow *parent, GncFileQuerySaveCallback completed,
+                          gpointer user_data);
 
 void gnc_file_query_save_async (GtkWindow *parent, gboolean can_cancel,
                                 GncFileQuerySaveCallback completed,

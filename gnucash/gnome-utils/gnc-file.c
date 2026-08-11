@@ -935,9 +935,9 @@ typedef struct
     gpointer user_data;
 } GncFileQuerySaveRequest;
 
-static void gnc_file_save_with_completion (GtkWindow *parent,
-                                           GncFileQuerySaveCallback completed,
-                                           gpointer user_data);
+void gnc_file_save_async (GtkWindow *parent,
+                          GncFileQuerySaveCallback completed,
+                          gpointer user_data);
 
 static void
 gnc_file_query_save_request_free (GncFileQuerySaveRequest *request)
@@ -991,7 +991,7 @@ gnc_file_query_save_finished (GObject *source, GAsyncResult *result,
     else if (response == 1 && request->can_cancel)
         gnc_file_query_save_complete (request, FALSE);
     else if (response == (request->can_cancel ? 2 : 1))
-        gnc_file_save_with_completion (parent, gnc_file_query_save_after_save,
+        gnc_file_save_async (parent, gnc_file_query_save_after_save,
                                        request);
     else
         gnc_file_query_save_complete (request, request->can_cancel ? FALSE : TRUE);
@@ -2183,10 +2183,10 @@ gnc_file_save_after_retry (GtkWindow *parent, gboolean saved, gpointer user_data
     g_free (retry);
 }
 
-static void
-gnc_file_save_with_completion (GtkWindow *parent,
-                               GncFileQuerySaveCallback completed,
-                               gpointer user_data)
+void
+gnc_file_save_async (GtkWindow *parent,
+                     GncFileQuerySaveCallback completed,
+                     gpointer user_data)
 {
     QofBackendError io_err;
     const char *newfile;
@@ -2252,7 +2252,7 @@ gnc_file_save_with_completion (GtkWindow *parent,
 void
 gnc_file_save (GtkWindow *parent)
 {
-    gnc_file_save_with_completion (parent, NULL, NULL);
+    gnc_file_save_async (parent, NULL, NULL);
 }
 /* Note: this dialog will only be used when dbi is not enabled
  *       paths used in it always refer to files and are

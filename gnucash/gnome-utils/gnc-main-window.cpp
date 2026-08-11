@@ -145,9 +145,10 @@ static GQuark window_type = 0;
 /** A list of all extant main windows. This is for convenience as the
  *  same information can be obtained from the object tracking code. */
 static GList *active_windows = nullptr;
-/** Count down timer for the save changes dialog. If the timer reaches zero
- *  any changes will be saved and the save dialog closed automatically */
-static guint secs_to_save = 0;
+/** Save-before-close is an application-wide operation. Keep exactly one
+ *  decision active so repeated accelerators and close requests cannot race. */
+static gboolean quit_request_pending = FALSE;
+static gboolean shutdown_started = FALSE;
 #define MSG_AUTO_SAVE _("Changes will be saved automatically in %u seconds")
 
 /* Declarations *********************************************************/
@@ -216,6 +217,7 @@ struct _GncMainWindow
     GtkApplicationWindow gtk_application_window;  /**< The parent object for a main window. */
     gboolean window_quitting;                     /**< Set to TRUE when quitting from this window. */
     gboolean just_plugin_prefs;                   /**< Just remove preferences only from plugins */
+    gboolean close_request_pending;                /**< An asynchronous close request owns this window. */
 };
 
 /** The instance private data structure for an embedded window
@@ -1154,159 +1156,54 @@ gnc_main_window_page_exists (GncPluginPage *page)
     return FALSE;
 }
 
-static gboolean auto_save_countdown (GtkWidget *dialog)
+typedef enum
 {
-    GtkWidget *label;
-    gchar *timeoutstr = nullptr;
+    GNC_MAIN_WINDOW_SAVE_DISCARD,
+    GNC_MAIN_WINDOW_SAVE_CANCEL,
+    GNC_MAIN_WINDOW_SAVE_APPLY
+} GncMainWindowSaveResponse;
 
-    /* Stop count down if user closed the dialog since the last time we were called */
-    if (!GTK_IS_DIALOG (dialog))
-        return FALSE; /* remove timer */
-
-    /* Stop count down if count down text can't be updated */
-    label = GTK_WIDGET (g_object_get_data (G_OBJECT (dialog), "count-down-label"));
-    if (!GTK_IS_LABEL (label))
-        return FALSE; /* remove timer */
-
-    /* Protect against rolling over to MAXUINT */
-    if (secs_to_save)
-        --secs_to_save;
-    DEBUG ("Counting down: %d seconds", secs_to_save);
-
-    timeoutstr = g_strdup_printf (MSG_AUTO_SAVE, secs_to_save);
-    gtk_label_set_text (GTK_LABEL (label), timeoutstr);
-    g_free (timeoutstr);
-
-    /* Count down reached 0. Save and close dialog */
-    if (!secs_to_save)
-    {
-        gtk_dialog_response (GTK_DIALOG(dialog), GTK_RESPONSE_APPLY);
-        return FALSE; /* remove timer */
-    }
-
-    /* Run another cycle */
-    return TRUE;
-}
-
-
-/** This function prompts the user to save the file with a dialog that
- *  follows the HIG guidelines.
- *
- *  @internal
- *
- *  @returns This function returns TRUE if the user clicked the Cancel
- *  button.  It returns FALSE if the closing of the window should
- *  continue.
- */
-static gboolean
-gnc_main_window_prompt_for_save (GtkWidget *window)
+typedef struct
 {
+    GWeakRef window;
     QofSession *session;
     QofBook *book;
-    GtkWidget *dialog, *msg_area, *label;
-    gint response;
-    const gchar *filename, *tmp;
-    const gchar *title = _("Save changes to file %s before closing?");
-    /* This should be the same message as in gnc-file.c */
-    const gchar *message_hours =
-        _("If you don't save, changes from the past %d hours and %d minutes will be discarded.");
-    const gchar *message_days =
-        _("If you don't save, changes from the past %d days and %d hours will be discarded.");
-    time64 oldest_change;
-    gint minutes, hours, days;
-    guint timer_source = 0;
-    if (!gnc_current_session_exist())
-        return FALSE;
-    session = gnc_get_current_session();
-    book = qof_session_get_book(session);
-    if (!qof_book_session_not_saved(book))
-        return FALSE;
-    filename = qof_session_get_url(session);
-    if (!strlen (filename))
-        filename = _("<unknown>");
-    if ((tmp = strrchr(filename, '/')) != nullptr)
-        filename = tmp + 1;
+    GtkWindow *dialog;
+    GtkLabel *countdown_label;
+    gulong dialog_destroy_handler;
+    guint timer_source;
+    guint seconds_to_save;
+    gboolean deciding;
+    gboolean completed;
+} GncMainWindowQuitRequest;
 
-    /* Remove any pending auto-save timeouts */
-    gnc_autosave_remove_timer(book);
+typedef struct
+{
+    GWeakRef window;
+} GncMainWindowCloseRequest;
 
-    dialog = gtk_message_dialog_new(GTK_WINDOW(window),
-                                    GTK_DIALOG_MODAL,
-                                    GTK_MESSAGE_WARNING,
-                                    GTK_BUTTONS_NONE,
-                                    title,
-                                    filename);
-    oldest_change = qof_book_get_session_dirty_time(book);
-    minutes = (gnc_time (nullptr) - oldest_change) / 60 + 1;
-    hours = minutes / 60;
-    minutes = minutes % 60;
-    days = hours / 24;
-    hours = hours % 24;
-    if (days > 0)
-    {
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                message_days, days, hours);
-    }
-    else if (hours > 0)
-    {
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                message_hours, hours, minutes);
-    }
-    else
-    {
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                ngettext("If you don't save, changes from the past %d minute will be discarded.",
-                         "If you don't save, changes from the past %d minutes will be discarded.",
-                         minutes), minutes);
-    }
-    gtk_dialog_add_buttons(GTK_DIALOG(dialog),
-                           _("Close _Without Saving"), GTK_RESPONSE_CLOSE,
-                           _("_Cancel"), GTK_RESPONSE_CANCEL,
-                           _("_Save"), GTK_RESPONSE_APPLY,
-                           nullptr);
-    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_APPLY);
+static void gnc_main_window_quit_request_finish (GncMainWindowQuitRequest *request,
+                                                  gboolean proceed);
 
-    /* If requested by the user, add a timeout to the question to save automatically
-     * if the user doesn't answer after a chosen number of seconds.
-     */
-    if (gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_SAVE_CLOSE_EXPIRES))
-    {
-        gchar *timeoutstr = nullptr;
-
-        secs_to_save = gnc_prefs_get_int (GNC_PREFS_GROUP_GENERAL, GNC_PREF_SAVE_CLOSE_WAIT_TIME);
-        timeoutstr = g_strdup_printf (MSG_AUTO_SAVE, secs_to_save);
-        label = GTK_WIDGET(gtk_label_new (timeoutstr));
-        g_free (timeoutstr);
-        gtk_widget_show (label);
-
-        msg_area = gtk_message_dialog_get_message_area (GTK_MESSAGE_DIALOG(dialog));
-        gtk_box_append (GTK_BOX(msg_area), label);
-        g_object_set (G_OBJECT (label), "xalign", 0.0, nullptr);
-
-        g_object_set_data (G_OBJECT (dialog), "count-down-label", label);
-        timer_source = g_timeout_add_seconds (1, (GSourceFunc)auto_save_countdown, dialog);
-    }
-
-    response = gnc_dialog_run_non_destructive (GTK_DIALOG (dialog));
-    if (timer_source)
-        g_source_remove (timer_source);
-    gtk_window_destroy (GTK_WINDOW (dialog));
-
-    switch (response)
-    {
-    case GTK_RESPONSE_APPLY:
-        gnc_file_save (GTK_WINDOW (window));
-        return FALSE;
-
-    case GTK_RESPONSE_CLOSE:
-        qof_book_mark_session_saved(book);
-        return FALSE;
-
-    default:
-        return TRUE;
-    }
+static gboolean
+gnc_main_window_quit_request_is_current (const GncMainWindowQuitRequest *request)
+{
+    return gnc_current_session_exist () &&
+           gnc_get_current_session () == request->session &&
+           qof_session_get_book (gnc_get_current_session ()) == request->book;
 }
 
+static void
+gnc_main_window_quit_request_free (GncMainWindowQuitRequest *request)
+{
+    if (request->timer_source)
+        g_source_remove (request->timer_source);
+    if (request->dialog_destroy_handler && request->dialog)
+        g_signal_handler_disconnect (request->dialog, request->dialog_destroy_handler);
+    g_clear_object (&request->dialog);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
 
 static void
 gnc_main_window_add_plugin (gpointer plugin,
@@ -1315,11 +1212,11 @@ gnc_main_window_add_plugin (gpointer plugin,
     g_return_if_fail (GNC_IS_MAIN_WINDOW (window));
     g_return_if_fail (GNC_IS_PLUGIN (plugin));
 
-    ENTER(" ");
+    ENTER (" ");
     gnc_plugin_add_to_window (GNC_PLUGIN (plugin),
                               GNC_MAIN_WINDOW (window),
                               window_type);
-    LEAVE(" ");
+    LEAVE (" ");
 }
 
 static void
@@ -1329,125 +1226,474 @@ gnc_main_window_remove_plugin (gpointer plugin,
     g_return_if_fail (GNC_IS_MAIN_WINDOW (window));
     g_return_if_fail (GNC_IS_PLUGIN (plugin));
 
-    ENTER(" ");
+    ENTER (" ");
     gnc_plugin_remove_from_window (GNC_PLUGIN (plugin),
                                    GNC_MAIN_WINDOW (window),
                                    window_type);
-    LEAVE(" ");
+    LEAVE (" ");
 }
-
 
 static gboolean
 gnc_main_window_timed_quit (gpointer dummy)
 {
-    if (gnc_file_save_in_progress())
+    (void)dummy;
+    if (gnc_file_save_in_progress ())
         return TRUE;
 
     gnc_shutdown (0);
     return FALSE;
 }
 
-static gboolean
-gnc_main_window_quit(GncMainWindow *window)
+static void
+gnc_main_window_begin_shutdown (void)
 {
-    QofSession *session;
-    gboolean needs_save, do_shutdown = TRUE;
-    if (gnc_current_session_exist())
-    {
-        session = gnc_get_current_session();
-        needs_save =
-            qof_book_session_not_saved(qof_session_get_book(session)) &&
-            !gnc_file_save_in_progress();
-        do_shutdown = !needs_save ||
-            (needs_save &&
-             !gnc_main_window_prompt_for_save(GTK_WIDGET(window)));
-    }
-    if (do_shutdown)
-    {
-        GList *w, *next;
+    GList *item;
 
-        /* This is not a typical list iteration. There is a possibility
-         * that the window may be removed from the active_windows list so
-         * we have to cache the 'next' pointer before executing any code
-         * in the loop. */
-        for (w = active_windows; w; w = next)
+    if (shutdown_started)
+        return;
+    shutdown_started = TRUE;
+
+    for (item = active_windows; item; )
+    {
+        GList *next = g_list_next (item);
+        auto window = static_cast<GncMainWindow *> (item->data);
+        auto priv = GNC_MAIN_WINDOW_GET_PRIVATE (window);
+
+        window->window_quitting = TRUE;
+        if (priv->installed_pages == NULL)
+            gtk_window_destroy (GTK_WINDOW (window));
+        item = next;
+    }
+
+    if (active_windows)
+        gnc_main_window_remove_prefs (GNC_MAIN_WINDOW (active_windows->data));
+    g_timeout_add (250, gnc_main_window_timed_quit, nullptr);
+}
+
+static void
+gnc_main_window_quit_request_finish (GncMainWindowQuitRequest *request,
+                                     gboolean proceed)
+{
+    GObject *object;
+    GncMainWindow *window = nullptr;
+
+    if (request->completed)
+        return;
+    request->completed = TRUE;
+    quit_request_pending = FALSE;
+
+    object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+    if (object && GNC_IS_MAIN_WINDOW (object))
+    {
+        window = GNC_MAIN_WINDOW (object);
+        window->close_request_pending = FALSE;
+    }
+
+    if (proceed)
+        gnc_main_window_begin_shutdown ();
+
+    g_clear_object (&object);
+    gnc_main_window_quit_request_free (request);
+}
+
+static void
+gnc_main_window_quit_request_after_save (GtkWindow *parent, gboolean saved,
+                                         gpointer user_data);
+
+static void
+gnc_main_window_quit_request_respond (GncMainWindowQuitRequest *request,
+                                      GncMainWindowSaveResponse response)
+{
+    GObject *object;
+    GtkWindow *parent = nullptr;
+
+    if (!request->deciding || request->completed)
+        return;
+    request->deciding = FALSE;
+
+    if (request->timer_source)
+    {
+        g_source_remove (request->timer_source);
+        request->timer_source = 0;
+    }
+    if (request->dialog_destroy_handler && request->dialog)
+    {
+        g_signal_handler_disconnect (request->dialog, request->dialog_destroy_handler);
+        request->dialog_destroy_handler = 0;
+    }
+    if (request->dialog)
+        gtk_window_destroy (request->dialog);
+    g_clear_object (&request->dialog);
+    request->countdown_label = nullptr;
+
+    object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+    if (object && GTK_IS_WINDOW (object))
+        parent = GTK_WINDOW (object);
+
+    if (response == GNC_MAIN_WINDOW_SAVE_APPLY)
+    {
+        if (!parent)
         {
-            GncMainWindowPrivate *priv;
-            GncMainWindow *window = static_cast<GncMainWindow*>(w->data);
-
-            next = g_list_next (w);
-
-            window->window_quitting = TRUE; //set window_quitting on all windows
-
-            priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
-
-            // if there are no pages destroy window
-            if (priv->installed_pages == NULL)
-                gtk_window_destroy (GTK_WINDOW(window));
+            g_clear_object (&object);
+            gnc_main_window_quit_request_finish (request, FALSE);
+            return;
         }
-        /* remove the preference callbacks from the main window */
-        gnc_main_window_remove_prefs (window);
-        g_timeout_add(250, gnc_main_window_timed_quit, nullptr);
-        return TRUE;
+        gnc_file_save_async (parent, gnc_main_window_quit_request_after_save, request);
+        g_clear_object (&object);
+        return;
     }
-    return FALSE;
-}
 
-gboolean
-gnc_main_window_is_quitting (GncMainWindow *window)
-{
-    g_return_val_if_fail(GNC_IS_MAIN_WINDOW(window), FALSE);
-    return window->window_quitting;
+    gboolean discard_current_book = response == GNC_MAIN_WINDOW_SAVE_DISCARD &&
+                                    gnc_main_window_quit_request_is_current (request);
+    if (discard_current_book)
+        qof_book_mark_session_saved (request->book);
+
+    g_clear_object (&object);
+    gnc_main_window_quit_request_finish (request, discard_current_book);
 }
 
 static gboolean
-gnc_main_window_close_request (GtkWindow *window,
-                              gpointer user_data)
+gnc_main_window_quit_request_countdown (gpointer user_data)
 {
-    static gboolean already_dead = FALSE;
+    auto request = static_cast<GncMainWindowQuitRequest *> (user_data);
+    gchar *message;
 
-    if (already_dead)
-        return TRUE;
+    request->timer_source = 0;
+    if (!request->deciding || request->completed || !request->countdown_label)
+        return G_SOURCE_REMOVE;
 
-    if (gnc_list_length_cmp (active_windows, 1) > 0)
+    if (request->seconds_to_save)
+        --request->seconds_to_save;
+    DEBUG ("Counting down: %u seconds", request->seconds_to_save);
+
+    message = g_strdup_printf (MSG_AUTO_SAVE, request->seconds_to_save);
+    gtk_label_set_text (request->countdown_label, message);
+    g_free (message);
+
+    if (!request->seconds_to_save)
     {
-        gint response;
-        GtkWidget *dialog;
-        gchar *message = _("This window is closing and will not be restored.");
-
-        dialog = gtk_message_dialog_new (GTK_WINDOW (window),
-                                         GTK_DIALOG_DESTROY_WITH_PARENT,
-                                         GTK_MESSAGE_QUESTION,
-                                         GTK_BUTTONS_NONE,
-                                         "%s", _("Close Window?"));
-        gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
-                                                  "%s", message);
-
-        gtk_dialog_add_buttons (GTK_DIALOG(dialog),
-                              _("_Cancel"), GTK_RESPONSE_CANCEL,
-                              _("_OK"), GTK_RESPONSE_YES,
-                               (gchar *)NULL);
-        gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_YES);
-        response = gnc_warning_dialog_run (GTK_DIALOG(dialog), GNC_PREF_WARN_CLOSING_WINDOW_QUESTION);
-        gtk_window_destroy (GTK_WINDOW(dialog));
-
-        if (response == GTK_RESPONSE_CANCEL)
-            return TRUE;
+        gnc_main_window_quit_request_respond (request, GNC_MAIN_WINDOW_SAVE_APPLY);
+        return G_SOURCE_REMOVE;
     }
 
-    if (!gnc_main_window_finish_pending(GNC_MAIN_WINDOW(window)))
-    {
-        /* Don't close the window. */
-        return TRUE;
-    }
+    request->timer_source = g_timeout_add_seconds (
+        1, gnc_main_window_quit_request_countdown, request);
+    return G_SOURCE_REMOVE;
+}
 
-    if (gnc_list_length_cmp (active_windows, 1) > 0)
-        return FALSE;
+static void
+gnc_main_window_quit_request_dialog_destroyed (GtkWidget *dialog, gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowQuitRequest *> (user_data);
 
-    already_dead = gnc_main_window_quit(GNC_MAIN_WINDOW(window));
+    (void)dialog;
+    request->dialog_destroy_handler = 0;
+    g_clear_object (&request->dialog);
+    request->countdown_label = nullptr;
+    gnc_main_window_quit_request_finish (request, FALSE);
+}
+
+static gboolean
+gnc_main_window_quit_request_dialog_close (GtkWindow *dialog, gpointer user_data)
+{
+    (void)dialog;
+    gnc_main_window_quit_request_respond (
+        static_cast<GncMainWindowQuitRequest *> (user_data), GNC_MAIN_WINDOW_SAVE_CANCEL);
     return TRUE;
 }
 
+static void
+gnc_main_window_quit_request_discard_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_main_window_quit_request_respond (
+        static_cast<GncMainWindowQuitRequest *> (user_data), GNC_MAIN_WINDOW_SAVE_DISCARD);
+}
+
+static void
+gnc_main_window_quit_request_cancel_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_main_window_quit_request_respond (
+        static_cast<GncMainWindowQuitRequest *> (user_data), GNC_MAIN_WINDOW_SAVE_CANCEL);
+}
+
+static void
+gnc_main_window_quit_request_save_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_main_window_quit_request_respond (
+        static_cast<GncMainWindowQuitRequest *> (user_data), GNC_MAIN_WINDOW_SAVE_APPLY);
+}
+
+static gboolean
+gnc_main_window_quit_request_key_pressed (GtkEventControllerKey *controller,
+                                          guint keyval, guint keycode,
+                                          GdkModifierType state, gpointer user_data)
+{
+    (void)controller;
+    (void)keycode;
+    (void)state;
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+
+    gnc_main_window_quit_request_respond (
+        static_cast<GncMainWindowQuitRequest *> (user_data), GNC_MAIN_WINDOW_SAVE_CANCEL);
+    return TRUE;
+}
+
+static void
+gnc_main_window_quit_request_present (GncMainWindowQuitRequest *request)
+{
+    QofSession *session;
+    QofBook *book;
+    GObject *object;
+    GtkWindow *parent = nullptr;
+    GtkWidget *content, *heading, *detail, *button_box, *discard, *cancel, *save;
+    const gchar *filename, *basename;
+    time64 oldest_change;
+    gint minutes, hours, days;
+    gchar *title, *message, *timeout;
+
+    if (!gnc_main_window_quit_request_is_current (request))
+    {
+        gnc_main_window_quit_request_finish (request, FALSE);
+        return;
+    }
+
+    session = gnc_get_current_session ();
+    book = qof_session_get_book (session);
+    if (!qof_book_session_not_saved (book))
+    {
+        gnc_main_window_quit_request_finish (request, TRUE);
+        return;
+    }
+
+    object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+    if (object && GTK_IS_WINDOW (object))
+        parent = GTK_WINDOW (object);
+    if (!parent)
+    {
+        g_clear_object (&object);
+        gnc_main_window_quit_request_finish (request, FALSE);
+        return;
+    }
+
+    filename = qof_session_get_url (session);
+    if (!filename || !*filename)
+        filename = _("<unknown>");
+    basename = strrchr (filename, '/');
+    if (basename)
+        filename = basename + 1;
+
+    oldest_change = qof_book_get_session_dirty_time (book);
+    minutes = (gnc_time (nullptr) - oldest_change) / 60 + 1;
+    hours = minutes / 60;
+    minutes %= 60;
+    days = hours / 24;
+    hours %= 24;
+    if (days > 0)
+        message = g_strdup_printf (
+            _("If you don't save, changes from the past %d days and %d hours will be discarded."),
+            days, hours);
+    else if (hours > 0)
+        message = g_strdup_printf (
+            _("If you don't save, changes from the past %d hours and %d minutes will be discarded."),
+            hours, minutes);
+    else
+        message = g_strdup_printf (
+            ngettext ("If you don't save, changes from the past %d minute will be discarded.",
+                      "If you don't save, changes from the past %d minutes will be discarded.",
+                      minutes), minutes);
+    title = g_strdup_printf (_("Save changes to file %s before closing?"), filename);
+
+    /* The outstanding autosave must not compete with this explicit decision. */
+    gnc_autosave_remove_timer (book);
+
+    request->dialog = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_title (request->dialog, title);
+    gtk_window_set_transient_for (request->dialog, parent);
+    gtk_window_set_modal (request->dialog, TRUE);
+    gtk_window_set_resizable (request->dialog, FALSE);
+    gtk_window_set_destroy_with_parent (request->dialog, TRUE);
+
+    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start (content, 18);
+    gtk_widget_set_margin_end (content, 18);
+    gtk_widget_set_margin_top (content, 18);
+    gtk_widget_set_margin_bottom (content, 18);
+    gtk_window_set_child (request->dialog, content);
+
+    heading = gtk_label_new (title);
+    gtk_label_set_wrap (GTK_LABEL (heading), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (heading), 0.0);
+    gtk_widget_add_css_class (heading, "title-2");
+    gtk_box_append (GTK_BOX (content), heading);
+    gtk_widget_set_visible (heading, TRUE);
+
+    detail = gtk_label_new (message);
+    gtk_label_set_wrap (GTK_LABEL (detail), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (detail), 0.0);
+    gtk_label_set_max_width_chars (GTK_LABEL (detail), 72);
+    gtk_box_append (GTK_BOX (content), detail);
+    gtk_widget_set_visible (detail, TRUE);
+
+    if (gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_SAVE_CLOSE_EXPIRES))
+    {
+        request->seconds_to_save = gnc_prefs_get_int (GNC_PREFS_GROUP_GENERAL,
+                                                       GNC_PREF_SAVE_CLOSE_WAIT_TIME);
+        timeout = g_strdup_printf (MSG_AUTO_SAVE, request->seconds_to_save);
+        request->countdown_label = GTK_LABEL (gtk_label_new (timeout));
+        g_free (timeout);
+        gtk_label_set_xalign (request->countdown_label, 0.0);
+        gtk_box_append (GTK_BOX (content), GTK_WIDGET (request->countdown_label));
+        gtk_widget_set_visible (GTK_WIDGET (request->countdown_label), TRUE);
+    }
+
+    button_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign (button_box, GTK_ALIGN_END);
+    discard = gtk_button_new_with_mnemonic (_("Close _Without Saving"));
+    cancel = gtk_button_new_with_mnemonic (_("_Cancel"));
+    save = gtk_button_new_with_mnemonic (_("_Save"));
+    gtk_box_append (GTK_BOX (button_box), discard);
+    gtk_box_append (GTK_BOX (button_box), cancel);
+    gtk_box_append (GTK_BOX (button_box), save);
+    gtk_box_append (GTK_BOX (content), button_box);
+    gtk_widget_set_visible (discard, TRUE);
+    gtk_widget_set_visible (cancel, TRUE);
+    gtk_widget_set_visible (save, TRUE);
+    gtk_widget_set_visible (button_box, TRUE);
+    gtk_widget_set_visible (content, TRUE);
+
+    g_signal_connect (discard, "clicked",
+                      G_CALLBACK (gnc_main_window_quit_request_discard_clicked), request);
+    g_signal_connect (cancel, "clicked",
+                      G_CALLBACK (gnc_main_window_quit_request_cancel_clicked), request);
+    g_signal_connect (save, "clicked",
+                      G_CALLBACK (gnc_main_window_quit_request_save_clicked), request);
+    g_signal_connect (request->dialog, "close-request",
+                      G_CALLBACK (gnc_main_window_quit_request_dialog_close), request);
+    request->dialog_destroy_handler = g_signal_connect (
+        request->dialog, "destroy",
+        G_CALLBACK (gnc_main_window_quit_request_dialog_destroyed), request);
+    gtk_window_set_default_widget (request->dialog, save);
+
+    auto key_controller = gtk_event_controller_key_new ();
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gnc_main_window_quit_request_key_pressed), request);
+    gtk_widget_add_controller (GTK_WIDGET (request->dialog), key_controller);
+
+    request->deciding = TRUE;
+    gtk_window_present (request->dialog);
+    if (request->countdown_label)
+        request->timer_source = g_timeout_add_seconds (
+            1, gnc_main_window_quit_request_countdown, request);
+
+    g_free (title);
+    g_free (message);
+    g_clear_object (&object);
+}
+
+static void
+gnc_main_window_quit_request_after_save (GtkWindow *parent, gboolean saved,
+                                         gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowQuitRequest *> (user_data);
+
+    (void)parent;
+    if (saved && gnc_main_window_quit_request_is_current (request))
+        gnc_main_window_quit_request_finish (request, TRUE);
+    else
+        gnc_main_window_quit_request_present (request);
+}
+
+static void
+gnc_main_window_request_quit (GncMainWindow *window)
+{
+    QofSession *session;
+    QofBook *book;
+    GncMainWindowQuitRequest *request;
+
+    if (quit_request_pending || shutdown_started)
+        return;
+
+    if (!gnc_current_session_exist () || gnc_file_save_in_progress ())
+    {
+        gnc_main_window_begin_shutdown ();
+        return;
+    }
+
+    session = gnc_get_current_session ();
+    book = qof_session_get_book (session);
+    if (!qof_book_session_not_saved (book))
+    {
+        gnc_main_window_begin_shutdown ();
+        return;
+    }
+
+    request = g_new0 (GncMainWindowQuitRequest, 1);
+    g_weak_ref_init (&request->window, window);
+    request->session = session;
+    request->book = book;
+    quit_request_pending = TRUE;
+    gnc_main_window_quit_request_present (request);
+}
+
+static void
+gnc_main_window_close_request_free (GncMainWindowCloseRequest *request)
+{
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static void
+gnc_main_window_close_request_confirmed (gint response, gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowCloseRequest *> (user_data);
+    GObject *object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+
+    if (object && GNC_IS_MAIN_WINDOW (object))
+    {
+        auto window = GNC_MAIN_WINDOW (object);
+        window->close_request_pending = FALSE;
+        if (response == GTK_RESPONSE_YES && gnc_main_window_finish_pending (window))
+            gtk_window_destroy (GTK_WINDOW (window));
+    }
+    g_clear_object (&object);
+    gnc_main_window_close_request_free (request);
+}
+
+static gboolean
+gnc_main_window_close_request (GtkWindow *gtk_window, gpointer user_data)
+{
+    auto window = GNC_MAIN_WINDOW (gtk_window);
+
+    (void)user_data;
+    if (!GNC_IS_MAIN_WINDOW (window) || window->window_quitting ||
+        window->close_request_pending || quit_request_pending || shutdown_started)
+        return TRUE;
+
+    if (gnc_list_length_cmp (active_windows, 1) > 0)
+    {
+        auto request = g_new0 (GncMainWindowCloseRequest, 1);
+
+        window->close_request_pending = TRUE;
+        g_weak_ref_init (&request->window, window);
+        gnc_warning_dialog_async (gtk_window, GNC_PREF_WARN_CLOSING_WINDOW_QUESTION,
+                                  _("Close Window?"),
+                                  _("This window is closing and will not be restored."),
+                                  _("_OK"), GTK_RESPONSE_YES, TRUE,
+                                  gnc_main_window_close_request_confirmed, request);
+        return TRUE;
+    }
+
+    if (!gnc_main_window_finish_pending (window))
+        return TRUE;
+
+    window->close_request_pending = TRUE;
+    gnc_main_window_request_quit (window);
+    return TRUE;
+}
 
 /** This function handles any event notifications from the engine.
  *  The only event it currently cares about is the deletion of a book.
@@ -3074,6 +3320,7 @@ gnc_main_window_new (void)
     gnc_main_window_update_title(window);
     window->window_quitting = FALSE;
     window->just_plugin_prefs = FALSE;
+    window->close_request_pending = FALSE;
 #ifdef MAC_INTEGRATION
     gnc_quartz_set_menu(window);
 #else
@@ -4318,7 +4565,7 @@ gnc_quartz_shutdown (GtkosxApplication *theApp, gpointer data)
     /* Do Nothing. It's too late. */
 }
 /* Should quit responds to NSApplicationBlockTermination; returning TRUE means
- * "don't terminate", FALSE means "do terminate". gnc_main_window_quit() queues
+ * "don't terminate", FALSE means "do terminate". gnc_main_window_request_quit() queues
  * a timer that starts an orderly shutdown in 250ms and if we tell macOS it's OK
  * to quit GnuCash gets terminated instead of doing its orderly shutdown,
  * leaving the book locked.
@@ -4327,7 +4574,7 @@ static gboolean
 gnc_quartz_should_quit (GtkosxApplication *theApp, GncMainWindow *window)
 {
     if (gnc_main_window_all_finish_pending())
-        gnc_main_window_quit (window);
+        gnc_main_window_request_quit (window);
     return TRUE;
 }
 static void
@@ -4718,7 +4965,7 @@ gnc_main_window_cmd_file_quit (GSimpleAction *simple,
     if (!gnc_main_window_all_finish_pending())
         return;
 
-    gnc_main_window_quit(window);
+    gnc_main_window_request_quit (window);
 }
 
 static void
