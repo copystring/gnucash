@@ -106,12 +106,22 @@ gnc_action_dialog (GtkWindow *parent,
                    gboolean action_default,
                    const gchar *format, ...) G_GNUC_PRINTF (4, 5);
 
-/** Receives a response from a non-blocking GTK4 decision dialog. */
+/**
+ * Receives exactly one response from a non-blocking GTK4 decision dialog.
+ *
+ * A destroyed parent is passed as NULL and is always mapped to the wrapper's
+ * cancellation response: GTK_RESPONSE_CANCEL for OK/Cancel and action
+ * dialogs, GTK_RESPONSE_NO for verification dialogs. Escape and close use the
+ * same mapping; they can never be interpreted as the other visible button.
+ */
 typedef void (*GncGuiQueryResponseCallback) (GtkWindow *parent,
                                              gint response,
                                              gpointer user_data);
 
-/** Receives an index from a non-blocking GTK4 option dialog, or -1 on cancel. */
+/**
+ * Receives exactly one index from a non-blocking GTK4 option dialog.
+ * Escape, close, an invalid native response, and parent destruction return -1.
+ */
 typedef void (*GncGuiChoiceCallback) (GtkWindow *parent,
                                       gint choice,
                                       gpointer user_data);
