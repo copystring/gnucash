@@ -183,8 +183,12 @@ close_requested (GtkWindow *window, gpointer user_data)
     if (state && !state->closing && state->cancel_cb)
     {
         state->closing = TRUE;
+        g_object_ref (assistant);
         state->cancel_cb (assistant, state->callback_data);
-        state->closing = FALSE;
+        state = assistant_state (assistant);
+        if (state)
+            state->closing = FALSE;
+        g_object_unref (assistant);
     }
     (void)window;
     return TRUE;

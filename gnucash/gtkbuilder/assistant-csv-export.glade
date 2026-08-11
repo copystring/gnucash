@@ -1,19 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkAssistant" id="csv_export_assistant">
-<property name="title" translatable="1">CSV Export Assistant</property>
+  <object class="GtkWindow" id="csv_export_assistant">
+    <property name="title" translatable="1">CSV Export Assistant</property>
     <property name="default-width">400</property>
     <property name="default-height">500</property>
-    <signal name="apply" handler="csv_export_assistant_finish" swapped="no" />
-    <signal name="cancel" handler="csv_export_assistant_cancel" swapped="no" />
-    <signal name="close" handler="csv_export_assistant_close" swapped="no" />
-    <signal name="prepare" handler="csv_export_assistant_prepare" swapped="no" />
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">intro</property>
+      <object class="GtkBox" id="gnc_export_assistant_content">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <child>
+          <object class="GtkLabel" id="gnc_export_assistant_page_title">
+            <property name="xalign">0</property>
+            <property name="wrap">True</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkStack" id="gnc_export_assistant_stack">
+            <property name="hexpand">True</property>
+            <property name="vexpand">True</property>
+            <property name="transition-type">slide-left-right</property>
+            <child>
+              <object class="GtkStackPage">
+                <property name="name">page-0</property>
         <property name="title" translatable="1">Choose Export Settings</property>
-        <property name="complete">True</property>
 <property name="child">
           <object class="GtkBox" id="start_page">
 <property name="orientation">vertical</property>
@@ -161,7 +175,8 @@ Select the type of Export required and the separator that will be used.
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
+      <object class="GtkStackPage">
+        <property name="name">page-1</property>
         <property name="title" translatable="1">Account Selection</property>
 <property name="child">
           <object class="GtkBox" id="account_page">
@@ -452,7 +467,8 @@ Select the type of Export required and the separator that will be used.
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
+      <object class="GtkStackPage">
+        <property name="name">page-2</property>
         <property name="title" translatable="1">Choose File Name for Export</property>
 <property name="child">
           <object class="GtkBox" id="file_page">
@@ -490,8 +506,8 @@ Select the type of Export required and the separator that will be used.
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">confirm</property>
+      <object class="GtkStackPage">
+        <property name="name">page-3</property>
         <property name="title" translatable="1">Export Now…</property>
 <property name="child">
           <object class="GtkLabel" id="end_page">
@@ -503,10 +519,9 @@ Cancel to abort.</property>
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">summary</property>
+      <object class="GtkStackPage">
+        <property name="name">page-4</property>
         <property name="title" translatable="1">Export Summary</property>
-        <property name="complete">True</property>
 <property name="child">
           <object class="GtkLabel" id="summary_page">
             <property name="label" translatable="1">Summary</property>
@@ -515,9 +530,53 @@ Cancel to abort.</property>
         </property>
       </object>
     </child>
-    <child internal-child="action_area">
-      <object class="GtkBox">
-        <property name="visible">0</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="gnc_export_assistant_actions">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkButton" id="gnc_export_assistant_cancel">
+                <property name="label">_Cancel</property>
+                <property name="use-underline">True</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="gnc_export_assistant_back">
+                <property name="label">_Back</property>
+                <property name="use-underline">True</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="gnc_export_assistant_next">
+                <property name="label">_Next</property>
+                <property name="use-underline">True</property>
+                <style>
+                  <class name="suggested-action" />
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="gnc_export_assistant_apply">
+                <property name="label">_Apply</property>
+                <property name="use-underline">True</property>
+                <style>
+                  <class name="suggested-action" />
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="gnc_export_assistant_close">
+                <property name="label">_Close</property>
+                <property name="use-underline">True</property>
+                <style>
+                  <class name="suggested-action" />
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>
