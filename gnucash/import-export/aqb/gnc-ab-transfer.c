@@ -166,6 +166,9 @@ static void transfer_template_save_finished (GtkWindow *parent, gint response,
 
 static void transfer_execution_finish (TransferExecution *execution,
                                        gboolean successful, gboolean retry);
+static void transfer_execution_import_finished (GncABImExContextImport *ieci,
+                                                gboolean completed,
+                                                gpointer user_data);
 
 static void
 transfer_execution_xfer_finished_cb (gboolean completed, gpointer user_data)
@@ -174,7 +177,6 @@ transfer_execution_xfer_finished_cb (gboolean completed, gpointer user_data)
     GtkWidget *parent = g_weak_ref_get (&execution->parent);
     GncGWENGui *gui = NULL;
     AB_IMEXPORTER_CONTEXT *context = NULL;
-    GncABImExContextImport *ieci = NULL;
     GNC_AB_JOB_STATUS job_status;
     if (!completed || !execution->gnc_trans || !parent)
         goto cleanup;
@@ -213,26 +215,35 @@ transfer_execution_xfer_finished_cb (gboolean completed, gpointer user_data)
         g_clear_object (&parent);
         return;
     }
-    ieci = gnc_ab_import_context (context, 0, FALSE, NULL, parent);
-    if (ieci)
-        g_free (ieci);
-    if (context)
-        AB_ImExporterContext_free (context);
+    gnc_ab_import_context_async (context, 0, FALSE, NULL, parent, NULL,
+                                 transfer_execution_import_finished, execution);
+    context = NULL;
     if (gui)
         gnc_GWEN_Gui_release (gui);
-    transfer_execution_finish (execution, TRUE, FALSE);
     g_object_unref (parent);
     return;
 
 cleanup:
-    if (ieci)
-        g_free (ieci);
     if (context)
         AB_ImExporterContext_free (context);
     if (gui)
         gnc_GWEN_Gui_release (gui);
     g_clear_object (&parent);
     transfer_execution_finish (execution, FALSE, FALSE);
+}
+
+static void
+transfer_execution_import_finished (GncABImExContextImport *ieci,
+                                    gboolean completed, gpointer user_data)
+{
+    TransferExecution *execution = user_data;
+
+    (void)ieci;
+    /* The bank job has already completed. A later parent/book cancellation must
+     * not mutate the old transaction while releasing the external resources. */
+    if (!completed)
+        execution->gnc_trans = NULL;
+    transfer_execution_finish (execution, completed, FALSE);
 }
 
 static void

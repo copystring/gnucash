@@ -147,6 +147,20 @@ aqb_report_file_dialog_error (const GError *error)
 }
 
 static void
+aqb_import_context_finished (GncABImExContextImport *ieci,
+                             gboolean completed, gpointer user_data)
+{
+    AqBankingImportData *data = user_data;
+
+    (void)ieci;
+    if (!completed)
+        g_debug ("AqBanking file import was cancelled before the response was applied");
+    if (data->imexporter && data->profile)
+        save_imexporter_and_profile (data->imexporter, data->profile);
+    aqb_import_data_free (data);
+}
+
+static void
 aqb_import_file_dialog_finished (GObject *source, GAsyncResult *result,
                                  gpointer user_data)
 {
@@ -202,12 +216,12 @@ aqb_import_file_dialog_finished (GObject *source, GAsyncResult *result,
     }
     else
     {
-        GncABImExContextImport *ieci =
-            gnc_ab_import_context (context, AWAIT_TRANSACTIONS, FALSE,
-                                   data->api, GTK_WIDGET (parent));
-
-        g_free (ieci);
-        AB_ImExporterContext_free (context);
+        gnc_ab_import_context_async (context, AWAIT_TRANSACTIONS, FALSE,
+                                     data->api, GTK_WIDGET (parent), NULL,
+                                     aqb_import_context_finished, data);
+        context = NULL;
+        g_clear_object (&parent);
+        return;
     }
     g_clear_object (&parent);
 

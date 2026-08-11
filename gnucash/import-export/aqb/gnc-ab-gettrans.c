@@ -44,6 +44,7 @@
 #include "gnc-ab-standing-orders.h"
 #include "gnc-gwen-gui.h"
 #include "gnc-ui.h"
+#include "qof.h"
 
 /* This static indicates the debugging module that this .o belongs to.  */
 G_GNUC_UNUSED static QofLogModule log_module = G_LOG_DOMAIN;
@@ -53,8 +54,17 @@ typedef struct
     AB_BANKING *api;
     GNC_AB_ACCOUNT_SPEC *ab_acc;
     Account *gnc_acc;
+    QofBook *book;
+    GncGUID book_guid;
+    GncGUID account_guid;
     GWeakRef parent;
 } GetTransData;
+
+typedef struct
+{
+    GetTransData *data;
+    time64 until;
+} GetTransImportRequest;
 
 static void
 gettrans_data_free (GetTransData *data)
@@ -66,6 +76,23 @@ gettrans_data_free (GetTransData *data)
     if (data->api)
         gnc_AB_BANKING_fini (data->api);
     g_free (data);
+}
+
+static Account *
+gettrans_data_get_account (const GetTransData *data)
+{
+    QofBook *book;
+    Account *account;
+
+    if (!data)
+        return NULL;
+    book = gnc_get_current_book ();
+    if (!book || book != data->book ||
+        !guid_equal (qof_instance_get_guid (QOF_INSTANCE (book)), &data->book_guid))
+        return NULL;
+    account = xaccAccountLookup (&data->account_guid, book);
+    return account && !qof_instance_get_destroying (QOF_INSTANCE (account)) ?
+           account : NULL;
 }
 
 static void
@@ -80,9 +107,30 @@ gettrans_show_no_transactions (GtkWidget *parent)
 }
 
 static void
+gettrans_import_finished (GncABImExContextImport *ieci, gboolean completed,
+                          gpointer user_data)
+{
+    GetTransImportRequest *request = user_data;
+    GetTransData *data = request->data;
+    GtkWidget *parent = g_weak_ref_get (&data->parent);
+    Account *account = gettrans_data_get_account (data);
+
+    if (completed && parent && account)
+    {
+        if (!(gnc_ab_ieci_get_found (ieci) & FOUND_TRANSACTIONS))
+            gettrans_show_no_transactions (parent);
+        gnc_ab_set_account_trans_retrieval (account, request->until);
+    }
+    g_clear_object (&parent);
+    gettrans_data_free (data);
+    g_free (request);
+}
+
+static gboolean
 gettrans_execute (GetTransData *data, GtkWidget *parent,
                   const GncABDateRange *range)
 {
+    Account *account = gettrans_data_get_account (data);
     GWEN_TIME *from_date = NULL;
     GWEN_TIME *to_date = NULL;
     time64 last = range->from_date;
@@ -91,15 +139,17 @@ gettrans_execute (GetTransData *data, GtkWidget *parent,
     GNC_AB_JOB_LIST2 *job_list = NULL;
     GncGWENGui *gui = NULL;
     AB_IMEXPORTER_CONTEXT *context = NULL;
-    GncABImExContextImport *ieci = NULL;
     GNC_AB_JOB_STATUS job_status;
+    gboolean pending = FALSE;
 
+    if (!account)
+        return FALSE;
     if (range->first_possible_date)
         from_date = NULL;
     else
     {
         if (range->last_retrieval_date)
-            last = gnc_ab_get_account_trans_retrieval (data->gnc_acc);
+            last = gnc_ab_get_account_trans_retrieval (account);
         from_date = GWEN_Time_fromSeconds (last);
     }
 
@@ -149,8 +199,8 @@ gettrans_execute (GetTransData *data, GtkWidget *parent,
     context = AB_ImExporterContext_new ();
     AB_Banking_SendCommands (data->api, job_list, context);
     job_status = AB_Transaction_GetStatus (job);
-    if (job_status != AB_Transaction_StatusAccepted
-        && job_status != AB_Transaction_StatusPending)
+    if (job_status != AB_Transaction_StatusAccepted &&
+        job_status != AB_Transaction_StatusPending)
     {
         g_warning ("gnc_ab_gettrans: Error on executing job");
         gnc_error_dialog (GTK_WINDOW (parent),
@@ -159,16 +209,17 @@ gettrans_execute (GetTransData *data, GtkWidget *parent,
         goto cleanup;
     }
 
-    ieci = gnc_ab_import_context (context, AWAIT_TRANSACTIONS, FALSE, NULL,
-                                  parent);
-    if (!(gnc_ab_ieci_get_found (ieci) & FOUND_TRANSACTIONS))
-        gettrans_show_no_transactions (parent);
-
-    gnc_ab_set_account_trans_retrieval (data->gnc_acc, until);
+    {
+        GetTransImportRequest *request = g_new0 (GetTransImportRequest, 1);
+        request->data = data;
+        request->until = until;
+        gnc_ab_import_context_async (context, AWAIT_TRANSACTIONS, FALSE, NULL,
+                                     parent, NULL, gettrans_import_finished, request);
+        context = NULL;
+        pending = TRUE;
+    }
 
 cleanup:
-    if (ieci)
-        g_free (ieci);
     if (context)
         AB_ImExporterContext_free (context);
     if (gui)
@@ -181,8 +232,8 @@ cleanup:
         GWEN_Time_free (to_date);
     if (from_date)
         GWEN_Time_free (from_date);
+    return pending;
 }
-
 static void
 gettrans_dates_finished (GObject *source, GAsyncResult *result,
                          gpointer user_data)
@@ -209,9 +260,9 @@ gettrans_dates_finished (GObject *source, GAsyncResult *result,
         return;
     }
 
-    gettrans_execute (data, parent, &range);
+    if (!gettrans_execute (data, parent, &range))
+        gettrans_data_free (data);
     g_object_unref (parent);
-    gettrans_data_free (data);
 }
 
 void
@@ -253,6 +304,9 @@ gnc_ab_gettrans (GtkWidget *parent, Account *gnc_acc)
     data->api = api;
     data->ab_acc = ab_acc;
     data->gnc_acc = gnc_acc;
+    data->book = gnc_account_get_book (gnc_acc);
+    data->book_guid = *qof_instance_get_guid (QOF_INSTANCE (data->book));
+    data->account_guid = *xaccAccountGetGUID (gnc_acc);
     g_weak_ref_init (&data->parent, parent);
     gnc_ab_enter_daterange_async (parent, NULL, &initial, NULL,
                                   gettrans_dates_finished, data);
