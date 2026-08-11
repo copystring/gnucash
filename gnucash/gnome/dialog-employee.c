@@ -32,6 +32,7 @@
 #include "gnc-amount-edit.h"
 #include "gnc-currency-edit.h"
 #include "gnc-component-manager.h"
+#include "gnc-session.h"
 #include "gnc-ui.h"
 #include "gnc-gui-query.h"
 #include "gnc-ui-util.h"
@@ -61,6 +62,8 @@ void gnc_employee_window_help_cb (GtkWidget *widget, gpointer data);
 void gnc_employee_window_destroy_cb (GtkWidget *widget, gpointer data);
 void gnc_employee_name_changed_cb (GtkWidget *widget, gpointer data);
 void gnc_employee_ccard_acct_toggled_cb (GtkToggleButton *button, gpointer data);
+
+static void gnc_employee_window_request_close (EmployeeWindow *ew);
 
 typedef enum
 {
@@ -190,8 +193,20 @@ static gboolean check_edit_amount (GtkWidget *amount)
     return FALSE;
 }
 
+static void
+gnc_employee_window_request_close (EmployeeWindow *ew)
+{
+    if (!ew)
+        return;
+
+    if (ew->component_id != NO_COMPONENT)
+        gnc_close_gui_component (ew->component_id);
+    else if (ew->dialog)
+        gtk_window_destroy (GTK_WINDOW (ew->dialog));
+}
+
 void
-gnc_employee_window_ok_cb (GtkWidget *widget, gpointer data)
+gnc_employee_window_ok_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {
     EmployeeWindow *ew = data;
     gchar *string;
@@ -237,26 +252,24 @@ gnc_employee_window_ok_cb (GtkWidget *widget, gpointer data)
         ew->employee_guid = *guid_null ();
     }
 
-    gnc_close_gui_component (ew->component_id);
+    gnc_employee_window_request_close (ew);
 }
 
 void
-gnc_employee_window_cancel_cb (GtkWidget *widget, gpointer data)
+gnc_employee_window_cancel_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {
-    EmployeeWindow *ew = data;
-
-    gnc_close_gui_component (ew->component_id);
+    gnc_employee_window_request_close (data);
 }
 
 void
-gnc_employee_window_help_cb (GtkWidget *widget, gpointer data)
+gnc_employee_window_help_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {
     EmployeeWindow *ew = data;
     gnc_gnome_help (GTK_WINDOW(ew->dialog), DF_MANUAL, DL_USAGE_EMPLOYEE);
 }
 
 void
-gnc_employee_window_destroy_cb (GtkWidget *widget, gpointer data)
+gnc_employee_window_destroy_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {
     EmployeeWindow *ew = data;
     GncEmployee *employee = ew_get_employee (ew);
@@ -270,9 +283,11 @@ gnc_employee_window_destroy_cb (GtkWidget *widget, gpointer data)
         ew->employee_guid = *guid_null ();
     }
 
-    gnc_unregister_gui_component (ew->component_id);
+    if (ew->component_id != NO_COMPONENT)
+        gnc_unregister_gui_component (ew->component_id);
     gnc_resume_gui_refresh ();
 
+    ew->dialog = NULL;
     g_free (ew);
 }
 
@@ -301,12 +316,38 @@ gnc_employee_ccard_acct_toggled_cb (GtkToggleButton *button, gpointer data)
     gtk_widget_set_sensitive (ew->ccard_acct_sel, active);
 }
 
+static gboolean
+gnc_employee_window_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    EmployeeWindow *ew = user_data;
+
+    if (!ew || ew->dialog != GTK_WIDGET (window))
+        return FALSE;
+
+    gnc_employee_window_request_close (ew);
+    return TRUE;
+}
+
+static gboolean
+gnc_employee_window_key_pressed_cb (G_GNUC_UNUSED GtkEventControllerKey *key,
+                                    guint keyval, G_GNUC_UNUSED guint keycode,
+                                    G_GNUC_UNUSED GdkModifierType state,
+                                    gpointer user_data)
+{
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+
+    gnc_employee_window_request_close (user_data);
+    return TRUE;
+}
+
 static void
 gnc_employee_window_close_handler (gpointer user_data)
 {
     EmployeeWindow *ew = user_data;
 
-    gtk_window_destroy (GTK_WINDOW (ew->dialog));
+    if (ew && ew->dialog)
+        gtk_window_destroy (GTK_WINDOW (ew->dialog));
 }
 
 static void
@@ -351,7 +392,7 @@ gnc_employee_new_window (GtkWindow *parent,
 {
     EmployeeWindow *ew;
     GtkBuilder *builder;
-    GtkWidget *hbox, *edit;
+    GtkWidget *hbox, *edit, *ok_button;
     gnc_commodity *currency;
     GNCPrintAmountInfo print_info;
     GList *acct_types;
@@ -386,7 +427,7 @@ gnc_employee_new_window (GtkWindow *parent,
      * No existing employee window found.  Build a new one.
      */
     ew = g_new0 (EmployeeWindow, 1);
-
+    ew->component_id = NO_COMPONENT;
     ew->book = bookp;
 
     /* Find the dialog */
@@ -466,8 +507,18 @@ gnc_employee_new_window (GtkWindow *parent,
     hbox = GTK_WIDGET(gtk_builder_get_object (builder, "ccard_acct_hbox"));
     gtk_box_append (GTK_BOX(hbox), GTK_WIDGET(edit));
 
-    /* Setup signals */
-gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ew);
+    /* Setup Builder callbacks and GTK4 window lifecycle. */
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ew);
+    g_signal_connect (ew->dialog, "close-request",
+                      G_CALLBACK (gnc_employee_window_close_request_cb), ew);
+
+    GtkEventController *key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (ew->dialog, key_controller);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gnc_employee_window_key_pressed_cb), ew);
+
+    ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton"));
+    gtk_window_set_default_widget (GTK_WINDOW (ew->dialog), ok_button);
 
     /* Setup initial values */
     if (employee != NULL)
@@ -518,6 +569,7 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, ew);
                                         ew);
     }
 
+    gnc_gui_component_set_session (ew->component_id, gnc_get_current_session ());
 
     /* I know that employee exists here -- either passed in or just created */
     /* Set the workday and rate values */

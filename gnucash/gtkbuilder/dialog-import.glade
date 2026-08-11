@@ -275,11 +275,11 @@
   <object class="GtkTextBuffer" id="textbuffer5">
     <property name="text" translatable="1">Double click on the transaction to either change the matching transaction in GnuCash or the destination account of the auto-balance split (if required).</property>
   </object>
-  <object class="GtkDialog" id="matcher_help_dialog">
-<property name="title" translatable="1">Transaction List Help</property>
+  <object class="GtkWindow" id="matcher_help_dialog">
+    <property name="title" translatable="1">Transaction List Help</property>
     <property name="resizable">0</property>
-<signal name="close" handler="on_matcher_help_close_clicked" swapped="no" />
-    <child internal-child="content_area">
+    <property name="modal">1</property>
+    <property name="child">
       <object class="GtkBox" id="dialog-vbox18">
         <property name="orientation">vertical</property>
         <child>
@@ -587,26 +587,23 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-7">matcher_help_close</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area18">
-        <property name="visible">True</property>
         <child>
-          <object class="GtkButton" id="matcher_help_close">
-            <property name="label" translatable="1">_Close</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="on_matcher_help_close_clicked" swapped="no" />
+          <object class="GtkBox" id="dialog-action_area18">
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <child>
+              <object class="GtkButton" id="matcher_help_close">
+                <property name="label" translatable="1">_Close</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="on_matcher_help_close_clicked" swapped="no" />
+              </object>
+            </child>
           </object>
-
         </child>
       </object>
-    </child>
+    </property>
   </object>
   <object class="GtkWindow" id="transaction_edit_dialog">
     <property name="title" translatable="1">Edit imported transaction details</property>

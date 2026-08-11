@@ -739,7 +739,28 @@ on_matcher_help_close_clicked (GtkButton *button, gpointer user_data)
 {
     auto help_dialog = static_cast<GtkWidget *>(user_data);
 
+    (void) button;
     gtk_window_destroy (GTK_WINDOW(help_dialog));
+}
+
+static gboolean
+matcher_help_key_pressed_cb (GtkEventControllerKey *controller, guint keyval,
+                             guint keycode, GdkModifierType state, gpointer user_data)
+{
+    GtkWidget *widget;
+
+    (void) keycode;
+    (void) state;
+    (void) user_data;
+
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+
+    widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+    if (GTK_IS_WINDOW (widget))
+        gtk_window_destroy (GTK_WINDOW (widget));
+
+    return TRUE;
 }
 
 void
@@ -779,8 +800,15 @@ on_matcher_help_clicked (GtkButton *button, gpointer user_data)
     gtk_widget_set_name (GTK_WIDGET(help_dialog), "gnc-id-import-matcher-help");
     gnc_widget_style_context_add_class (GTK_WIDGET(help_dialog), "gnc-class-imports");
 
-    /* Connect the signals */
+    auto close_button = GTK_WIDGET (gtk_builder_get_object (builder, "matcher_help_close"));
+    auto key_controller = gtk_event_controller_key_new ();
+
+    /* The close button is the only builder callback in this window. */
     gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, help_dialog);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (matcher_help_key_pressed_cb), NULL);
+    gtk_widget_add_controller (help_dialog, key_controller);
+    gtk_window_set_default_widget (GTK_WINDOW (help_dialog), close_button);
 
     g_object_unref (G_OBJECT(builder));
 
@@ -788,7 +816,7 @@ on_matcher_help_clicked (GtkButton *button, gpointer user_data)
     g_free (int_prob_required_class);
     g_free (int_not_required_class);
 
-    gtk_widget_show (help_dialog);
+    gtk_window_present (GTK_WINDOW (help_dialog));
 }
 
 static void
