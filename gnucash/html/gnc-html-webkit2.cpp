@@ -1124,68 +1124,223 @@ impl_webkit_export_to_file( GncHtml* self, const char *filepath )
      }
 }
 
-/* The webkit1 comment was
- * If printing on WIN32, in order to prevent the font from being tiny, (see bug
- * #591177), A GtkPrintOperation object needs to be created so that the unit can
- * be set, and then webkit_web_frame_print_full() needs to be called to use that
- * GtkPrintOperation.  On other platforms (specifically linux - not sure about
- * MacOSX), the version of webkit may not contain the function
- * webkit_web_frame_print_full(), so webkit_web_frame_print() is called instead
- * (the font size problem doesn't show up on linux).
- *
- * Webkit2 exposes only a very simple WebKitPrintOperation API. In order to
- * implement the above if it proves still to be necessary we'll have to use
- * GtkPrintOperation instead, passing it the results of
- * webkit_web_view_get_snapshot for each page.
- */
+constexpr char webkit_print_request_data_key[] = "gnc-html-webkit-print-request";
+
+struct WebkitPrintRequest
+{
+    GncHtmlWebkit *backend;
+    WebKitWebView *web_view;
+    WebKitPrintOperation *operation;
+    GtkPrintDialog *dialog;
+    GCancellable *cancellable;
+    GWeakRef parent;
+    GError *error;
+};
+
+static void
+webkit_print_request_parent_destroyed (gpointer user_data,
+                                       G_GNUC_UNUSED GObject *where_parent_was)
+{
+    auto request = static_cast<WebkitPrintRequest *> (user_data);
+
+    g_cancellable_cancel (request->cancellable);
+}
+
+static void
+webkit_print_request_free (WebkitPrintRequest *request)
+{
+    auto parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    if (parent)
+    {
+        g_object_weak_unref (G_OBJECT (parent),
+                             webkit_print_request_parent_destroyed, request);
+        g_object_unref (parent);
+    }
+    if (request->backend &&
+        g_object_get_data (G_OBJECT (request->backend),
+                           webkit_print_request_data_key) == request)
+        g_object_set_data (G_OBJECT (request->backend),
+                           webkit_print_request_data_key, nullptr);
+    g_weak_ref_clear (&request->parent);
+    g_clear_error (&request->error);
+    g_clear_object (&request->cancellable);
+    g_clear_object (&request->dialog);
+    g_clear_object (&request->operation);
+    g_clear_object (&request->web_view);
+    g_clear_object (&request->backend);
+    g_free (request);
+}
+
+static void
+webkit_print_request_complete (WebkitPrintRequest *request)
+{
+    auto parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    if (request->error &&
+        !g_error_matches (request->error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    {
+        if (parent && !gtk_widget_in_destruction (GTK_WIDGET (parent)))
+            gnc_error_dialog (parent, "%s", request->error->message);
+        else
+            PERR ("Report printing failed: %s", request->error->message);
+    }
+    g_clear_object (&parent);
+    webkit_print_request_free (request);
+}
+
+static void
+webkit_print_operation_failed (WebKitPrintOperation *operation, GError *error,
+                               gpointer user_data)
+{
+    auto request = static_cast<WebkitPrintRequest *> (user_data);
+
+    g_clear_error (&request->error);
+    request->error = g_error_copy (error);
+    (void)operation;
+}
+
+static void
+webkit_print_operation_finished (WebKitPrintOperation *operation,
+                                 gpointer user_data)
+{
+    auto request = static_cast<WebkitPrintRequest *> (user_data);
+
+    webkit_print_request_complete (request);
+    (void)operation;
+}
+
+static void
+webkit_print_request_start_operation (WebkitPrintRequest *request)
+{
+    g_signal_connect (request->operation, "failed",
+                      G_CALLBACK (webkit_print_operation_failed), request);
+    g_signal_connect (request->operation, "finished",
+                      G_CALLBACK (webkit_print_operation_finished), request);
+    webkit_print_operation_print (request->operation);
+}
+
+static void
+webkit_print_setup_finished (GObject *source, GAsyncResult *result,
+                             gpointer user_data)
+{
+    auto request = static_cast<WebkitPrintRequest *> (user_data);
+    GError *error = nullptr;
+    auto setup = gtk_print_dialog_setup_finish (GTK_PRINT_DIALOG (source), result,
+                                                &error);
+
+    if (!setup)
+    {
+        if (error)
+            request->error = g_error_copy (error);
+        g_clear_error (&error);
+        webkit_print_request_complete (request);
+        return;
+    }
+
+    gnc_print_setup_save (setup);
+    webkit_print_operation_set_print_settings (
+        request->operation, gtk_print_setup_get_print_settings (setup));
+    webkit_print_operation_set_page_setup (
+        request->operation, gtk_print_setup_get_page_setup (setup));
+    gtk_print_setup_unref (setup);
+    webkit_print_request_start_operation (request);
+}
+
+static WebkitPrintRequest *
+webkit_print_request_new (GncHtmlWebkit *self)
+{
+    auto priv = GNC_HTML_WEBKIT_GET_PRIVATE (self);
+    auto request = g_new0 (WebkitPrintRequest, 1);
+    auto root = gtk_widget_get_root (GTK_WIDGET (priv->web_view));
+    auto parent = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : nullptr;
+
+    request->backend = GNC_HTML_WEBKIT (g_object_ref (self));
+    request->web_view = WEBKIT_WEB_VIEW (g_object_ref (priv->web_view));
+    request->operation = webkit_print_operation_new (request->web_view);
+    request->cancellable = g_cancellable_new ();
+    g_weak_ref_init (&request->parent, parent);
+    if (parent)
+        g_object_weak_ref (G_OBJECT (parent),
+                           webkit_print_request_parent_destroyed, request);
+    g_object_set_data (G_OBJECT (self), webkit_print_request_data_key, request);
+    return request;
+}
+
 static void
 impl_webkit_print (GncHtml *self, const gchar *jobname, gboolean export_pdf)
 {
     g_return_if_fail (self != nullptr);
     g_return_if_fail (GNC_IS_HTML_WEBKIT (self));
 
+    auto backend = GNC_HTML_WEBKIT (self);
     auto priv = GNC_HTML_WEBKIT_GET_PRIVATE (self);
-    auto op = webkit_print_operation_new (priv->web_view);
-    auto print_settings = gtk_print_settings_new ();
+    WebkitPrintRequest *request;
 
+    if (!priv->web_view ||
+        g_object_get_data (G_OBJECT (backend), webkit_print_request_data_key))
+        return;
+
+    request = webkit_print_request_new (backend);
     if (export_pdf)
     {
         GError *error = nullptr;
-        gchar *output_uri = g_filename_to_uri (jobname, nullptr, &error);
+        auto print_settings = gtk_print_settings_new ();
 
+        if (!jobname || !*jobname)
+        {
+            request->error = g_error_new (G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                                          "%s", _("A PDF export needs an output path."));
+            g_object_unref (print_settings);
+            webkit_print_request_complete (request);
+            return;
+        }
+
+        gchar *output_uri = g_filename_to_uri (jobname, nullptr, &error);
         if (!output_uri)
         {
-            PERR ("Could not create a PDF output URI: %s",
-                  error ? error->message : "unknown error");
-            g_clear_error (&error);
+            request->error = error;
             g_object_unref (print_settings);
-            g_object_unref (op);
+            webkit_print_request_complete (request);
             return;
         }
 
         gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_PRINTER,
                                 "Print to File");
-        gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_OUTPUT_FILE_FORMAT,
-                                "pdf");
+        gtk_print_settings_set (print_settings,
+                                GTK_PRINT_SETTINGS_OUTPUT_FILE_FORMAT, "pdf");
         gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_OUTPUT_URI,
                                 output_uri);
-        webkit_print_operation_set_print_settings (op, print_settings);
-        webkit_print_operation_print (op);
+        webkit_print_operation_set_print_settings (request->operation,
+                                                    print_settings);
+        g_object_unref (print_settings);
         g_free (output_uri);
+        webkit_print_request_start_operation (request);
+        return;
     }
-    else
+
     {
-        auto root = gtk_widget_get_root (GTK_WIDGET (priv->web_view));
-        auto top = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : nullptr;
+        auto print_operation = gtk_print_operation_new ();
+        auto parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
 
-        gtk_print_settings_set (print_settings, GTK_PRINT_SETTINGS_OUTPUT_BASENAME,
-                                jobname);
-        webkit_print_operation_set_print_settings (op, print_settings);
-        (void)webkit_print_operation_run_dialog (op, top);
+        gnc_print_operation_init (print_operation,
+                                  jobname && *jobname ? jobname : _("Report"));
+        settings = gtk_print_operation_get_print_settings (print_operation);
+        page_setup = gtk_print_operation_get_default_page_setup (print_operation);
+        request->dialog = gtk_print_dialog_new ();
+        gtk_print_dialog_set_title (request->dialog,
+                                    jobname && *jobname ? jobname : _("Print Report"));
+        gtk_print_dialog_set_accept_label (request->dialog, _("_Print"));
+        gtk_print_dialog_set_modal (request->dialog, TRUE);
+        if (settings)
+            gtk_print_dialog_set_print_settings (request->dialog, settings);
+        if (page_setup)
+            gtk_print_dialog_set_page_setup (request->dialog, page_setup);
+        gtk_print_dialog_setup (request->dialog, parent, request->cancellable,
+                                webkit_print_setup_finished, request);
+        g_clear_object (&parent);
+        g_object_unref (print_operation);
     }
-
-    g_object_unref (print_settings);
-    g_object_unref (op);
 }
 static void
 impl_webkit_set_parent( GncHtml* self, GtkWindow* parent )
