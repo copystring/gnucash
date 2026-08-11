@@ -36,6 +36,7 @@
 #include "gnc-ui-util.h"
 #include "gnc-component-manager.h"
 #include "dialog-utils.h"
+#include "qof.h"
 #include "gnc-gui-query.h"
 #include "gnc-file.h"
 #include "dialog-customer-import.h"
@@ -63,6 +64,52 @@ customer_import_file_dialog_data_free (CustomerImportFileDialogData *data)
 {
     g_weak_ref_clear (&data->dialog);
     g_free (data);
+}
+
+void gnc_customer_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer data);
+
+typedef struct
+{
+    GWeakRef dialog;
+    QofBook *book;
+} CustomerImportRegexRequest;
+
+static CustomerImportRegexRequest *
+customer_import_regex_request_new (CustomerImportGui *gui)
+{
+    CustomerImportRegexRequest *request = g_new0 (CustomerImportRegexRequest, 1);
+
+    g_weak_ref_init (&request->dialog, gui->dialog);
+    request->book = gui->book;
+    return request;
+}
+
+static void
+customer_import_regex_request_free (CustomerImportRegexRequest *request)
+{
+    g_weak_ref_clear (&request->dialog);
+    g_free (request);
+}
+
+static void
+customer_import_regex_input_finished (gchar *input, gpointer user_data)
+{
+    CustomerImportRegexRequest *request = user_data;
+    GtkWidget *dialog = g_weak_ref_get (&request->dialog);
+    CustomerImportGui *gui = NULL;
+
+    if (dialog)
+        gui = g_object_get_data (G_OBJECT (dialog), "gnc-customer-import-gui");
+    if (input && gui && gui->book == request->book && request->book == gnc_get_current_book () &&
+        !qof_book_shutting_down (request->book))
+    {
+        g_string_assign (gui->regexp, input);
+        gnc_customer_import_gui_filenameChanged_cb (gui->entryFilename, gui);
+    }
+
+    g_free (input);
+    g_clear_object (&dialog);
+    customer_import_regex_request_free (request);
 }
 
 // callback routines
@@ -400,16 +447,17 @@ void gnc_customer_import_gui_option4_cb (GtkWidget *widget, gpointer data)
 void gnc_customer_import_gui_option5_cb (GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
-    gchar *temp;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    CustomerImportRegexRequest *request;
+
+    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)))
         return;
-    temp = gnc_input_dialog (0, _("Adjust regular expression used for import"), _("This regular expression is used to parse the import file. Modify according to your needs.\n"), gui->regexp->str);
-    if (temp)
-    {
-        g_string_assign (gui->regexp, temp);
-        g_free (temp);
-        gnc_customer_import_gui_filenameChanged_cb (gui->entryFilename, gui);
-    }
+
+    request = customer_import_regex_request_new (gui);
+    gnc_input_dialog_async (GTK_WINDOW (gui->dialog),
+                            _("Adjust regular expression used for import"),
+                            _("This regular expression is used to parse the import file. Modify according to your needs.\n"),
+                            gui->regexp->str,
+                            customer_import_regex_input_finished, request);
 }
 
 

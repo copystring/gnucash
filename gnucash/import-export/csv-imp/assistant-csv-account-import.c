@@ -37,6 +37,7 @@
 #include "gnc-file.h"
 
 #include "gnc-component-manager.h"
+#include "qof.h"
 
 #include "assistant-csv-account-import.h"
 #include "csv-account-import.h"
@@ -314,6 +315,68 @@ static void csv_import_assistant_enable_account_forward (CsvImportInfo *info)
 }
 
 
+static void
+csv_import_regex_changed (CsvImportInfo *info)
+{
+    /* Generate preview only after the selected regular expression is stable. */
+    g_list_store_remove_all (info->store);
+    gtk_widget_set_sensitive (info->header_row_spin, TRUE);
+
+    if (csv_import_read_file (GTK_WINDOW (info->assistant), info->file_name,
+                              info->regexp->str, info->store, 11) == MATCH_FOUND)
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (info->header_row_spin), 1);
+    else
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (info->header_row_spin), 0);
+
+    csv_import_assistant_enable_account_forward (info);
+}
+
+typedef struct
+{
+    GWeakRef assistant;
+    QofBook *book;
+} CsvImportRegexRequest;
+
+static CsvImportRegexRequest *
+csv_import_regex_request_new (CsvImportInfo *info)
+{
+    CsvImportRegexRequest *request = g_new0 (CsvImportRegexRequest, 1);
+
+    g_weak_ref_init (&request->assistant, info->assistant);
+    request->book = gnc_get_current_book ();
+    return request;
+}
+
+static void
+csv_import_regex_request_free (CsvImportRegexRequest *request)
+{
+    g_weak_ref_clear (&request->assistant);
+    g_free (request);
+}
+
+static void
+csv_import_regex_input_finished (gchar *input, gpointer user_data)
+{
+    CsvImportRegexRequest *request = user_data;
+    GtkWidget *assistant = g_weak_ref_get (&request->assistant);
+    CsvImportInfo *info = NULL;
+
+    if (assistant)
+        info = g_object_get_data (G_OBJECT (assistant),
+                                  "gnc-csv-account-import-info");
+    if (input && info && request->book &&
+        request->book == gnc_get_current_book () &&
+        !qof_book_shutting_down (request->book))
+    {
+        g_string_assign (info->regexp, input);
+        csv_import_regex_changed (info);
+    }
+
+    g_free (input);
+    g_clear_object (&assistant);
+    csv_import_regex_request_free (request);
+}
+
 /*******************************************************
  * csv_import_sep_cb
  *
@@ -323,49 +386,39 @@ void csv_import_sep_cb (GtkWidget *radio, gpointer user_data)
 {
     CsvImportInfo *info = user_data;
     const gchar *name;
-    gchar *temp;
-    gchar *sep = NULL;
+    const gchar *sep = NULL;
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(radio)))
+    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (radio)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;
     }
 
-    name = gtk_buildable_get_buildable_id (GTK_BUILDABLE(radio));
+    name = gtk_buildable_get_buildable_id (GTK_BUILDABLE (radio));
     if (g_strcmp0 (name, "radio_semi") == 0)
         sep = ";";
     else if (g_strcmp0 (name, "radio_colon") == 0)
         sep = ":";
     else
-        sep = ","; /* Use as default as well */
-
-    create_regex (info->regexp, sep);
+        sep = ","; /* Default and custom preview baseline. */
 
     if (g_strcmp0 (name, "radio_custom") == 0)
     {
-        temp = gnc_input_dialog (GTK_WIDGET (info->assistant),
-                                 _("Adjust regular expression used for import"),
-                                 _("This regular expression is used to parse the import file. Modify according to your needs.\n"),
-                                  info->regexp->str);
-        if (temp)
-        {
-            g_string_assign (info->regexp, temp);
-            g_free (temp);
-        }
+        CsvImportRegexRequest *request = csv_import_regex_request_new (info);
+        GString *default_regex = g_string_new (NULL);
+
+        create_regex (default_regex, sep);
+        gnc_input_dialog_async (GTK_WINDOW (info->assistant),
+                                _("Adjust regular expression used for import"),
+                                _("This regular expression is used to parse the import file. Modify according to your needs.\n"),
+                                default_regex->str,
+                                csv_import_regex_input_finished, request);
+        g_string_free (default_regex, TRUE);
+        return;
     }
 
-    /* Generate preview */
-    g_list_store_remove_all (info->store);
-    gtk_widget_set_sensitive (info->header_row_spin, TRUE);
-
-    if (csv_import_read_file (GTK_WINDOW (info->assistant), info->file_name, info->regexp->str, info->store, 11) == MATCH_FOUND)
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(info->header_row_spin), 1); // set header spin to 1
-    else
-        gtk_spin_button_set_value (GTK_SPIN_BUTTON(info->header_row_spin), 0); //reset header spin to 0
-
-    /* if the store has rows, enable "Next" button */
-    csv_import_assistant_enable_account_forward (info);
+    create_regex (info->regexp, sep);
+    csv_import_regex_changed (info);
 }
 
 

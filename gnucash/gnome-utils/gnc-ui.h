@@ -155,11 +155,20 @@ extern void
 gnc_error_dialog (GtkWindow *parent,
                   const char *format, ...) G_GNUC_PRINTF (2, 3);
 
-extern gchar *
-gnc_input_dialog (GtkWidget *parent, const gchar *title, const gchar *msg, const gchar *default_input);
+/** Completion callback for gnc_input_dialog_async.
+ *
+ * @param input A newly allocated string when accepted, or NULL when cancelled
+ *              or when the parent is destroyed. The callback owns the string.
+ */
+typedef void (*GncInputDialogCallback) (gchar *input, gpointer user_data);
 
-extern gchar *
-gnc_input_dialog_with_entry (GtkWidget *parent, const gchar *title, const gchar *msg, const gchar *default_input);
+/** Request multi-line text without entering a nested event loop.
+ * The callback is invoked exactly once, including cancellation and parent destroy.
+ */
+extern void
+gnc_input_dialog_async (GtkWindow *parent, const gchar *title, const gchar *msg,
+                        const gchar *default_input,
+                        GncInputDialogCallback completed, gpointer user_data);
 
 extern void
 gnc_info2_dialog (GtkWidget *parent, const gchar *title, const gchar *msg);
