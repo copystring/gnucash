@@ -73,6 +73,19 @@ typedef struct
 } VirtualBar;
 
 static void
+gnc_progress_dialog_free(GNCProgressDialog *progress)
+{
+    g_return_if_fail(progress);
+
+    progress->cancel_func = NULL;
+    if (progress->cancel_scm_func != SCM_UNDEFINED)
+        scm_gc_unprotect_object(progress->cancel_scm_func);
+    progress->cancel_scm_func = SCM_UNDEFINED;
+    g_list_free_full(progress->bars, g_free);
+    g_free(progress);
+}
+
+static void
 gnc_progress_maybe_destroy(GNCProgressDialog *progress)
 {
     g_return_if_fail(progress);
@@ -80,8 +93,14 @@ gnc_progress_maybe_destroy(GNCProgressDialog *progress)
     if (!(progress->closed && progress->destroyed))
         return;
 
-//FIXME gtk4    if (progress->dialog != NULL)
-//        gtk_window_destroy (GTK_WINDOW(progress->dialog));
+    if (progress->dialog != NULL)
+    {
+        GtkWidget *dialog = progress->dialog;
+        progress->dialog = NULL;
+        gtk_window_destroy(GTK_WINDOW(dialog));
+    }
+    else
+        gnc_progress_dialog_free(progress);
 }
 
 
@@ -127,9 +146,11 @@ cancel_cb(GtkWidget * widget, gpointer data)
 
 
 static gboolean
-delete_cb(GtkWidget *widget, GdkEvent  *event, gpointer data)
+close_request_cb(GtkWindow *window, gpointer data)
 {
     GNCProgressDialog *progress = data;
+
+    (void)window;
 
     g_return_val_if_fail(progress, TRUE);
 
@@ -180,15 +201,8 @@ destroy_cb(GtkWidget *object, gpointer data)
 {
     GNCProgressDialog *progress = data;
 
-    g_return_if_fail(progress);
-
-    /* Make sure the callbacks aren't invoked */
-    progress->cancel_func = NULL;
-    if (progress->cancel_scm_func != SCM_UNDEFINED)
-        scm_gc_unprotect_object(progress->cancel_scm_func);
-    progress->cancel_scm_func = SCM_UNDEFINED;
-
-    g_free(progress);
+    (void)object;
+    gnc_progress_dialog_free(progress);
 }
 
 
@@ -215,7 +229,7 @@ gnc_progress_dialog_create(GtkWidget * parent, GNCProgressDialog *progress)
     if (parent != NULL)
         gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(parent));
 
-    g_signal_connect(G_OBJECT(dialog), "delete_event", G_CALLBACK(delete_cb), progress);
+    g_signal_connect(dialog, "close-request", G_CALLBACK(close_request_cb), progress);
 
     g_signal_connect(G_OBJECT(dialog), "destroy", G_CALLBACK(destroy_cb), progress);
 
@@ -743,8 +757,7 @@ gnc_progress_dialog_reset_value(GNCProgressDialog *progress)
 void
 gnc_progress_dialog_update(GNCProgressDialog *progress)
 {
-//FIXME gtk4    while (gtk_events_pending())
-//        gtk_main_iteration();
+    g_return_if_fail(progress);
 }
 
 
@@ -784,20 +797,10 @@ gnc_progress_dialog_destroy(GNCProgressDialog *progress)
 {
     g_return_if_fail(progress);
 
-    /* Make sure the callbacks aren't invoked */
-    progress->cancel_func = NULL;
-    if (progress->cancel_scm_func != SCM_UNDEFINED)
-        scm_gc_unprotect_object(progress->cancel_scm_func);
-    progress->cancel_scm_func = SCM_UNDEFINED;
+    if (progress->dialog != NULL)
+        gtk_widget_set_visible (GTK_WIDGET(progress->dialog), FALSE);
 
-    if (!progress->finished)
-    {
-        if (progress->dialog != NULL)
-            gtk_widget_set_visible (GTK_WIDGET(progress->dialog), FALSE);
-        progress->closed = TRUE;
-    }
-
+    progress->closed = TRUE;
     progress->destroyed = TRUE;
-
     gnc_progress_maybe_destroy(progress);
 }
