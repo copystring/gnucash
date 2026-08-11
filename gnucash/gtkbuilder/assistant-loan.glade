@@ -1,100 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkListStore" id="len_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Months</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Years</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="range_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Current Year</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Now + 1 Year</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Whole Loan</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">Custom</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="rate_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Interest Rate</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">APR (Compounded Daily)</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">APR (Compounded Weekly)</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">APR (Compounded Monthly)</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">APR (Compounded Quarterly)</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">APR (Compounded Semi-annually)</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">APR (Compounded Annually)</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkListStore" id="type_liststore">
-    <columns>
-      <column type="gchararray" />
-    </columns>
-    <data>
-      <row>
-        <col id="0" translatable="yes">Fixed Rate</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">3/1 Year ARM</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">5/1 Year ARM</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">7/1 Year ARM</col>
-      </row>
-      <row>
-        <col id="0" translatable="yes">10/1 Year ARM</col>
-      </row>
-    </data>
-  </object>
-  <object class="GtkAssistant" id="loan_mortgage_assistant">
-<property name="default-width">400</property>
+  <object class="GtkStringList" id="len_liststore"><items><item translatable="yes">Months</item><item translatable="yes">Years</item></items></object>
+  <object class="GtkStringList" id="range_liststore"><items><item translatable="yes">Current Year</item><item translatable="yes">Now + 1 Year</item><item translatable="yes">Whole Loan</item><item translatable="yes">Custom</item></items></object>
+  <object class="GtkStringList" id="rate_liststore"><items><item translatable="yes">Interest Rate</item><item translatable="yes">APR (Compounded Daily)</item><item translatable="yes">APR (Compounded Weekly)</item><item translatable="yes">APR (Compounded Monthly)</item><item translatable="yes">APR (Compounded Quarterly)</item><item translatable="yes">APR (Compounded Semi-annually)</item><item translatable="yes">APR (Compounded Annually)</item></items></object>
+  <object class="GtkStringList" id="type_liststore"><items><item translatable="yes">Fixed Rate</item><item translatable="yes">3/1 Year ARM</item><item translatable="yes">5/1 Year ARM</item><item translatable="yes">7/1 Year ARM</item><item translatable="yes">10/1 Year ARM</item></items></object>
+  <object class="GtkWindow" id="loan_mortgage_assistant">
+    <property name="default-width">400</property>
     <property name="default-height">400</property>
-    <signal name="apply" handler="loan_assistant_finish" swapped="no" />
-    <signal name="cancel" handler="loan_assistant_cancel" swapped="no" />
-    <signal name="close" handler="loan_assistant_close" swapped="no" />
-    <signal name="prepare" handler="loan_assistant_prepare" swapped="no" />
+    <property name="title" translatable="1">Loan / Mortgage Repayment Setup</property>
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">intro</property>
+      <object class="GtkBox" id="loan_root">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <child>
+          <object class="GtkStack" id="loan_stack">
+            <property name="hexpand">True</property>
+            <property name="vexpand">True</property>
+            <property name="transition-type">slide-left-right</property>
+    <child>
+      <object class="GtkStackPage">
         <property name="title" translatable="1">Loan / Mortgage Repayment Setup</property>
-        <property name="complete">True</property>
 <property name="child">
           <object class="GtkLabel" id="loan_intro_page">
             <property name="valign">start</property>
@@ -109,7 +39,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
+      <object class="GtkStackPage">
         <property name="title" translatable="1">Loan Details</property>
 <property name="child">
           <object class="GtkBox" id="loan_info_page">
@@ -210,15 +140,8 @@ If you make a mistake or want to make changes later, you can edit the created Sc
                       </object>
                     </child>
                     <child>
-                      <object class="GtkComboBox" id="len_opt">
+                      <object class="GtkDropDown" id="len_opt"><property name="model">len_liststore</property>
                         <property name="halign">center</property>
-                        <property name="model">len_liststore</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext1" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
                       </object>
                     </child>
                   </object>
@@ -247,14 +170,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
                   </object>
                 </child>
                 <child>
-                  <object class="GtkComboBox" id="type_combobox">
-                    <property name="model">type_liststore</property>
-                    <child>
-                      <object class="GtkCellRendererText" id="cellrenderertext3" />
-                      <attributes>
-                        <attribute name="text">0</attribute>
-                      </attributes>
-                    </child>
+                  <object class="GtkDropDown" id="type_combobox"><property name="model">type_liststore</property>
                     <layout>
                       <property name="column">3</property>
                       <property name="row">2</property>
@@ -268,15 +184,8 @@ If you make a mistake or want to make changes later, you can edit the created Sc
                       <property name="row">2</property>
                     </layout>
                     <child>
-                      <object class="GtkComboBox" id="irate_type_combobox">
+                      <object class="GtkDropDown" id="irate_type_combobox"><property name="model">rate_liststore</property>
                         <property name="hexpand">1</property>
-                        <property name="model">rate_liststore</property>
-                        <child>
-                          <object class="GtkCellRendererText" id="cellrenderertext2" />
-                          <attributes>
-                            <attribute name="text">0</attribute>
-                          </attributes>
-                        </child>
                       </object>
                     </child>
                     <child>
@@ -352,7 +261,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
+      <object class="GtkStackPage">
         <property name="title" translatable="1">Loan Repayment Options</property>
 <property name="child">
           <object class="GtkBox" id="loan_options_page">
@@ -405,7 +314,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
+      <object class="GtkStackPage">
         <property name="title" translatable="1">Loan Repayment</property>
 <property name="child">
           <object class="GtkBox" id="loan_repayment_page">
@@ -547,8 +456,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">progress</property>
+      <object class="GtkStackPage">
         <property name="title" translatable="1">Loan Payment</property>
 <property name="child">
           <object class="GtkBox" id="loan_payment_page">
@@ -796,8 +704,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">confirm</property>
+      <object class="GtkStackPage">
         <property name="title" translatable="1">Loan Review</property>
 <property name="child">
           <object class="GtkBox" id="loan_review_page">
@@ -831,16 +738,9 @@ If you make a mistake or want to make changes later, you can edit the created Sc
                             <property name="hexpand">1</property>
 <property name="orientation">vertical</property>
                             <child>
-                              <object class="GtkComboBox" id="rev_range_opt">
+                              <object class="GtkDropDown" id="rev_range_opt"><property name="model">range_liststore</property>
                                 <property name="valign">center</property>
                                 <property name="vexpand">1</property>
-                                <property name="model">range_liststore</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext4" />
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
-                                </child>
                               </object>
                             </child>
                           </object>
@@ -904,10 +804,8 @@ If you make a mistake or want to make changes later, you can edit the created Sc
       </object>
     </child>
     <child>
-      <object class="GtkAssistantPage">
-        <property name="page-type">summary</property>
+      <object class="GtkStackPage">
         <property name="title" translatable="1">Loan Summary</property>
-        <property name="complete">True</property>
 <property name="child">
           <object class="GtkLabel" id="loan_summary_page">
             <property name="label" translatable="1">Schedule added successfully.</property>
@@ -917,9 +815,19 @@ If you make a mistake or want to make changes later, you can edit the created Sc
         </property>
       </object>
     </child>
-    <child internal-child="action_area">
-      <object class="GtkBox">
-        <property name="visible">0</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="loan_footer">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child><object class="GtkButton" id="loan_back_button"><property name="label" translatable="1">Back</property></object></child>
+            <child><object class="GtkButton" id="loan_next_button"><property name="label" translatable="1">Next</property></object></child>
+            <child><object class="GtkButton" id="loan_apply_button"><property name="label" translatable="1">Apply</property></object></child>
+            <child><object class="GtkButton" id="loan_cancel_button"><property name="label" translatable="1">Cancel</property></object></child>
+            <child><object class="GtkButton" id="loan_close_button"><property name="label" translatable="1">Close</property></object></child>
+          </object>
+        </child>
       </object>
     </child>
   </object>
