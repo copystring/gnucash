@@ -64,10 +64,6 @@ void gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
 void gnc_widget_set_all_margins (GtkWidget *widget, gint margin);
 
 gboolean gnc_is_dark_theme (GdkRGBA *fg_color);
-void gnc_style_context_get_background_color (GtkStyleContext *context,
-                                             GdkRGBA         *color);
-void gnc_style_context_get_border_color (GtkStyleContext *context,
-                                         GdkRGBA         *color);
 
 GtkWidget *gnc_get_widget_from_id (GtkWidget *root, const gchar *id);
 

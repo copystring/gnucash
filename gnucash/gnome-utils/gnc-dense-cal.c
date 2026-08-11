@@ -1054,7 +1054,7 @@ gnc_dense_cal_draw_to_buffer (GncDenseCal *dcal)
 
         gtk_render_frame (stylectxt, cr, x, y, w + 1, h + 1);
 
-        gnc_style_context_get_border_color (stylectxt, state_flags, &color);
+        gtk_widget_get_color (GTK_WIDGET (dcal), &color);
         cairo_set_source_rgb (cr, color.red, color.green, color.blue);
         cairo_set_line_width (cr, 1);
 
