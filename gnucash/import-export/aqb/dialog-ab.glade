@@ -2,15 +2,19 @@
 <interface>
   <requires lib="gtk" version="4.0"/>
   <requires lib="gtk" version="4.14"/>
-  <object class="GtkDialog" id="aqbanking_connection_dialog">
+  <object class="GtkWindow" id="aqbanking_connection_dialog">
     <property name="title" translatable="1">Online Banking Connection Window</property>
     <property name="default-width">350</property>
     <property name="default-height">500</property>
     <signal name="close-request" handler="ggg_delete_event_cb" swapped="no"/>
-    <child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="dialog-vbox9">
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
         <property name="orientation">vertical</property>
-        <property name="spacing">2</property>
+        <property name="spacing">12</property>
         <child>
           <object class="GtkBox" id="vbox149">
             <property name="vexpand">1</property>
@@ -163,35 +167,32 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">abort_button</action-widget>
-      <action-widget response="-7">close_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area9">
-        <property name="visible">True</property>
-        <property name="can-focus">False</property>
-<child>
-          <object class="GtkButton" id="abort_button">
-            <property name="label" translatable="1">_Abort</property>
-            <property name="sensitive">0</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="ggg_abort_clicked_cb" swapped="no"/>
-          </object>
-</child>
         <child>
-          <object class="GtkButton" id="close_button">
-            <property name="label" translatable="1">_Close</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="ggg_close_clicked_cb" swapped="no"/>
+          <object class="GtkBox" id="dialog-action_area9">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <property name="margin-top">12</property>
+            <child>
+              <object class="GtkButton" id="abort_button">
+                <property name="label" translatable="1">_Abort</property>
+                <property name="sensitive">0</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="ggg_abort_clicked_cb" swapped="no"/>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="close_button">
+                <property name="label" translatable="1">_Close</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="ggg_close_clicked_cb" swapped="no"/>
+              </object>
+            </child>
           </object>
-</child>
+        </child>
       </object>
     </child>
   </object>
@@ -383,11 +384,16 @@
     </child>
 
   </object>
-  <object class="GtkDialog" id="aqbanking_password_dialog">
+  <object class="GtkWindow" id="aqbanking_password_dialog">
 <property name="title" translatable="1">Enter Password</property>
-<child internal-child="content_area">
+<child>
       <object class="GtkBox" id="dialog-vbox3">
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
         <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
         <child>
           <object class="GtkBox" id="vbox167">
             <property name="vexpand">1</property>
@@ -542,32 +548,29 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton2</action-widget>
-      <action-widget response="-5">okbutton2</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area3">
-        <property name="visible">True</property>
-        <property name="can-focus">False</property>
-<child>
-          <object class="GtkButton" id="cancelbutton2">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          </object>
-</child>
         <child>
-          <object class="GtkButton" id="okbutton2">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="receives-default">1</property>
-            <property name="use-underline">1</property>
+          <object class="GtkBox" id="dialog-action_area3">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <property name="margin-top">12</property>
+            <child>
+              <object class="GtkButton" id="cancelbutton2">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="okbutton2">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-</child>
+        </child>
       </object>
     </child>
   </object>

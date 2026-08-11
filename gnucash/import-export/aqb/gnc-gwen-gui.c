@@ -124,7 +124,8 @@ static gint GNC_GWENHYWFAR_CB inputbox_cb(GWEN_GUI *gwen_gui, guint32 flags, con
 static guint32 GNC_GWENHYWFAR_CB showbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
                           const gchar *text, guint32 guiid);
 static void GWENHYWFAR_CB hidebox_cb(GWEN_GUI *gwen_gui, guint32 id);
-static void showbox_response_cb(GtkDialog *dialog, gint response, gpointer user_data);
+static gboolean showbox_close_request_cb(GtkWindow *window, gpointer user_data);
+static void showbox_close_clicked_cb(GtkButton *button, gpointer user_data);
 static guint32 GNC_GWENHYWFAR_CB progress_start_cb(GWEN_GUI *gwen_gui, uint32_t progressFlags,
                                  const char *title, const char *text,
                                  uint64_t total, uint32_t guiid);
@@ -837,7 +838,8 @@ keep_alive(GncGWENGui *gui)
 
     ENTER("gui=%p", gui);
 
-    /* Let the widgets be redrawn */
+    /* Gwen drives progress through synchronous callbacks. Drain only pending
+     * GTK work so the log window updates; this is not another main loop. */
     while (g_main_context_iteration(NULL, FALSE));
 
     LEAVE("alive=%d", gui->keep_alive);
@@ -900,6 +902,241 @@ strip_html(gchar *text)
     return text;
 }
 
+typedef struct
+{
+    GMainLoop *loop;
+    gint response;
+    gboolean answered;
+    gboolean destroyed;
+} GncGwenWindowResponseState;
+
+typedef struct
+{
+    GtkButton *button;
+    gint response;
+    GncGwenWindowResponseState *state;
+    gulong handler;
+} GncGwenResponseButton;
+
+typedef struct
+{
+    GMainLoop *loop;
+    GCancellable *cancellable;
+    gint response;
+    gboolean answered;
+    gboolean parent_destroyed;
+} GncGwenAlertResponseState;
+
+static void
+gwen_window_response_finish (GncGwenWindowResponseState *state,
+                             gint response)
+{
+    if (state->answered)
+        return;
+
+    state->response = response;
+    state->answered = TRUE;
+    g_main_loop_quit (state->loop);
+}
+
+static void
+gwen_window_button_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    GncGwenResponseButton *response_button = user_data;
+
+    (void)button;
+    gwen_window_response_finish (response_button->state,
+                                 response_button->response);
+}
+
+static gboolean
+gwen_window_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    (void)window;
+    gwen_window_response_finish (user_data, GTK_RESPONSE_DELETE_EVENT);
+    return TRUE;
+}
+
+static void
+gwen_window_destroy_cb (GtkWidget *widget, gpointer user_data)
+{
+    GncGwenWindowResponseState *state = user_data;
+
+    (void)widget;
+    state->destroyed = TRUE;
+    gwen_window_response_finish (state, GTK_RESPONSE_DELETE_EVENT);
+}
+
+static gint
+wait_for_window_response (GtkWindow *window, GncGwenResponseButton *buttons,
+                          gsize n_buttons)
+{
+    GncGwenWindowResponseState state = { 0 };
+    gulong close_handler;
+    gulong destroy_handler;
+
+    g_return_val_if_fail (GTK_IS_WINDOW (window), GTK_RESPONSE_DELETE_EVENT);
+    g_return_val_if_fail (buttons && n_buttons, GTK_RESPONSE_DELETE_EVENT);
+
+    for (gsize index = 0; index < n_buttons; index++)
+        g_return_val_if_fail (GTK_IS_BUTTON (buttons[index].button),
+                              GTK_RESPONSE_DELETE_EVENT);
+
+    /* Gwen's C callback ABI needs a concrete response before it returns.
+     * This and the alert helper below are the only nested-loop adapters;
+     * the GtkWindow itself uses ordinary GTK4 button and close-request signals. */
+    g_object_ref (window);
+    state.loop = g_main_loop_new (NULL, FALSE);
+    for (gsize index = 0; index < n_buttons; index++)
+    {
+        buttons[index].state = &state;
+        buttons[index].handler = g_signal_connect (
+            buttons[index].button, "clicked",
+            G_CALLBACK (gwen_window_button_clicked_cb), &buttons[index]);
+    }
+    close_handler = g_signal_connect (window, "close-request",
+                                      G_CALLBACK (gwen_window_close_request_cb),
+                                      &state);
+    destroy_handler = g_signal_connect (window, "destroy",
+                                        G_CALLBACK (gwen_window_destroy_cb),
+                                        &state);
+    gtk_window_set_modal (window, TRUE);
+    gtk_window_present (window);
+    if (!state.answered)
+        g_main_loop_run (state.loop);
+
+    if (!state.destroyed)
+    {
+        for (gsize index = 0; index < n_buttons; index++)
+            g_signal_handler_disconnect (buttons[index].button,
+                                         buttons[index].handler);
+        g_signal_handler_disconnect (window, close_handler);
+        g_signal_handler_disconnect (window, destroy_handler);
+    }
+    g_main_loop_unref (state.loop);
+    g_object_unref (window);
+
+    return state.answered && !state.destroyed ? state.response :
+        GTK_RESPONSE_DELETE_EVENT;
+}
+
+static gint
+wait_for_password_window_response (GtkWindow *window,
+                                   GtkButton *cancel_button,
+                                   GtkButton *ok_button)
+{
+    GncGwenResponseButton buttons[] =
+    {
+        { cancel_button, GTK_RESPONSE_CANCEL, NULL, 0 },
+        { ok_button, GTK_RESPONSE_OK, NULL, 0 }
+    };
+
+    return wait_for_window_response (window, buttons, G_N_ELEMENTS (buttons));
+}
+
+static void
+gwen_alert_response_cb (GObject *source, GAsyncResult *result,
+                        gpointer user_data)
+{
+    GncGwenAlertResponseState *state = user_data;
+    GError *error = NULL;
+    gint response = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source),
+                                                     result, &error);
+
+    if (error)
+    {
+        g_clear_error (&error);
+        response = 0;
+    }
+    state->response = response;
+    state->answered = TRUE;
+    g_main_loop_quit (state->loop);
+}
+
+static void
+gwen_alert_parent_destroyed_cb (GtkWidget *widget, gpointer user_data)
+{
+    GncGwenAlertResponseState *state = user_data;
+
+    (void)widget;
+    state->parent_destroyed = TRUE;
+    g_cancellable_cancel (state->cancellable);
+}
+
+static gint
+wait_for_alert_response (GtkWindow *parent, const gchar *message,
+                         gboolean yes_is_default)
+{
+    const char *buttons[] = { _("_No"), _("_Yes"), NULL };
+    GncGwenAlertResponseState state = { 0 };
+    GtkAlertDialog *alert;
+    gulong parent_destroy_handler = 0;
+
+    alert = gtk_alert_dialog_new ("%s", message);
+    gtk_alert_dialog_set_buttons (alert, buttons);
+    gtk_alert_dialog_set_cancel_button (alert, 0);
+    gtk_alert_dialog_set_default_button (alert, yes_is_default ? 1 : 0);
+    /* GtkAlertDialog completes asynchronously; wait only at this Gwen ABI
+     * boundary and cancel the request if its parent disappears. */
+    state.loop = g_main_loop_new (NULL, FALSE);
+    state.cancellable = g_cancellable_new ();
+    if (parent)
+        parent_destroy_handler = g_signal_connect (
+            parent, "destroy", G_CALLBACK (gwen_alert_parent_destroyed_cb),
+            &state);
+    gtk_alert_dialog_choose (alert, parent, state.cancellable,
+                             gwen_alert_response_cb, &state);
+    if (!state.answered)
+        g_main_loop_run (state.loop);
+
+    if (parent_destroy_handler && !state.parent_destroyed)
+        g_signal_handler_disconnect (parent, parent_destroy_handler);
+    g_object_unref (state.cancellable);
+    g_main_loop_unref (state.loop);
+    g_object_unref (alert);
+
+    return state.answered ? state.response : 0;
+}
+
+static gboolean
+gwen_confirm (GtkWindow *parent, const gchar *message, gboolean yes_is_default)
+{
+    return wait_for_alert_response (parent, message, yes_is_default) == 1;
+}
+
+static GtkWindow *
+gwen_message_window_new (GtkWindow *parent, const gchar *title,
+                         const gchar *text, GtkBox **actions_out)
+{
+    GtkWindow *window = GTK_WINDOW (gtk_window_new ());
+    GtkWidget *content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    GtkWidget *actions = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *label;
+    gchar *raw_text = strip_html (g_strdup (text));
+
+    label = gtk_label_new (raw_text);
+    g_free (raw_text);
+    gtk_label_set_justify (GTK_LABEL (label), GTK_JUSTIFY_LEFT);
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_widget_set_halign (actions, GTK_ALIGN_END);
+    gtk_widget_set_margin_start (content, 12);
+    gtk_widget_set_margin_end (content, 12);
+    gtk_widget_set_margin_top (content, 12);
+    gtk_widget_set_margin_bottom (content, 12);
+    gtk_box_append (GTK_BOX (content), label);
+    gtk_box_append (GTK_BOX (content), actions);
+    gtk_window_set_child (window, content);
+    if (parent)
+        gtk_window_set_transient_for (window, parent);
+    if (title)
+        gtk_window_set_title (window, title);
+    if (actions_out)
+        *actions_out = GTK_BOX (actions);
+
+    return window;
+}
+
 static void
 get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
                       const gchar *text, const char *mimeType,
@@ -914,6 +1151,8 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
     GtkWidget *confirm_label;
     GtkWidget *remember_pin_checkbutton;
     GtkImage *optical_challenge;
+    GtkButton *cancel_button;
+    GtkButton *ok_button;
 
     static GncFlickerGui *flickergui = NULL;
 
@@ -937,6 +1176,8 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
     confirm_label = GTK_WIDGET(gtk_builder_get_object (builder, "confirm_label"));
     remember_pin_checkbutton = GTK_WIDGET(gtk_builder_get_object (builder, "remember_pin"));
     optical_challenge = GTK_IMAGE(gtk_builder_get_object (builder, "optical_challenge"));
+    cancel_button = GTK_BUTTON(gtk_builder_get_object (builder, "cancelbutton2"));
+    ok_button = GTK_BUTTON(gtk_builder_get_object (builder, "okbutton2"));
     gtk_widget_set_visible(GTK_WIDGET(optical_challenge), FALSE);
 
     flickergui = g_slice_new(GncFlickerGui);
@@ -1065,14 +1306,15 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
         gtk_widget_set_visible (GTK_WIDGET(confirm_entry), FALSE);
         gtk_widget_set_visible (GTK_WIDGET(confirm_label), FALSE);
     }
-    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
+    gtk_window_set_default_widget (GTK_WINDOW(dialog), GTK_WIDGET(ok_button));
 
     /* Ask the user until he enters a valid input or cancels */
     while (TRUE)
     {
         gboolean remember_pin;
 
-        if (gnc_dialog_run_non_destructive (GTK_DIALOG(dialog)) != GTK_RESPONSE_OK)
+        if (wait_for_password_window_response (GTK_WINDOW(dialog), cancel_button,
+                                               ok_button) != GTK_RESPONSE_OK)
             break;
 
         if (!is_tan)
@@ -1092,7 +1334,7 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
             gchar *msg = g_strdup_printf(
                              _("The PIN needs to be at least %d characters\n"
                                "long. Do you want to try again?"), min_len);
-            retval = gnc_verify_dialog (GTK_WINDOW (gui->parent), TRUE, "%s", msg);
+            retval = gwen_confirm (GTK_WINDOW (dialog), msg, TRUE);
             g_free(msg);
             if (!retval)
                 break;
@@ -1127,33 +1369,39 @@ messagebox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
               const gchar *b3, guint32 guiid)
 {
     GncGWENGui *gui = GETDATA_GUI(gwen_gui);
-    GtkWidget *dialog;
-    GtkWidget *vbox;
-    GtkWidget *label;
-    gchar *raw_text;
+    const gchar *labels[] = { b1, b2, b3 };
+    GncGwenResponseButton buttons[3] = { 0 };
+    GtkBox *actions;
+    GtkWindow *window;
+    guint n_buttons = 0;
     gint result;
 
+    (void)flags;
+    (void)guiid;
     ENTER("gui=%p, flags=%d, title=%s, b1=%s, b2=%s, b3=%s", gui, flags,
           title ? title : "(null)", b1 ? b1 : "(null)", b2 ? b2 : "(null)",
           b3 ? b3 : "(null)");
 
-    dialog = gtk_dialog_new_with_buttons(
-                 title, gui->parent ? GTK_WINDOW(gui->parent) : NULL,
-                 GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                 b1, 1, b2, 2, b3, 3, (gchar*) NULL);
+    window = gwen_message_window_new (gui->parent ? GTK_WINDOW (gui->parent) : NULL,
+                                      title, text, &actions);
+    gtk_window_set_destroy_with_parent (window, TRUE);
+    for (guint index = 0; index < G_N_ELEMENTS (labels); index++)
+    {
+        GtkButton *button;
 
-    raw_text = strip_html(g_strdup(text));
-    label = gtk_label_new(raw_text);
-    g_free(raw_text);
-    gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
-    vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-    gtk_box_set_homogeneous (GTK_BOX (vbox), TRUE);
-    gnc_box_set_all_margins (GTK_BOX(vbox), 5);
-    gtk_box_prepend (GTK_BOX(vbox), GTK_WIDGET(label));
-    gnc_box_set_all_margins (GTK_BOX(dialog), 5);
-    gtk_box_prepend (GTK_BOX(gtk_dialog_get_content_area (GTK_DIALOG(dialog))), GTK_WIDGET(vbox));
-    result = gnc_dialog_run (GTK_DIALOG(dialog));
+        if (!labels[index])
+            continue;
+        button = GTK_BUTTON (gtk_button_new_with_mnemonic (labels[index]));
+        gtk_box_append (actions, GTK_WIDGET (button));
+        buttons[n_buttons].button = button;
+        buttons[n_buttons].response = index + 1;
+        n_buttons++;
+        if (n_buttons == 1)
+            gtk_window_set_default_widget (window, GTK_WIDGET (button));
+    }
 
+    result = n_buttons ? wait_for_window_response (window, buttons, n_buttons) : 0;
+    gtk_window_destroy (window);
     if (result < 1 || result > 3)
     {
         g_warning("messagebox_cb: Bad result %d", result);
@@ -1163,7 +1411,6 @@ messagebox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
     LEAVE("result=%d", result);
     return result;
 }
-
 static gint GNC_GWENHYWFAR_CB
 inputbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
             const gchar *text, gchar *buffer, gint min_len, gint max_len,
@@ -1190,17 +1437,15 @@ inputbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
 }
 
 static void
-showbox_response_cb(GtkDialog *dialog, gint response, gpointer user_data)
+showbox_close (GncGWENGui *gui, GtkWindow *window)
 {
-    GncGWENGui *gui = user_data;
-    guint32 showbox_id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(dialog),
-                                                             "gnc-gwen-showbox-id"));
+    guint32 showbox_id = GPOINTER_TO_UINT (g_object_get_data (
+        G_OBJECT (window), "gnc-gwen-showbox-id"));
 
-    (void)response;
-    if (gui && gui->showbox_hash)
-        g_hash_table_remove(gui->showbox_hash, GUINT_TO_POINTER(showbox_id));
-    else
-        gtk_window_destroy(GTK_WINDOW(dialog));
+    if (!gui || !gui->showbox_hash ||
+        !g_hash_table_remove (gui->showbox_hash,
+                              GUINT_TO_POINTER (showbox_id)))
+        gtk_window_destroy (window);
     if (gui && gui->showbox_last_id == showbox_id)
     {
         gui->showbox_last = NULL;
@@ -1208,36 +1453,56 @@ showbox_response_cb(GtkDialog *dialog, gint response, gpointer user_data)
     }
 }
 
+static gboolean
+showbox_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    showbox_close (user_data, window);
+    return TRUE;
+}
+
+static void
+showbox_close_clicked_cb (GtkButton *button, gpointer user_data)
+{
+    GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (button));
+
+    if (GTK_IS_WINDOW (root))
+        showbox_close (user_data, GTK_WINDOW (root));
+}
+
 static guint32 GNC_GWENHYWFAR_CB
 showbox_cb(GWEN_GUI *gwen_gui, guint32 flags, const gchar *title,
            const gchar *text, guint32 guiid)
 {
     GncGWENGui *gui = GETDATA_GUI(gwen_gui);
-    GtkWidget *dialog;
+    GtkBox *actions;
+    GtkButton *close_button;
+    GtkWindow *window;
     guint32 showbox_id;
 
+    (void)flags;
+    (void)guiid;
     g_return_val_if_fail(gui, -1);
 
     ENTER("gui=%p, flags=%d, title=%s", gui, flags, title ? title : "(null)");
 
-    dialog = gtk_message_dialog_new(
-                 gui->parent ? GTK_WINDOW(gui->parent) : NULL, 0, GTK_MESSAGE_INFO,
-                 GTK_BUTTONS_OK, "%s", text);
-
-    if (title)
-        gtk_window_set_title(GTK_WINDOW(dialog), title);
+    window = gwen_message_window_new (gui->parent ? GTK_WINDOW (gui->parent) : NULL,
+                                      title, text, &actions);
+    close_button = GTK_BUTTON (gtk_button_new_with_mnemonic (_("_OK")));
+    gtk_box_append (actions, GTK_WIDGET (close_button));
 
     showbox_id = gui->showbox_id++;
-    g_hash_table_insert(gui->showbox_hash, GUINT_TO_POINTER(showbox_id),
-                        dialog);
-    gui->showbox_last = dialog;
+    g_hash_table_insert(gui->showbox_hash, GUINT_TO_POINTER(showbox_id), window);
+    gui->showbox_last = GTK_WIDGET (window);
     gui->showbox_last_id = showbox_id;
-    g_object_set_data(G_OBJECT(dialog), "gnc-gwen-showbox-id",
+    g_object_set_data(G_OBJECT(window), "gnc-gwen-showbox-id",
                       GUINT_TO_POINTER(showbox_id));
-    g_signal_connect(dialog, "response", G_CALLBACK(showbox_response_cb), gui);
-    gtk_widget_set_visible(dialog, TRUE);
+    g_signal_connect (window, "close-request",
+                      G_CALLBACK (showbox_close_request_cb), gui);
+    g_signal_connect (close_button, "clicked",
+                      G_CALLBACK (showbox_close_clicked_cb), gui);
+    gtk_window_present (window);
 
-    /* Give it a change to be showed */
+    /* Give it a chance to be shown. */
     if (!keep_alive(gui))
         showbox_id = 0;
 
@@ -1289,7 +1554,6 @@ hidebox_cb(GWEN_GUI *gwen_gui, guint32 id)
 
     LEAVE(" ");
 }
-
 static guint32 GNC_GWENHYWFAR_CB
 progress_start_cb(GWEN_GUI *gwen_gui, uint32_t progressFlags, const char *title,
                   const char *text, uint64_t total, uint32_t guiid)
@@ -1660,7 +1924,7 @@ ggg_delete_event_cb(GtkWindow *window, gpointer user_data)
         const char *still_running_msg =
             _("The Online Banking job is still running; are you "
               "sure you want to cancel?");
-        if (!gnc_verify_dialog (GTK_WINDOW (gui->dialog), FALSE, "%s", still_running_msg))
+        if (!gwen_confirm (GTK_WINDOW (gui->dialog), still_running_msg, FALSE))
             return TRUE;
 
         set_aborted(gui);
