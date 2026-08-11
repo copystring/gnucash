@@ -35,6 +35,7 @@
 #include "gnc-ui.h"
 #include "gnc-ui-util.h"
 #include "gnc-component-manager.h"
+#include "gnc-session.h"
 #include "dialog-utils.h"
 #include "qof.h"
 #include "gnc-gui-query.h"
@@ -117,6 +118,13 @@ void gnc_customer_import_gui_ok_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_import_gui_cancel_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_import_gui_help_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_import_gui_destroy_cb (GtkWidget *widget, gpointer data);
+static void gnc_customer_import_gui_request_close (CustomerImportGui *gui);
+static gboolean gnc_customer_import_gui_close_request_cb (GtkWindow *window,
+                                                          gpointer user_data);
+static gboolean gnc_customer_import_gui_key_pressed_cb (GtkEventControllerKey *key,
+                                                         guint keyval, guint keycode,
+                                                         GdkModifierType state,
+                                                         gpointer user_data);
 static void gnc_customer_import_gui_close_handler (gpointer user_data);
 void gnc_customer_import_gui_buttonOpen_cb (GtkWidget *widget, gpointer data);
 void gnc_customer_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer data);
@@ -190,6 +198,7 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
 
     // create new window
     gui = g_new0 (CustomerImportGui, 1);
+    gui->component_id = NO_COMPONENT;
 
     builder = gtk_builder_new();
     gtk_builder_set_current_object (builder, G_OBJECT(gui));
@@ -240,9 +249,21 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
                         gnc_customer_import_gui_close_handler,
                         gui);
 
-    /* Setup signals */
-gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
+    /* Setup Builder callbacks and GTK4 window lifecycle. */
+    gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, gui);
+    g_signal_connect (gui->dialog, "close-request",
+                      G_CALLBACK (gnc_customer_import_gui_close_request_cb), gui);
+
+    GtkEventController *key_controller = gtk_event_controller_key_new ();
+    gtk_widget_add_controller (gui->dialog, key_controller);
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gnc_customer_import_gui_key_pressed_cb), gui);
+    gtk_window_set_default_widget (
+        GTK_WINDOW (gui->dialog),
+        GTK_WIDGET (gtk_builder_get_object (builder, "okbutton")));
+
     g_object_unref (G_OBJECT (builder));
+    gnc_gui_component_set_session (gui->component_id, gnc_get_current_session ());
     gtk_window_present (GTK_WINDOW (gui->dialog));
     return gui;
 }
@@ -341,11 +362,9 @@ gnc_customer_import_gui_ok_cb (GtkWidget *widget, gpointer data)
 }
 
 void
-gnc_customer_import_gui_cancel_cb (GtkWidget *widget, gpointer data)
+gnc_customer_import_gui_cancel_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {
-    CustomerImportGui *gui = data;
-
-    gnc_close_gui_component (gui->component_id);
+    gnc_customer_import_gui_request_close (data);
 }
 
 void
@@ -356,25 +375,69 @@ gnc_customer_import_gui_help_cb (GtkWidget *widget, gpointer data)
 }
 
 static void
+gnc_customer_import_gui_request_close (CustomerImportGui *gui)
+{
+    if (!gui)
+        return;
+
+    if (gui->component_id != NO_COMPONENT)
+        gnc_close_gui_component (gui->component_id);
+    else if (gui->dialog)
+        gtk_window_destroy (GTK_WINDOW (gui->dialog));
+}
+
+static gboolean
+gnc_customer_import_gui_close_request_cb (GtkWindow *window, gpointer user_data)
+{
+    CustomerImportGui *gui = user_data;
+
+    if (!gui || gui->dialog != GTK_WIDGET (window))
+        return FALSE;
+
+    gnc_customer_import_gui_request_close (gui);
+    return TRUE;
+}
+
+static gboolean
+gnc_customer_import_gui_key_pressed_cb (G_GNUC_UNUSED GtkEventControllerKey *key,
+                                         guint keyval, G_GNUC_UNUSED guint keycode,
+                                         G_GNUC_UNUSED GdkModifierType state,
+                                         gpointer user_data)
+{
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+
+    gnc_customer_import_gui_request_close (user_data);
+    return TRUE;
+}
+
+static void
 gnc_customer_import_gui_close_handler (gpointer user_data)
 {
     CustomerImportGui *gui = user_data;
 
-    gtk_window_destroy (GTK_WINDOW(gui->dialog));
+    if (gui && gui->dialog)
+        gtk_window_destroy (GTK_WINDOW (gui->dialog));
 }
 
 void
-gnc_customer_import_gui_destroy_cb (GtkWidget *widget, gpointer data)
+gnc_customer_import_gui_destroy_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
 
-    g_object_set_data (G_OBJECT (widget), "gnc-customer-import-gui", NULL);
+    if (!gui)
+        return;
+
+    if (gui->dialog)
+        g_object_set_data (G_OBJECT (gui->dialog), "gnc-customer-import-gui", NULL);
 
     gnc_suspend_gui_refresh ();
-    gnc_unregister_gui_component (gui->component_id);
+    if (gui->component_id != NO_COMPONENT)
+        gnc_unregister_gui_component (gui->component_id);
     gnc_resume_gui_refresh ();
 
-    g_object_unref (gui->store);
+    gui->dialog = NULL;
+    g_clear_object (&gui->store);
     g_string_free (gui->regexp, TRUE);
     g_free (gui);
 }
