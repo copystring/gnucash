@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.0" />
-  <object class="GtkDialog" id="object_references_dialog">
+  <object class="GtkWindow" id="object_references_dialog">
 <property name="title" translatable="1">Object references</property>
-<child internal-child="content_area">
+<child>
       <object class="GtkBox" id="dialog-vbox1">
         <property name="orientation">vertical</property>
         <property name="spacing">2</property>
@@ -26,13 +26,10 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="0">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area1">
+        <child>
+          <object class="GtkBox" id="dialog-action_area1">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="okbutton">
@@ -42,6 +39,8 @@
             <property name="use-underline">1</property>
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>

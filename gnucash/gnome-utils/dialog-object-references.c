@@ -60,14 +60,12 @@ object_reference_item_bind (GtkListItemFactory *factory, GtkListItem *item,
 }
 
 static void
-object_references_dialog_response (GtkDialog *dialog, gint response,
-                                   gpointer user_data)
+object_references_dialog_close_clicked_cb (GtkButton *button,
+                                           GtkWindow *dialog)
 {
-    (void)response;
-    (void)user_data;
-    gtk_window_destroy (GTK_WINDOW (dialog));
+    gtk_window_destroy (dialog);
+    (void)button;
 }
-
 static void
 object_references_dialog_destroyed (GtkWidget *dialog, gpointer user_data)
 {
@@ -93,7 +91,6 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
 
     /* Open the dialog */
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(dialog));
     gnc_builder_add_from_file (builder, "dialog-object-references.glade", "object_references_dialog" );
     dialog = GTK_WIDGET(gtk_builder_get_object (builder, "object_references_dialog" ));
 
@@ -128,10 +125,13 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
 
     box = GTK_WIDGET(gtk_builder_get_object (builder, "hbox_list" ));
     gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(listview));
+    gtk_window_set_default_widget (
+        GTK_WINDOW (dialog),
+        GTK_WIDGET (gtk_builder_get_object (builder, "okbutton")));
+    g_signal_connect (gtk_builder_get_object (builder, "okbutton"), "clicked",
+                      G_CALLBACK (object_references_dialog_close_clicked_cb),
+                      dialog);
 
-    g_object_set_data_full (G_OBJECT (dialog), "object-reference-store", store,
-                            g_object_unref);
-    g_signal_connect (dialog, "response", G_CALLBACK (object_references_dialog_response), NULL);
     g_object_ref (dialog);
     g_signal_connect (dialog, "destroy", G_CALLBACK (object_references_dialog_destroyed), NULL);
     g_object_unref(G_OBJECT(builder));
