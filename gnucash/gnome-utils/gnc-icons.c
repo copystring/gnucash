@@ -95,8 +95,8 @@ gnc_load_app_icons (void)
     for (i = 0; icon_files[i]; i++)
     {
         gchar *file = icon_files[i];
-        // check if we have at least one size for the named icons loaded
-//FIXME gtk4        if (!gtk_icon_theme_has_icon (icon_theme, file))
-//            PWARN ("No icon named '%s' found. Some gui elements may be missing their icons", file);
+        /* Check whether the theme resolves at least one size for each icon. */
+        if (!gtk_icon_theme_has_icon (icon_theme, file))
+            PWARN ("No icon named '%s' found. Some gui elements may be missing their icons", file);
     }
 }
