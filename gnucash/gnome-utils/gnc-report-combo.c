@@ -52,6 +52,17 @@ typedef struct
 
 G_DEFINE_TYPE (GncReportComboItem, gnc_report_combo_item, G_TYPE_OBJECT)
 
+enum
+{
+    REPORT_COMBO_ITEM_PROP_0,
+    REPORT_COMBO_ITEM_PROP_NAME,
+    REPORT_COMBO_ITEM_PROP_GUID,
+    REPORT_COMBO_ITEM_PROP_MISSING,
+    REPORT_COMBO_ITEM_N_PROPERTIES
+};
+
+static GParamSpec *report_combo_item_properties [REPORT_COMBO_ITEM_N_PROPERTIES] = { NULL, };
+
 static void
 report_combo_item_finalize (GObject *object)
 {
@@ -63,9 +74,46 @@ report_combo_item_finalize (GObject *object)
 }
 
 static void
+report_combo_item_get_property (GObject *object, guint property_id,
+                                GValue *value, GParamSpec *pspec)
+{
+    GncReportComboItem *item = (GncReportComboItem *)object;
+
+    switch (property_id)
+    {
+    case REPORT_COMBO_ITEM_PROP_NAME:
+        g_value_set_string (value, item->name);
+        break;
+    case REPORT_COMBO_ITEM_PROP_GUID:
+        g_value_set_string (value, item->guid);
+        break;
+    case REPORT_COMBO_ITEM_PROP_MISSING:
+        g_value_set_boolean (value, item->missing);
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+        break;
+    }
+}
+
+static void
 gnc_report_combo_item_class_init (GncReportComboItemClass *klass)
 {
-    G_OBJECT_CLASS (klass)->finalize = report_combo_item_finalize;
+    GObjectClass *object_class = G_OBJECT_CLASS (klass);
+
+    object_class->get_property = report_combo_item_get_property;
+    object_class->finalize = report_combo_item_finalize;
+    report_combo_item_properties [REPORT_COMBO_ITEM_PROP_NAME] =
+        g_param_spec_string ("name", "Name", "Report name", NULL,
+                             G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+    report_combo_item_properties [REPORT_COMBO_ITEM_PROP_GUID] =
+        g_param_spec_string ("guid", "GUID", "Report GUID", NULL,
+                             G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+    report_combo_item_properties [REPORT_COMBO_ITEM_PROP_MISSING] =
+        g_param_spec_boolean ("missing", "Missing", "Report is unavailable", FALSE,
+                              G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+    g_object_class_install_properties (object_class, REPORT_COMBO_ITEM_N_PROPERTIES,
+                                       report_combo_item_properties);
 }
 
 static void
@@ -89,13 +137,11 @@ struct _GncReportCombo
 {
     GtkBox box;
 
-    GtkMenuButton *menu_button;
-    GtkSingleSelection *selection;
+    GtkDropDown *drop_down;
     GListStore *model;
     GtkWidget *warning_image;
 
     gboolean block_signal;
-    gboolean popup_shown;
 
     gchar *active_report_guid;
     gchar *active_report_name;
@@ -107,40 +153,11 @@ enum
 {
     SIGNAL_0,
     CHANGED,
+    INTERACTED,
     LAST_SIGNAL
 };
 
 static guint report_combo_signals [LAST_SIGNAL] = {0};
-
-enum
-{
-    PROP_0,
-    PROP_POPUP_SHOWN,
-    N_PROPERTIES
-};
-
-static GParamSpec *report_combo_properties [N_PROPERTIES] = {NULL,};
-
-static void
-gnc_report_combo_get_property (GObject    *object,
-                               guint       property_id,
-                               GValue     *value,
-                               GParamSpec *pspec)
-{
-    GncReportCombo        *grc = GNC_REPORT_COMBO(object);
-
-    switch (property_id)
-    {
-    case PROP_POPUP_SHOWN:
-        g_value_set_boolean (value, grc->popup_shown);
-        break;
-
-    default:
-        /* We don't have any other property... */
-        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
-        break;
-    }
-}
 
 /** Initialize the GncReportCombo class object.
  *
@@ -153,7 +170,6 @@ gnc_report_combo_class_init (GncReportComboClass *klass)
 {
     GObjectClass   *object_class = G_OBJECT_CLASS(klass);
 
-    object_class->get_property = gnc_report_combo_get_property;
     object_class->dispose  = gnc_report_combo_dispose;
     object_class->finalize = gnc_report_combo_finalize;
 
@@ -168,16 +184,16 @@ gnc_report_combo_class_init (GncReportComboClass *klass)
                       G_TYPE_NONE,
                       0);
 
-    report_combo_properties [PROP_POPUP_SHOWN] =
-        g_param_spec_boolean ("popup-shown",
-                              "State of PopUp",
-                              "State of PopUp",
-                              FALSE /* default value */,
-                              G_PARAM_READABLE);
-
-    g_object_class_install_properties (object_class,
-                                       N_PROPERTIES,
-                                       report_combo_properties);
+    report_combo_signals [INTERACTED] =
+        g_signal_new ("interacted",
+                      G_OBJECT_CLASS_TYPE(object_class),
+                      G_SIGNAL_RUN_FIRST,
+                      0,
+                      NULL,
+                      NULL,
+                      g_cclosure_marshal_VOID__VOID,
+                      G_TYPE_NONE,
+                      0);
 }
 
 /** Initialize a GncReportCombo object.
@@ -198,7 +214,6 @@ gnc_report_combo_init (GncReportCombo *grc)
     grc->block_signal = FALSE;
     grc->active_report_guid = NULL;
     grc->active_report_name = NULL;
-    grc->popup_shown = FALSE;
 }
 
 /** Dispopse the GncReportCombo object. This function is called from
@@ -219,7 +234,6 @@ gnc_report_combo_dispose (GObject *object)
 
     GncReportCombo *grc = GNC_REPORT_COMBO (object);
 
-    g_clear_object (&grc->selection);
     g_clear_object (&grc->model);
     G_OBJECT_CLASS (gnc_report_combo_parent_class)->dispose (object);
 }
@@ -263,7 +277,7 @@ gnc_report_combo_finalize (GObject *object)
 static GncReportComboItem *
 get_selected_item (GncReportCombo *grc)
 {
-    guint selected = gtk_single_selection_get_selected (grc->selection);
+    guint selected = gtk_drop_down_get_selected (grc->drop_down);
 
     if (selected == GTK_INVALID_LIST_POSITION)
         return NULL;
@@ -276,9 +290,8 @@ set_selected_item (GncReportCombo *grc, guint position)
 {
     GncReportComboItem *item;
 
-    gtk_single_selection_set_selected (grc->selection, position);
+    gtk_drop_down_set_selected (grc->drop_down, position);
     item = get_selected_item (grc);
-    gtk_menu_button_set_label (grc->menu_button, item ? item->name : NULL);
     g_clear_object (&item);
 }
 
@@ -471,40 +484,14 @@ gnc_report_combo_is_warning_visible_for_active (GncReportCombo *grc)
 }
 
 static void
-report_item_setup (GtkListItemFactory *factory, GtkListItem *list_item,
-                   gpointer user_data)
+drop_down_selected_cb (GObject *object, GParamSpec *pspec, gpointer user_data)
 {
-    GtkWidget *label = gtk_label_new (NULL);
-
-    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
-    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
-    gtk_list_item_set_child (list_item, label);
-    (void)factory;
-    (void)user_data;
-}
-
-static void
-report_item_bind (GtkListItemFactory *factory, GtkListItem *list_item,
-                  gpointer user_data)
-{
-    GncReportComboItem *item = (GncReportComboItem *)gtk_list_item_get_item (
-        list_item);
-
-    gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (list_item)), item->name);
-    (void)factory;
-    (void)user_data;
-}
-
-static void
-selection_changed_cb (GtkSelectionModel *selection, guint position, guint n_items,
-                      GncReportCombo *grc)
-{
+    GncReportCombo *grc = GNC_REPORT_COMBO (user_data);
     GncReportComboItem *item = get_selected_item (grc);
 
     if (!item)
         return;
 
-    gtk_menu_button_set_label (grc->menu_button, item->name);
     if (item->missing)
         update_warning_tooltip (grc);
     else
@@ -512,23 +499,23 @@ selection_changed_cb (GtkSelectionModel *selection, guint position, guint n_item
 
     if (!grc->block_signal)
         g_signal_emit (grc, report_combo_signals [CHANGED], 0);
-    if (gtk_menu_button_get_active (grc->menu_button))
-        gtk_menu_button_popdown (grc->menu_button);
 
     g_object_unref (item);
-    (void)selection;
-    (void)position;
-    (void)n_items;
+    (void)object;
+    (void)pspec;
 }
 
 static void
-menu_button_active_cb (GObject *object, GParamSpec *pspec, gpointer user_data)
+report_combo_click_pressed_cb (GtkGestureClick *gesture, gint n_press,
+                               gdouble x, gdouble y, gpointer user_data)
 {
     GncReportCombo *grc = GNC_REPORT_COMBO (user_data);
 
-    grc->popup_shown = gtk_menu_button_get_active (GTK_MENU_BUTTON (object));
-    g_object_notify (G_OBJECT (grc), "popup-shown");
-    (void)pspec;
+    g_signal_emit (grc, report_combo_signals [INTERACTED], 0);
+    (void)gesture;
+    (void)n_press;
+    (void)x;
+    (void)y;
 }
 
 void
@@ -551,43 +538,30 @@ GtkWidget *
 gnc_report_combo_new (GSList *report_list)
 {
     GncReportCombo *grc;
-    GtkListItemFactory *factory;
-    GtkWidget *list_view;
-    GtkWidget *scrolled_window;
-    GtkWidget *popover;
+    GtkExpression *expression;
+    GtkGesture *click;
 
     grc = g_object_new (GNC_TYPE_REPORT_COMBO, NULL);
     grc->model = g_list_store_new (gnc_report_combo_item_get_type ());
-    grc->selection = gtk_single_selection_new (G_LIST_MODEL (grc->model));
-    grc->menu_button = GTK_MENU_BUTTON (gtk_menu_button_new ());
-    gtk_menu_button_set_always_show_arrow (grc->menu_button, TRUE);
-
-    factory = gtk_signal_list_item_factory_new ();
-    g_signal_connect (factory, "setup", G_CALLBACK (report_item_setup), NULL);
-    g_signal_connect (factory, "bind", G_CALLBACK (report_item_bind), NULL);
-    list_view = gtk_list_view_new (GTK_SELECTION_MODEL (g_object_ref (grc->selection)),
-                                   factory);
-    scrolled_window = gtk_scrolled_window_new ();
-    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled_window),
-                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request (scrolled_window, 280, 240);
-    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled_window), list_view);
-
-    popover = gtk_popover_new ();
-    gtk_popover_set_child (GTK_POPOVER (popover), scrolled_window);
-    gtk_menu_button_set_popover (grc->menu_button, popover);
-
-    gtk_box_append (GTK_BOX (grc), GTK_WIDGET (grc->menu_button));
+    expression = gtk_property_expression_new (gnc_report_combo_item_get_type (),
+                                              NULL, "name");
+    grc->drop_down = GTK_DROP_DOWN (gtk_drop_down_new (
+        G_LIST_MODEL (g_object_ref (grc->model)), expression));
+    gtk_widget_set_hexpand (GTK_WIDGET (grc->drop_down), TRUE);
+    gtk_box_append (GTK_BOX (grc), GTK_WIDGET (grc->drop_down));
     grc->warning_image = gtk_image_new_from_icon_name ("dialog-warning");
     gtk_image_set_icon_size (GTK_IMAGE (grc->warning_image), GTK_ICON_SIZE_NORMAL);
     gtk_box_append (GTK_BOX (grc), grc->warning_image);
     gtk_box_set_spacing (GTK_BOX (grc), 6);
     gtk_widget_set_visible (grc->warning_image, FALSE);
 
-    g_signal_connect (grc->selection, "selection-changed",
-                      G_CALLBACK (selection_changed_cb), grc);
-    g_signal_connect (grc->menu_button, "notify::active",
-                      G_CALLBACK (menu_button_active_cb), grc);
+    click = gtk_gesture_click_new ();
+    gtk_event_controller_set_propagation_phase (GTK_EVENT_CONTROLLER (click),
+                                                GTK_PHASE_CAPTURE);
+    gtk_widget_add_controller (GTK_WIDGET (grc), GTK_EVENT_CONTROLLER (click));
+    g_signal_connect (click, "pressed", G_CALLBACK (report_combo_click_pressed_cb), grc);
+    g_signal_connect (grc->drop_down, "notify::selected",
+                      G_CALLBACK (drop_down_selected_cb), grc);
 
     update_report_list (grc, report_list);
     return GTK_WIDGET (grc);

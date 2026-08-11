@@ -417,18 +417,18 @@
       </object>
     </property>
   </object>
-  <object class="GtkDialog" id="invoice_print_dialog">
+  <object class="GtkWindow" id="invoice_print_dialog">
     <property name="title" translatable="1">Report template</property>
-<child internal-child="content_area">
-      <object class="GtkBox">
-        <property name="visible">0</property>
+    <property name="child">
+      <object class="GtkBox" id="invoice_print_root">
         <property name="orientation">vertical</property>
-        <property name="spacing">2</property>
+        <property name="spacing">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
         <child>
-          <object class="GtkBox">
-            <property name="margin-start">6</property>
-            <property name="margin-end">6</property>
-            <property name="margin-top">6</property>
+          <object class="GtkBox" id="invoice_print_content">
             <property name="orientation">vertical</property>
             <property name="spacing">6</property>
             <child>
@@ -440,9 +440,7 @@
               <object class="GtkBox" id="report_combo_hbox">
                 <property name="margin-start">6</property>
                 <property name="margin-end">6</property>
-                <child>
-                  <placeholder />
-                </child>
+                <child><placeholder /></child>
               </object>
             </child>
             <child>
@@ -458,38 +456,42 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox">
         <child>
-          <object class="GtkButton" id="cancel_button">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-            <property name="use-underline">1</property>
-          <property name="hexpand">1</property></object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="ok_button">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-            <property name="receives-default">1</property>
-            <property name="use-underline">1</property>
-          <property name="hexpand">1</property></object>
-
+          <object class="GtkBox" id="invoice_print_actions">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkButton" id="cancel_button">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="ok_button">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+          </object>
         </child>
       </object>
-    </child>
+    </property>
   </object>
-<object class="GtkDialog" id="new_invoice_dialog">
+<object class="GtkWindow" id="new_invoice_dialog">
     <property name="title" translatable="1">New Invoice</property>
 <signal name="destroy" handler="gnc_invoice_window_destroy_cb" swapped="no" />
-    <child internal-child="content_area">
+    <property name="child">
+      <object class="GtkBox" id="new_invoice_root">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <child>
       <object class="GtkBox" id="dialog-vbox2">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -817,49 +819,54 @@
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-11">helpbutton</action-widget>
-      <action-widget response="-6">cancelbutton</action-widget>
-      <action-widget response="-5">okbutton</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area2">
-        <property name="visible">True</property>
-        <child>
-          <object class="GtkButton" id="helpbutton">
-            <property name="label" translatable="1">_Help</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_invoice_window_help_cb" swapped="no" />
-          </object>
-
         </child>
         <child>
-          <object class="GtkButton" id="cancelbutton">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_invoice_window_cancel_cb" swapped="no" />
+          <object class="GtkBox" id="dialog-action_area2">
+            <property name="visible">True</property>
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkButton" id="helpbutton">
+                <property name="label" translatable="1">_Help</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="gnc_invoice_window_help_cb" swapped="no" />
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="cancelbutton">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="gnc_invoice_window_cancel_cb" swapped="no" />
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="okbutton">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="gnc_invoice_window_ok_cb" swapped="no" />
+              </object>
+            </child>
           </object>
-
-        </child>
-        <child>
-          <object class="GtkButton" id="okbutton">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_invoice_window_ok_cb" swapped="no" />
-          </object>
-
         </child>
       </object>
-    </child>
+    </property>
   </object>
-  <object class="GtkDialog" id="unpost_message_dialog">
+  <object class="GtkWindow" id="unpost_message_dialog">
     <property name="resizable">0</property>
     <property name="modal">1</property>
-<child internal-child="content_area">
+    <property name="child">
+      <object class="GtkBox" id="unpost_root">
+        <property name="orientation">vertical</property>
+        <property name="spacing">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <child>
       <object class="GtkBox" id="dialog-vbox3">
         <property name="orientation">vertical</property>
         <child>
@@ -919,31 +926,30 @@ Are you sure you want to unpost it?</property>
           </object>
         </child>
       </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancelbutton1</action-widget>
-      <action-widget response="-5">okbutton1</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area3">
-        <property name="visible">True</property>
-        <child>
-          <object class="GtkButton" id="cancelbutton1">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-          </object>
-
         </child>
         <child>
-          <object class="GtkButton" id="okbutton1">
-            <property name="label" translatable="1">_OK</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
+          <object class="GtkBox" id="dialog-action_area3">
+            <property name="visible">True</property>
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkButton" id="cancelbutton1">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="okbutton1">
+                <property name="label" translatable="1">_OK</property>
+                <property name="focusable">1</property>
+                <property name="receives-default">1</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
-
         </child>
       </object>
-    </child>
+    </property>
   </object>
 </interface>

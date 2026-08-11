@@ -215,6 +215,7 @@ struct _invoice_window
 
     /* for Unposting */
     gboolean     reset_tax_tables;
+    gboolean     save_pending;
 };
 
 /* Forward definitions for CB functions */
@@ -348,18 +349,20 @@ invoice_unpost_complete (InvoiceUnpostRequest *request, gboolean approved)
 }
 
 static void
-invoice_unpost_response_cb (GtkDialog *dialog, gint response,
-                            InvoiceUnpostRequest *request)
+invoice_unpost_accept_clicked_cb (GtkButton *button,
+                                  InvoiceUnpostRequest *request)
 {
-    (void)dialog;
-    if (response == GTK_RESPONSE_OK)
-    {
-        request->reset_tax_tables_selected = gtk_toggle_button_get_active (
-            request->reset_tax_tables);
-        invoice_unpost_complete (request, TRUE);
-        return;
-    }
+    (void)button;
+    request->reset_tax_tables_selected = gtk_toggle_button_get_active (
+        request->reset_tax_tables);
+    invoice_unpost_complete (request, TRUE);
+}
 
+static void
+invoice_unpost_cancel_clicked_cb (GtkButton *button,
+                                  InvoiceUnpostRequest *request)
+{
+    (void)button;
     invoice_unpost_complete (request, FALSE);
 }
 
@@ -389,6 +392,7 @@ invoice_unpost_request (InvoiceWindow *iw)
     GtkBuilder *builder;
     GtkWidget *dialog;
     GtkWidget *ok_button;
+    GtkWidget *cancel_button;
     const gchar *style_label;
     InvoiceUnpostRequest *request;
 
@@ -417,7 +421,8 @@ invoice_unpost_request (InvoiceWindow *iw)
     request->reset_tax_tables = GTK_TOGGLE_BUTTON (
         gtk_builder_get_object (builder, "yes_tt_reset"));
     ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton1"));
-    if (!dialog || !request->reset_tax_tables || !ok_button)
+    cancel_button = GTK_WIDGET (gtk_builder_get_object (builder, "cancelbutton1"));
+    if (!dialog || !request->reset_tax_tables || !ok_button || !cancel_button)
     {
         g_object_unref (builder);
         invoice_unpost_request_free (request);
@@ -442,8 +447,10 @@ invoice_unpost_request (InvoiceWindow *iw)
     gtk_window_set_transient_for (request->dialog, GTK_WINDOW (window));
     gtk_window_set_modal (request->dialog, TRUE);
     gtk_window_set_default_widget (request->dialog, ok_button);
-    g_signal_connect (request->dialog, "response",
-                      G_CALLBACK (invoice_unpost_response_cb), request);
+    g_signal_connect (ok_button, "clicked",
+                      G_CALLBACK (invoice_unpost_accept_clicked_cb), request);
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (invoice_unpost_cancel_clicked_cb), request);
     g_signal_connect (request->dialog, "close-request",
                       G_CALLBACK (invoice_unpost_close_request_cb), request);
     g_signal_connect (request->dialog, "destroy",
@@ -647,35 +654,109 @@ gnc_invoice_window_ok_save (InvoiceWindow *iw)
     return TRUE;
 }
 
-static void
-gnc_invoice_window_ok_ledger_finished (GncEntryLedger *ledger,
-                                       gboolean completed, gpointer user_data)
+typedef struct
 {
-    InvoiceWindow *iw = user_data;
+    InvoiceWindow *iw;
+    GWeakRef window;
+    gulong destroy_handler;
+    QofBook *book;
+    GncGUID invoice_guid;
+} InvoiceSaveRequest;
+
+static void
+invoice_save_request_destroyed (GtkWidget *widget, InvoiceSaveRequest *request)
+{
+    (void)widget;
+    request->iw = NULL;
+    request->destroy_handler = 0;
+}
+
+static void
+invoice_save_request_free (InvoiceSaveRequest *request)
+{
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    g_weak_ref_clear (&request->window);
+    g_free (request);
+}
+
+static InvoiceSaveRequest *
+invoice_save_request_new (InvoiceWindow *iw)
+{
+    GtkWidget *window;
+    InvoiceSaveRequest *request;
+
+    if (!iw || !iw->ledger || !iw_get_invoice (iw) ||
+        !(window = iw_get_window (iw)))
+        return NULL;
+
+    request = g_new0 (InvoiceSaveRequest, 1);
+    request->iw = iw;
+    request->book = iw->book;
+    request->invoice_guid = iw->invoice_guid;
+    g_weak_ref_init (&request->window, window);
+    request->destroy_handler = g_signal_connect (
+        window, "destroy", G_CALLBACK (invoice_save_request_destroyed), request);
+    return request;
+}
+
+static gboolean
+invoice_save_request_is_current (const InvoiceSaveRequest *request)
+{
+    GncInvoice *invoice;
+
+    if (!request->iw || qof_book_shutting_down (request->book))
+        return FALSE;
+
+    invoice = gncInvoiceLookup (request->book, &request->invoice_guid);
+    return invoice && iw_get_invoice (request->iw) == invoice;
+}
+
+static void
+invoice_save_ledger_finished (GncEntryLedger *ledger, gboolean completed,
+                              gpointer user_data)
+{
+    InvoiceSaveRequest *request = user_data;
+    InvoiceWindow *iw = request->iw;
 
     (void)ledger;
-    if (!completed || !gnc_invoice_window_ok_save (iw))
-        return;
+    if (iw)
+        iw->save_pending = FALSE;
 
-    iw->invoice_guid = *guid_null ();
-    if ((iw->dialog_type == NEW_INVOICE || iw->dialog_type == DUP_INVOICE) &&
-        iw->created_invoice)
-        gnc_ui_invoice_edit (gnc_ui_get_main_window (iw->dialog), iw->created_invoice);
+    if (completed && invoice_save_request_is_current (request) &&
+        gnc_invoice_window_ok_save (iw))
+    {
+        iw->invoice_guid = *guid_null ();
+        if ((iw->dialog_type == NEW_INVOICE || iw->dialog_type == DUP_INVOICE) &&
+            iw->created_invoice)
+            gnc_ui_invoice_edit (gnc_ui_get_main_window (iw->dialog),
+                                 iw->created_invoice);
+        gnc_close_gui_component (iw->component_id);
+    }
 
-    gnc_close_gui_component (iw->component_id);
+    invoice_save_request_free (request);
 }
 
 void
 gnc_invoice_window_ok_cb (GtkWidget *widget, gpointer data)
 {
     InvoiceWindow *iw = data;
+    InvoiceSaveRequest *request;
 
     (void)widget;
-    if (!iw || !iw->ledger)
+    if (!iw || !iw->ledger || iw->save_pending)
         return;
 
+    request = invoice_save_request_new (iw);
+    if (!request)
+        return;
+
+    iw->save_pending = TRUE;
     gnc_entry_ledger_check_close_async (iw_get_window (iw), iw->ledger,
-                                        gnc_invoice_window_ok_ledger_finished, iw);
+                                        invoice_save_ledger_finished, request);
 }
 
 void
@@ -1100,11 +1181,19 @@ invoice_report_template_parent_destroyed_cb (
 }
 
 static void
-invoice_report_template_response_cb (GtkDialog *dialog, gint response,
-                                     InvoiceReportTemplateRequest *request)
+invoice_report_template_accept_clicked_cb (GtkButton *button,
+                                           InvoiceReportTemplateRequest *request)
 {
-    (void)dialog;
-    invoice_report_template_complete (request, response == GTK_RESPONSE_OK);
+    (void)button;
+    invoice_report_template_complete (request, TRUE);
+}
+
+static void
+invoice_report_template_cancel_clicked_cb (GtkButton *button,
+                                           InvoiceReportTemplateRequest *request)
+{
+    (void)button;
+    invoice_report_template_complete (request, FALSE);
 }
 
 static gboolean
@@ -1156,15 +1245,11 @@ invoice_report_template_idle_cb (gpointer user_data)
 }
 
 static void
-invoice_report_template_combo_popped_cb (
-    GObject *object, GParamSpec *pspec, gpointer user_data)
+invoice_report_template_combo_interacted_cb (GncReportCombo *combo,
+                                              gpointer user_data)
 {
-    gboolean popup_shown;
-
-    (void)pspec;
-    g_object_get (object, "popup-shown", &popup_shown, NULL);
-    if (popup_shown)
-        invoice_report_template_stop_timeout (user_data);
+    (void)combo;
+    invoice_report_template_stop_timeout (user_data);
 }
 
 static gboolean
@@ -1181,7 +1266,7 @@ invoice_report_template_key_pressed_cb (
 }
 
 static void
-invoice_report_template_combo_changed_cb (GtkComboBox *combo,
+invoice_report_template_combo_changed_cb (GncReportCombo *combo,
                                           gpointer user_data)
 {
     (void)combo;
@@ -1215,6 +1300,7 @@ use_default_report_template_or_change_async (
     GtkBuilder *builder;
     GtkWidget *dialog;
     GtkWidget *ok_button;
+    GtkWidget *cancel_button;
     GtkWidget *report_combo_hbox;
     GtkWidget *progress_bar;
     GtkWidget *label;
@@ -1261,11 +1347,12 @@ use_default_report_template_or_change_async (
 
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "invoice_print_dialog"));
     ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "ok_button"));
+    cancel_button = GTK_WIDGET (gtk_builder_get_object (builder, "cancel_button"));
     report_combo_hbox = GTK_WIDGET (
         gtk_builder_get_object (builder, "report_combo_hbox"));
     progress_bar = GTK_WIDGET (gtk_builder_get_object (builder, "progress_bar"));
     label = GTK_WIDGET (gtk_builder_get_object (builder, "label"));
-    if (!dialog || !ok_button || !report_combo_hbox || !progress_bar || !label)
+    if (!dialog || !ok_button || !cancel_button || !report_combo_hbox || !progress_bar || !label)
     {
         g_object_unref (builder);
         g_object_unref (combo);
@@ -1287,8 +1374,10 @@ use_default_report_template_or_change_async (
     request->key_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET (request->dialog),
                                request->key_controller);
-    g_signal_connect (request->dialog, "response",
-                      G_CALLBACK (invoice_report_template_response_cb), request);
+    g_signal_connect (ok_button, "clicked",
+                      G_CALLBACK (invoice_report_template_accept_clicked_cb), request);
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (invoice_report_template_cancel_clicked_cb), request);
     g_signal_connect (request->dialog, "close-request",
                       G_CALLBACK (invoice_report_template_close_request_cb), request);
     g_signal_connect (request->dialog, "destroy",
@@ -1297,8 +1386,8 @@ use_default_report_template_or_change_async (
                       G_CALLBACK (invoice_report_template_combo_changed_cb), request);
     g_signal_connect (request->key_controller, "key-pressed",
                       G_CALLBACK (invoice_report_template_key_pressed_cb), request);
-    g_signal_connect (combo, "notify::popup-shown",
-                      G_CALLBACK (invoice_report_template_combo_popped_cb), request);
+    g_signal_connect (combo, "interacted",
+                      G_CALLBACK (invoice_report_template_combo_interacted_cb), request);
 
     if (warning_visible)
     {
