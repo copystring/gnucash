@@ -2366,6 +2366,91 @@ report_helper (GNCLedgerDisplay* ledger, Split* split, Query* query)
 /*                     Command callbacks                    */
 /************************************************************/
 
+typedef struct
+{
+    GWeakRef page;
+    GWeakRef parent;
+    QofBook *book;
+    GList *split_guids;
+} PrintChecksMultiAccountRequest;
+
+static void
+print_checks_multi_account_request_free (PrintChecksMultiAccountRequest *request)
+{
+    g_weak_ref_clear (&request->page);
+    g_weak_ref_clear (&request->parent);
+    g_list_free_full (request->split_guids, (GDestroyNotify)guid_free);
+    g_free (request);
+}
+
+static gboolean
+print_checks_multi_account_request_context (PrintChecksMultiAccountRequest *request,
+                                            GtkWindow **parent_out,
+                                            GList **splits_out)
+{
+    auto page = GNC_PLUGIN_PAGE_REGISTER (g_weak_ref_get (&request->page));
+    auto parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+    GList *splits = NULL;
+
+    if (!page || !request->book || request->book != gnc_get_current_book () ||
+        qof_book_shutting_down (request->book) ||
+        gnc_plugin_page_get_window (GNC_PLUGIN_PAGE (page)) != GTK_WIDGET (parent))
+    {
+        g_clear_object (&parent);
+        g_clear_object (&page);
+        return FALSE;
+    }
+
+    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+    auto reg = priv->ledger ?
+        gnc_ledger_display_get_split_register (priv->ledger) : nullptr;
+    if (!reg || gnc_ledger_display_type (priv->ledger) != LD_GL ||
+        reg->type != SEARCH_LEDGER)
+    {
+        g_clear_object (&parent);
+        g_object_unref (page);
+        return FALSE;
+    }
+
+    for (GList *node = request->split_guids; node; node = node->next)
+    {
+        auto split = xaccSplitLookup (static_cast<GncGUID *> (node->data),
+                                      request->book);
+        if (!split)
+        {
+            g_list_free (splits);
+            g_clear_object (&parent);
+            g_object_unref (page);
+            return FALSE;
+        }
+        splits = g_list_prepend (splits, split);
+    }
+    splits = g_list_reverse (splits);
+
+    g_object_unref (page);
+    *parent_out = parent;
+    *splits_out = splits;
+    return TRUE;
+}
+
+static void
+print_checks_multi_account_finished (gint response, gpointer user_data)
+{
+    auto request = static_cast<PrintChecksMultiAccountRequest *> (user_data);
+    GtkWindow *parent = NULL;
+    GList *splits = NULL;
+
+    if (response == GTK_RESPONSE_YES &&
+        print_checks_multi_account_request_context (request, &parent, &splits))
+    {
+        gnc_ui_print_check_dialog_create (parent ? GTK_WIDGET (parent) : NULL,
+                                          splits, NULL);
+        g_list_free (splits);
+        g_clear_object (&parent);
+    }
+    print_checks_multi_account_request_free (request);
+}
+
 static void
 gnc_plugin_page_register_cmd_print_check (GSimpleAction *simple,
                                           GVariant      *paramter,
@@ -2426,6 +2511,7 @@ gnc_plugin_page_register_cmd_print_check (GSimpleAction *simple,
     else if (ledger_type == LD_GL && reg->type == SEARCH_LEDGER)
     {
         Account* common_acct = NULL;
+        gboolean multiple_accounts = FALSE;
 
         /* the following GList* splits must not be freed */
         splits = qof_query_run (gnc_ledger_display_get_query (priv->ledger));
@@ -2438,37 +2524,50 @@ gnc_plugin_page_register_cmd_print_check (GSimpleAction *simple,
             {
                 common_acct = xaccSplitGetAccount (split);
             }
-            else
+            else if (xaccSplitGetAccount (split) != common_acct)
             {
-                if (xaccSplitGetAccount (split) != common_acct)
-                {
-                    GtkWidget* dialog;
-                    gint response;
-                    const gchar* title = _ ("Print checks from multiple accounts?");
-                    const gchar* message =
-                        _ ("This search result contains splits from more than one account. "
-                           "Do you want to print the checks even though they are not all "
-                           "from the same account?");
-                    dialog = gtk_message_dialog_new (GTK_WINDOW (window),
-                                                     GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                     GTK_MESSAGE_WARNING,
-                                                     GTK_BUTTONS_CANCEL,
-                                                     "%s", title);
-                    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (dialog),
-                                                              "%s", message);
-                    gtk_dialog_add_button (GTK_DIALOG (dialog), _ ("_Print checks"),
-                                           GTK_RESPONSE_YES);
-                    response = gnc_warning_dialog_run (GTK_DIALOG (dialog),
-                                               GNC_PREF_WARN_CHECKPRINTING_MULTI_ACCT);
-                    gtk_window_destroy (GTK_WINDOW(dialog));
-                    if (response != GTK_RESPONSE_YES)
-                    {
-                        LEAVE ("Multiple accounts");
-                        return;
-                    }
-                    break;
-                }
+                multiple_accounts = TRUE;
+                break;
             }
+        }
+
+        if (multiple_accounts)
+        {
+            auto request = g_new0 (PrintChecksMultiAccountRequest, 1);
+
+            request->book = gnc_get_current_book ();
+            g_weak_ref_init (&request->page, page);
+            g_weak_ref_init (&request->parent, window);
+            for (item = splits; item; item = g_list_next (item))
+            {
+                split = (Split*) item->data;
+                if (!split)
+                {
+                    print_checks_multi_account_request_free (request);
+                    LEAVE ("Missing split in search result");
+                    return;
+                }
+                request->split_guids = g_list_prepend (
+                    request->split_guids, guid_copy (xaccSplitGetGUID (split)));
+            }
+            request->split_guids = g_list_reverse (request->split_guids);
+            if (!request->split_guids)
+            {
+                print_checks_multi_account_request_free (request);
+                LEAVE ("No printable splits");
+                return;
+            }
+
+            gnc_warning_dialog_async (
+                GTK_WINDOW (window), GNC_PREF_WARN_CHECKPRINTING_MULTI_ACCT,
+                _ ("Print checks from multiple accounts?"),
+                _ ("This search result contains splits from more than one account. "
+                   "Do you want to print the checks even though they are not all "
+                   "from the same account?"),
+                _ ("_Print checks"), GTK_RESPONSE_YES, FALSE,
+                print_checks_multi_account_finished, request);
+            LEAVE ("Multiple accounts");
+            return;
         }
         gnc_ui_print_check_dialog_create (window, splits, NULL);
     }
