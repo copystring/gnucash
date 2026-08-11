@@ -312,32 +312,6 @@ gnc_label_set_alignment (GtkWidget *widget, gfloat xalign, gfloat yalign)
     gtk_label_set_yalign (GTK_LABEL (widget), yalign);
 }
 
-/********************************************************************\
- * Get the preference for showing tree view grid lines              *
- *                                                                  *
- * Args: none                                                       *
- * Returns:  GtkTreeViewGridLines setting                           *
-\********************************************************************/
-GtkTreeViewGridLines
-gnc_tree_view_get_grid_lines_pref (void)
-{
-    GtkTreeViewGridLines grid_lines;
-    gboolean h_lines = gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_HORIZONTAL);
-    gboolean v_lines = gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_VERTICAL);
-
-    if (h_lines)
-    {
-        if (v_lines)
-            grid_lines = GTK_TREE_VIEW_GRID_LINES_BOTH;
-        else
-            grid_lines =  GTK_TREE_VIEW_GRID_LINES_HORIZONTAL;
-    }
-    else if (v_lines)
-        grid_lines = GTK_TREE_VIEW_GRID_LINES_VERTICAL;
-    else
-        grid_lines = GTK_TREE_VIEW_GRID_LINES_NONE;
-    return grid_lines;
-}
 
 /********************************************************************\
  * Add a style context to a Widget so it can be altered with css    *

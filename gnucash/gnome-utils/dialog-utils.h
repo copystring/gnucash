@@ -79,13 +79,6 @@ void gnc_window_adjust_for_screen (GtkWindow * window);
 \********************************************************************/
 void gnc_label_set_alignment (GtkWidget *widget, gfloat xalign, gfloat yalign);
 
-/********************************************************************\
- * Get the preference for showing tree view grid lines              *
- *                                                                  *
- * Args: none                                                       *
- * Returns:  GtkTreeViewGridLines setting                           *
-\********************************************************************/
-GtkTreeViewGridLines gnc_tree_view_get_grid_lines_pref (void);
 
 /********************************************************************\
  * Add a style context to a Widget so it can be altered with css    *

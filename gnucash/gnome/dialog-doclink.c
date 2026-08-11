@@ -1372,11 +1372,14 @@ gnc_doclink_dialog_create (GtkWindow *parent, DoclinkDialog *doclink_dialog)
     // display path head text and test if present
     gnc_doclink_set_path_head_label (doclink_dialog->path_head_label, NULL, NULL);
 
-    // Set grid lines option to preference
-    gtk_column_view_set_show_row_separators (GTK_COLUMN_VIEW(doclink_dialog->column_view),
-                                             gnc_tree_view_get_grid_lines_pref ());
-    gtk_column_view_set_show_column_separators (GTK_COLUMN_VIEW(doclink_dialog->column_view),
-                                                gnc_tree_view_get_grid_lines_pref ());
+    gtk_column_view_set_show_row_separators (
+        GTK_COLUMN_VIEW (doclink_dialog->column_view),
+        gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
+                            GNC_PREF_GRID_LINES_HORIZONTAL));
+    gtk_column_view_set_show_column_separators (
+        GTK_COLUMN_VIEW (doclink_dialog->column_view),
+        gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
+                            GNC_PREF_GRID_LINES_VERTICAL));
 
     g_signal_connect (G_OBJECT(doclink_dialog->window), "destroy",
                       G_CALLBACK(gnc_doclink_dialog_window_destroy_cb), doclink_dialog);
