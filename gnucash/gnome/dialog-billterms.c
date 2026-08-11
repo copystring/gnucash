@@ -520,32 +520,39 @@ new_billterm_dialog_complete (NewBillTerm *nbt)
 }
 
 static void
-new_billterm_dialog_response_cb (GtkDialog *dialog, gint response,
-                                 NewBillTerm *nbt)
+new_billterm_dialog_accept (NewBillTerm *nbt)
 {
-    (void)dialog;
-    if (response == GTK_RESPONSE_OK)
+    if (!nbt->btw || qof_book_shutting_down (nbt->book))
     {
-        if (!nbt->btw || qof_book_shutting_down (nbt->book))
+        new_billterm_dialog_complete (nbt);
+        return;
+    }
+    if (nbt->editing)
+    {
+        nbt->this_term = gncBillTermLookup (nbt->book, &nbt->term_guid);
+        if (!nbt->this_term)
         {
             new_billterm_dialog_complete (nbt);
             return;
         }
-        if (nbt->editing)
-        {
-            nbt->this_term = gncBillTermLookup (nbt->book, &nbt->term_guid);
-            if (!nbt->this_term)
-            {
-                new_billterm_dialog_complete (nbt);
-                return;
-            }
-        }
-        if (!new_billterm_ok_cb (nbt))
-            return;
-        new_billterm_dialog_complete (nbt);
-        return;
     }
+    if (!new_billterm_ok_cb (nbt))
+        return;
 
+    new_billterm_dialog_complete (nbt);
+}
+
+static void
+new_billterm_dialog_accept_clicked_cb (GtkButton *button, NewBillTerm *nbt)
+{
+    (void)button;
+    new_billterm_dialog_accept (nbt);
+}
+
+static void
+new_billterm_dialog_cancel_clicked_cb (GtkButton *button, NewBillTerm *nbt)
+{
+    (void)button;
     new_billterm_dialog_complete (nbt);
 }
 
@@ -575,11 +582,13 @@ new_billterm_dialog_request (BillTermsWindow *btw, GncBillTerm *term,
     GtkWidget *box;
     GtkDropDown *dropdown;
     GtkWidget *ok_button;
+    GtkWidget *cancel_button;
     const gchar *dialog_name;
     const gchar *dialog_desc;
     const gchar *dialog_combo;
     const gchar *dialog_nb;
     const gchar *ok_button_name;
+    const gchar *cancel_button_name;
 
     if (!btw)
         return;
@@ -609,6 +618,7 @@ new_billterm_dialog_request (BillTermsWindow *btw, GncBillTerm *term,
         dialog_combo = "type_combobox";
         dialog_nb = "note_book_hbox";
         ok_button_name = "ok_button";
+        cancel_button_name = "cancel_button";
     }
     else
     {
@@ -617,6 +627,7 @@ new_billterm_dialog_request (BillTermsWindow *btw, GncBillTerm *term,
         dialog_combo = "type_combo";
         dialog_nb = "notebook_hbox";
         ok_button_name = "ok_butt";
+        cancel_button_name = "cancel_butt";
     }
 
     builder = gtk_builder_new ();
@@ -636,8 +647,10 @@ new_billterm_dialog_request (BillTermsWindow *btw, GncBillTerm *term,
     box = GTK_WIDGET (gtk_builder_get_object (builder, dialog_nb));
     dropdown = GTK_DROP_DOWN (gtk_builder_get_object (builder, dialog_combo));
     ok_button = GTK_WIDGET (gtk_builder_get_object (builder, ok_button_name));
+    cancel_button = GTK_WIDGET (gtk_builder_get_object (builder,
+                                                         cancel_button_name));
     if (!nbt->dialog || !nbt->desc_entry || !box || !dropdown || !ok_button ||
-        (!term && !nbt->name_entry))
+        !cancel_button || (!term && !nbt->name_entry))
     {
         nbt->dialog = NULL;
         g_object_unref (builder);
@@ -671,8 +684,10 @@ new_billterm_dialog_request (BillTermsWindow *btw, GncBillTerm *term,
         gtk_widget_grab_focus (nbt->desc_entry);
     else
         gtk_widget_grab_focus (nbt->name_entry);
-    g_signal_connect (nbt->dialog, "response",
-                      G_CALLBACK (new_billterm_dialog_response_cb), nbt);
+    g_signal_connect (ok_button, "clicked",
+                      G_CALLBACK (new_billterm_dialog_accept_clicked_cb), nbt);
+    g_signal_connect (cancel_button, "clicked",
+                      G_CALLBACK (new_billterm_dialog_cancel_clicked_cb), nbt);
     g_signal_connect (nbt->dialog, "close-request",
                       G_CALLBACK (new_billterm_dialog_close_request_cb), nbt);
     g_signal_connect (nbt->dialog, "destroy",

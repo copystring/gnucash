@@ -569,9 +569,10 @@
       <item translatable="yes">Proximo</item>
     </items>
   </object>
-  <object class="GtkDialog" id="edit_term_dialog">
+  <object class="GtkWindow" id="edit_term_dialog">
+    <property name="title" translatable="yes">Edit Billing Term</property>
     <property name="modal">1</property>
-<child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="dialog-vbox9">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -663,14 +664,10 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_butt</action-widget>
-      <action-widget response="-5">ok_butt</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area9">
+        <child>
+          <object class="GtkBox" id="dialog-action_area9">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancel_butt">
@@ -696,12 +693,15 @@
           </object>
 
         </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>
-  <object class="GtkDialog" id="new_term_dialog">
+  <object class="GtkWindow" id="new_term_dialog">
+    <property name="title" translatable="yes">New Billing Term</property>
     <property name="modal">1</property>
-<child internal-child="content_area">
+    <child>
       <object class="GtkBox" id="dialog-vbox7">
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
@@ -836,14 +836,10 @@
             </child>
           </object>
         </child>
-      </object>
-    </child>
-    <action-widgets>
-      <action-widget response="-6">cancel_button</action-widget>
-      <action-widget response="-5">ok_button</action-widget>
-    </action-widgets>
-    <child internal-child="action_area">
-      <object class="GtkBox" id="dialog-action_area7">
+        <child>
+          <object class="GtkBox" id="dialog-action_area7">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancel_button">
@@ -868,6 +864,8 @@
             <property name="use-underline">1</property>
           </object>
 
+        </child>
+          </object>
         </child>
       </object>
     </child>
