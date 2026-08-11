@@ -54,7 +54,7 @@ typedef struct _PopBox
     GncItemList*  item_list;
 
     GncCompletionModel *completion_model; // the logical menu entries
-    GtkListStore* item_store; // temporary GTK3 bridge until the popover port
+    GListStore* item_store; // GTK4 rows for the completion popup
 
     gchar*        newval; // string value to find
     gint          newval_len; // length of string value to find
@@ -74,15 +74,6 @@ typedef struct _PopBox
 } PopBox;
 
 #define DONT_TEXT N_("Don't autocomplete")
-
-/** Enumeration for the list-store */
-enum GncCompletionColumn
-{
-    TEXT_COL,           //0
-    TEXT_MARKUP_COL,    //1
-    WEIGHT_COL,         //2
-    FOUND_LOCATION_COL, //3
-};
 
 static void gnc_completion_cell_gui_realize (BasicCell* bcell, gpointer w);
 static void gnc_completion_cell_gui_move (BasicCell* bcell);
@@ -166,64 +157,65 @@ text_width (PangoLayout *layout)
 }
 
 static void
-horizontal_scroll_to_found_text (PopBox* box, char* item_string, gint found_location)
+horizontal_scroll_to_found_text (PopBox *box, const char *item_string,
+                                 gint found_location)
 {
-    if (!gtk_widget_get_realized (GTK_WIDGET(box->item_list->tree_view)))
+    GtkWidget *view = gnc_item_list_get_view (box->item_list);
+    gint view_width;
+    gint scroll_point = 0;
+    gchar *start_string;
+    PangoLayout *layout;
+    PangoAttrList *attributes;
+    PangoAttribute *bold_weight;
+    gint item_string_width;
+    gint start_string_width;
+
+    if (!item_string || found_location < 0 || !gtk_widget_get_mapped (view))
         return;
 
-    GtkAllocation alloc;
-    gtk_widget_get_allocation (GTK_WIDGET(box->item_list->tree_view), &alloc);
-    gint scroll_point = 0;
-    gchar *start_string = g_utf8_substring (item_string, 0, found_location + box->newval_len);
+    view_width = gtk_widget_get_width (view);
+    if (view_width <= 0)
+        return;
 
-    PangoLayout *layout = gtk_widget_create_pango_layout (GTK_WIDGET(box->item_list->tree_view), item_string);
-    PangoAttrList *atlist = pango_attr_list_new ();
-    PangoAttribute *bold_weight = pango_attr_weight_new (PANGO_WEIGHT_BOLD);
+    start_string = g_utf8_substring (item_string, 0,
+                                     found_location + box->newval_len);
+    layout = gtk_widget_create_pango_layout (view, item_string);
+    attributes = pango_attr_list_new ();
+    bold_weight = pango_attr_weight_new (PANGO_WEIGHT_BOLD);
     bold_weight->start_index = found_location;
     bold_weight->end_index = found_location + box->newval_len;
-    pango_attr_list_insert (atlist, bold_weight);
-    pango_layout_set_attributes (layout, atlist);
-
-    gint item_string_width = text_width (layout);
+    pango_attr_list_insert (attributes, bold_weight);
+    pango_layout_set_attributes (layout, attributes);
+    item_string_width = text_width (layout);
 
     pango_layout_set_text (layout, start_string, -1);
+    start_string_width = text_width (layout);
 
-    gint start_string_width = text_width (layout);
-
-    pango_attr_list_unref (atlist);
+    pango_attr_list_unref (attributes);
     g_object_unref (layout);
     g_free (start_string);
 
-    if (item_string_width <= alloc.width)
-        scroll_point = 0;
-    else
-        scroll_point = start_string_width - alloc.width / 2;
+    if (item_string_width > view_width)
+        scroll_point = MAX (0, start_string_width - view_width / 2);
 
-    if (scroll_point < 0)
-        scroll_point = 0;
-
-    gtk_tree_view_scroll_to_point (box->item_list->tree_view, scroll_point, -1);
+    gtk_adjustment_set_value (
+        gtk_scrolled_window_get_hadjustment (box->item_list->scrollwin),
+        scroll_point);
 }
 
 static void
-change_item_cb (GncItemList* item_list, char* item_string, gpointer user_data)
+change_item_cb (GncItemList *item_list, char *item_string, gpointer user_data)
 {
-    CompletionCell* cell = user_data;
-    PopBox* box = cell->cell.gui_private;
+    CompletionCell *cell = user_data;
+    PopBox *box = cell->cell.gui_private;
+    gint found_location;
 
     box->in_list_select = TRUE;
     gnucash_sheet_modify_current_cell (box->sheet, item_string);
     box->in_list_select = FALSE;
 
-    GtkTreeModel *model = gtk_tree_view_get_model (item_list->tree_view);
-    GtkTreeSelection *selection = gtk_tree_view_get_selection (item_list->tree_view);
-    GtkTreeIter iter;
-    if (gtk_tree_selection_get_selected (selection, &model, &iter))
-    {
-        gint found_location;
-        gtk_tree_model_get (model, &iter, FOUND_LOCATION_COL, &found_location, -1);
-        horizontal_scroll_to_found_text (box, item_string, found_location);
-    }
+    found_location = gnc_item_list_get_selected_found_location (item_list);
+    horizontal_scroll_to_found_text (box, item_string, found_location);
 }
 
 static void
@@ -261,25 +253,22 @@ unblock_list_signals (CompletionCell* cell)
 }
 
 static gboolean
-key_press_item_cb (GncItemList* item_list, GdkEventKey* event, gpointer user_data)
+key_press_item_cb (G_GNUC_UNUSED GncItemList *item_list,
+                   guint keyval,
+                   G_GNUC_UNUSED guint keycode,
+                   G_GNUC_UNUSED GdkModifierType state,
+                   gpointer user_data)
 {
-    CompletionCell* cell = user_data;
-    PopBox* box = cell->cell.gui_private;
+    CompletionCell *cell = user_data;
+    PopBox *box = cell->cell.gui_private;
 
-    switch (event->keyval)
-    {
-    case GDK_KEY_Escape:
-        block_list_signals (cell); // Prevent recursion, unselect all
-        gnc_item_list_select (box->item_list, NULL);
-        unblock_list_signals (cell);
-        hide_popup (box);
-        break;
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
 
-    default:
-        gtk_widget_event (GTK_WIDGET (box->sheet),
-                          (GdkEvent*) event);
-        break;
-    }
+    block_list_signals (cell);
+    gnc_item_list_select (box->item_list, NULL);
+    unblock_list_signals (cell);
+    hide_popup (box);
     return TRUE;
 }
 
@@ -315,7 +304,7 @@ completion_connect_signals (CompletionCell* cell)
     g_signal_connect (G_OBJECT(box->item_list), "activate_item",
                       G_CALLBACK(activate_item_cb), cell);
 
-    g_signal_connect (G_OBJECT(box->item_list), "key_press_event",
+    g_signal_connect (G_OBJECT(box->item_list), "key-pressed",
                       G_CALLBACK(key_press_item_cb), cell);
 
     box->signals_connected = TRUE;
@@ -383,25 +372,17 @@ gnc_completion_cell_set_sort_enabled (CompletionCell* cell,
 }
 
 static void
-item_store_clear (CompletionCell* cell)
+item_store_clear (CompletionCell *cell)
 {
+    PopBox *box;
+
     if (!cell)
         return;
 
-    PopBox* box = cell->cell.gui_private;
-
-    // disconnect list store from tree view
-    gnc_item_list_disconnect_store (box->item_list);
-
+    box = cell->cell.gui_private;
     block_list_signals (cell);
-
-    gtk_list_store_clear (box->item_store);
-
+    gnc_item_list_store_clear (box->item_store);
     unblock_list_signals (cell);
-
-    // reconect list store to tree view
-    gnc_item_list_connect_store (box->item_list, box->item_store);
-
     hide_popup (box);
 }
 
@@ -445,49 +426,28 @@ gnc_completion_cell_set_value (CompletionCell* cell, const char* str)
 }
 
 static inline void
-list_store_append (GtkListStore *store, const gchar *string,
+item_store_append (GListStore *store, const gchar *string,
                    const gchar *markup, gint weight, gint found_location)
 {
-    GtkTreeIter iter;
+    g_return_if_fail (G_IS_LIST_STORE (store));
+    g_return_if_fail (string != NULL);
 
-    g_return_if_fail (store);
-    g_return_if_fail (string);
-    g_return_if_fail (markup);
-
-    gtk_list_store_append (store, &iter);
-
-    gtk_list_store_set (store, &iter, TEXT_COL, string,
-                                      TEXT_MARKUP_COL, markup,
-                                      WEIGHT_COL, weight,
-                                      FOUND_LOCATION_COL, found_location, -1);
+    gnc_item_list_store_append (store, string, markup, weight, found_location);
 }
 
 static void
-select_first_entry_in_list (PopBox* box)
+select_first_entry_in_list (PopBox *box)
 {
-    GtkTreeModel *model = gtk_tree_view_get_model (box->item_list->tree_view);
-    GtkTreeIter iter;
-    gchar* string;
-
-    if (!gtk_tree_model_get_iter_first (model, &iter))
+    if (gnc_item_list_num_entries (box->item_list) < 2)
         return;
 
-    if (!gtk_tree_model_iter_next (model, &iter))
-        return;
-
-    gtk_tree_model_get (model, &iter, TEXT_COL, &string, -1);
-
-    gnc_item_list_select (box->item_list, string);
-
-    GtkTreePath* path = gtk_tree_path_new_first ();
-    gtk_tree_view_scroll_to_cell (box->item_list->tree_view,
-                                  path, NULL, TRUE, 0.5, 0.0);
-    gtk_tree_path_free (path);
-    g_free (string);
+    /* The first suggestion is the explicit "Don't autocomplete" choice. */
+    gnc_item_list_select_at (box->item_list, 1);
+    gnc_item_list_show_selected (box->item_list);
 }
 
 static void
-populate_list_store (CompletionCell* cell, gchar* str)
+populate_item_model (CompletionCell* cell, gchar* str)
 {
     PopBox* box = cell->cell.gui_private;
     GListModel *suggestions;
@@ -505,17 +465,14 @@ populate_list_store (CompletionCell* cell, gchar* str)
     suggestions = gnc_completion_model_build_suggestions (
         box->completion_model, box->newval, DONT_TEXT, box->sort_enabled);
     n_suggestions = g_list_model_get_n_items (suggestions);
-
-    // Disconnect the store while its visible contents are replaced.
-    gnc_item_list_disconnect_store (box->item_list);
     block_list_signals (cell);
-    gtk_list_store_clear (box->item_store);
+    gnc_item_list_store_clear (box->item_store);
 
     for (guint i = 0; i < n_suggestions; i++)
     {
         GncSuggestionItem *item = g_list_model_get_item (suggestions, i);
 
-        list_store_append (box->item_store,
+        item_store_append (box->item_store,
                            gnc_suggestion_item_get_text (item),
                            gnc_suggestion_item_get_markup (item),
                            gnc_suggestion_item_get_weight (item),
@@ -524,9 +481,6 @@ populate_list_store (CompletionCell* cell, gchar* str)
     }
 
     unblock_list_signals (cell);
-    gnc_item_list_connect_store (box->item_list, box->item_store);
-    gtk_tree_view_column_queue_resize (
-        gtk_tree_view_get_column (box->item_list->tree_view, TEXT_COL));
     g_object_unref (suggestions);
 
     if (n_suggestions == 1)
@@ -568,7 +522,7 @@ gnc_completion_cell_modify_verify (BasicCell* bcell,
         *start_selection = *end_selection = *cursor_position;
 
     gchar *start_of_text = g_utf8_substring (newval, 0, *cursor_position);
-    populate_list_store (cell, start_of_text);
+    populate_item_model (cell, start_of_text);
     g_free (start_of_text);
 
     if (g_strcmp0 (newval, "") == 0)
@@ -688,8 +642,7 @@ gnc_completion_cell_gui_realize (BasicCell* bcell, gpointer data)
     /* initialize gui-specific, private data */
     box->sheet = sheet;
     box->item_edit = item_edit;
-    box->item_store = gtk_list_store_new (4, G_TYPE_STRING, G_TYPE_STRING,
-                                             G_TYPE_INT, G_TYPE_INT);
+    box->item_store = gnc_item_list_store_new ();
     box->item_list = GNC_ITEM_LIST(gnc_item_list_new (box->item_store));
 
     gtk_widget_set_visible (GTK_WIDGET(box->item_list), TRUE);
@@ -717,11 +670,6 @@ reset_item_list_to_default_setup (BasicCell* bcell)
     gtk_widget_set_sensitive (GTK_WIDGET(popup_toggle.tbutton), TRUE);
     gtk_widget_set_visible (GTK_WIDGET(popup_toggle.tbutton), TRUE);
 
-    GtkTreeViewColumn *column = gtk_tree_view_get_column (
-                                    GTK_TREE_VIEW(box->item_list->tree_view), TEXT_COL);
-    gtk_tree_view_column_clear_attributes (column,box->item_list->renderer);
-    gtk_tree_view_column_add_attribute (column, box->item_list->renderer,
-                                        "text", TEXT_COL);
     box->list_popped = FALSE;
 }
 
@@ -787,52 +735,36 @@ popup_autosize (GtkWidget* widget,
 }
 
 static void
-popup_set_focus (GtkWidget* widget,
+popup_set_focus (GtkWidget *widget,
                  G_GNUC_UNUSED gpointer user_data)
 {
-    /* An empty GtkTreeView grabbing focus causes the key_press events to be
-     * lost because there's no entry cell to handle them.
-     */
-    if (gnc_item_list_num_entries (GNC_ITEM_LIST(widget)))
-        gtk_widget_grab_focus (GTK_WIDGET (GNC_ITEM_LIST(widget)->tree_view));
+    if (gnc_item_list_num_entries (GNC_ITEM_LIST (widget)))
+        gtk_widget_grab_focus (gnc_item_list_get_view (GNC_ITEM_LIST (widget)));
 }
 
 static void
-popup_post_show (GtkWidget* widget,
-                 G_GNUC_UNUSED gpointer user_data)
+popup_post_show (GtkWidget *widget, gpointer user_data)
 {
-    gnc_item_list_autosize (GNC_ITEM_LIST(widget));
-    gnc_item_list_show_selected (GNC_ITEM_LIST(widget));
+    PopBox *box = user_data;
+    char *item_string;
+
+    gnc_item_list_autosize (GNC_ITEM_LIST (widget));
+    gnc_item_list_show_selected (GNC_ITEM_LIST (widget));
+    item_string = gnc_item_list_get_selection (GNC_ITEM_LIST (widget));
+    if (item_string)
+    {
+        horizontal_scroll_to_found_text (
+            box, item_string,
+            gnc_item_list_get_selected_found_location (GNC_ITEM_LIST (widget)));
+        g_free (item_string);
+    }
 }
 
 static int
-popup_get_width (GtkWidget* widget,
+popup_get_width (GtkWidget *widget,
                  G_GNUC_UNUSED gpointer user_data)
 {
-    GtkAllocation alloc;
-    gtk_widget_get_allocation (GTK_WIDGET (GNC_ITEM_LIST(widget)->tree_view),
-                               &alloc);
-    return alloc.width;
-}
-
-static void
-tree_view_size_allocate_cb (GtkWidget *widget,
-                            G_GNUC_UNUSED GtkAllocation *allocation,
-                            gpointer user_data)
-{
-    GtkTreeModel *model = gtk_tree_view_get_model (GTK_TREE_VIEW(widget));
-    GtkTreeSelection *selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(widget));
-    GtkTreeIter iter;
-    if (gtk_tree_selection_get_selected (selection, &model, &iter))
-    {
-        PopBox* box = user_data;
-        gint found_location;
-        gchar *item_text;
-        gtk_tree_model_get (model, &iter, TEXT_COL, &item_text,
-                                          FOUND_LOCATION_COL, &found_location, -1);
-        horizontal_scroll_to_found_text (box, item_text, found_location);
-        g_free (item_text);
-    }
+    return gtk_widget_get_width (gnc_item_list_get_view (GNC_ITEM_LIST (widget)));
 }
 
 static gboolean
@@ -854,15 +786,6 @@ gnc_completion_cell_enter (BasicCell* bcell,
     popup_toggle = box->item_edit->popup_toggle;
     gtk_widget_set_sensitive (GTK_WIDGET(popup_toggle.tbutton), FALSE);
     gtk_widget_set_visible (GTK_WIDGET(popup_toggle.tbutton), FALSE);
-
-    GtkTreeViewColumn *column = gtk_tree_view_get_column (
-                                    GTK_TREE_VIEW(box->item_list->tree_view), TEXT_COL);
-    gtk_tree_view_column_clear_attributes (column, box->item_list->renderer);
-    gtk_tree_view_column_add_attribute (column, box->item_list->renderer,
-                                        "markup", TEXT_MARKUP_COL);
-
-    g_signal_connect (G_OBJECT(box->item_list->tree_view), "size-allocate",
-                      G_CALLBACK(tree_view_size_allocate_cb), box);
 
     completion_connect_signals (cell);
 

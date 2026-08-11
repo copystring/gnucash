@@ -57,8 +57,8 @@ typedef struct _PopBox
     GnucashSheet* sheet;
     GncItemEdit*  item_edit;
     GncItemList*  item_list;
-    GtkListStore* tmp_store;
-    GtkListStore* model_store;
+    GListStore* tmp_store;
+    GListStore* model_store;
     gulong model_changed_id;
 
     gboolean signals_connected; /* list signals connected? */
@@ -155,7 +155,7 @@ gnc_combo_cell_init (ComboCell* cell)
     box->sheet = NULL;
     box->item_edit = NULL;
     box->item_list = NULL;
-    box->tmp_store = gtk_list_store_new (1, G_TYPE_STRING);
+    box->tmp_store = gnc_item_list_store_new ();
     box->model_store = NULL;
     box->model_changed_id = 0;
     box->signals_connected = FALSE;
@@ -212,23 +212,20 @@ activate_item_cb (GncItemList* item_list, char* item_string, gpointer data)
 }
 
 static gboolean
-key_press_item_cb (GncItemList* item_list, GdkEventKey* event, gpointer data)
+key_press_item_cb (G_GNUC_UNUSED GncItemList *item_list,
+                   guint keyval,
+                   G_GNUC_UNUSED guint keycode,
+                   G_GNUC_UNUSED GdkModifierType state,
+                   gpointer data)
 {
-    ComboCell* cell = data;
-    PopBox* box = cell->cell.gui_private;
+    ComboCell *cell = data;
+    PopBox *box = cell->cell.gui_private;
 
-    switch (event->keyval)
-    {
-    case GDK_KEY_Escape:
-        gnc_item_edit_hide_popup (box->item_edit);
-        box->list_popped = FALSE;
-        break;
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
 
-    default:
-        gtk_widget_event (GTK_WIDGET (box->sheet),
-                          (GdkEvent*) event);
-        break;
-    }
+    gnc_item_edit_hide_popup (box->item_edit);
+    box->list_popped = FALSE;
     return TRUE;
 }
 
@@ -264,7 +261,7 @@ combo_connect_signals (ComboCell* cell)
     g_signal_connect (G_OBJECT (box->item_list), "activate_item",
                       G_CALLBACK (activate_item_cb), cell);
 
-    g_signal_connect (G_OBJECT (box->item_list), "key_press_event",
+    g_signal_connect (G_OBJECT (box->item_list), "key-pressed",
                       G_CALLBACK (key_press_item_cb), cell);
 
     box->signals_connected = TRUE;
@@ -413,7 +410,7 @@ gnc_combo_cell_clear_menu (ComboCell* cell)
         unblock_list_signals (cell);
     }
     else
-        gtk_list_store_clear (box->tmp_store);
+        gnc_item_list_store_clear (box->tmp_store);
 }
 
 void
@@ -467,10 +464,7 @@ gnc_combo_cell_add_menu_item (ComboCell* cell, const char* menustr)
     }
     else
     {
-        GtkTreeIter iter;
-
-        gtk_list_store_append (box->tmp_store, &iter);
-        gtk_list_store_set (box->tmp_store, &iter, 0, menustr, -1);
+        gnc_item_list_store_append (box->tmp_store, menustr, NULL, 0, -1);
     }
 
     /* If we're going to be using a pre-fab quickfill,
@@ -530,14 +524,12 @@ gnc_combo_cell_set_value (ComboCell* cell, const char* str)
 }
 
 static inline void
-list_store_append (GtkListStore *store, const gchar *string)
+item_store_append (GListStore *store, const gchar *string)
 {
-    GtkTreeIter iter;
-
-    g_return_if_fail (store != NULL);
+    g_return_if_fail (G_IS_LIST_STORE (store));
     g_return_if_fail (string != NULL);
-    gtk_list_store_append (store, &iter);
-    gtk_list_store_set (store, &iter, 0, string, -1);
+
+    gnc_item_list_store_append (store, string, NULL, 0, -1);
 }
 
 static void
@@ -550,7 +542,7 @@ combo_model_store_reload (ComboCell* cell)
     g_return_if_fail (box->model_store != NULL);
     g_return_if_fail (cell->shared_model != NULL);
 
-    gtk_list_store_clear (box->model_store);
+    gnc_item_list_store_clear (box->model_store);
     n_items = g_list_model_get_n_items (cell->shared_model);
     for (guint index = 0; index < n_items; index++)
     {
@@ -566,7 +558,7 @@ combo_model_store_reload (ComboCell* cell)
 
         name = gnc_account_list_item_get_name (item);
         if (name)
-            list_store_append (box->model_store, name);
+            item_store_append (box->model_store, name);
         g_object_unref (item);
     }
 }
@@ -630,7 +622,7 @@ gnc_combo_cell_type_ahead_search (const gchar* newval,
 
     block_list_signals (cell);
     gnc_item_edit_hide_popup (box->item_edit);
-    gtk_list_store_clear (box->tmp_store);
+    gnc_item_list_store_clear (box->tmp_store);
     unblock_list_signals (cell);
 
     if (strlen (newval) == 0)
@@ -668,7 +660,7 @@ gnc_combo_cell_type_ahead_search (const gchar* newval,
             if (!num_found)
                 match_str = g_strdup (name);
             num_found++;
-            list_store_append (box->tmp_store, name);
+            item_store_append (box->tmp_store, name);
         }
         g_free (normalized_name);
         g_object_unref (item);
@@ -771,7 +763,7 @@ gnc_combo_cell_modify_verify (BasicCell* _cell,
         if (cell->shared_model && gnc_item_list_using_temp (box->item_list))
         {
             gnc_item_list_set_temp_store (box->item_list, NULL);
-            gtk_list_store_clear (box->tmp_store);
+            gnc_item_list_store_clear (box->tmp_store);
         }
         gnc_item_list_select (box->item_list, NULL);
         unblock_list_signals (cell);
@@ -823,7 +815,7 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
             if (cell->shared_model && gnc_item_list_using_temp (box->item_list))
             {
                 gnc_item_list_set_temp_store (box->item_list, NULL);
-                gtk_list_store_clear (box->tmp_store);
+                gnc_item_list_store_clear (box->tmp_store);
             }
             gnc_basic_cell_set_value_internal (bcell, value);
             bcell->changed = FALSE;
@@ -990,7 +982,7 @@ gnc_combo_cell_gui_realize (BasicCell* bcell, gpointer data)
     box->item_edit = item_edit;
     if (cell->shared_model)
     {
-        box->model_store = gtk_list_store_new (1, G_TYPE_STRING);
+        box->model_store = gnc_item_list_store_new ();
         combo_model_store_reload (cell);
         box->model_changed_id = g_signal_connect (
             cell->shared_model, "items-changed",
@@ -1081,11 +1073,9 @@ static void
 popup_set_focus (GtkWidget* widget,
                  G_GNUC_UNUSED gpointer user_data)
 {
-    /* An empty GtkTreeView grabbing focus causes the key_press events to be
-     * lost because there's no entry cell to handle them.
-     */
+    /* Avoid taking focus when no selectable row is available. */
     if (gnc_item_list_num_entries (GNC_ITEM_LIST (widget)))
-        gtk_widget_grab_focus (GTK_WIDGET (GNC_ITEM_LIST (widget)->tree_view));
+        gtk_widget_grab_focus (gnc_item_list_get_view (GNC_ITEM_LIST (widget)));
 }
 
 static void
@@ -1097,13 +1087,10 @@ popup_post_show (GtkWidget* widget,
 }
 
 static int
-popup_get_width (GtkWidget* widget,
+popup_get_width (GtkWidget *widget,
                  G_GNUC_UNUSED gpointer user_data)
 {
-    GtkAllocation alloc;
-    gtk_widget_get_allocation (GTK_WIDGET (GNC_ITEM_LIST (widget)->tree_view),
-                               &alloc);
-    return alloc.width;
+    return gtk_widget_get_width (gnc_item_list_get_view (GNC_ITEM_LIST (widget)));
 }
 
 static gboolean
@@ -1136,7 +1123,7 @@ gnc_combo_cell_enter (BasicCell* bcell,
     {
         // Clear the temp store to ensure we don't start in type-ahead mode.
         gnc_item_list_set_temp_store (box->item_list, NULL);
-        gtk_list_store_clear (box->tmp_store);
+        gnc_item_list_store_clear (box->tmp_store);
     }
     gnc_item_list_select (box->item_list, bcell->value);
     unblock_list_signals (cell);
