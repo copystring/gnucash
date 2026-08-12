@@ -1056,11 +1056,8 @@ csv_export_assistant_create (CsvExportInfo *info)
 
     if ((info->export_type == XML_EXPORT_TREE) || (info->export_type == XML_EXPORT_REGISTER))
     {
-        // Don't provide simple export layout for search registers and General Journal
-//FIXME gtk4        if ((info->export_type == XML_EXPORT_TREE) ||
-//            (g_list_length (info->csva.account_list) == 0))
-//            gtk_widget_destroy (chkbox);
-        /* The stack keeps all pages stable; its forward function skips this page. */
+        /* Tree and active-register exports do not require account selection.
+         * The stack keeps the page alive while the forward function skips it. */
     }
     else
     {

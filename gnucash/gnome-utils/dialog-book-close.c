@@ -413,7 +413,7 @@ void gnc_ui_close_book (QofBook* book, GtkWindow *parent)
 
     /* default to 'cancel' button */
     gtk_window_set_default_widget (GTK_WINDOW(cbw->window),
-                                   GTK_WIDGET(button)); //FIXME gtk4, may not work
+                                   GTK_WIDGET(button));
 
     button = GTK_WIDGET(gtk_builder_get_object (builder, "okbutton"));
     g_signal_connect (G_OBJECT(button), "clicked",

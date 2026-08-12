@@ -969,7 +969,7 @@ gnc_plugin_page_budget_cmd_view_options (GSimpleAction *simple,
                           G_CALLBACK(options_cancel_button_cb), bow);
 
         gtk_window_set_default_widget (GTK_WINDOW(bow->window),
-                                       GTK_WIDGET(cancel_button)); //FIXME gtk4, may not work
+                                       GTK_WIDGET(cancel_button));
 
         gtk_widget_set_visible (GTK_WIDGET(priv->dialog), true);
 
@@ -1221,7 +1221,7 @@ gnc_plugin_page_budget_cmd_budget_note (GSimpleAction *simple,
                       G_CALLBACK(note_cancel_button_cb), bnw);
 
     gtk_window_set_default_widget (GTK_WINDOW(bnw->window),
-                                   GTK_WIDGET(cancel_button)); //FIXME gtk4, may not work
+                                   GTK_WIDGET(cancel_button));
 
     gtk_widget_set_visible (GTK_WIDGET(bnw->window), true);
 

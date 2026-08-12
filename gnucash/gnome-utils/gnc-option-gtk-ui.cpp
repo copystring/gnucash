@@ -588,7 +588,6 @@ BothDateEntry::BothDateEntry(GncOption& option) :
     m_widget{gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5)},
     m_abs_button{gtk_check_button_new()},
     m_abs_entry{std::make_unique<AbsoluteDateEntry>(option)},
-//FIXME gtk4    m_rel_button{gtk_radio_button_new_from_widget(GTK_RADIO_BUTTON(m_abs_button))},
     m_rel_button{gtk_check_button_new()},
     m_rel_entry{std::make_unique<RelativeDateEntry>(option)}
 {

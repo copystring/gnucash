@@ -610,7 +610,7 @@ gnc_doclink_get_uri_dialog (GtkWindow *parent, const gchar *title,
 
     /* default to 'cancel' button */
     gtk_window_set_default_widget (GTK_WINDOW(window),
-                                   GTK_WIDGET(dlu->cancel_button)); //FIXME gtk4, may not work
+                                   GTK_WIDGET(dlu->cancel_button));
 
     dlu->fcb = GTK_WIDGET(gtk_builder_get_object (builder, "file_chooser_button"));
     fcb_label = GTK_WIDGET(gtk_builder_get_object (builder, "file_chooser_button_label"));
@@ -1439,7 +1439,7 @@ gnc_doclink_dialog_create (GtkWindow *parent, DoclinkDialog *doclink_dialog)
 
     /* default to 'close' button */
     gtk_window_set_default_widget (GTK_WINDOW(doclink_dialog->window),
-                                   GTK_WIDGET(button)); //FIXME gtk4, may not work
+                                   GTK_WIDGET(button));
 
     // Set the widget name and style context for this dialog so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(doclink_dialog->window), "gnc-id-transaction-doclinks");
