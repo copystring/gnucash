@@ -456,13 +456,13 @@ gnc_embedded_window_get_menubar_model (GncWindow *window)
     return GNC_EMBEDDED_WINDOW (window)->menubar_model;
 }
 
-/** Retrieve the accelerator group associated with an embedded window object.
+/** Retrieve the shortcut controller associated with an embedded window object.
  *  This function is called via a vector off a generic window
  *  interface.
  *
  *  @param window_in A pointer to a generic window. */
 static GtkEventController *
-gnc_embedded_window_get_accel_group (GncWindow *window) //FIXME gtk4 rename
+gnc_embedded_window_get_accel_group (GncWindow *window)
 {
     g_return_val_if_fail (GNC_IS_EMBEDDED_WINDOW(window), NULL);
 

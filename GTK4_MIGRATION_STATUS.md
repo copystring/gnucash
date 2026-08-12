@@ -1,122 +1,68 @@
 # GTK4-Migrationsstatus
 
-Dieser Status gilt für `feature/gtk4-migration`. Die Branch ist eine
-Integrationsbranch für einen großen PR nach `future`; sie ist ausdrücklich
-nicht freigabefähig und darf bis zur vollständigen Abnahme nicht gepusht oder
-als PR eröffnet werden.
+**Branch:** `feature/gtk4-migration`
+**Stand:** 13. August 2026
+**Migrationsfortschritt:** **98 % Implementierung**
 
-## In dieser Branch bereits umgesetzt
+Diese Branch bleibt bis zur vollständigen Abnahme lokal. Dieser Text ist ein
+maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
 
-- Die Anwendung verwendet `GtkApplication` statt eines globalen GTK-Hauptloops.
-- Der HTML-Controller `GncHtml` ist von `GtkBin` entkoppelt; Backends liefern
-  ihr sichtbares Widget direkt.
-- Die aktiven CMake-Pfade verlangen GTK 4.14 und WebKitGTK 6 auf Linux. Der
-  Windows-Pfad verwendet WebView2; der macOS-Pfad verwendet jetzt WKWebView.
-- Die 91 Builder-Ressourcen unter `gnucash/` wurden mit
-  `gtk4-builder-tool validate` geprüft. Die dabei gefundenen veralteten
-  Eigenschaften und Signale wurden entfernt oder durch Controller ersetzt.
-- Kontensuche, Import-Map-Editor und IMAP-Editor verwenden GTK4-Modelle und
-  `GtkColumnView`; Auswahl, Gruppenlöschung und die wichtigen Dialogdetails
-  wurden dabei wiederhergestellt.
-- Die Berichtoptionen verwenden für einfache Auswahlwerte, Listen, Budgets und
-  Kontenlisten GTK4-Modelle. Die Kontenliste hält ihre Auswahl über GUIDs,
-  sodass Typ-/Hidden-Filter und Reloads des gemeinsamen Kontenmodells keine
-  Auswahl auf eine andere Zeile verschieben. Bilddatei-Optionen verwenden
-  `GtkFileDialog` mit Vorschau und Clear-Operation.
-- Mehrere Fenster- und Dialogpfade verwenden nun `close-request` sowie
-  `GtkEventControllerKey`/`GtkEventControllerFocus` statt direkter GTK3-
-  Ereignissignale.
-- Die gemeinsame Dateiauswahl verwendet `GtkFileDialog` mit asynchronem
-  Request-/Finish-Vertrag. Dateiöffnung, Speichern vor dem Schließen und der
-  XML-Encoding-Assistent setzen diese Fortsetzung ohne Ersatz-Hauptschleife
-  ein; Erkennung und Konvertierung behandeln XML-v2 mit und ohne deklarierte
-  Zeichenkodierung sowie gzip-Dateien.
-- Preferences, Commodity-Manager, Stock-Split-Assistent, mehrere AqBanking-
-  Transfers und die wichtigsten Importpfade sind auf GTK4-Modelle beziehungsweise
-  asynchrone Fenster umgestellt. Ihre gezielten Builder-, Syntax- und
-  Vertragsprüfungen sind Teil der lokalen Nachweise, aber kein Ersatz für die
-  plattformübergreifende Gesamtabnahme.
-- Kontolöschen, Transaktionen verwerfen und die Reconcile-Startabfrage sind
-  nicht mehr verschachtelt. Sie halten über Antworten nur GUIDs und WeakRefs;
-  bei Buch- oder Fensterwechsel werden die fachlichen Ziele erneut geprüft.
-- Beide Preis-Löschabläufe laufen asynchron. Der gemeinsame Warnungsdialog
-  benutzt ein reguläres GTK4-Fenster, bewahrt die permanenten und temporären
-  Warnpräferenzen und verhindert Mutationen nach Fenster- oder Buchwechsel.
-- Der WKWebView-Backendpfad hält eine verwaltete native Unteransicht synchron
-  mit der GTK-Allokation, begrenzt den Dateizugriff auf den temporären
-  Reportbereich und blockiert jede Navigation, die nicht vom gemeinsamen
-  internen URL-Vertrag akzeptiert wird.
+## Belegter Umsetzungsstand
 
-## Noch offen – Freigabeblocker
+- Die aktive Anwendung, ihre Builder-Ressourcen und die umgestellten
+  Bedienpfade verwenden GTK4-Modelle, Controller und asynchrone Fortsetzungen.
+  Darunter fallen Dateiauswahl, Import und Export, Druck, Register- und
+  Reconcile-Abfragen sowie die gemeinsamen Bestätigungs- und
+  Fensterlebenszyklen.
+- Register- und Reconcile-Fortsetzungen behalten bei asynchronen Antworten
+  nur gültige, erneut prüfbare Fachreferenzen. Buch-, Fenster- und
+  Transaktionswechsel führen daher nicht zu einer verspäteten Mutation des
+  falschen Objekts.
+- Der aktive AqBanking-Code verwendet GTK4-Fenster und asynchrone GnuCash-
+  Fortsetzungen. Die Gwenhywfar-ABI hat weiterhin synchrone Rückgabewerte;
+  die dafür nötigen Adapter sind auf diesen Fremd-ABI-Rand begrenzt und werden
+  erst mit dem tatsächlichen GwenGTK4-Stack end-to-end abgenommen.
+- Der aktuelle Quellscan findet außerhalb von Tests, Historie und dem bewusst
+  inaktiven WebKit1-Altpfad keine aktiven Vorkommen von `GtkTreeView`,
+  `GtkTreeModel`, `GtkTreeStore`, `GtkTreeSortable`, `GtkCellRenderer`,
+  `GtkAssistant`, `GtkDialog`, `GtkMessageDialog`, `gtk_dialog_run` oder
+  `gnc_dialog_run`. Es gibt daher keinen verbleibenden aktiven
+  TreeView-/Assistant-/Dialog-GTK3-Cluster, der hier als Portierungsarbeit
+  ausgewiesen werden müsste.
+- Die CMake-Konfiguration verlangt bei aktivem AqBanking verbindlich
+  `gwenhywfar >= 5.14.1`, `aqbanking >= 6.9.1` und für den GnuCash-Build
+  `gwengui-gtk4`. Der heute vorhandene UCRT-Cache erkennt GTK 4.22.4, ist
+  wegen des fehlenden Banking-Stacks jedoch kein vollständiger Configure- oder
+  Buildnachweis.
 
-### Datenansichten und Register
+## Verbleibende harte Freigabegates
 
-- Das Register ist weiterhin ein zusammenhängender GTK3-Ereignisverbund aus
-  `GnucashSheet`, `GncItemEdit`, `GncItemList`, Popup-Zellen und dem
-  tabellenneutralen Ledger-Kern. Die vorhandenen `GdkEvent`-Weitergaben,
-  `GtkLayout`-Flächen und Offscreen-Annahmen müssen durch einen gemeinsamen
-  GTK4-Controller ersetzt werden; eine isolierte Portierung einzelner Zellen
-  wäre Funktionsverlust.
-- Die Terminbuchungsseite besteht aus der Seite selbst,
-  `GncTreeViewSxList` und `GncSxListTreeModelAdapter`. Letzterer implementiert
-  noch `GtkTreeModel`/`GtkTreeSortable` auf `GtkTreeStore` und
-  `GtkTreeModelSort`. Erst ein gemeinsames GObject-Zeilenmodell mit
-  `GListModel`, Sortern, Mehrfachauswahl, Kontextmenü, Leertasten-Umschalten
-  und Wiederherstellung der Auswahl schließt diesen Pfad.
-- Weitere aktive `GtkTreeView`-/CellRenderer-Pfade müssen jeweils mitsamt
-  Sortierung, Filterung, Bearbeitung, Drag-and-drop, Tooltips, Aktionen und
-  Accessibility nach `GtkColumnView`/`GtkListView` portiert werden.
+1. **Fest referenzierter GwenGTK4-Stack.** Der Ziel-Build benötigt die oben
+   genannten Gwenhywfar-, AqBanking- und `gwengui-gtk4`-Entwicklungs- und
+   Laufzeitkomponenten in einer reproduzierbaren, zum Zieltoolchain passenden
+   Form. Solange dieser Stack nicht vorliegt, bleiben Banking-Configure,
+   Kompilierung und die PIN-, TAN-, Abbruch- und Fortschrittswege unbelegt.
 
-### Reports und Plattformen
+2. **Vollständige MSVCRT-Abnahme.** Ein frischer Configure und Build,
+   Installer-Erzeugung sowie eine echte Windows-End-to-End-Abnahme müssen mit
+   dem Ziel-Toolchain- und Laufzeitstack erfolgen. Der vorhandene UCRT-Cache
+   mit erkanntem GTK4 ersetzt diese Prüfung nicht.
 
-- Die gemeinsame `GncHtml`-Schnittstelle braucht noch Suche, view-lokalen
-  Zoom und einen expliziten PDF-Exportvertrag. Diese Funktionen müssen in
-  WebKitGTK 6, WebView2 und WKWebView gleich behandelt und getestet werden.
-- Der WKWebView-Code benötigt einen echten macOS-Configure/Build/Test gegen
-  `gtk4-macos`; Windows benötigt Configure/Build/Installer-Abnahme mit
-  WebView2Loader und Evergreen Runtime. Beide Plattformen sind ohne diese
-  Matrix nicht freigegeben.
-- Linux-Berichte benötigen automatisierte Tests für Navigation,
-  Ladefehler, Abbruch, Druck und PDF. Der temporäre Reportdateizugriff muss
-  mit seinem begrenzten Read-Root als Sicherheitsvertrag dokumentiert und
-  getestet werden.
+3. **Zentraler QOF-/Scrub-Fortschrittsvertrag.** Datei laden, speichern und
+   exportieren sowie Check-&-Repair/Scrub rufen weiterhin synchrone QOF- und
+   Engine-Operationen mit `gnc_window_show_progress` auf. Dieser globale
+   Fortschritts-Callback darf nicht durch eine lokale
+   `g_main_context_iteration()`-Pumpe kaschiert werden. Er braucht einen
+   zentralen, abbrechbaren Ausführungs- und Abschlussvertrag, der Fortschritt
+   sicher an die GTK-Hauptschleife übergibt und Buch-, Fenster- und
+   Abbruchlebenszyklen absichert.
 
-### Banking, Import und Export
+## Nächste Abnahmefolge
 
-- AqBanking benötigt einen nachweislich geprüften, fest referenzierten
-  `gwengui-gtk4`-Stand. Die synchronen Gwen-Dialoge, die lokale
-  Main-Context-Pumpe sowie TAN-, Flicker-, PIN-, Fortschritts- und
-  Abbruchpfade müssen auf den asynchronen GTK4-Lebenszyklus überführt und
-  end-to-end geprüft werden.
-- OFX bleibt aktiviert, benötigt jedoch Import-Fixtures und End-to-End-Tests;
-  ein bloßer Linktest reicht nicht als Funktionsnachweis.
-
-### Gesamtabnahme
-
-- Große, noch nicht portierte GTK3-Cluster sind die Assistenten, Commodity-
-  Auswahl und -Bearbeitung, die allgemeinen Query-/Bestätigungsdienste sowie
-  weitere Register- und Buchungsaktionen. Jeder davon braucht einen echten
-  asynchronen Aufrufervertrag; eine lokale `GtkDialog::response`-Umstellung
-  ohne die Fortsetzung des fachlichen Workflows wäre unvollständig.
-- Alle verbliebenen GTK3-/GDK3-APIs, direkten Ereignisstrukturen,
-  blockierenden Dialogaufrufe und aktiven Paketierungsreferenzen müssen
-  vollständig erfasst und entfernt werden. Der Scan umfasst weiterhin unter
-  anderem TreeView-/CellRenderer-Pfade, `GtkAssistant`, Register-Layout und
-  Dialog-Wrapper. Inaktive Altcodedateien werden erst nach Ersetzung ihres
-  Laufzeitpfads entfernt.
-- Appearance-Service, Hell-/Dunkel-/Systemmodus, High-DPI, mehrere Monitore
-  und native Titelleisten benötigen eine plattformübergreifende Abnahme.
-- CI und Paketierung brauchen eine grüne Linux-, Windows- und macOS-Matrix
-  inklusive Builder-Validierung, Unit-Tests, E2E für Dateiöffnung durch eine
-  zweite Instanz, Register, Dialoge, Reports, Drucken/PDF, Banking, OFX,
-  Import/Export, Zwischenablage, Drag-and-drop und Accessibility.
-- Der lokale Ordner `build-gtk4-migration/` bleibt unversioniert und darf
-  nicht Teil des PRs werden.
-
-## Lokale Validierungsgrenze
-
-Auf dem aktuellen Windows-Arbeitsplatz fehlt Guile, daher kann die vollständige
-CMake-Konfiguration nicht bis zum Build durchlaufen. Diese Umgebung darf
-keinen grünen Gesamtbuild vortäuschen: alle Plattform- und E2E-Kriterien oben
-bleiben harte Freigabeblocker, bis sie in der jeweiligen Zielumgebung belegt
-sind.
+1. Den versionierten GwenGTK4-Stack in der Zielumgebung bereitstellen und den
+   vollständigen Banking-Configure durchführen.
+2. Den zentralen QOF-/Scrub-Fortschrittsvertrag fertigstellen; danach alle
+   betroffenen Datei-, Register-, Reconcile- und Scrub-Aufrufer gegen diesen
+   Vertrag prüfen.
+3. Den frischen MSVCRT-Build, Installer und die Windows-End-to-End-Abnahme
+   ausführen. Erst danach ist ein Push oder PR fachlich vertretbar.

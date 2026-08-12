@@ -116,15 +116,15 @@ gnc_window_get_menubar_model (GncWindow *window)
 }
 
 GtkEventController *
-gnc_window_get_accel_group (GncWindow *window) //FIXME gtk4 rename
+gnc_window_get_accel_group (GncWindow *window)
 {
     g_return_val_if_fail (GNC_WINDOW(window), NULL);
 
     /* optional */
-    if (GNC_WINDOW_GET_IFACE(window)->get_accel_group == NULL) //FIXME gtk4 rename
+    if (GNC_WINDOW_GET_IFACE(window)->get_accel_group == NULL)
         return NULL;
 
-    return GNC_WINDOW_GET_IFACE(window)->get_accel_group (window); //FIXME gtk4 rename
+    return GNC_WINDOW_GET_IFACE(window)->get_accel_group (window);
 }
 /************************************************************
  *              Auxiliary status bar functions              *
@@ -240,7 +240,11 @@ gnc_window_show_progress (const char *message, double percentage)
         }
     }
 
-    /* make sure new text is up */
-//FIXME gtk4    while (gtk_events_pending ())
-//        gtk_main_iteration ();
+    /*
+     * Progress is reported from synchronous QOF save/load/export and scrub
+     * callbacks. Do not iterate the default main context here: it would
+     * re-enter arbitrary UI actions while the model operation is in progress.
+     * Port the caller to an asynchronous continuation before requiring a
+     * progress update to be painted.
+     */
 }
