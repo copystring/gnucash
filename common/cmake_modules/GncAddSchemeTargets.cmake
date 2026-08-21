@@ -71,9 +71,18 @@ function(find_one_guile_dir _DIRCLASS _DIRCMD _PREFIX)
     if (_PREFIX)
       # Paths with backslashes can't be used in regular expressions
       # because cmake interprets the backslash as an escape. Convert
-      # them to forward slashes on both strings.
-        string(REGEX REPLACE "\\\\" "/" _prefix_re ${_PREFIX})
-        string(REGEX REPLACE "\\\\" "/" _cmd_output ${CMD_OUTPUT})
+      # them to forward slashes on both strings. On MinGW Guile's
+      # build info may use an MSYS prefix while its runtime directory
+      # functions use a Win32 prefix, so normalize both before comparing.
+        set(_prefix_re ${_PREFIX})
+        set(_cmd_output ${CMD_OUTPUT})
+        if (MINGW64)
+            make_unix_path(_prefix_re)
+            make_unix_path(_cmd_output)
+        else()
+            string(REGEX REPLACE "\\\\" "/" _prefix_re ${_prefix_re})
+            string(REGEX REPLACE "\\\\" "/" _cmd_output ${_cmd_output})
+        endif()
         string(REGEX REPLACE "^${_prefix_re}[\\/]*" "" CMD_REL_OUTPUT ${_cmd_output})
         set(GUILE_REL_${CLASS_UPPER} ${CMD_REL_OUTPUT} PARENT_SCOPE)
         set(CMD_REL_UNIX_OUTPUT  ${CMD_REL_OUTPUT})
