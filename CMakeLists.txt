@@ -131,6 +131,54 @@ if (MINGW AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   set(MINGW64 ON)
 endif()
 
+# A MinGW compiler must never consume the MSYS runtime headers or import
+# libraries. Derive the target prefix from the selected compiler instead of
+# CMAKE_PREFIX_PATH: the latter intentionally names the MSYS installation in
+# the Windows build support and therefore also contains usr/.
+if (MINGW)
+  get_filename_component (GNC_MINGW_BINDIR "${CMAKE_C_COMPILER}" DIRECTORY)
+  get_filename_component (GNC_MINGW_TARGET_PREFIX "${GNC_MINGW_BINDIR}" DIRECTORY)
+  set (GNC_MINGW_TARGET_INCLUDEDIR "${GNC_MINGW_TARGET_PREFIX}/include")
+  set (GNC_MINGW_TARGET_LIBDIR "${GNC_MINGW_TARGET_PREFIX}/lib")
+
+  foreach (required_file
+      "${GNC_MINGW_TARGET_INCLUDEDIR}/iconv.h"
+      "${GNC_MINGW_TARGET_INCLUDEDIR}/libintl.h"
+      "${GNC_MINGW_TARGET_INCLUDEDIR}/ltdl.h"
+      "${GNC_MINGW_TARGET_INCLUDEDIR}/regex.h"
+      "${GNC_MINGW_TARGET_LIBDIR}/libiconv.dll.a"
+      "${GNC_MINGW_TARGET_LIBDIR}/libintl.dll.a"
+      "${GNC_MINGW_TARGET_LIBDIR}/libltdl.dll.a"
+      "${GNC_MINGW_TARGET_LIBDIR}/libregex.dll.a")
+    if (NOT EXISTS "${required_file}")
+      message (FATAL_ERROR "Missing MinGW target dependency: ${required_file}")
+    endif()
+  endforeach()
+
+  # These names are used both by GnuCash's own find_* calls and by CMake's
+  # FindIconv/FindIntl modules. Cache them before any finder can select
+  # MSYS /usr/include or /usr/lib.
+  set (Iconv_INCLUDE_DIR "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
+    "MinGW target iconv include directory" FORCE)
+  set (Iconv_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libiconv.dll.a" CACHE FILEPATH
+    "MinGW target iconv library" FORCE)
+  set (Intl_INCLUDE_DIR "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
+    "MinGW target libintl include directory" FORCE)
+  set (Intl_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libintl.dll.a" CACHE FILEPATH
+    "MinGW target libintl library" FORCE)
+  set (LIBINTL_INCLUDE_PATH "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
+    "MinGW target libintl include directory" FORCE)
+  set (LIBINTL_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libintl.dll.a" CACHE FILEPATH
+    "MinGW target libintl library" FORCE)
+  set (LTDL_INCLUDE_PATH "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
+    "MinGW target ltdl include directory" FORCE)
+  set (REGEX_INCLUDE_PATH "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
+    "MinGW target regex include directory" FORCE)
+  set (REGEX_LIB_PATH "${GNC_MINGW_TARGET_LIBDIR}" CACHE PATH
+    "MinGW target regex library directory" FORCE)
+  set (REGEX_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libregex.dll.a" CACHE FILEPATH
+    "MinGW target regex library" FORCE)
+endif()
 # Find a proper bash executable
 
 set(GNC_SHELL $ENV{GNC_SHELL})
