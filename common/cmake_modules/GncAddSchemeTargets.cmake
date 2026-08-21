@@ -302,17 +302,11 @@ function(gnc_add_scheme_targets _TARGET)
         list(APPEND GUILE_COMPILE_OPTIONS "-O0")
       endif()
 
-      # Guile's -s handler expects an MSYS path on MinGW-w64.
-      set(guild_script "${GUILD_EXECUTABLE}")
-      if(MINGW64)
-        make_unix_path(guild_script)
-      endif()
-
       add_custom_command(
         OUTPUT ${output_file}
         COMMAND ${CMAKE_COMMAND} -E env
             "${GUILE_ENV}$<$<CONFIG:Asan>:;${ASAN_DYNAMIC_LIB_ENV};ASAN_OPTIONS=${ASAN_BUILD_OPTIONS}>"
-            ${GUILE_EXECUTABLE} -e "\(@@ \(guild\) main\)" -s "${guild_script}" compile ${GUILE_COMPILE_OPTIONS} -o ${output_file} ${source_file_abs_path}
+            ${GUILE_EXECUTABLE} -e "\(@@ \(guild\) main\)" -s ${GUILD_EXECUTABLE} compile ${GUILE_COMPILE_OPTIONS} -o ${output_file} ${source_file_abs_path}
         DEPENDS ${guile_depends}
         MAIN_DEPENDENCY ${source_file_abs_path}
         COMMAND_EXPAND_LISTS
