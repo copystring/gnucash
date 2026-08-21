@@ -47,6 +47,7 @@
 #include "gnc-gwen-gui.h"
 #include "gnc-prefs.h"
 #include "gnc-ui.h"
+#include "gnc-ui-util.h"
 #include "import-account-matcher.h"
 #include "import-main-matcher.h"
 #include "qof.h"
@@ -765,7 +766,7 @@ gnc_ab_ieci_get_parent (GncABImExContextImport *ieci)
 
     root = gtk_widget_get_root (widget);
     if (root && GTK_IS_WINDOW (root))
-        window = g_object_ref (root);
+        window = GTK_WINDOW (g_object_ref (root));
     g_object_unref (widget);
     return window;
 }
@@ -806,10 +807,10 @@ gnc_ab_ieci_get_balance_parent (GncABImExContextImport *ieci)
     if (!widget)
         return gnc_ab_ieci_get_parent (ieci);
     if (GTK_IS_WINDOW (widget))
-        return g_object_ref (widget);
+        return GTK_WINDOW (g_object_ref (widget));
     root = gtk_widget_get_root (widget);
     if (root && GTK_IS_WINDOW (root))
-        window = g_object_ref (root);
+        window = GTK_WINDOW (g_object_ref (root));
     return window;
 }
 

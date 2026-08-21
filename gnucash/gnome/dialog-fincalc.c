@@ -317,7 +317,7 @@ fincalc_compounding_radio_toggled (GtkCheckButton *checkbutton, gpointer user_da
 
     fincalc_update_calc_button_cb (GTK_WIDGET(checkbutton), fcd);
     sensitive = gtk_check_button_get_active (checkbutton);
-    gtk_widget_set_sensitive (fcd->compounding_combo, sensitive);
+    gtk_widget_set_sensitive (GTK_WIDGET (fcd->compounding_combo), sensitive);
 }
 
 void

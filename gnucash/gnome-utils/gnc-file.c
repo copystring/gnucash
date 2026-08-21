@@ -147,7 +147,7 @@ file_dialog_request_finalize (GObject *object)
 }
 
 static void
-file_dialog_request_class_init (GncFileDialogRequestClass *klass)
+gnc_file_dialog_request_class_init (GncFileDialogRequestClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
@@ -155,7 +155,7 @@ file_dialog_request_class_init (GncFileDialogRequestClass *klass)
 }
 
 static void
-file_dialog_request_init (GncFileDialogRequest *request)
+gnc_file_dialog_request_init (GncFileDialogRequest *request)
 {
     g_weak_ref_init (&request->parent, NULL);
 }

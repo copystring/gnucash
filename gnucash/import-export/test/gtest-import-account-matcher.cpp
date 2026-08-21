@@ -30,6 +30,7 @@
 #include <config.h>
 #include <import-account-matcher.h>
 #include <gnc-session.h>
+#include <gnc-ui-util.h>
 #include <qofbook.h>
 #include <Account.h>
 #include <gtk/gtk.h>

@@ -303,7 +303,7 @@ gnc_embedded_window_setup_window (GncEmbeddedWindow *window)
     gtk_widget_set_visible (GTK_WIDGET(window->menu_dock), TRUE);
     gtk_box_append (GTK_BOX(window), GTK_WIDGET(window->menu_dock));
 
-    window->statusbar = gtk_statusbar_new ();
+    window->statusbar = gnc_statusbar_new ();
     gtk_widget_set_visible (GTK_WIDGET(window->statusbar), TRUE);
     gtk_box_prepend (GTK_BOX(window), GTK_WIDGET(window->statusbar));
 

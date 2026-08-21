@@ -63,6 +63,8 @@ struct _StockSplitRowClass
     GObjectClass parent_class;
 };
 
+GType stock_split_row_get_type (void);
+
 G_DEFINE_FINAL_TYPE (StockSplitRow, stock_split_row, G_TYPE_OBJECT)
 
 static void
@@ -149,7 +151,7 @@ static void stock_split_finish (StockSplitInfo *info);
 static void stock_split_cancel (StockSplitInfo *info);
 
 /******* implementations ***********************************************/
-void
+static void
 gnc_stock_split_assistant_window_destroy_cb (GtkWidget *object, gpointer user_data)
 {
     StockSplitInfo *info = user_data;

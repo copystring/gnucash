@@ -206,37 +206,37 @@ budget_list_item_bind_cb (GtkSignalListItemFactory *factory,
 static GtkListItemFactory *
 budget_list_item_factory_new (gboolean description)
 {
-    GtkSignalListItemFactory *factory = gtk_signal_list_item_factory_new ();
+    GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
 
     g_signal_connect (factory, "setup", G_CALLBACK (budget_list_item_setup_cb), NULL);
     g_signal_connect (factory, "bind", G_CALLBACK (budget_list_item_bind_cb),
                       GINT_TO_POINTER (description));
-    return GTK_LIST_ITEM_FACTORY (factory);
+    return factory;
 }
 
 static GtkOrdering
 budget_name_sort_cb (gconstpointer first, gconstpointer second, gpointer user_data)
 {
-    GncBudgetListItem *first_item = GNC_BUDGET_LIST_ITEM (first);
-    GncBudgetListItem *second_item = GNC_BUDGET_LIST_ITEM (second);
+    GncBudgetListItem *first_item = GNC_BUDGET_LIST_ITEM ((gpointer) first);
+    GncBudgetListItem *second_item = GNC_BUDGET_LIST_ITEM ((gpointer) second);
 
     const gchar *first_name = gnc_budget_list_item_get_name (first_item);
     const gchar *second_name = gnc_budget_list_item_get_name (second_item);
 
-    return gtk_ordering_from_cmp (g_utf8_collate (first_name ? first_name : "",
+    return gtk_ordering_from_cmpfunc (g_utf8_collate (first_name ? first_name : "",
                                                   second_name ? second_name : ""));
 }
 
 static GtkOrdering
 budget_description_sort_cb (gconstpointer first, gconstpointer second, gpointer user_data)
 {
-    GncBudgetListItem *first_item = GNC_BUDGET_LIST_ITEM (first);
-    GncBudgetListItem *second_item = GNC_BUDGET_LIST_ITEM (second);
+    GncBudgetListItem *first_item = GNC_BUDGET_LIST_ITEM ((gpointer) first);
+    GncBudgetListItem *second_item = GNC_BUDGET_LIST_ITEM ((gpointer) second);
 
     const gchar *first_description = gnc_budget_list_item_get_description (first_item);
     const gchar *second_description = gnc_budget_list_item_get_description (second_item);
 
-    return gtk_ordering_from_cmp (g_utf8_collate (
+    return gtk_ordering_from_cmpfunc (g_utf8_collate (
         first_description ? first_description : "",
         second_description ? second_description : ""));
 }
@@ -306,7 +306,7 @@ select_copy_ok_button_cb (GtkWidget *widget, gpointer user_data)
 static void
 select_delete_ok_button_cb (GtkWidget *widget, gpointer user_data)
 {
-    GtkWidget *main_window = GTK_WIDGET (user_data);
+    (void)user_data;
     GtkSingleSelection *selection = GTK_SINGLE_SELECTION (
         g_object_get_data (G_OBJECT (widget), "budget-selection"));
     GncBudget *budget = get_budget_from_selection (selection);
@@ -368,7 +368,6 @@ gnc_budget_create_select_gui (GtkWindow *parent, QofBook *book)
                                               budget_list_item_factory_new (FALSE));
     gtk_column_view_column_set_sorter (name_column, name_sorter);
     gtk_column_view_append_column (view, name_column);
-    g_object_unref (name_column);
     g_object_unref (name_sorter);
 
     description_sorter = GTK_SORTER (gtk_custom_sorter_new (budget_description_sort_cb,
@@ -381,7 +380,8 @@ gnc_budget_create_select_gui (GtkWindow *parent, QofBook *book)
     g_object_unref (description_sorter);
 
     gtk_sort_list_model_set_sorter (sorted_model, gtk_column_view_get_sorter (view));
-    gtk_column_view_sort_by_column (view, name_column, GTK_SORT_TYPE_ASCENDING);
+    gtk_column_view_sort_by_column (view, name_column, GTK_SORT_ASCENDING);
+    g_object_unref (name_column);
     g_signal_connect (view, "activate", G_CALLBACK (row_activated_cb), ok_button);
 
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (sw), GTK_WIDGET (view));

@@ -29,6 +29,7 @@
 #include <config.h>
 
 #include <string.h>
+#include <pango/pangocairo.h>
 
 #include "gnucash-sheet.h"
 #include "gnucash-sheetP.h"
@@ -47,7 +48,7 @@ enum
     PROP_CURSOR_NAME, /* the name of the current cursor */
 };
 
-G_DEFINE_TYPE (GncHeader, gnc_header, GTK_TYPE_WIDGET)
+G_DEFINE_TYPE (GncHeader, gnc_header, GTK_TYPE_OVERLAY)
 
 static void
 gnc_header_draw_offscreen (GncHeader *header)
@@ -59,8 +60,6 @@ gnc_header_draw_offscreen (GncHeader *header)
     Table *table = header->sheet->table;
     VirtualLocation virt_loc;
     VirtualCell *vcell;
-    guint32 color_type;
-    GtkStyleContext *stylectxt = gtk_widget_get_style_context (GTK_WIDGET(header));
     GdkRGBA color;
     int row_offset;
     CellBlock *cb;
@@ -73,11 +72,7 @@ gnc_header_draw_offscreen (GncHeader *header)
     virt_loc.phys_row_offset = 0;
     virt_loc.phys_col_offset = 0;
 
-    gtk_style_context_save (stylectxt);
-
-    // Get the color type and apply the css class
-    color_type = gnc_table_get_color (table, virt_loc, NULL);
-    gnucash_get_style_classes (header->sheet, stylectxt, color_type, FALSE);
+    gtk_widget_get_color (GTK_WIDGET (header), &color);
 
     if (header->surface)
         cairo_surface_destroy (header->surface);
@@ -90,12 +85,11 @@ gnc_header_draw_offscreen (GncHeader *header)
     cairo_surface_set_device_scale (header->surface, scale, scale);
 
     cr = cairo_create (header->surface);
+    cairo_set_operator (cr, CAIRO_OPERATOR_CLEAR);
+    cairo_paint (cr);
+    cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
 
-    // Fill background color of header
-    gtk_render_background (stylectxt, cr, 0, 0, header->width, header->height);
-
-    gdk_rgba_parse (&color, "black");
-    cairo_set_source_rgb (cr, color.red, color.green, color.blue);
+    cairo_set_source_rgba (cr, color.red, color.green, color.blue, color.alpha);
     cairo_rectangle (cr, 0.5, 0.5, header->width - 1.0, header->height - 1.0);
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
@@ -178,8 +172,10 @@ gnc_header_draw_offscreen (GncHeader *header)
             x_offset = gnucash_sheet_get_text_offset (header->sheet, virt_loc,
                                                       rect.width, logical_rect.width);
 
-            gtk_render_layout (stylectxt, cr, rect.x + x_offset,
-                               rect.y + gnc_item_edit_get_padding_border (item_edit, top), layout);
+            cairo_set_source_rgba (cr, color.red, color.green, color.blue, color.alpha);
+            cairo_move_to (cr, rect.x + x_offset,
+                           rect.y + gnc_item_edit_get_padding_border (item_edit, top));
+            pango_cairo_show_layout (cr, layout);
 
             cairo_restore (cr);
             g_object_unref (layout);
@@ -188,8 +184,6 @@ gnc_header_draw_offscreen (GncHeader *header)
         }
         row_offset += height;
     }
-    gtk_style_context_restore (stylectxt);
-
     cairo_destroy (cr);
 }
 
@@ -226,6 +220,8 @@ gnc_header_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
     graphene_rect_t bounds;
     cairo_t *cr;
     double x_offset = 0;
+
+    GTK_WIDGET_CLASS (gnc_header_parent_class)->snapshot (widget, snapshot);
 
     if (!header->surface)
         gnc_header_draw_offscreen (header);
@@ -623,6 +619,7 @@ gnc_header_init (GncHeader *header)
 {
     GtkEventController *motion;
     GtkGesture *click;
+    GtkWidget *background;
 
     header->sheet = NULL;
     header->cursor_name = NULL;
@@ -633,6 +630,11 @@ gnc_header_init (GncHeader *header)
     header->style = NULL;
     header->surface = NULL;
     header->hadjustment_handler = 0;
+
+    background = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class (background, "gnc-class-register-header");
+    gtk_widget_set_can_target (background, FALSE);
+    gtk_overlay_set_child (GTK_OVERLAY (header), background);
 
     motion = gtk_event_controller_motion_new ();
     g_signal_connect (motion, "motion", G_CALLBACK (gnc_header_motion_cb), header);

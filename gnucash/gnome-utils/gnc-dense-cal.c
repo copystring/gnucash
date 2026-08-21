@@ -29,6 +29,7 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <gtk/gtk.h>
+#include <pango/pangocairo.h>
 #include <math.h>
 #include <stdlib.h>
 #include "gnc-date.h"
@@ -78,6 +79,8 @@ static void gnc_dense_cal_dispose (GObject *object);
 static void gnc_dense_cal_draw_to_buffer (GncDenseCal *dcal);
 static void gnc_dense_cal_draw (GtkDrawingArea *area, cairo_t *cr,
                                 int width, int height, gpointer user_data);
+static void gnc_dense_cal_resize (GtkDrawingArea *area, int width, int height,
+                                  gpointer user_data);
 
 static void gdc_reconfig (GncDenseCal *dcal);
 
@@ -155,6 +158,8 @@ struct _GncDenseCal
     GtkBox widget;
 
     GtkDropDown *view_options;
+    GtkOverlay *cal_overlay;
+    GtkFixed *cal_background_layer;
     GtkDrawingArea *cal_drawing_area;
 
     cairo_surface_t *surface;
@@ -277,7 +282,6 @@ static const guint gdc_view_option_columns[] = { 3, 2, 2, 2, 1, 1 };
 static void
 gnc_dense_cal_init (GncDenseCal *dcal)
 {
-    GtkStyleContext *context = gtk_widget_get_style_context (GTK_WIDGET(dcal));
 
     gtk_orientable_set_orientation (GTK_ORIENTABLE(dcal), GTK_ORIENTATION_VERTICAL);
 
@@ -287,14 +291,12 @@ gnc_dense_cal_init (GncDenseCal *dcal)
     // Set the name of this widget so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(dcal), "gnc-id-dense-calendar");
 
-    gtk_style_context_add_class (context, GTK_STYLE_CLASS_CALENDAR);
     {
         const gchar *options[] = { _("12 months"), _("6 months"), _("4 months"),
                                    _("3 months"), _("2 months"), _("1 month"), NULL };
         GtkStringList *model = gtk_string_list_new (options);
 
         dcal->view_options = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (model), NULL));
-        g_object_unref (model);
         gtk_drop_down_set_selected (dcal->view_options, 0);
         g_signal_connect (dcal->view_options, "notify::selected",
                           G_CALLBACK (_gdc_view_option_changed), dcal);
@@ -312,11 +314,23 @@ gnc_dense_cal_init (GncDenseCal *dcal)
 
         gnc_box_append_full (GTK_BOX(dcal), GTK_WIDGET(hbox), FALSE, FALSE, 0);
     }
-    dcal->cal_drawing_area = GTK_DRAWING_AREA(gtk_drawing_area_new ());
-
-    gnc_box_append_full (GTK_BOX(dcal), GTK_WIDGET(dcal->cal_drawing_area), TRUE, TRUE, 0);
+    dcal->cal_overlay = GTK_OVERLAY (gtk_overlay_new ());
+    dcal->cal_background_layer = GTK_FIXED (gtk_fixed_new ());
+    dcal->cal_drawing_area = GTK_DRAWING_AREA (gtk_drawing_area_new ());
+    gtk_widget_set_hexpand (GTK_WIDGET (dcal->cal_overlay), TRUE);
+    gtk_widget_set_vexpand (GTK_WIDGET (dcal->cal_overlay), TRUE);
+    gtk_overlay_set_child (dcal->cal_overlay,
+                           GTK_WIDGET (dcal->cal_background_layer));
+    gtk_overlay_add_overlay (dcal->cal_overlay,
+                             GTK_WIDGET (dcal->cal_drawing_area));
+    gtk_widget_set_hexpand (GTK_WIDGET (dcal->cal_drawing_area), TRUE);
+    gtk_widget_set_vexpand (GTK_WIDGET (dcal->cal_drawing_area), TRUE);
+    gnc_box_append_full (GTK_BOX (dcal), GTK_WIDGET (dcal->cal_overlay),
+                         TRUE, TRUE, 0);
     gtk_drawing_area_set_draw_func (dcal->cal_drawing_area, gnc_dense_cal_draw,
                                     dcal, NULL);
+    g_signal_connect (dcal->cal_drawing_area, "resize",
+                      G_CALLBACK (gnc_dense_cal_resize), dcal);
     {
         GtkEventController *motion = gtk_event_controller_motion_new ();
         GtkGesture *click = gtk_gesture_click_new ();
@@ -403,7 +417,6 @@ gnc_dense_cal_init (GncDenseCal *dcal)
     /* Compute initial scaling factors; will be increased when we're
      * allocated enough space to scale up. */
     {
-        GtkBorder padding;
         PangoLayout *layout;
         int width_88, height_88;
         int width_XXX, height_XXX;
@@ -419,11 +432,7 @@ gnc_dense_cal_init (GncDenseCal *dcal)
         dcal->min_x_scale = dcal->x_scale = width_88 + 2;
         dcal->min_y_scale = dcal->y_scale = MAX(floor ((float)width_XXX / 3.), height_88 + 2);
 
-        gtk_style_context_get_padding (context, GTK_STATE_FLAG_NORMAL, &padding);
-        if ((padding.top + padding.bottom) == 0)
-            dcal->bar_label_padding = 2; // px
-        else
-            dcal->bar_label_padding = (padding.top + padding.bottom) / 2;
+        dcal->bar_label_padding = 2;
 
         dcal->month_side_bar_width = height_88 + (dcal->bar_label_padding * 2);
         dcal->day_top_bar_height = height_88 + (dcal->bar_label_padding * 2);
@@ -456,7 +465,7 @@ _gdc_set_cal_min_size_req (GncDenseCal *dcal)
     guint min_width, min_height;
 
     _gdc_compute_min_size (dcal, &min_width, &min_height);
-    gtk_widget_set_size_request (GTK_WIDGET(dcal->cal_drawing_area), min_width, min_height);
+    gtk_widget_set_size_request (GTK_WIDGET (dcal->cal_overlay), min_width, min_height);
 }
 
 GtkWidget*
@@ -624,7 +633,11 @@ gnc_dense_cal_dispose (GObject *object)
 
     gdc_free_all_mark_data (dcal);
 
-    g_object_unref (G_OBJECT(dcal->model));
+    if (dcal->model)
+    {
+        g_object_unref (dcal->model);
+        dcal->model = NULL;
+    }
 
     G_OBJECT_CLASS(gnc_dense_cal_parent_class)->dispose(object);
 }
@@ -641,25 +654,19 @@ gnc_dense_cal_finalize (GObject *object)
 static void
 gdc_reconfig (GncDenseCal *dcal)
 {
-    GtkWidget *widget;
-    GtkAllocation alloc;
-    int scale;
+    GtkWidget *widget = GTK_WIDGET (dcal->cal_drawing_area);
+    int scale = MAX (gtk_widget_get_scale_factor (widget), 1);
+    int width = MAX (gtk_widget_get_width (widget), 1);
+    int height = MAX (gtk_widget_get_height (widget), 1);
 
     if (dcal->surface)
         cairo_surface_destroy (dcal->surface);
 
-    widget = GTK_WIDGET(dcal->cal_drawing_area);
-    gtk_widget_get_allocation (widget, &alloc);
-    scale = gtk_widget_get_scale_factor (widget);
-    if (scale < 1)
-        scale = 1;
     dcal->surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32,
-                                                alloc.width * scale,
-                                                alloc.height * scale);
+                                                width * scale, height * scale);
     cairo_surface_set_device_scale (dcal->surface, scale, scale);
     gnc_dense_cal_draw_to_buffer (dcal);
 }
-
 static void
 _gdc_compute_min_size (GncDenseCal *dcal, guint *min_width, guint *min_height)
 {
@@ -693,10 +700,8 @@ recompute_x_y_scales (GncDenseCal *dcal)
     height = DENSE_CAL_DEFAULT_HEIGHT;
     if (dcal->initialized)
     {
-        GtkAllocation alloc;
-        gtk_widget_get_allocation (GTK_WIDGET(dcal->cal_drawing_area), &alloc);
-        width  = alloc.width;
-        height = alloc.height;
+        width = gtk_widget_get_width (GTK_WIDGET (dcal->cal_drawing_area));
+        height = gtk_widget_get_height (GTK_WIDGET (dcal->cal_drawing_area));
     }
 
     /* FIXME: there's something slightly wrong in the x_scale computation that
@@ -874,20 +879,12 @@ gnc_dense_cal_draw (GtkDrawingArea *area, cairo_t *cr,
                     int width, int height, gpointer user_data)
 {
     GncDenseCal *dcal = GNC_DENSE_CAL (user_data);
-    int scale = gtk_widget_get_scale_factor (GTK_WIDGET (area));
 
     g_return_if_fail (GNC_IS_DENSE_CAL (dcal));
 
-    if (scale < 1)
-        scale = 1;
-
-    if (!dcal->surface ||
-        cairo_image_surface_get_width (dcal->surface) != width * scale ||
-        cairo_image_surface_get_height (dcal->surface) != height * scale)
-    {
-        recompute_x_y_scales (dcal);
-        gdc_reconfig (dcal);
-    }
+    (void)area;
+    (void)width;
+    (void)height;
 
     if (!dcal->surface)
         return;
@@ -899,345 +896,245 @@ gnc_dense_cal_draw (GtkDrawingArea *area, cairo_t *cr,
 }
 
 static void
+gnc_dense_cal_resize (GtkDrawingArea *area, int width, int height,
+                      gpointer user_data)
+{
+    GncDenseCal *dcal = GNC_DENSE_CAL (user_data);
+
+    g_return_if_fail (GNC_IS_DENSE_CAL (dcal));
+
+    if (width < 1 || height < 1)
+        return;
+
+    recompute_x_y_scales (dcal);
+    gdc_reconfig (dcal);
+    gtk_widget_queue_draw (GTK_WIDGET (area));
+}
+
+static void
+gdc_clear_background_layer (GncDenseCal *dcal)
+{
+    GtkWidget *child = gtk_widget_get_first_child (
+        GTK_WIDGET (dcal->cal_background_layer));
+
+    while (child)
+    {
+        GtkWidget *next = gtk_widget_get_next_sibling (child);
+        gtk_fixed_remove (dcal->cal_background_layer, child);
+        child = next;
+    }
+}
+
+static void
+gdc_add_background_panel (GncDenseCal *dcal, int x, int y, int width,
+                          int height, const char *css_class)
+{
+    GtkWidget *panel;
+
+    if (width <= 0 || height <= 0)
+        return;
+
+    panel = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_add_css_class (panel, css_class);
+    gtk_widget_set_size_request (panel, width, height);
+    gtk_fixed_put (dcal->cal_background_layer, panel, x, y);
+}
+
+static void
+gdc_draw_layout (cairo_t *cr, PangoLayout *layout, double x, double y)
+{
+    cairo_move_to (cr, x, y);
+    pango_cairo_show_layout (cr, layout);
+}
+
+static void
 gnc_dense_cal_draw_to_buffer (GncDenseCal *dcal)
 {
-    GtkWidget *widget;
-    GtkStyleContext *stylectxt;
-    GtkStateFlags state_flags;
-    GtkAllocation alloc;
-    gint i;
-    int maxWidth;
+    GtkWidget *widget = GTK_WIDGET (dcal->cal_drawing_area);
+    GdkRGBA foreground;
+    const char *primary_class;
+    const char *secondary_class;
+    const char *marker_class;
     PangoLayout *layout;
     cairo_t *cr;
-    gchar *primary_color_class, *secondary_color_class, *marker_color_class;
-
-    DEBUG("drawing");
-    widget = GTK_WIDGET(dcal);
+    gint i;
+    int max_width;
 
     if (!dcal->surface)
         return;
 
     cr = cairo_create (dcal->surface);
-    layout = gtk_widget_create_pango_layout (GTK_WIDGET(dcal), NULL);
+    cairo_save (cr);
+    cairo_set_operator (cr, CAIRO_OPERATOR_CLEAR);
+    cairo_paint (cr);
+    cairo_restore (cr);
 
-    gtk_widget_get_allocation (GTK_WIDGET(dcal->cal_drawing_area), &alloc);
-    stylectxt = gtk_widget_get_style_context (GTK_WIDGET(dcal->cal_drawing_area));
-    state_flags = gtk_style_context_get_state (stylectxt);
+    layout = gtk_widget_create_pango_layout (widget, NULL);
+    gtk_widget_get_color (widget, &foreground);
+    primary_class = gnc_is_dark_theme (&foreground) ? "primary-dark" : "primary";
+    secondary_class = gnc_is_dark_theme (&foreground) ? "secondary-dark" : "secondary";
+    marker_class = gnc_is_dark_theme (&foreground) ? "markers-dark" : "markers";
+    gdc_clear_background_layer (dcal);
 
-    gtk_style_context_add_class (stylectxt, GTK_STYLE_CLASS_BACKGROUND);
-    gtk_style_context_add_class (stylectxt, GTK_STYLE_CLASS_CALENDAR);
-
-    gtk_render_background (stylectxt, cr, 0, 0,
-                           alloc.width,
-                           alloc.height);
-
-    gtk_style_context_remove_class (stylectxt, GTK_STYLE_CLASS_BACKGROUND);
-
-    /* get the colors */
-    {
-         GdkRGBA color;
-         gchar *class_extension = NULL;
-
-         gtk_style_context_get_color (stylectxt, GTK_STATE_FLAG_NORMAL, &color);
-
-          if (gnc_is_dark_theme (&color))
-              class_extension = "-dark";
-
-          primary_color_class = g_strconcat ("primary", class_extension, NULL);
-          secondary_color_class = g_strconcat ("secondary", class_extension, NULL);
-          marker_color_class = g_strconcat ("markers", class_extension, NULL);
-    }
-
-    /* lets confirm text height size */
     pango_layout_set_text (layout, "S", -1);
     pango_layout_get_pixel_size (layout, NULL, &dcal->label_height);
     dcal->month_side_bar_width = dcal->label_height + (dcal->bar_label_padding * 2);
     dcal->day_top_bar_height = dcal->label_height + (dcal->bar_label_padding * 2);
 
-    /* Fill in alternating month colors. */
+    for (i = 0; i < 12; i++)
+        dcal->monthPositions[i].x = dcal->monthPositions[i].y = -1;
+
+    for (i = 0; i < dcal->numMonths; i++)
     {
-        gint i;
-        GdkRectangle *rect;
-        GList *mcList, *mcListIter;
+        GList *month_rects = NULL;
 
-        /* reset all of the month position offsets. */
-        for (i = 0; i < 12; i++)
+        month_coords (dcal, i, &month_rects);
+        dcal->monthPositions[i].x = floor (i / dcal->monthsPerCol)
+                                   * (col_width (dcal) + COL_BORDER_SIZE);
+        dcal->monthPositions[i].y = ((GdkRectangle *)month_rects->next->next->next->data)->y;
+        for (GList *iter = month_rects; iter; iter = iter->next)
         {
-            dcal->monthPositions[i].x = dcal->monthPositions[i].y = -1;
+            GdkRectangle *rect = iter->data;
+            gdc_add_background_panel (dcal, rect->x, rect->y, rect->width,
+                                      rect->height,
+                                      i % 2 == 0 ? primary_class : secondary_class);
         }
-
-        gtk_style_context_save (stylectxt);
-
-        /* Paint the weeks for the upcoming N months. */
-        for (i = 0; i < dcal->numMonths; i++)
-        {
-            mcList = NULL;
-            month_coords (dcal, i, &mcList);
-            dcal->monthPositions[i].x = floor (i / dcal->monthsPerCol)
-                                            * (col_width (dcal) + COL_BORDER_SIZE);
-            dcal->monthPositions[i].y = ((GdkRectangle*)mcList->next->next->next->data)->y;
-            for (mcListIter = mcList; mcListIter != NULL; mcListIter = mcListIter->next)
-            {
-                rect = (GdkRectangle*)mcListIter->data;
-                gtk_style_context_save (stylectxt);
-
-                if (i % 2 == 0)
-                    gtk_style_context_add_class (stylectxt, primary_color_class);
-                else
-                    gtk_style_context_add_class (stylectxt, secondary_color_class);
-
-                gtk_render_background (stylectxt, cr, rect->x, rect->y, rect->width, rect->height);
-                gtk_style_context_restore (stylectxt);
-            }
-            g_list_foreach (mcList, free_rect, NULL);
-            g_list_free (mcList);
-        }
-        gtk_style_context_restore (stylectxt);
+        g_list_foreach (month_rects, free_rect, NULL);
+        g_list_free (month_rects);
     }
 
-    /* Highlight the marked days. */
+    for (i = 0; i < dcal->numMarks; i++)
     {
-        int i;
         int x1, x2, y1, y2;
 
-        gtk_style_context_save (stylectxt);
-        gtk_style_context_add_class (stylectxt, marker_color_class);
-        gtk_style_context_add_class (stylectxt, GTK_STYLE_CLASS_VIEW);
-        gtk_style_context_set_state (stylectxt, GTK_STATE_FLAG_SELECTED);
-
-        for (i = 0; i < dcal->numMarks; i++)
-        {
-            if (dcal->marks[i] != NULL)
-            {
-                int center_x, center_y, radius;
-
-                doc_coords(dcal, i, &x1, &y1, &x2, &y2);
-                center_x = (x1 + x2 ) / 2;
-                center_y = (y1 + y2 ) / 2;
-                radius = MIN((x2 - x1), (y2 - y1)) * .75;
-
-                // try to compensate for row height/width being odd or even
-                if (((y2 - y1) % 2) != 0)
-                    center_y = center_y + 1;
-
-                if (((x2 - x1) % 2) != 0)
-                    center_x = center_x + 1;
-
-                gtk_render_background (stylectxt, cr,
-                                       center_x - (radius + 2), center_y - radius,
-                                        (radius * 2) + 4, radius * 2);
-            }
-        }
-        gtk_style_context_restore (stylectxt);
+        if (!dcal->marks[i])
+            continue;
+        doc_coords (dcal, i, &x1, &y1, &x2, &y2);
+        int radius = MIN ((x2 - x1), (y2 - y1)) * .75;
+        int center_x = (x1 + x2) / 2 + ((x2 - x1) % 2 != 0);
+        int center_y = (y1 + y2) / 2 + ((y2 - y1) % 2 != 0);
+        gdc_add_background_panel (dcal, center_x - (radius + 2),
+                                  center_y - radius, (radius * 2) + 4,
+                                  radius * 2, marker_class);
     }
+
+    cairo_set_source_rgba (cr, foreground.red, foreground.green,
+                           foreground.blue, foreground.alpha);
+    cairo_set_line_width (cr, 1.0);
 
     for (i = 0; i < num_cols (dcal); i++)
     {
-        GdkRGBA color;
-        gint x, y, w, h;
-        gint j;
+        gint x = dcal->leftPadding + i * (col_width (dcal) + COL_BORDER_SIZE)
+                 + dcal->month_side_bar_width + 1;
+        gint y = dcal->topPadding + dcal->day_top_bar_height;
+        gint width = col_width (dcal) - COL_BORDER_SIZE - dcal->month_side_bar_width;
+        gint height = col_height (dcal);
 
-        cairo_save (cr);
-        gdk_rgba_parse (&color, "black");
-
-        x = dcal->leftPadding
-            + (i * (col_width (dcal) + COL_BORDER_SIZE))
-            + dcal->month_side_bar_width + 1;
-        y = dcal->topPadding + dcal->day_top_bar_height;
-        w = col_width (dcal) - COL_BORDER_SIZE - dcal->month_side_bar_width;
-        h = col_height (dcal);
-
-        gtk_style_context_save (stylectxt);
-
-        /* draw the outside border [inside the month labels] */
-        gtk_style_context_add_class (stylectxt, GTK_STYLE_CLASS_FRAME);
-
-        gtk_render_frame (stylectxt, cr, x, y, w + 1, h + 1);
-
-        gtk_widget_get_color (GTK_WIDGET (dcal), &color);
-        cairo_set_source_rgb (cr, color.red, color.green, color.blue);
-        cairo_set_line_width (cr, 1);
-
-        /* draw the week separations */
-        for (j = 0; j < num_weeks_per_col (dcal); j++)
+        cairo_rectangle (cr, x + 0.5, y + 0.5, width, height);
+        cairo_stroke (cr);
+        for (gint week = 0; week < num_weeks_per_col (dcal); week++)
         {
-            gint wy = y + (j * week_height (dcal));
-            cairo_move_to (cr, x, wy + 0.5);
-            cairo_line_to (cr, x + w, wy + 0.5);
+            gint week_y = y + week * week_height (dcal);
+            cairo_move_to (cr, x, week_y + 0.5);
+            cairo_line_to (cr, x + width, week_y + 0.5);
+            cairo_stroke (cr);
+        }
+        for (gint day = 1; day < 7; day++)
+        {
+            gint day_x = x + day * day_width (dcal);
+            cairo_move_to (cr, day_x + 0.5, y);
+            cairo_line_to (cr, day_x + 0.5, y + height);
             cairo_stroke (cr);
         }
 
-        /* draw the day separations */
-        for (j = 1; j < 7; j++)
-        {
-            gint dx = x + (j * day_width (dcal));
-            cairo_move_to (cr, dx + 0.5, y);
-            cairo_line_to (cr, dx + 0.5, y + col_height (dcal));
-            cairo_stroke (cr);
-        }
-        cairo_restore (cr);
-        gtk_style_context_restore (stylectxt);
-
-
-        /* draw the day of the week labels */
         pango_layout_set_text (layout, "88", -1);
-        pango_layout_get_pixel_size (layout, &maxWidth, NULL);
-
-        if (dcal->x_scale > maxWidth)
+        pango_layout_get_pixel_size (layout, &max_width, NULL);
+        if (dcal->x_scale > max_width)
         {
-            gtk_style_context_save (stylectxt);
-            gtk_style_context_add_class (stylectxt, GTK_STYLE_CLASS_HEADER);
-
-            gtk_render_background (stylectxt, cr, x,
-                                                  y - dcal->day_top_bar_height,
-                                                  (day_width(dcal) * 7) + 1,
-                                                  dcal->day_top_bar_height);
-
-            for (j = 0; j < 7; j++)
+            gdc_add_background_panel (dcal, x, y - dcal->day_top_bar_height,
+                                      day_width (dcal) * 7 + 1,
+                                      dcal->day_top_bar_height, "header");
+            for (gint day = 0; day < 7; day++)
             {
-                int day_label_width;
-                gint label_x_offset, label_y_offset;
-                gint day_label_str_len = 4;
-                gchar day_label_str[day_label_str_len + 1];
-                day_label (day_label_str, day_label_str_len, (j + dcal->day_of_week_start) % 7);
-                pango_layout_set_text (layout, day_label_str, -1);
-                pango_layout_get_pixel_size (layout, &day_label_width, NULL);
-                label_x_offset = x
-                                 + (j * day_width (dcal))
-                                 + (day_width (dcal) / 2)
-                                 - (day_label_width / 2);
-                label_y_offset = y - dcal->day_top_bar_height + dcal->bar_label_padding;
-                pango_layout_set_text (layout, day_label_str, -1);
-                gtk_render_layout (stylectxt, cr, label_x_offset, label_y_offset, layout);
+                gchar label[5] = { 0 };
+                int label_width;
+                gint label_x;
+
+                day_label (label, sizeof label, (day + dcal->day_of_week_start) % 7);
+                pango_layout_set_text (layout, label, -1);
+                pango_layout_get_pixel_size (layout, &label_width, NULL);
+                label_x = x + day * day_width (dcal) + day_width (dcal) / 2
+                          - label_width / 2;
+                gdc_draw_layout (cr, layout, label_x,
+                                 y - dcal->day_top_bar_height
+                                 + dcal->bar_label_padding);
             }
-            gtk_style_context_restore (stylectxt);
         }
     }
 
-    /* Month labels. */
+    for (i = 0; i < dcal->numMonths; i++)
     {
-        gint i;
-        gint x_offset = dcal->leftPadding;
+        guint idx;
 
-        gtk_style_context_save (stylectxt);
-        gtk_style_context_add_class (stylectxt, GTK_STYLE_CLASS_HEADER);
-
-        for (i = 0; i < 12; i++)
-        {
-            if (dcal->monthPositions[i].x == -1)
-                break;
-
-            gtk_render_background (stylectxt, cr, dcal->monthPositions[i].x + x_offset,
-                                                  dcal->topPadding,
-                                                  dcal->month_side_bar_width + 1,
-                                                  col_height(dcal) + dcal->day_top_bar_height + 1);
-        }
-
-        for (i = 0; i < 12; i++)
-        {
-            guint idx;
-
-            if (dcal->monthPositions[i].x == -1)
-                break;
-            idx = (dcal->month - 1 + i) % 12;
-            pango_layout_set_text (layout, month_name (idx), -1);
-            cairo_save (cr);
-            cairo_translate (cr, dcal->monthPositions[i].x + x_offset, dcal->monthPositions[i].y);
-            cairo_rotate (cr, -G_PI / 2.);
-            gtk_render_layout (stylectxt, cr, 0, dcal->bar_label_padding, layout);
-            cairo_restore (cr);
-        }
-        gtk_style_context_restore (stylectxt);
-    }
-
-    /* Day number strings [dates] */
-    {
-        GDate d, eoc;
-        gint doc;
-        gchar dayNumBuf[4];
-        gint numW, numH;
-        gint x1, y1, x2, y2, w, h;
-
-        GDate now;
-        g_date_clear (&now, 1);
-        gnc_gdate_set_today (&now);
-        gboolean today_found = FALSE;
-
-        gtk_style_context_save (stylectxt);
-        gtk_style_context_add_class (stylectxt, "day-number");
-
+        if (dcal->monthPositions[i].x == -1)
+            break;
+        gdc_add_background_panel (dcal,
+                                  dcal->monthPositions[i].x + dcal->leftPadding,
+                                  dcal->topPadding,
+                                  dcal->month_side_bar_width + 1,
+                                  col_height (dcal) + dcal->day_top_bar_height + 1,
+                                  "header");
+        idx = (dcal->month - 1 + i) % 12;
+        pango_layout_set_text (layout, month_name (idx), -1);
         cairo_save (cr);
-        g_date_set_dmy (&d, 1, dcal->month, dcal->year);
-        eoc = d;
-        g_date_add_months (&eoc, dcal->numMonths);
-        for (doc = 0; g_date_get_julian (&d) < g_date_get_julian (&eoc); g_date_add_days (&d, 1), doc++)
-        {
-            doc_coords (dcal, doc, &x1, &y1, &x2, &y2);
-            memset (dayNumBuf, 0, 4);
-            snprintf (dayNumBuf, 4, "%d", g_date_get_day(&d));
-            pango_layout_set_text (layout, dayNumBuf, -1);
-            pango_layout_get_pixel_size (layout, &numW, &numH);
-            w = (x2 - x1) + 1;
-            h = (y2 - y1) + 1;
-
-            if (!today_found && g_date_compare (&d, &now) == 0)
-            {
-                GtkBorder border;
-
-                gtk_style_context_save (stylectxt);
-                gtk_style_context_add_class (stylectxt, marker_color_class);
-                gtk_style_context_add_class (stylectxt, GTK_STYLE_CLASS_FRAME);
-
-                gtk_style_context_get_border (stylectxt, GTK_STATE_FLAG_NORMAL, &border);
-
-                today_found = TRUE;
-
-                if (border.left + border.right != 0)
-                {
-                    GtkCssProvider *provider = gtk_css_provider_new ();
-                    gchar *frame_css = ".marker-border {\n  border-color:black;\n}\n";
-
-                    gint dayw = day_width (dcal);
-                    gint dayh = day_height (dcal);
-                    gint bw = (border.left + border.right) / 2;
-
-                    gtk_css_provider_load_from_data (provider, frame_css, -1, NULL);
-                    gtk_style_context_add_provider (stylectxt, GTK_STYLE_PROVIDER(provider),
-                                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-                    g_object_unref (provider);
-
-                    gtk_style_context_add_class (stylectxt, "marker-border");
-
-                    gtk_render_frame (stylectxt, cr, x1 - (dayw / 4) + 3,
-                                                     y1 - (dayh / 4) + 2,
-                                                     dayw - 4 - bw,
-                                                     dayh - 4 - bw);
-
-                    gtk_style_context_remove_class (stylectxt, "marker-border");
-                }
-                gtk_style_context_restore (stylectxt);
-            }
-            gtk_render_layout (stylectxt, cr, x1 + (w / 2) - (numW / 2), y1 + (h / 2) - (numH / 2), layout);
-        }
+        cairo_translate (cr, dcal->monthPositions[i].x + dcal->leftPadding,
+                         dcal->monthPositions[i].y);
+        cairo_rotate (cr, -G_PI / 2.);
+        gdc_draw_layout (cr, layout, 0, dcal->bar_label_padding);
         cairo_restore (cr);
-        gtk_style_context_restore (stylectxt);
     }
 
-    gtk_widget_get_allocation (widget, &alloc);
-    gtk_widget_queue_draw_area (GTK_WIDGET(dcal),
-                                alloc.x,
-                                alloc.y,
-                                alloc.width,
-                                alloc.height);
+    {
+        GDate date, end;
+        GDate today;
+        gboolean today_found = FALSE;
+        gint doc;
 
-    g_free (primary_color_class);
-    g_free (secondary_color_class);
-    g_free (marker_color_class);
+        g_date_clear (&today, 1);
+        gnc_gdate_set_today (&today);
+        g_date_set_dmy (&date, 1, dcal->month, dcal->year);
+        end = date;
+        g_date_add_months (&end, dcal->numMonths);
+        for (doc = 0; g_date_get_julian (&date) < g_date_get_julian (&end);
+             g_date_add_days (&date, 1), doc++)
+        {
+            gchar day_text[4] = { 0 };
+            gint x1, x2, y1, y2, text_width, text_height;
+            gint width, height;
+
+            doc_coords (dcal, doc, &x1, &y1, &x2, &y2);
+            g_snprintf (day_text, sizeof day_text, "%d", g_date_get_day (&date));
+            pango_layout_set_text (layout, day_text, -1);
+            pango_layout_get_pixel_size (layout, &text_width, &text_height);
+            width = x2 - x1 + 1;
+            height = y2 - y1 + 1;
+            if (!today_found && g_date_compare (&date, &today) == 0)
+            {
+                today_found = TRUE;
+                cairo_rectangle (cr, x1 - day_width (dcal) / 4.0 + 3.5,
+                                 y1 - day_height (dcal) / 4.0 + 2.5,
+                                 day_width (dcal) - 5,
+                                 day_height (dcal) - 5);
+                cairo_stroke (cr);
+            }
+            gdc_draw_layout (cr, layout, x1 + (width - text_width) / 2,
+                             y1 + (height - text_height) / 2);
+        }
+    }
 
     g_object_unref (layout);
     cairo_destroy (cr);
 }
-
 static void
 populate_hover_window (GncDenseCal *dcal)
 {
@@ -1705,7 +1602,7 @@ wheres_this (GncDenseCal *dcal, int x, int y)
 {
     gint colNum, weekRow, dayCol, dayOfCal;
     GDate d, startD;
-    GtkAllocation alloc;
+    int width, height;
 
     x -= dcal->leftPadding;
     y -= dcal->topPadding;
@@ -1714,9 +1611,10 @@ wheres_this (GncDenseCal *dcal, int x, int y)
     {
         return -1;
     }
-    gtk_widget_get_allocation (GTK_WIDGET(dcal), &alloc);
-    if ((x >= alloc.width)
-            || (y >= alloc.height))
+    width = gtk_widget_get_width (GTK_WIDGET (dcal->cal_drawing_area));
+    height = gtk_widget_get_height (GTK_WIDGET (dcal->cal_drawing_area));
+    if ((x >= width)
+            || (y >= height))
     {
         return -1;
     }

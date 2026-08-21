@@ -21,6 +21,7 @@
 #include "import-match-picker.h"
 #include "qof.h"
 #include "gnc-ui-util.h"
+#include "gnc-gtk-utils.h"
 #include "dialog-utils.h"
 #include "gnc-prefs.h"
 
@@ -164,7 +165,7 @@ text_item_setup (GtkListItemFactory *factory, GtkListItem *item, gpointer user_d
 static void
 downloaded_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
-    auto row = downloaded_row_get (gtk_list_item_get_item (item));
+    auto row = downloaded_row_get (G_OBJECT (gtk_list_item_get_item (item)));
     (void)factory;
     gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
                         downloaded_text (row, GPOINTER_TO_UINT (user_data)));
@@ -173,7 +174,7 @@ downloaded_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer u
 static void
 match_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
-    auto row = match_row_get (gtk_list_item_get_item (item));
+    auto row = match_row_get (G_OBJECT (gtk_list_item_get_item (item)));
     (void)factory;
     gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
                         match_text (row, GPOINTER_TO_UINT (user_data)));
@@ -196,7 +197,7 @@ confidence_item_setup (GtkListItemFactory *factory, GtkListItem *item, gpointer 
 static void
 confidence_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
-    auto row = match_row_get (gtk_list_item_get_item (item));
+    auto row = match_row_get (G_OBJECT (gtk_list_item_get_item (item)));
     auto box = gtk_list_item_get_child (item);
     auto image = GTK_IMAGE (gtk_widget_get_first_child (box));
     auto label = GTK_LABEL (gtk_widget_get_next_sibling (GTK_WIDGET (image)));
@@ -210,7 +211,12 @@ confidence_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer u
         return;
     }
 
-    auto texture = gdk_texture_new_for_pixbuf (row->confidence_pixbuf);
+    auto texture = gnc_texture_new_from_pixbuf (row->confidence_pixbuf);
+    if (!texture)
+    {
+        gtk_image_clear (image);
+        return;
+    }
     gtk_image_set_from_paintable (image, GDK_PAINTABLE (texture));
     g_object_unref (texture);
 }

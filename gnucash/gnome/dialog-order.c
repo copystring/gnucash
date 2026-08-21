@@ -353,8 +353,9 @@ order_close_request_destroyed (GtkWidget *widget, OrderCloseRequest *request)
 }
 
 static void
-order_close_request_free (OrderCloseRequest *request)
+order_close_request_free (gpointer user_data)
 {
+    OrderCloseRequest *request = user_data;
     GtkWidget *window = g_weak_ref_get (&request->window);
 
     if (window && request->destroy_handler)

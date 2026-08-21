@@ -498,7 +498,6 @@ gnc_plugin_page_owner_tree_create_widget (GncPluginPage *plugin_page)
     GtkSelectionModel *selection;
     GncTreeViewOwner *tree_view;
     GtkWidget *scrolled_window;
-const gchar *state_section = NULL;
     const gchar* label = "";
     const gchar *style_label = NULL;
 
@@ -537,22 +536,18 @@ const gchar *state_section = NULL;
         break;
     case GNC_OWNER_CUSTOMER :
         label = _("Customers");
-        state_section = "Customers Overview";
         style_label = "gnc-class-customers";
         break;
     case GNC_OWNER_JOB :
         label = _("Jobs");
-        state_section = "Jobs Overview";
         style_label = "gnc-class-jobs";
         break;
     case GNC_OWNER_VENDOR :
         label = _("Vendors");
-        state_section = "Vendors Overview";
         style_label = "gnc-class-vendors";
         break;
     case GNC_OWNER_EMPLOYEE :
         label = _("Employees");
-        state_section = "Employees Overview";
         style_label = "gnc-class-employees";
         break;
     }

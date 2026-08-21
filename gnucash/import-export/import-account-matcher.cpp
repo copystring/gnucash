@@ -18,7 +18,7 @@
 #include "gnc-ui.h"
 #include "gnc-ui-util.h"
 
-static QofLogModule log_module = GNC_MOD_IMPORT;
+G_GNUC_UNUSED static QofLogModule log_module = GNC_MOD_IMPORT;
 
 #define GNC_PREFS_GROUP "dialogs.import.generic.account-picker"
 

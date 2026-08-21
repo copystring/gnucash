@@ -848,26 +848,119 @@ gnc_prefs_split_widget_name (const gchar *name, gchar **group, gchar **pref, gch
 
 /****************************************************************************/
 
-/** Connect a GtkFontButton widget to its stored value in the preferences database.
+typedef struct
+{
+    GWeakRef button;
+    gchar *group;
+    gchar *pref;
+    gboolean syncing;
+} GncPrefsFontBinding;
+
+static void
+gnc_prefs_font_button_pref_changed (gpointer prefs, gchar *pref,
+                                    gpointer user_data);
+
+static void
+gnc_prefs_font_binding_free (GncPrefsFontBinding *binding)
+{
+    if (!binding)
+        return;
+
+    gnc_prefs_remove_cb_by_func (binding->group, binding->pref,
+                                 gnc_prefs_font_button_pref_changed, binding);
+    g_weak_ref_clear (&binding->button);
+    g_free (binding->group);
+    g_free (binding->pref);
+    g_free (binding);
+}
+
+static void
+gnc_prefs_font_button_pref_changed (gpointer prefs, gchar *pref,
+                                    gpointer user_data)
+{
+    GncPrefsFontBinding *binding = user_data;
+    GtkFontDialogButton *button;
+    PangoFontDescription *description;
+    gchar *font;
+
+    (void)prefs;
+    (void)pref;
+
+    button = GTK_FONT_DIALOG_BUTTON (g_weak_ref_get (&binding->button));
+    if (!button)
+        return;
+
+    font = gnc_prefs_get_string (binding->group, binding->pref);
+    if (font && *font)
+    {
+        description = pango_font_description_from_string (font);
+        if (description)
+        {
+            binding->syncing = TRUE;
+            gtk_font_dialog_button_set_font_desc (button, description);
+            binding->syncing = FALSE;
+            pango_font_description_free (description);
+        }
+    }
+    g_free (font);
+    g_object_unref (button);
+}
+
+static void
+gnc_prefs_font_button_changed (GtkFontDialogButton *button,
+                               GParamSpec *pspec, gpointer user_data)
+{
+    GncPrefsFontBinding *binding = user_data;
+    PangoFontDescription *description;
+    gchar *font;
+
+    (void)pspec;
+
+    if (binding->syncing)
+        return;
+
+    description = gtk_font_dialog_button_get_font_desc (button);
+    if (!description)
+        return;
+
+    font = pango_font_description_to_string (description);
+    if (!gnc_prefs_set_string (binding->group, binding->pref, font))
+        PINFO ("Failed to save preference at %s, %s with %s",
+               binding->group, binding->pref, font);
+    g_free (font);
+}
+
+/** Connect a GtkFontDialogButton widget to its stored value in the preferences database.
  *
  *  @internal
  *
- *  @param fb A pointer to the font button that should be connected.
+ *  @param button A pointer to the font dialog button that should be connected.
  */
 static void
-gnc_prefs_connect_font_button (GtkFontButton *fb)
+gnc_prefs_connect_font_button (GtkFontDialogButton *button)
 {
+    GncPrefsFontBinding *binding;
     gchar *group, *pref;
 
-    g_return_if_fail (GTK_IS_FONT_BUTTON(fb));
+    g_return_if_fail (GTK_IS_FONT_DIALOG_BUTTON (button));
 
-    gnc_prefs_split_widget_name (gtk_buildable_get_buildable_id (GTK_BUILDABLE(fb)), &group, &pref, NULL);
-    gnc_prefs_bind (group, pref, NULL, G_OBJECT (fb), "font-name");
+    gnc_prefs_split_widget_name (gtk_buildable_get_buildable_id (
+                                    GTK_BUILDABLE (button)),
+                                &group, &pref, NULL);
 
-    g_free (group);
-    g_free (pref);
+    binding = g_new0 (GncPrefsFontBinding, 1);
+    g_weak_ref_init (&binding->button, G_OBJECT (button));
+    binding->group = group;
+    binding->pref = pref;
+    g_object_set_data_full (G_OBJECT (button), "gnc-prefs-font-binding",
+                            binding, (GDestroyNotify)gnc_prefs_font_binding_free);
+    gnc_prefs_register_cb (binding->group, binding->pref,
+                           gnc_prefs_font_button_pref_changed, binding);
+    g_signal_connect (button, "notify::font-desc",
+                      G_CALLBACK (gnc_prefs_font_button_changed), binding);
+    gnc_prefs_font_button_pref_changed (NULL, NULL, binding);
 
-    gtk_widget_set_visible (GTK_WIDGET(fb), TRUE);
+    gtk_widget_set_visible (GTK_WIDGET(button), TRUE);
 }
 
 /****************************************************************************/
@@ -1328,10 +1421,10 @@ gnc_prefs_connect_one (const gchar *name,
     /* These tests must be ordered from more specific widget to less
      * specific widget. */
 
-    if (GTK_IS_FONT_BUTTON(widget))
+    if (GTK_IS_FONT_DIALOG_BUTTON(widget))
     {
-        DEBUG("  %s - font button", name);
-        gnc_prefs_connect_font_button (GTK_FONT_BUTTON(widget));
+        DEBUG("  %s - font dialog button", name);
+        gnc_prefs_connect_font_button (GTK_FONT_DIALOG_BUTTON(widget));
     }
     else if (GTK_IS_CHECK_BUTTON(widget))
     {

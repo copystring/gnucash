@@ -166,6 +166,8 @@ struct _TransferAccountRowClass
     GObjectClass parent_class;
 };
 
+GType transfer_account_row_get_type (void);
+
 G_DEFINE_FINAL_TYPE (TransferAccountRow, transfer_account_row, G_TYPE_OBJECT)
 
 static void
@@ -2394,13 +2396,6 @@ void gnc_xfer_dialog_toggle_currency_table( XferDialog *xferData,
         gtk_widget_set_visible (GTK_WIDGET(xferData->curr_xfer_table), show_table);
 }
 
-
-/* helper function */
-static gboolean
-find_xfer (gpointer find_data, gpointer user_data)
-{
-    return( find_data == user_data );
-}
 
 /* Indicate that the dialog should quickfill based on the "To" account,
  * rather than the default which is the "From" account.

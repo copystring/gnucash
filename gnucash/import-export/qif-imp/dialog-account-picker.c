@@ -42,6 +42,8 @@ typedef struct
     GObjectClass parent_class;
 } QIFAccountPickerRowClass;
 
+GType qif_account_picker_row_get_type (void);
+
 G_DEFINE_TYPE (QIFAccountPickerRow, qif_account_picker_row, G_TYPE_OBJECT)
 
 struct _accountpickerdialog

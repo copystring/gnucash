@@ -399,6 +399,8 @@ typedef struct
     GObjectClass parent_class;
 } CsvExportAccountRowClass;
 
+GType csv_export_account_row_get_type (void);
+
 G_DEFINE_TYPE (CsvExportAccountRow, csv_export_account_row, G_TYPE_OBJECT)
 
 static void

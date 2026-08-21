@@ -108,6 +108,8 @@ typedef struct
     CustomReportAction action;
 } CustomReportActionBinding;
 
+GType custom_report_row_get_type (void);
+
 G_DEFINE_FINAL_TYPE (CustomReportRow, custom_report_row, G_TYPE_OBJECT)
 
 static void custom_report_refresh (CustomReportDialog *crd,

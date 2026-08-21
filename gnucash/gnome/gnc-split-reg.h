@@ -100,7 +100,6 @@ struct _GNCSplitReg
 
     guint    sort_type;
     gboolean sort_rev;
-    gulong   sort_arrow_handler_id;
     gchar   *filter_text;
 
     gboolean read_only;

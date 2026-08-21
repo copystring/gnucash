@@ -395,14 +395,11 @@ static void
 gnc_plugin_page_report_set_progressbar (GncPluginPage *page, gboolean set)
 {
     GtkWidget *progressbar;
-    GtkAllocation allocation;
 
     progressbar = gnc_window_get_progressbar (GNC_WINDOW(page->window));
-    gtk_widget_get_allocation (GTK_WIDGET(progressbar), &allocation);
-
     // this sets the minimum size of the progressbar to that allocated
     if (set)
-        gtk_widget_set_size_request (GTK_WIDGET(progressbar), -1, allocation.height);
+        gtk_widget_set_size_request (GTK_WIDGET(progressbar), -1, gtk_widget_get_height (GTK_WIDGET (progressbar)));
     else
         gtk_widget_set_size_request (GTK_WIDGET(progressbar), -1, -1); //reset
 }
@@ -480,7 +477,7 @@ webkit_key_pressed_cb (GtkEventControllerKey *controller, guint keyval,
 
     if ((keyval == GDK_KEY_Page_Up || keyval == GDK_KEY_Page_Down ||
          keyval == GDK_KEY_KP_Page_Up || keyval == GDK_KEY_KP_Page_Down)
-          && (state & modifiers) == (GDK_CONTROL_MASK | GDK_MOD1_MASK))
+          && (state & modifiers) == (GDK_CONTROL_MASK | GDK_ALT_MASK))
     {
         auto parent = gtk_widget_get_parent (priv->container);
         if (!GTK_IS_NOTEBOOK (parent))
@@ -1268,8 +1265,6 @@ gnc_plugin_page_report_menu_update (GncPluginPage *plugin_page,
 static void
 gnc_plugin_page_report_menu_updates (GncPluginPage *plugin_page)
 {
-    GncPluginPageReportPrivate *priv;
-    GncPluginPageReport *report;
     GncMainWindow *window;
     action_toolbar_labels tooltip_list[3];
     GAction *action;
@@ -1281,9 +1276,6 @@ gnc_plugin_page_report_menu_updates (GncPluginPage *plugin_page)
     gchar *report_saveas_str = g_strdup_printf (
         _("Add the current report's configuration to the 'Reports->Saved Report Configurations' menu. "
           "The report configuration will be saved in the file %s."), saved_reports_path);
-
-    report = GNC_PLUGIN_PAGE_REPORT(plugin_page);
-    priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
 
     window = (GncMainWindow*)gnc_plugin_page_get_window (GNC_PLUGIN_PAGE(plugin_page));
 
@@ -2245,7 +2237,7 @@ report_pdf_starting_directory (const gchar *filename)
     const gchar *stored_directory;
 
     if (g_strcmp0 (directory, ".") != 0 &&
-        g_file_test (directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+        g_file_test (directory, static_cast<GFileTest>(G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)))
         return directory;
     g_free (directory);
 
@@ -2255,12 +2247,12 @@ report_pdf_starting_directory (const gchar *filename)
                                                      GNC_GTK_PRINT_SETTINGS_EXPORT_DIR)
                            : nullptr;
     if (stored_directory &&
-        g_file_test (stored_directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+        g_file_test (stored_directory, static_cast<GFileTest>(G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)))
         return g_strdup (stored_directory);
 
     directory = gnc_get_default_directory (GNC_PREFS_GROUP_REPORT);
     if (directory &&
-        g_file_test (directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+        g_file_test (directory, static_cast<GFileTest>(G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)))
         return directory;
     g_free (directory);
     return g_get_current_dir ();
@@ -2286,7 +2278,7 @@ report_pdf_store_output_directory (GncPluginPageReport *report,
     GncInvoice *invoice;
     GncOwner *owner;
 
-    if (!g_file_test (directory, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR))
+    if (!g_file_test (directory, static_cast<GFileTest>(G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR)))
     {
         g_free (directory);
         return;

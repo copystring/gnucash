@@ -24,6 +24,9 @@
 
 #include <libguile.h>
 #include <guile-mappings.h>
+
+#include "gnucash-core-app.hpp"
+
 #include <gtk/gtk.h>
 #ifdef __MINGW32__
 #include <Windows.h>
@@ -31,7 +34,6 @@
 #endif
 
 #include "gnucash-commands.hpp"
-#include "gnucash-core-app.hpp"
 
 #include <glib/gi18n.h>
 #include <dialog-new-user.h>
@@ -301,6 +303,8 @@ Gnucash::Gnucash::activate (void)
     m_exit_status = start (m_argc, m_argv);
     auto application = g_application_get_default ();
     if (m_exit_status == 0)
+        /* Keep the application alive after its last window is closed until
+         * GnuCash has completed the asynchronous save-and-shutdown path. */
         g_application_hold (application);
     else
         g_application_quit (application);
@@ -344,12 +348,33 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
     }
 
     /* GApplication forwards later invocations to this process. GnuCash has a
-     * single active book, so forward exactly one positional file argument to
-     * the existing file-opening path and otherwise just present its windows. */
-    if (argc == 2 && argv[1][0] != '-')
-        gnc_file_open_file (gnc_ui_get_main_window (nullptr), argv[1], FALSE);
-    else
+     * single active book, so it can only forward one positional data file to
+     * the existing file-opening path. Do not silently treat unsupported
+     * invocations as activation requests. */
+    if (argc == 1)
         activate ();
+    else if (argc == 2 && argv[1][0] != '-')
+    {
+        gchar *scheme = g_uri_parse_scheme (argv[1]);
+        gchar *filename = nullptr;
+
+        if (!g_path_is_absolute (argv[1]) && scheme == nullptr)
+            filename = g_canonicalize_filename
+                (argv[1], g_application_command_line_get_cwd (command_line));
+
+        gnc_file_open_file (gnc_ui_get_main_window (nullptr),
+                            filename ? filename : argv[1], FALSE);
+        g_free (filename);
+        g_free (scheme);
+    }
+    else
+    {
+        g_application_command_line_printerr
+            (command_line, "%s\n",
+             _("A running GnuCash instance can only open one data file."));
+        g_strfreev (argv);
+        return 1;
+    }
 
     g_strfreev (argv);
     return 0;

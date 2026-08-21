@@ -40,6 +40,8 @@ typedef struct
     GncHtmlClass parent_class;
 } TestHtmlClass;
 
+GType test_html_get_type (void);
+
 G_DEFINE_TYPE (TestHtml, test_html, GNC_TYPE_HTML)
 
 static void

@@ -7,9 +7,11 @@
 #include "Account.h"
 #include "Transaction.h"
 #include "dialog-utils.h"
+#include "gnc-gui-query.h"
 #include "gnc-component-manager.h"
 #include "gncOwner.h"
 #include "qof.h"
+#include "gnc-session.h"
 
 #include "dialog-choose-owner.h"
 #include "business-gnome-utils.h"
@@ -28,6 +30,9 @@ struct _choose_owner_dialog
 };
 
 typedef struct _choose_owner_dialog DialogChooseOwner;
+
+void choose_owner_cancel_cb (GtkButton *button, DialogChooseOwner *dco);
+void choose_owner_apply_cb (GtkButton *button, DialogChooseOwner *dco);
 
 static void
 choose_owner_finish (DialogChooseOwner *dco, gboolean assigned)
@@ -56,7 +61,7 @@ choose_owner_close_cb (gpointer data)
         gtk_window_destroy (GTK_WINDOW (dco->dialog));
 }
 
-static void
+void
 choose_owner_cancel_cb (GtkButton *button, DialogChooseOwner *dco)
 {
     (void)button;
@@ -64,7 +69,7 @@ choose_owner_cancel_cb (GtkButton *button, DialogChooseOwner *dco)
     gtk_window_destroy (GTK_WINDOW (dco->dialog));
 }
 
-static void
+void
 choose_owner_apply_cb (GtkButton *button, DialogChooseOwner *dco)
 {
     Split *split;

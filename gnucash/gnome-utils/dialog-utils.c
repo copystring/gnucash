@@ -54,15 +54,21 @@ gnc_window_get_monitor (GtkWindow *window)
 {
     GdkDisplay *display;
     GdkSurface *surface;
+    GdkMonitor *monitor;
+    GListModel *monitors;
 
     g_return_val_if_fail (GTK_IS_WINDOW (window), NULL);
 
     display = gtk_widget_get_display (GTK_WIDGET (window));
     surface = gtk_native_get_surface (GTK_NATIVE (window));
     if (surface != NULL)
-        return gdk_display_get_monitor_at_surface (display, surface);
+    {
+        monitor = gdk_display_get_monitor_at_surface (display, surface);
+        return monitor ? GDK_MONITOR (g_object_ref (monitor)) : NULL;
+    }
 
-    return gdk_display_get_primary_monitor (display);
+    monitors = gdk_display_get_monitors (display);
+    return GDK_MONITOR (g_list_model_get_item (monitors, 0));
 }
 
 static void
@@ -85,6 +91,7 @@ gnc_window_constrain_size (GtkWindow *window, gint *width, gint *height)
     gdk_monitor_get_geometry (monitor, &geometry);
     *width = MIN (*width, MAX (1, geometry.width - 10));
     *height = MIN (*height, MAX (1, geometry.height - 10));
+    g_object_unref (monitor);
 }
 
 /********************************************************************\
@@ -271,8 +278,7 @@ gnc_label_set_alignment (GtkWidget *widget, gfloat xalign, gfloat yalign)
 void
 gnc_widget_style_context_add_class (GtkWidget *widget, const char *gnc_class)
 {
-    GtkStyleContext *context = gtk_widget_get_style_context (widget);
-    gtk_style_context_add_class (context, gnc_class);
+    gtk_widget_add_css_class (widget, gnc_class);
 }
 
 /********************************************************************\
@@ -285,10 +291,7 @@ gnc_widget_style_context_add_class (GtkWidget *widget, const char *gnc_class)
 void
 gnc_widget_style_context_remove_class (GtkWidget *widget, const char *gnc_class)
 {
-    GtkStyleContext *context = gtk_widget_get_style_context (widget);
-
-    if (gtk_style_context_has_class (context, gnc_class))
-        gtk_style_context_remove_class (context, gnc_class);
+    gtk_widget_remove_css_class (widget, gnc_class);
 }
 
 /********************************************************************\
@@ -299,30 +302,6 @@ gnc_widget_style_context_remove_class (GtkWidget *widget, const char *gnc_class)
  *        direction - 0 for up, 1 for down                          *
  * Returns:  TRUE, stop other handlers being invoked for the event  *
 \********************************************************************/
-gboolean
-gnc_draw_arrow_cb (GtkWidget *widget, cairo_t *cr, gpointer direction)
-{
-    GtkStyleContext *context = gtk_widget_get_style_context (widget);
-    gint width = gtk_widget_get_allocated_width (widget);
-    gint height = gtk_widget_get_allocated_height (widget);
-    gint size;
-
-    gtk_render_background (context, cr, 0, 0, width, height);
-    gtk_style_context_add_class (context, GTK_STYLE_CLASS_ARROW);
-
-    size = MIN(width / 2, height / 2);
-
-    if (GPOINTER_TO_INT(direction) == 0)
-        gtk_render_arrow (context, cr, 0,
-                         (width - size)/2, (height - size)/2, size);
-    else
-        gtk_render_arrow (context, cr, G_PI,
-                         (width - size)/2, (height - size)/2, size);
-
-    return TRUE;
-}
-
-
 gboolean
 gnc_gdate_in_valid_range (GDate *test_date, gboolean warn)
 {
@@ -754,8 +733,7 @@ gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char
     }
 
     {
-        gchar *localroot = g_strdup(root);
-        gchar *objects[] = { localroot, NULL };
+        const char *objects[] = { root, NULL };
         result = gtk_builder_add_objects_from_string (builder, without_signals,
                                                       -1, objects, &error);
         if (!result)
@@ -763,7 +741,6 @@ gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char
             PWARN ("Couldn't load builder file: %s", error->message);
             g_error_free (error);
         }
-        g_free (localroot);
     }
 
     g_free (without_signals);
@@ -1399,27 +1376,43 @@ gnc_new_book_option_display_async (GtkWidget *parent,
     gtk_window_set_modal (GTK_WINDOW (window), TRUE);
     gtk_window_present (GTK_WINDOW (window));
 }
-gchar*
-gnc_get_negative_color (void)
-{
-    GdkRGBA color;
-    GtkWidget *label = gtk_label_new ("Color");
-    GtkStyleContext *context = gtk_widget_get_style_context (GTK_WIDGET(label));
-    gtk_style_context_add_class (context, "gnc-class-negative-numbers");
-    gtk_style_context_get_color (context, GTK_STATE_FLAG_NORMAL, &color);
 
-    return gdk_rgba_to_string (&color);
+void
+gnc_entry_set_text (GtkEntry *entry, const gchar *text)
+{
+    g_return_if_fail (GTK_IS_ENTRY (entry));
+
+    gtk_editable_set_text (GTK_EDITABLE (entry), text ? text : "");
+}
+
+const gchar *
+gnc_entry_get_text (GtkEntry *entry)
+{
+    g_return_val_if_fail (GTK_IS_ENTRY (entry), "");
+
+    return gtk_editable_get_text (GTK_EDITABLE (entry));
+}
+
+void
+gnc_box_set_all_margins (GtkBox *box, gint margin)
+{
+    g_return_if_fail (GTK_IS_BOX (box));
+
+    gtk_widget_set_margin_start (GTK_WIDGET (box), margin);
+    gtk_widget_set_margin_end (GTK_WIDGET (box), margin);
+    gtk_widget_set_margin_top (GTK_WIDGET (box), margin);
+    gtk_widget_set_margin_bottom (GTK_WIDGET (box), margin);
 }
 
 void
 gnc_owner_window_set_title (GtkWindow *window, const char *header,
                             GtkWidget *owner_entry, GtkWidget *id_entry)
 {
-    const char *name = gtk_entry_get_text (GTK_ENTRY (owner_entry));
+    const char *name = gtk_editable_get_text (GTK_EDITABLE (owner_entry));
     if (!name || *name == '\0')
         name = _("<No name>");
 
-    const char *id = gtk_entry_get_text (GTK_ENTRY (id_entry));
+    const char *id = gtk_editable_get_text (GTK_EDITABLE (id_entry));
 
     char *title = (id && *id) ?
         g_strdup_printf ("%s - %s (%s)", header, name, id) :

@@ -486,7 +486,7 @@ tax_table_select_position (GtkSingleSelection *selection, GtkColumnView *view,
         return;
     }
     gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection), position, TRUE);
-    gtk_column_view_scroll_to (view, position, GTK_LIST_SCROLL_FOCUS, NULL);
+    gtk_column_view_scroll_to (view, position, NULL, GTK_LIST_SCROLL_FOCUS, NULL);
 }
 
 static void
@@ -515,7 +515,7 @@ tax_table_entries_refresh (TaxTableWindow *ttw)
             amount_name = g_strdup_printf ("%s%%", xaccPrintAmount
                 (amount, gnc_default_print_info (FALSE)));
         else
-            amount_name = xaccPrintAmount (amount, gnc_default_print_info (TRUE));
+            amount_name = g_strdup (xaccPrintAmount (amount, gnc_default_print_info (TRUE)));
         row = tax_table_entry_row_new (account_name, amount_name, entry);
         g_list_store_append (ttw->entries_model, row);
         g_object_unref (row);
@@ -1331,7 +1331,6 @@ gnc_ui_tax_table_new_from_name_async (GtkWindow *parent, QofBook *book,
     gtk_drop_down_set_selected (request->type_dropdown, 1);
     gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (request->type_dropdown), 1, 1, 1, 1);
     gtk_label_set_mnemonic_widget (GTK_LABEL (label), GTK_WIDGET (request->type_dropdown));
-    g_object_unref (types);
 
     label = gtk_label_new_with_mnemonic (_("_Value"));
     gtk_widget_set_halign (label, GTK_ALIGN_END);

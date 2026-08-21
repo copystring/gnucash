@@ -40,6 +40,7 @@
 #include "dialog-utils.h"
 #include "gnc-ab-utils.h"
 #include "gnc-component-manager.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-gwen-gui.h"
 #include "gnc-session.h"
 #include "gnc-prefs.h"
@@ -908,6 +909,7 @@ typedef struct
     gint response;
     gboolean answered;
     gboolean destroyed;
+
 } GncGwenWindowResponseState;
 
 typedef struct
@@ -921,6 +923,7 @@ typedef struct
 typedef struct
 {
     GMainLoop *loop;
+
     GCancellable *cancellable;
     gint response;
     gboolean answered;
@@ -1080,6 +1083,7 @@ wait_for_alert_response (GtkWindow *parent, const gchar *message,
      * boundary and cancel the request if its parent disappears. */
     state.loop = g_main_loop_new (NULL, FALSE);
     state.cancellable = g_cancellable_new ();
+
     if (parent)
         parent_destroy_handler = g_signal_connect (
             parent, "destroy", G_CALLBACK (gwen_alert_parent_destroyed_cb),
@@ -1266,23 +1270,42 @@ get_input(GncGWENGui *gui, guint32 flags, const gchar *title,
         guchar *gudata = (guchar*)pChallenge;
 
         GError *error = NULL;
-        GdkPixbufLoader *loader = gdk_pixbuf_loader_new_with_mime_type(mimeType, &error);
-        GdkPixbuf *pixbuf;
+        GdkPixbufLoader *loader = gdk_pixbuf_loader_new_with_mime_type (mimeType,
+                                                                          &error);
 
-        if(error != NULL)
+        if (!loader)
         {
-            PERR("Pixbuf loader not loaded: %s, perhaps MIME type %s isn't supported.", error->message, mimeType);
+            PERR ("Pixbuf loader not loaded: %s, perhaps MIME type %s isn't supported.",
+                  error ? error->message : "unknown error", mimeType);
+            g_clear_error (&error);
         }
+        else if (gdk_pixbuf_loader_write (loader, gudata, lChallenge, &error) &&
+                 gdk_pixbuf_loader_close (loader, &error))
+        {
+            GdkPixbuf *pixbuf = gdk_pixbuf_loader_get_pixbuf (loader);
 
-        gdk_pixbuf_loader_write(loader, gudata, lChallenge, NULL);
-        gdk_pixbuf_loader_close(loader, NULL);
+            if (pixbuf)
+            {
+                GdkTexture *texture = gnc_texture_new_from_pixbuf (pixbuf);
 
-        pixbuf = gdk_pixbuf_loader_get_pixbuf(loader);
-
-        g_object_ref(pixbuf);
-        g_object_unref(loader);
-
-        gtk_image_set_from_pixbuf(optical_challenge, pixbuf);
+                if (texture)
+                {
+                    gtk_image_set_from_paintable (optical_challenge,
+                                                   GDK_PAINTABLE (texture));
+                    g_object_unref (texture);
+                }
+                else
+                    gtk_image_clear (optical_challenge);
+            }
+            g_object_unref (loader);
+        }
+        else
+        {
+            PERR ("Could not load optical challenge: %s",
+                  error ? error->message : "unknown error");
+            g_clear_error (&error);
+            g_object_unref (loader);
+        }
     }
 
     if (*input)

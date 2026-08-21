@@ -16,7 +16,7 @@
 #include "gnc-recurrence.h"
 #include "Recurrence.h"
 
-static QofLogModule log_module = GNC_MOD_BUDGET;
+G_GNUC_UNUSED static QofLogModule log_module = GNC_MOD_BUDGET;
 #define STATE_SECTION_PREFIX "Budget"
 #define BUDGET_GUID "Budget GncGUID"
 

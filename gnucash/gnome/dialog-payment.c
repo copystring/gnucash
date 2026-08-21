@@ -1110,17 +1110,13 @@ gnc_payment_dialog_remember_account (PaymentWindow *pw, Account *acc)
 static void
 gnc_payment_update_style_classes (PaymentWindow *pw)
 {
-    GtkStyleContext *stylectxt = gtk_widget_get_style_context (GTK_WIDGET(pw->dialog));
+    GtkWidget *dialog = GTK_WIDGET (pw->dialog);
     const gchar *style_label = NULL;
 
-    if (gtk_style_context_has_class (stylectxt, "gnc-class-customers"))
-        gtk_style_context_remove_class (stylectxt, "gnc-class-customers");
-
-    if (gtk_style_context_has_class (stylectxt, "gnc-class-vendors"))
-        gtk_style_context_remove_class (stylectxt, "gnc-class-vendors");
-
-    if (gtk_style_context_has_class (stylectxt, "gnc-class-employees"))
-        gtk_style_context_remove_class (stylectxt, "gnc-class-employees");
+    gtk_widget_remove_css_class (dialog, "gnc-class-customers");
+    gtk_widget_remove_css_class (dialog, "gnc-class-vendors");
+    gtk_widget_remove_css_class (dialog, "gnc-class-employees");
+    gtk_widget_remove_css_class (dialog, "gnc-class-unknown");
 
     switch (pw->owner_type)
     {
@@ -1138,7 +1134,7 @@ gnc_payment_update_style_classes (PaymentWindow *pw)
             break;
     }
     // Set a secondary style context for this page so it can be easily manipulated with css
-    gtk_style_context_add_class (stylectxt, style_label);
+    gtk_widget_add_css_class (dialog, style_label);
 }
 
 static guint
@@ -1664,7 +1660,6 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
     box = GTK_WIDGET (gtk_builder_get_object (builder, "owner_type_box"));
     owner_types = gtk_string_list_new ((const char *[]) { _("Customer"), _("Vendor"), _("Employee"), NULL });
     pw->owner_type_combo = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (owner_types), NULL));
-    g_object_unref (owner_types);
     gtk_box_append (GTK_BOX (box), GTK_WIDGET (pw->owner_type_combo));
     pw->owner_box = GTK_WIDGET (gtk_builder_get_object (builder, "owner_box"));
 

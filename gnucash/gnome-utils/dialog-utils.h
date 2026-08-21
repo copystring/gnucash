@@ -98,16 +98,6 @@ void gnc_widget_style_context_add_class (GtkWidget *widget, const char *gnc_clas
 \********************************************************************/
 void gnc_widget_style_context_remove_class (GtkWidget *widget, const char *gnc_class);
 
-/********************************************************************\
- * Draw an arrow on a Widget so it can be altered with css          *
- *                                                                  *
- * Args:     widget - widget to add arrow to in the draw callback   *
- *               cr - cairo context for the draw callback           *
- *        direction - 0 for up, 1 for down                          *
- * Returns:  TRUE, stop other handlers being invoked for the event  *
-\********************************************************************/
-gboolean gnc_draw_arrow_cb (GtkWidget *widget, cairo_t *cr, gpointer direction);
-
 gboolean gnc_gdate_in_valid_range (GDate *test_date, gboolean warn);
 
 void gnc_register_input_from_keyval (GncRegisterInput *input,
@@ -211,13 +201,6 @@ void gnc_new_book_option_display_async (GtkWidget *parent,
   */
 GtkWidget *
 gnc_cost_policy_select_new (void);
-
-/** This function returns the color string for the CSS 'gnc-class-negative-numbers' class,
- *  the returned value must be freed.
- */
-gchar* gnc_get_negative_color (void);
-
-
 
 /** This function sets the title of an owner dialog */
 void gnc_owner_window_set_title (GtkWindow*, const char*, GtkWidget*, GtkWidget*);

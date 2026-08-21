@@ -29,6 +29,7 @@
 
 #include "gnc-engine.h"
 #include "gnc-plugin-page.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-window.h"
 #include "gnc-splash.h"
 
@@ -140,8 +141,8 @@ gnc_window_update_status (GncWindow *window, GncPluginPage *page)
 
     statusbar = gnc_window_get_statusbar (window);
     message = gnc_plugin_page_get_statusbar_text(page);
-    gtk_statusbar_pop(GTK_STATUSBAR(statusbar), 0);
-    gtk_statusbar_push(GTK_STATUSBAR(statusbar), 0, message ? message : " ");
+    gnc_statusbar_pop (statusbar, 0);
+    gnc_statusbar_push (statusbar, 0, message);
 }
 
 void

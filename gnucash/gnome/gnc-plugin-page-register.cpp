@@ -37,8 +37,8 @@
 
 #include <optional>
 
-#include <libguile.h>
 #include <gtk/gtk.h>
+#include <libguile.h>
 #include <glib/gi18n.h>
 #include "swig-runtime.h"
 #include "guile-mappings.h"
@@ -216,6 +216,7 @@ static void gnc_plugin_page_register_event_handler (QofInstance* entity,
                                                     GncEventData* ed);
 
 static GncInvoice* invoice_from_split (Split* split);
+static bool find_after_date (Split *split, time64 *find_date);
 
 /************************************************************/
 /*                          Actions                         */
@@ -1162,7 +1163,7 @@ gnc_plugin_page_register_create_widget (GncPluginPage* plugin_page)
 
     priv->widget = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (priv->widget), FALSE);
-    gtk_widget_show (priv->widget);
+    gtk_widget_set_visible (priv->widget, TRUE);
 
     // Set the name for this widget so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(priv->widget), "gnc-id-register-page");
@@ -1177,7 +1178,7 @@ gnc_plugin_page_register_create_widget (GncPluginPage* plugin_page)
     priv->gsr = (GNCSplitReg *)gsr;
     g_object_ref (gsr);
 
-    gtk_widget_show (gsr);
+    gtk_widget_set_visible (gsr, TRUE);
     gnc_box_append_full (GTK_BOX (priv->widget), gsr, TRUE, TRUE, 0);
 
     g_signal_connect (G_OBJECT (gsr), "help-changed",
@@ -1304,7 +1305,7 @@ gnc_plugin_page_register_destroy_widget (GncPluginPage* plugin_page)
     qof_query_destroy (priv->search_query);
     qof_query_destroy (priv->filter_query);
 
-    gtk_widget_hide (priv->widget);
+    gtk_widget_set_visible (priv->widget, FALSE);
 
     g_object_unref(priv->widget);
     priv->widget = NULL;
@@ -1642,6 +1643,8 @@ finish_pending_request_ref (FinishPendingRequest* request)
     return request;
 }
 
+
+
 static void
 finish_pending_request_free (FinishPendingRequest* request)
 {
@@ -1930,8 +1933,7 @@ gnc_plugin_page_register_finish_pending_async
     request->user_data = user_data;
     request->user_data_destroy = user_data_destroy;
     request->parent_destroy_handler = g_signal_connect
-        (parent, "destroy", G_CALLBACK (finish_pending_parent_destroyed_cb),
-         request);
+        (parent, "destroy", G_CALLBACK (finish_pending_parent_destroyed_cb), request);
     priv->finish_pending_request = request;
     finish_pending_continue (request);
 }
@@ -2099,9 +2101,16 @@ gnc_plugin_page_register_summarybar_position_changed (gpointer prefs,
                             GNC_PREF_SUMMARYBAR_POSITION_TOP))
         position = GTK_POS_TOP;
 
-    gtk_box_reorder_child (GTK_BOX (priv->widget),
-                           plugin_page->summarybar,
-                           (position == GTK_POS_TOP ? 0 : -1));
+    auto box = GTK_BOX (priv->widget);
+
+    if (position == GTK_POS_TOP)
+        gtk_box_reorder_child_after (box, plugin_page->summarybar, NULL);
+    else
+    {
+        auto last_child = gtk_widget_get_last_child (priv->widget);
+        if (last_child != plugin_page->summarybar)
+            gtk_box_reorder_child_after (box, plugin_page->summarybar, last_child);
+    }
 }
 
 static void
@@ -2596,10 +2605,10 @@ gnc_plugin_page_register_cmd_cut (GSimpleAction *simple,
     priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
 
     GtkWidget *widget = gtk_window_get_focus(GTK_WINDOW (priv->gsr->window));
-    const char *name = gtk_widget_get_name(widget);
-    if (strcmp(name, "GnucashSheet") != 0)
+    if (g_strcmp0 (gtk_widget_get_name (widget), "GnucashSheet") != 0)
     {
-        gtk_editable_cut_clipboard( GTK_EDITABLE(widget));
+        if (widget)
+            gtk_widget_activate_action (widget, "clipboard.cut", NULL);
         LEAVE("Not cut from GnucashSheet");
 
         return;
@@ -2624,10 +2633,10 @@ gnc_plugin_page_register_cmd_copy (GSimpleAction *simple,
     priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
 
     GtkWidget *widget = gtk_window_get_focus(GTK_WINDOW (priv->gsr->window));
-    const char *name = gtk_widget_get_name(widget);
-    if (strcmp(name, "GnucashSheet") != 0)
+    if (g_strcmp0 (gtk_widget_get_name (widget), "GnucashSheet") != 0)
     {
-        gtk_editable_copy_clipboard( GTK_EDITABLE(widget));
+        if (widget)
+            gtk_widget_activate_action (widget, "clipboard.copy", NULL);
         LEAVE("Not copied from GnucashSheet");
 
         return;
@@ -2652,10 +2661,10 @@ gnc_plugin_page_register_cmd_paste (GSimpleAction *simple,
     priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
 
     GtkWidget *widget = gtk_window_get_focus(GTK_WINDOW (priv->gsr->window));
-    const char *name = gtk_widget_get_name(widget);
-    if (strcmp(name, "GnucashSheet") != 0)
+    if (g_strcmp0 (gtk_widget_get_name (widget), "GnucashSheet") != 0)
     {
-        gtk_editable_paste_clipboard( GTK_EDITABLE(widget));
+        if (widget)
+            gtk_widget_activate_action (widget, "clipboard.paste", NULL);
         LEAVE("Not pasted to GnucashSheet");
 
         return;
@@ -2824,6 +2833,8 @@ void_transaction_request_ref (VoidTransactionRequest* request)
     return request;
 }
 
+
+
 static void
 void_transaction_request_free (VoidTransactionRequest* request)
 {
@@ -2898,15 +2909,6 @@ void_transaction_close_request_cb (GtkWindow* dialog,
     (void)dialog;
     void_transaction_request_cancel (request);
     return TRUE;
-}
-
-static void
-void_transaction_destroy_cb (GtkWidget* dialog,
-                             VoidTransactionRequest* request)
-{
-    (void)dialog;
-    g_clear_object (&request->dialog);
-    void_transaction_request_complete (request);
 }
 
 static gboolean
@@ -3035,8 +3037,6 @@ void_transaction_show_dialog (GncPluginPageRegister* page,
                       G_CALLBACK (void_transaction_cancel_clicked_cb), request);
     g_signal_connect (dialog, "close-request",
                       G_CALLBACK (void_transaction_close_request_cb), request);
-    g_signal_connect (dialog, "destroy",
-                      G_CALLBACK (void_transaction_destroy_cb), request);
     g_object_unref (builder);
     gtk_window_present (dialog);
 }
@@ -3046,6 +3046,12 @@ void_transaction_pending_finished (GncPluginPageRegister* page,
                                    gboolean accepted, gpointer user_data)
 {
     auto request = static_cast<VoidTransactionRequest*> (user_data);
+    if (!page || !accepted || request->completed)
+    {
+        void_transaction_request_complete (request);
+        return;
+    }
+
     auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
     auto reg = priv->ledger ?
         gnc_ledger_display_get_split_register (priv->ledger) : nullptr;
@@ -3838,6 +3844,9 @@ linked_invoice_choice_request_context (LinkedInvoiceChoiceRequest *request,
     auto book = gnc_get_current_book ();
     GncGUID *invoice_guid;
     GncInvoice *invoice;
+    GncPluginPageRegisterPrivate *priv = nullptr;
+    SplitRegister *reg = nullptr;
+    Transaction *transaction = nullptr;
     gboolean linked = FALSE;
 
     if (choice < 0 || !page || !parent || !book || request->book != book ||
@@ -3851,10 +3860,9 @@ linked_invoice_choice_request_context (LinkedInvoiceChoiceRequest *request,
     if (!invoice_guid)
         goto out;
 
-    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
-    auto reg = priv->ledger ?
-        gnc_ledger_display_get_split_register (priv->ledger) : nullptr;
-    auto transaction = reg ? gnc_split_register_get_current_trans (reg) : nullptr;
+    priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+    reg = priv->ledger ? gnc_ledger_display_get_split_register (priv->ledger) : nullptr;
+    transaction = reg ? gnc_split_register_get_current_trans (reg) : nullptr;
     if (!transaction ||
         !guid_equal (xaccTransGetGUID (transaction), &request->transaction_guid) ||
         xaccTransLookup (&request->transaction_guid, book) != transaction)
@@ -4167,7 +4175,7 @@ gnc_plugin_page_register_cmd_exchange_rate (GSimpleAction *simple,
     reg = gnc_ledger_display_get_split_register (priv->ledger);
 
     /* XXX Ignore the return value -- we don't care if this succeeds */
-    (void)gnc_split_register_handle_exchange_async (reg, TRUE, NULL, NULL);
+    (void)gnc_split_register_handle_exchange (reg, TRUE);
     LEAVE (" ");
 }
 

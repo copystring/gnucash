@@ -27,9 +27,6 @@
 #include "gnc-prefs.h"
 #include "gnc-ui-util.h"
 
-/* This static indicates the debugging module that this .o belongs to. */
-static QofLogModule log_module = GNC_MOD_REGISTER;
-
 static void shared_quickfill_pref_changed (gpointer prefs, gchar* pref,
                                            gpointer qfb);
 static void listen_for_account_events (QofInstance* entity,

@@ -72,6 +72,7 @@ class GncOptionsDialog
 
     /* widget being destroyed */
     bool m_destroying{false};
+    bool m_closing{false};
 
 public:
     GncOptionsDialog(const char* title, GtkWindow* parent) :

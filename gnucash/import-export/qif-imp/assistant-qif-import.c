@@ -86,6 +86,8 @@ typedef struct
     GObjectClass parent_class;
 } QIFAccountMappingRowClass;
 
+GType qif_account_mapping_row_get_type (void);
+
 G_DEFINE_TYPE (QIFAccountMappingRow, qif_account_mapping_row, G_TYPE_OBJECT)
 
 typedef struct _qifaccountmappingview
@@ -115,6 +117,8 @@ typedef struct
     GObjectClass parent_class;
 } QIFFileRowClass;
 
+GType qif_file_row_get_type (void);
+
 G_DEFINE_TYPE (QIFFileRow, qif_file_row, G_TYPE_OBJECT)
 
 typedef struct
@@ -133,6 +137,8 @@ typedef struct
 {
     GObjectClass parent_class;
 } QIFTransactionRowClass;
+
+GType qif_transaction_row_get_type (void);
 
 G_DEFINE_TYPE (QIFTransactionRow, qif_transaction_row, G_TYPE_OBJECT)
 

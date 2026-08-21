@@ -881,6 +881,8 @@ gnc_combo_cell_direct_update (BasicCell* bcell,
         *start_selection = *cursor_position;
         *end_selection = -1;
         return TRUE;
+    default:
+        break;
     }
 
     if (box->complete_char == 0)

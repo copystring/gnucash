@@ -73,7 +73,7 @@ void gnc_split_reg_raise( GNCSplitReg *gsr );
 static GtkWidget* add_summary_label( GtkWidget *summarybar, gboolean pack_start,
                                      const char *label_str, GtkWidget *extra );
 
-static void gsr_summarybar_set_arrow_draw (GNCSplitReg *gsr);
+static void gsr_summarybar_set_arrow_icon (GNCSplitReg *gsr);
 
 static void gnc_split_reg_determine_read_only( GNCSplitReg *gsr, gboolean show_dialog );
 static gboolean is_trans_readonly_and_warn (GtkWindow *parent, Transaction *trans);
@@ -313,7 +313,7 @@ gnc_split_reg_init( GNCSplitReg *gsr )
 
     gsr->sort_type = BY_STANDARD;
     gsr->sort_rev = FALSE;
-    gsr->sort_arrow_handler_id = 0;
+
     gsr->filter_text = NULL;
     gsr->width = -1;
     gsr->height = -1;
@@ -687,7 +687,7 @@ gsr_redraw_all_cb (GnucashRegister *g_reg, gpointer data)
 
         // does the arrow need changing
         if (g_strcmp0 (old_tt_text, new_tt_text) != 0)
-            gsr_summarybar_set_arrow_draw (gsr);
+            gsr_summarybar_set_arrow_icon (gsr);
 
         gtk_label_set_text (GTK_LABEL(gsr->sort_label), text);
     }
@@ -1855,10 +1855,12 @@ out:
 }
 
 static void
-gsr_reveal_split_request_finished (gint response, gpointer user_data)
+gsr_reveal_split_request_finished (GtkWindow *dialog, gint response, gpointer user_data)
 {
     GsrRevealSplitRequest *request = user_data;
     SplitRegister *reg = request->base.reg;
+
+    (void)dialog;
 
     if (reg && reg->table && reg->table->control)
         gnc_table_control_set_input_suspended (reg->table->control, FALSE);
@@ -2370,7 +2372,6 @@ gsr_enter_save_finished (SplitRegister *reg, gboolean saved, gpointer user_data)
             gnucash_register_goto_next_virt_row (gsr->reg);
     }
 
-done:
     g_clear_object (&gsr);
     g_weak_ref_clear (&request->gsr);
     g_free (request);
@@ -2485,15 +2486,10 @@ add_summary_label (GtkWidget *summarybar, gboolean pack_start, const char *label
 }
 
 static void
-gsr_summarybar_set_arrow_draw (GNCSplitReg *gsr)
+gsr_summarybar_set_arrow_icon (GNCSplitReg *gsr)
 {
-    if (gsr->sort_arrow_handler_id > 0)
-       g_signal_handler_disconnect (G_OBJECT(gsr->sort_arrow), gsr->sort_arrow_handler_id);
-
-    gsr->sort_arrow_handler_id = g_signal_connect (G_OBJECT (gsr->sort_arrow), "draw",
-                                                   G_CALLBACK (gnc_draw_arrow_cb), GINT_TO_POINTER(gsr->sort_rev));
-
-    gtk_widget_queue_draw (gsr->sort_arrow);
+    gtk_image_set_from_icon_name (GTK_IMAGE (gsr->sort_arrow),
+                                  gsr->sort_rev ? "pan-down-symbolic" : "pan-up-symbolic");
 }
 
 GtkWidget *
@@ -2532,7 +2528,7 @@ gsr_create_summary_bar( GNCSplitReg *gsr )
     }
 
     gsr->filter_label = add_summary_label (summarybar, FALSE, "", NULL);
-    gsr->sort_arrow = gtk_image_new_from_icon_name ("image-missing");
+    gsr->sort_arrow = gtk_image_new_from_icon_name ("pan-up-symbolic");
     gtk_image_set_icon_size (GTK_IMAGE(gsr->sort_arrow), GTK_ICON_SIZE_NORMAL);
     gsr->sort_label = add_summary_label (summarybar, FALSE, _("Sort By:"), gsr->sort_arrow);
 

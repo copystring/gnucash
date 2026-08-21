@@ -63,11 +63,29 @@ void gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
 /** Set the four GTK4 widget margins corresponding to a legacy container border. */
 void gnc_widget_set_all_margins (GtkWidget *widget, gint margin);
 
+/** Create a GdkTexture from a pixbuf without using deprecated GDK APIs. */
+GdkTexture *gnc_texture_new_from_pixbuf (GdkPixbuf *pixbuf);
+
+/* GTK4 status bar replacement retaining GtkStatusbar's message stack semantics. */
+GtkWidget *gnc_statusbar_new (void);
+gboolean gnc_statusbar_is (GtkWidget *statusbar);
+guint gnc_statusbar_push (GtkWidget *statusbar, guint context_id,
+                           const gchar *message);
+void gnc_statusbar_pop (GtkWidget *statusbar, guint context_id);
+void gnc_statusbar_remove (GtkWidget *statusbar, guint context_id,
+                           guint message_id);
+
 gboolean gnc_is_dark_theme (GdkRGBA *fg_color);
 
 GtkWidget *gnc_get_widget_from_id (GtkWidget *root, const gchar *id);
 
 void gnc_disable_all_actions_in_group (GSimpleActionGroup *action_group);
+
+/** Load existing GTK3 accelerator-map entries as GTK4 action overrides. */
+void gnc_accelerator_overrides_load_legacy_map (const gchar *filename);
+void gnc_accelerator_overrides_clear (void);
+gboolean gnc_accelerator_overrides_lookup (const gchar *action_name,
+                                            const gchar **accelerator);
 
 void gnc_add_accelerator_keys_for_menu (GtkWidget *menu, GMenuModel *model, GtkEventController *shortcut_controller);
 

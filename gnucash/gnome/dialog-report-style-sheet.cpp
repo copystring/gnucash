@@ -211,9 +211,9 @@ gnc_style_sheet_dialog_create (StyleSheetDialog *dialog,
     g_free (title);
 
     scm_gc_protect_object (ssi->stylesheet);
-    g_object_ref (ssi->odialog->get_widget ());
     gtk_window_set_transient_for (GTK_WINDOW (ssi->odialog->get_widget ()), dialog->toplevel);
-    gtk_window_set_destroy_with_parent (GTK_WINDOW (ssi->odialog->get_widget ()), TRUE);
+    g_signal_connect_object (dialog->toplevel, "destroy", G_CALLBACK (gtk_window_close),
+                             ssi->odialog->get_widget (), G_CONNECT_SWAPPED);
     ssi->odialog->build_contents (ssi->odb, false);
     ssi->odialog->set_apply_cb (gnc_style_sheet_options_apply_cb, ssi);
     ssi->odialog->set_close_cb (gnc_style_sheet_options_close_cb, ssi);

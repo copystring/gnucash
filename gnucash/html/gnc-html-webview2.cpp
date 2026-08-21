@@ -22,6 +22,7 @@
 #include <WebView2.h>
 #include <wrl/client.h>
 
+#include <gdk/gdk.h>
 #include <gdk/win32/gdkwin32.h>
 #include <glib/gi18n.h>
 #include <glib/gstdio.h>
@@ -216,7 +217,7 @@ public:
                                    reinterpret_cast<gpointer *> (&self_));
     }
 
-    ~CallbackBase () override
+    virtual ~CallbackBase ()
     {
         if (self_)
             g_object_remove_weak_pointer (G_OBJECT (self_),
@@ -571,7 +572,7 @@ CompositionCompletedHandler::Invoke (HRESULT error,
     priv->composition_controller = composition;
     if (FAILED (composition->QueryInterface (IID_ICoreWebView2Controller,
                                               reinterpret_cast<void **> (
-                                                  priv->controller.GetAddressOf ())))) ||
+                                                  priv->controller.GetAddressOf ()))) ||
         FAILED (priv->controller->get_CoreWebView2 (priv->web_view.GetAddressOf ())))
     {
         PERR ("WebView2 CompositionController did not expose ICoreWebView2Controller.");
@@ -676,10 +677,12 @@ static POINT
 webview2_point_from_widget (GtkWidget *widget, double x, double y)
 {
     auto root = gtk_widget_get_root (widget);
+    auto root_widget = root && GTK_IS_WIDGET (root) ? GTK_WIDGET (root) : nullptr;
     double root_x = x, root_y = y;
-    const graphene_point_t point = GRAPHENE_POINT_INIT (x, y);
+    const graphene_point_t point = GRAPHENE_POINT_INIT (static_cast<float> (x),
+                                                         static_cast<float> (y));
     graphene_point_t root_point;
-    if (root && gtk_widget_compute_point (widget, root, &point, &root_point))
+    if (root_widget && gtk_widget_compute_point (widget, root_widget, &point, &root_point))
     {
         root_x = root_point.x;
         root_y = root_point.y;
@@ -807,7 +810,7 @@ webview2_start (GncHtmlWebView2 *self)
     }
 
     HRESULT result = DCompositionCreateDevice (
-        nullptr, IID_IDCompositionDevice,
+        nullptr, __uuidof (IDCompositionDevice),
         reinterpret_cast<void **> (priv->composition_device.GetAddressOf ()));
     if (FAILED (result) ||
         FAILED (result = priv->composition_device->CreateTargetForHwnd (
@@ -865,10 +868,11 @@ webview2_update_bounds (GncHtmlWebView2 *self)
         return;
 
     auto root = gtk_widget_get_root (priv->view);
+    auto root_widget = root && GTK_IS_WIDGET (root) ? GTK_WIDGET (root) : nullptr;
     double x = 0.0, y = 0.0;
     const graphene_point_t point = GRAPHENE_POINT_INIT (0.0f, 0.0f);
     graphene_point_t root_point;
-    if (root && gtk_widget_compute_point (priv->view, root, &point, &root_point))
+    if (root_widget && gtk_widget_compute_point (priv->view, root_widget, &point, &root_point))
     {
         x = root_point.x;
         y = root_point.y;
@@ -996,6 +1000,8 @@ gnc_html_webview2_class_init (GncHtmlWebView2Class *klass)
     html_class->set_parent = impl_webview2_set_parent;
 }
 
+namespace
+{
 static void
 impl_webview2_show_data (GncHtml *html, const gchar *data, int datalen)
 {
@@ -1195,7 +1201,7 @@ impl_webview2_print (GncHtml *html, const gchar *jobname, gboolean export_pdf)
     ComPtr<ICoreWebView2_16> printable_view;
     if (FAILED (priv->web_view->QueryInterface (IID_ICoreWebView2_16,
                                                  reinterpret_cast<void **> (
-                                                     printable_view.GetAddressOf ())))) ||
+                                                     printable_view.GetAddressOf ()))) ||
         FAILED (printable_view->ShowPrintUI (COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM)))
         PERR ("The installed WebView2 Runtime does not support native report printing.");
 }
@@ -1222,6 +1228,8 @@ impl_webview2_default_zoom_changed (gpointer, gchar *, gpointer user_data)
         (void)priv->controller->put_ZoomFactor (
             gnc_prefs_get_float (GNC_PREFS_GROUP_GENERAL_REPORT, default_zoom_pref));
 }
+
+} // namespace
 
 GncHtml *
 gnc_html_webview2_new (void) noexcept

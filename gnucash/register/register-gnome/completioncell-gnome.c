@@ -602,6 +602,8 @@ gnc_completion_cell_direct_update (BasicCell* bcell,
             g_free (string);
             break;
         }
+    default:
+        break;
     }
 
     if (box->strict)

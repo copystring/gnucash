@@ -293,11 +293,20 @@ function(gnc_add_scheme_targets _TARGET)
         "GNC_MODULE_PATH=${_GNC_MODULE_PATH}"
       )
 
+      # Guile 2.2's default optimizer does not terminate for some larger
+      # Scheme modules on 64-bit MinGW. The generated non-optimized bytecode
+      # is valid, so keep this platform-specific workaround here instead of
+      # special-casing individual modules.
+      set(GUILE_COMPILE_OPTIONS "")
+      if(MINGW64 AND (${GUILE_EFFECTIVE_VERSION} VERSION_GREATER_EQUAL 2.2))
+        list(APPEND GUILE_COMPILE_OPTIONS "-O0")
+      endif()
+
       add_custom_command(
         OUTPUT ${output_file}
         COMMAND ${CMAKE_COMMAND} -E env
             "${GUILE_ENV}$<$<CONFIG:Asan>:;${ASAN_DYNAMIC_LIB_ENV};ASAN_OPTIONS=${ASAN_BUILD_OPTIONS}>"
-            ${GUILE_EXECUTABLE} -e "\(@@ \(guild\) main\)" -s ${GUILD_EXECUTABLE} compile -o ${output_file} ${source_file_abs_path}
+            ${GUILE_EXECUTABLE} -e "\(@@ \(guild\) main\)" -s ${GUILD_EXECUTABLE} compile ${GUILE_COMPILE_OPTIONS} -o ${output_file} ${source_file_abs_path}
         DEPENDS ${guile_depends}
         MAIN_DEPENDENCY ${source_file_abs_path}
         COMMAND_EXPAND_LISTS

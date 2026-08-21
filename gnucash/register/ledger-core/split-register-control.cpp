@@ -2023,6 +2023,7 @@ transaction_changed_confirm (G_GNUC_UNUSED VirtualLocation *p_new_virt_loc,
           "record the changes before moving to a new transaction, discard the "
           "changes, or return to the changed transaction?");
     Transaction *source_trans = gnc_split_register_get_current_trans (reg);
+    GtkWidget *parent = gnc_split_register_get_parent (reg);
     SplitRegisterTraverseRequest *request;
 
     if (!reg || !reg->table || !source_trans || !new_trans)
@@ -2039,7 +2040,7 @@ transaction_changed_confirm (G_GNUC_UNUSED VirtualLocation *p_new_virt_loc,
     gnc_split_register_async_request_track (reg, &request->base,
                                             split_register_traverse_request_cancel);
     gnc_table_control_set_input_suspended (reg->table->control, TRUE);
-    gnc_warning_dialog_choice_async (gnc_split_register_get_parent (reg),
+    gnc_warning_dialog_choice_async (GTK_IS_WINDOW (parent) ? GTK_WINDOW (parent) : nullptr,
                                      GNC_PREF_WARN_REG_TRANS_MOD, title, message,
                                      _("_Discard Changes"), GTK_RESPONSE_REJECT,
                                      _("_Record Changes"), GTK_RESPONSE_ACCEPT,

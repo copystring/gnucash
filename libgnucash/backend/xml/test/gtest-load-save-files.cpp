@@ -73,11 +73,37 @@ static std::vector<unsigned char> read_file (std::string filename)
     }
 }
 
+static void
+normalize_xml_line_endings (std::vector<unsigned char>& contents)
+{
+    std::vector<unsigned char> normalized;
+    normalized.reserve (contents.size ());
+
+    for (size_t index = 0; index < contents.size (); ++index)
+    {
+        if (contents[index] == '\r')
+        {
+            normalized.push_back ('\n');
+            if (index + 1 < contents.size () && contents[index + 1] == '\n')
+                ++index;
+        }
+        else
+        {
+            normalized.push_back (contents[index]);
+        }
+    }
+
+    contents.swap (normalized);
+}
+
 static bool
 compare_files (std::string filename1, std::string filename2)
 {
     auto contents1 = read_file (filename1);
     auto contents2 = read_file (filename2);
+
+    normalize_xml_line_endings (contents1);
+    normalize_xml_line_endings (contents2);
 
     if (contents1.size () > 0 && contents1.size () == contents2.size ()
             && !memcmp(contents1.data (), contents2.data (), contents1.size ())) {
@@ -138,7 +164,7 @@ decompress_file (std::string filename, const std::vector<unsigned char> &in, std
         return false;
     }
 
-    out.resize (stream.avail_out);
+    out.resize (out.size () - stream.avail_out);
 
     return true;
 }
@@ -153,6 +179,9 @@ compare_compressed_files (std::string uncompressed_filename1, std::string compre
 
     if (!decompress_file (compressed_filename2, compressed_contents2, uncompressed_contents2))
         return false;
+
+    normalize_xml_line_endings (uncompressed_contents1);
+    normalize_xml_line_endings (uncompressed_contents2);
 
     if (uncompressed_contents1.size () > 0
         && uncompressed_contents1.size () != uncompressed_contents2.size ())

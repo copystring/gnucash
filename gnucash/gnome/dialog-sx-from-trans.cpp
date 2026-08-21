@@ -60,7 +60,7 @@
 #undef G_LOG_DOMAIN
 #define G_LOG_DOMAIN GNC_MOD_GUI_SX
 
-static QofLogModule log_module = GNC_MOD_GUI_SX;
+G_GNUC_UNUSED static QofLogModule log_module = GNC_MOD_GUI_SX;
 
 static void sxftd_destroy( GtkWidget *w, gpointer user_data );
 

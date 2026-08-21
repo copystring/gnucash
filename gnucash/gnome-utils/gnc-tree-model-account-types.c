@@ -95,7 +95,7 @@ account_type_item_finalize (GObject *object)
 }
 
 static void
-account_type_item_class_init (GncAccountTypeItemClass *klass)
+gnc_account_type_item_class_init (GncAccountTypeItemClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
@@ -120,7 +120,7 @@ account_type_item_class_init (GncAccountTypeItemClass *klass)
 }
 
 static void
-account_type_item_init (GncAccountTypeItem *item)
+gnc_account_type_item_init (GncAccountTypeItem *item)
 {
     item->account_type = ACCT_TYPE_NONE;
 }
@@ -137,8 +137,8 @@ static gint
 account_type_item_compare (gconstpointer left, gconstpointer right,
                            gpointer user_data)
 {
-    const GncAccountTypeItem *left_item = GNC_ACCOUNT_TYPE_ITEM (left);
-    const GncAccountTypeItem *right_item = GNC_ACCOUNT_TYPE_ITEM (right);
+    const GncAccountTypeItem *left_item = left;
+    const GncAccountTypeItem *right_item = right;
 
     (void)user_data;
     return g_utf8_collate (left_item->name, right_item->name);

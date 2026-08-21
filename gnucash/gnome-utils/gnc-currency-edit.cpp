@@ -60,7 +60,6 @@
 #include "gnc-engine.h"
 
 /** The debugging module used by this file. */
-static QofLogModule log_module = GNC_MOD_GUI;
 
 static void gnc_currency_edit_finalize     (GObject *object);
 static void gnc_currency_edit_entry_changed (GtkEditable *editable,
@@ -119,7 +118,7 @@ currency_from_text (GNCCurrencyEdit *gce, const char *text)
         return currency;
 
     auto folded = g_utf8_casefold (text, -1);
-    auto count = g_list_model_get_n_items (G_LIST_MODEL (gce->model));
+    auto count = g_list_model_get_n_items (G_LIST_MODEL (g_object_ref (gce->model)));
     for (guint position = 0; position < count; position++)
     {
         auto item = g_list_model_get_item (G_LIST_MODEL (gce->model), position);
@@ -131,7 +130,7 @@ currency_from_text (GNCCurrencyEdit *gce, const char *text)
         if (matches)
         {
             currency = static_cast<gnc_commodity *> (
-                g_object_get_data (item, CURRENCY_DATA));
+                g_object_get_data (G_OBJECT (item), CURRENCY_DATA));
             g_object_unref (item);
             break;
         }
@@ -318,7 +317,7 @@ gnc_currency_edit_selection_changed (GObject *object, GParamSpec *, gpointer use
         return;
 
     auto item = g_list_model_get_item (G_LIST_MODEL (self->model), position);
-    auto currency = static_cast<gnc_commodity *> (g_object_get_data (item, CURRENCY_DATA));
+    auto currency = static_cast<gnc_commodity *> (g_object_get_data (G_OBJECT (item), CURRENCY_DATA));
     g_object_unref (item);
     gnc_currency_edit_set_currency (self, currency);
 }
@@ -342,7 +341,7 @@ add_item(gnc_commodity *commodity, GNCCurrencyEdit *gce)
     gtk_string_list_append (gce->model, string);
     auto position = g_list_model_get_n_items (G_LIST_MODEL (gce->model)) - 1;
     auto item = g_list_model_get_item (G_LIST_MODEL (gce->model), position);
-    g_object_set_data (item, CURRENCY_DATA, commodity);
+    g_object_set_data (G_OBJECT (item), CURRENCY_DATA, commodity);
     g_object_unref (item);
 }
 
@@ -418,7 +417,7 @@ gnc_currency_edit_set_currency (GNCCurrencyEdit *gce,
     {
         auto item = g_list_model_get_item (G_LIST_MODEL (gce->model), candidate);
         auto item_currency = static_cast<gnc_commodity *> (
-            g_object_get_data (item, CURRENCY_DATA));
+            g_object_get_data (G_OBJECT (item), CURRENCY_DATA));
         g_object_unref (item);
         if (item_currency == currency)
         {

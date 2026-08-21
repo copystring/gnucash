@@ -994,7 +994,7 @@ static gchar *
 ofx_account_description (const struct OfxAccountData& data,
                          const gchar *account_type_name)
 {
-    gchar *account_name = data.account_name_valid
+    gchar *account_name = data.account_id_valid
         ? gnc_utf8_strip_invalid_strdup (data.account_name) : g_strdup ("");
     gchar *description = g_strdup_printf ("%s \"%s\"", account_type_name,
                                           account_name);

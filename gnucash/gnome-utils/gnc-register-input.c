@@ -15,6 +15,7 @@
 #include <gdk/gdkkeysyms.h>
 
 #include "gnc-register-input.h"
+#include "dialog-utils.h"
 
 static GncRegisterKey
 gnc_register_key_from_keyval (guint keyval)

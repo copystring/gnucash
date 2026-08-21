@@ -1,5 +1,20 @@
 
 
+function(gnc_add_test_runtime_path _TARGET)
+  if (MINGW64)
+    set(_runtime_path ${CMAKE_BINARY_DIR}/bin)
+    foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+      list(APPEND _runtime_path "${_prefix}/bin")
+    endforeach()
+    list(REMOVE_DUPLICATES _runtime_path)
+    make_win32_path_list(_runtime_path)
+
+    # Apply this after ENVIRONMENT so that callers' test-specific PATH values
+    # remain available while every test receives the configured DLL closure.
+    set_property(TEST ${_TARGET} APPEND PROPERTY ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${_runtime_path}")
+  endif()
+endfunction()
 function(get_guile_env)
   set(_gnc_module_path ${LIBDIR_BUILD}:${LIBDIR_BUILD}/gnucash)
   if (WIN32)
@@ -8,21 +23,6 @@ function(get_guile_env)
   set(_relative_site_dir "${CMAKE_BINARY_DIR}/${GUILE_REL_SITEDIR}")
   set(_relative_cache_dir "${CMAKE_BINARY_DIR}/${GUILE_REL_SITECCACHEDIR}")
 
-  if (MINGW64)
-    set(fpath "")
-    set(path $ENV{PATH})
-    list(INSERT path 0 ${CMAKE_BINARY_DIR}/bin)
-    if (${GUILE_EFFECTIVE_VERSION} VERSION_LESS 2.2)
-      foreach(dir ${path})
-        make_unix_path(dir)
-        list(APPEND fpath ${dir})
-      endforeach(dir)
-      make_unix_path_list(fpath)
-    else()
-      set(fpath ${path})
-      make_win32_path_list(fpath)
-    endif()
-  endif()
 
   set(guile_load_paths "$ENV{GUILE_LOAD_PATH}")
   list(APPEND guile_load_paths
@@ -79,11 +79,10 @@ function(get_guile_env)
     "GUILE=${GUILE_EXECUTABLE}"
     "GUILE_LOAD_PATH=${_guile_load_path}"
     "GUILE_LOAD_COMPILED_PATH=${_guile_load_compiled_path}"
+    "GUILE_AUTO_COMPILE=0"
     "GUILE_WARN_DEPRECATED=detailed"
   )
-  if (MINGW64)
-    list(APPEND _guile_env "PATH=${fpath}")
-  elseif (APPLE)
+  if (APPLE)
     list(APPEND _guile_env "DYLD_LIBRARY_PATH=${_gnc_module_path}:$ENV{DYLD_LIBRARY_PATH}")
   elseif (UNIX)
     list(APPEND _guile_env "LD_LIBRARY_PATH=${_gnc_module_path}:$ENV{LD_LIBRARY_PATH}")
@@ -117,6 +116,7 @@ if (MINGW)
 endif()
   target_include_directories(${_TARGET} PRIVATE ${TEST_INCLUDE_DIRS})
   set_tests_properties(${_TARGET} PROPERTIES ENVIRONMENT "${ENVVARS}$<$<CONFIG:Asan>:;ASAN_OPTIONS=${ASAN_TEST_OPTIONS}>")
+  gnc_add_test_runtime_path(${_TARGET})
   add_dependencies(testbuild ${_TARGET})
 endfunction()
 
@@ -128,8 +128,18 @@ function(gnc_add_test_with_guile _TARGET _SOURCE_FILES TEST_INCLUDE_VAR_NAME TES
 endfunction()
 
 function(gnc_add_scheme_test _TARGET _SOURCE_FILE)
+  get_filename_component(_scheme_test_source "${_SOURCE_FILE}" ABSOLUTE
+    BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+  if (WIN32)
+    # Do not let Guile's per-user cache shadow the bytecode that Ninja just
+    # built. The build still compiles every Scheme source; CTest executes the
+    # explicitly named source under the staged runtime.
+    set(_scheme_test_load "(load \"${_scheme_test_source}\")")
+  else()
+    set(_scheme_test_load "(load-from-path \"${_TARGET}\")")
+  endif()
   if (GUILE_COVERAGE)
-    add_test(NAME ${_TARGET} COMMAND ${GUILE_EXECUTABLE} --debug -c "
+    set(_scheme_test_body "
       (set! %load-hook
           (lambda (filename)
               (when (and filename
@@ -138,7 +148,7 @@ function(gnc_add_scheme_test _TARGET _SOURCE_FILE)
                   (format #t \"%load-path = ~s~%\" %load-path)
                   (format #t \"%load-compiled-path = ~s~%\" %load-compiled-path)
                   (error \"Loading guile/site file from outside build tree!\" filename))))
-      (load-from-path \"${_TARGET}\")
+      ${_scheme_test_load}
       (use-modules (system vm coverage)
                    (system vm vm))
       (call-with-values (lambda ()
@@ -154,7 +164,7 @@ function(gnc_add_scheme_test _TARGET _SOURCE_FILE)
 "
     )
   else()
-    add_test(NAME ${_TARGET} COMMAND ${GUILE_EXECUTABLE} --debug -c "
+    set(_scheme_test_body "
       (set! %load-hook
           (lambda (filename)
               (when (and filename
@@ -163,7 +173,7 @@ function(gnc_add_scheme_test _TARGET _SOURCE_FILE)
                   (format #t \"%load-path = ~s~%\" %load-path)
                   (format #t \"%load-compiled-path = ~s~%\" %load-compiled-path)
                   (error \"Loading guile/site file from outside build tree!\" filename))))
-      (load-from-path \"${_TARGET}\")
+      ${_scheme_test_load}
       (let ((result (run-test)))
            (if (boolean? result)
              (exit result)
@@ -171,8 +181,19 @@ function(gnc_add_scheme_test _TARGET _SOURCE_FILE)
 "
     )
   endif()
+  if (WIN32)
+    # A Windows batch launcher cannot faithfully forward CTest's multiline
+    # -c argument. Keep the launcher (it supplies the staged Guile runtime)
+    # and pass the test program as a single script path instead.
+    set(_scheme_test_runner "${CMAKE_CURRENT_BINARY_DIR}/${_TARGET}-runner.scm")
+    file(GENERATE OUTPUT "${_scheme_test_runner}" CONTENT "${_scheme_test_body}")
+    add_test(NAME ${_TARGET} COMMAND ${GUILE_EXECUTABLE} --no-auto-compile --debug -s "${_scheme_test_runner}")
+  else()
+    add_test(NAME ${_TARGET} COMMAND ${GUILE_EXECUTABLE} --debug -c "${_scheme_test_body}")
+  endif()
   get_guile_env()
-  set_tests_properties(${_TARGET} PROPERTIES ENVIRONMENT "${GUILE_ENV}$<$<CONFIG:Asan>:;${ASAN_DYNAMIC_LIB_ENV};ASAN_OPTIONS=${ASAN_TEST_OPTIONS}>;${ARGN}>")
+  set_tests_properties(${_TARGET} PROPERTIES ENVIRONMENT "GNC_UNINSTALLED=YES;GNC_BUILDDIR=${CMAKE_BINARY_DIR};${GUILE_ENV}$<$<CONFIG:Asan>:;${ASAN_DYNAMIC_LIB_ENV};ASAN_OPTIONS=${ASAN_TEST_OPTIONS}>;${ARGN}>")
+  gnc_add_test_runtime_path(${_TARGET})
 endfunction()
 
 function(gnc_add_scheme_tests _SOURCE_FILES)

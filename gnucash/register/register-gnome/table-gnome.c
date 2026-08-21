@@ -171,6 +171,7 @@ table_default_direct_update (BasicCell *bcell,
 void
 gnc_table_init_gui (Table *table)
 {
+    table->gui_handlers.refresh = gnc_table_refresh_gui;
     table->gui_handlers.redraw_help = table_ui_redraw_cb;
     table->gui_handlers.destroy = table_destroy_cb;
     table->gui_handlers.default_direct_update = table_default_direct_update;

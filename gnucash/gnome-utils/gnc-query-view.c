@@ -50,6 +50,8 @@ struct _GncQueryRowClass
     GObjectClass parent_class;
 };
 
+GType gnc_query_row_get_type (void) G_GNUC_CONST;
+
 G_DEFINE_TYPE (GncQueryRow, gnc_query_row, G_TYPE_OBJECT)
 
 static void

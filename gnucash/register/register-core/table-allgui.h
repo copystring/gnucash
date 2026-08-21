@@ -149,10 +149,12 @@ typedef void (*TableCursorRefreshCB) (Table *table,
 
 typedef void (*TableRedrawHelpCB) (Table *table);
 typedef void (*TableDestroyCB) (Table *table);
+typedef void (*TableRefreshCB) (Table *table, gboolean do_scroll);
 
 typedef struct
 {
     TableCursorRefreshCB cursor_refresh;
+    TableRefreshCB refresh;
 
     TableRedrawHelpCB redraw_help;
     TableDestroyCB destroy;

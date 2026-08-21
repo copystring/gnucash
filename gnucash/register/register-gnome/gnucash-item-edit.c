@@ -61,8 +61,6 @@ enum
 
 #define MIN_BUTT_WIDTH 20 // minimum size for a button excluding border
 
-static QofLogModule log_module = G_LOG_DOMAIN;
-
 static void gnc_item_edit_destroying (GtkWidget *this, gpointer data);
 
 G_DEFINE_TYPE (GncItemEdit, gnc_item_edit, GTK_TYPE_BOX)

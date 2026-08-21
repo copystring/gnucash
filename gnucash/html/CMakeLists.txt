@@ -73,6 +73,10 @@ target_compile_definitions(gnc-html PRIVATE -DG_LOG_DOMAIN=\"gnc.html\"
 
 if (GNC_REPORT_WEBVIEW2)
   target_link_libraries(gnc-html PRIVATE dcomp ole32)
+  if (MINGW)
+    # These warnings originate in the Windows SDK WebView2/DirectComposition headers.
+    target_compile_options(gnc-html PRIVATE -Wno-unknown-pragmas -Wno-class-conversion)
+  endif()
 endif()
 
 if (GNC_REPORT_WKWEBVIEW)

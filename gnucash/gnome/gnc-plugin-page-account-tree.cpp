@@ -347,6 +347,8 @@ account_finish_pending_request_ref (AccountFinishPendingRequest *request)
     return request;
 }
 
+
+
 static void
 account_finish_pending_request_free (AccountFinishPendingRequest *request)
 {
@@ -1321,7 +1323,7 @@ gppat_populate_gas_list(GtkWidget *dialog,
     GList *filter;
     GList *exclude;
 
-    g_return_if_fail(GTK_IS_DIALOG(dialog));
+    g_return_if_fail(GTK_IS_WINDOW(dialog));
     if (gas == NULL)
         return;
     account = GNC_ACCOUNT(g_object_get_data(G_OBJECT(dialog), DELETE_DIALOG_ACCOUNT));
@@ -1345,7 +1347,7 @@ void
 gppat_populate_trans_mas_list(GtkToggleButton *sa_mrb,
                               GtkWidget *dialog)
 {
-    g_return_if_fail(GTK_IS_DIALOG(dialog));
+    g_return_if_fail(GTK_IS_WINDOW(dialog));
 
     /* Cannot move transactions to subaccounts if they are to be deleted. */
     auto trans_mas = GTK_WIDGET(g_object_get_data(G_OBJECT(dialog), DELETE_DIALOG_TRANS_MAS));
@@ -1408,11 +1410,6 @@ account_subaccount (Account* account)
     return subaccount;
 }
 
-static void
-delete_account_dialog_release_ref_cb (GtkWidget *, gpointer user_data)
-{
-    g_object_unref (user_data);
-}
 
 static GtkWidget*
 account_delete_dialog (Account *account, GtkWindow *parent)
@@ -1431,8 +1428,6 @@ account_delete_dialog (Account *account, GtkWindow *parent)
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_delete_dialog");
 
     dialog = GTK_WIDGET(gtk_builder_get_object (builder, "account_delete_dialog"));
-    g_object_ref (dialog);
-    g_signal_connect (dialog, "destroy", G_CALLBACK (delete_account_dialog_release_ref_cb), dialog);
     gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
 
     /* FIXME: Same account type used for subaccount. */

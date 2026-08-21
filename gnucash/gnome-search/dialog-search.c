@@ -848,7 +848,6 @@ get_comb_box_widget (GNCSearchWindow *sw, struct _crit_data *data)
     }
 
     drop_down = gtk_drop_down_new (G_LIST_MODEL (model), NULL);
-    g_object_unref (model);
     gtk_drop_down_set_selected (GTK_DROP_DOWN (drop_down), current);
     g_signal_connect (drop_down, "notify::selected",
                       G_CALLBACK (combo_box_changed), data);

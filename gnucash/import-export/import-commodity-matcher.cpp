@@ -46,7 +46,7 @@
  *   Constants, should ideally be defined a user preference dialog    *
 \********************************************************************/
 
-static QofLogModule log_module = GNC_MOD_IMPORT;
+G_GNUC_UNUSED static QofLogModule log_module = GNC_MOD_IMPORT;
 
 
 

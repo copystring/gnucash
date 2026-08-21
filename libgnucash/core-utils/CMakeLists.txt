@@ -113,6 +113,7 @@ if (GENERATE_VCS_INFO)
                                -D DST=${CMAKE_CURRENT_BINARY_DIR}/gnc-vcs-info.h
                                -D SRC_DIR=${CMAKE_SOURCE_DIR}
                                -D SHELL="${SHELL}"
+                               -D GIT_EXECUTABLE="${GIT_EXECUTABLE}"
                                -P ${CMAKE_SOURCE_DIR}/cmake/git2version-info.cmake)
   else()
     add_custom_target(gnc-vcs-info ALL

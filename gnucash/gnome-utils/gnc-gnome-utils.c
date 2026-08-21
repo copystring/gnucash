@@ -39,6 +39,7 @@
 #include "gnc-component-manager.h"
 #include "gnc-splash.h"
 #include "gnc-window.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-icons.h"
 #include "dialog-doclink-utils.h"
 #include "dialog-commodity.h"
@@ -63,8 +64,6 @@ static int gnome_is_terminating = FALSE;
 static int gnome_is_initialized = FALSE;
 static guint ui_event_source_id = 0;
 
-
-#define ACCEL_MAP_NAME "accelerator-map"
 
 const gchar *msg_no_help_found =
     N_("GnuCash could not find the files of the help documentation.");
@@ -612,15 +611,12 @@ gnc_ui_stop_event_loop (void)
 
     gnome_is_running = FALSE;
     gnome_is_terminating = FALSE;
-
-    return 0;
 }
 
 GncMainWindow *
 gnc_gui_init(void)
 {
     static GncMainWindow *main_window;
-    gchar *map;
 
     ENTER ("");
 
@@ -664,37 +660,14 @@ gnc_gui_init(void)
 
     gnc_file_set_shutdown_callback (gnc_shutdown);
 
+    gchar *accelerator_map = gnc_build_userdata_path ("accelerator-map");
+    gnc_accelerator_overrides_load_legacy_map (accelerator_map);
+    g_free (accelerator_map);
+
     main_window = gnc_main_window_new ();
     // Bug#350993:
     // gtk_widget_show (GTK_WIDGET (main_window));
     gnc_window_set_progressbar_window (GNC_WINDOW(main_window));
-
-
-    map = gnc_build_userdata_path(ACCEL_MAP_NAME);
-    if (!g_file_test (map, G_FILE_TEST_EXISTS))
-    {
-        gchar *text = NULL;
-        gsize length;
-        gchar *map_source;
-        gchar *data_dir = gnc_path_get_pkgdatadir();
-#ifdef MAC_INTEGRATION
-        map_source = g_build_filename (data_dir, "ui", "accelerator-map-osx", NULL);
-#else
-        map_source = g_build_filename (data_dir, "ui", "accelerator-map", NULL);
-#endif /* MAC_INTEGRATION */
-
-        if (map_source && g_file_get_contents (map_source, &text, &length, NULL))
-        {
-            if (length)
-                g_file_set_contents (map, text, length, NULL);
-            g_free (text);
-        }
-        g_free (map_source);
-        g_free(data_dir);
-    }
-
-    gtk_accel_map_load(map);
-    g_free(map);
 
     /* Load css configuration file */
     gnc_add_css_file ();
@@ -742,24 +715,22 @@ gnc_gui_destroy (void)
         gnc_ui_util_remove_registered_prefs ();
         gnc_prefs_remove_registered ();
     }
+    gnc_accelerator_overrides_clear ();
     gnc_extensions_shutdown ();
 }
 
 static void
 gnc_gui_shutdown (void)
 {
-//    gchar *map;
-
     if (gnome_is_running && !gnome_is_terminating)
     {
         gnome_is_terminating = TRUE;
-//        map = gnc_build_userdata_path(ACCEL_MAP_NAME);
-//        gtk_accel_map_save(map);
-//        g_free(map);
         gnc_component_manager_shutdown ();
         GApplication *application = g_application_get_default ();
         if (application)
         {
+            /* Paired with Gnucash::activate(): a last-window close must not
+             * end the main loop before the save query has completed. */
             g_application_release (application);
             g_application_quit (application);
         }

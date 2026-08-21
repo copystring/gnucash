@@ -119,6 +119,9 @@ struct _HierarchyLocale
     gchar *name;
 };
 
+GType hierarchy_category_row_get_type ();
+GType hierarchy_account_row_get_type ();
+
 G_DEFINE_FINAL_TYPE (HierarchyCategoryRow, hierarchy_category_row, G_TYPE_OBJECT)
 G_DEFINE_FINAL_TYPE (HierarchyAccountRow, hierarchy_account_row, G_TYPE_OBJECT)
 

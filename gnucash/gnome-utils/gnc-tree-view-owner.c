@@ -6,6 +6,7 @@
 
 #include "gnc-tree-model-owner.h"
 #include "gnc-tree-view-owner.h"
+#include "dialog-utils.h"
 #include "gncAddress.h"
 #include "gncCustomer.h"
 #include "gncVendor.h"
@@ -16,7 +17,8 @@
 
 struct _GncTreeViewOwner
 {
-    GtkColumnView parent_instance;
+    GtkBox parent_instance;
+    GtkColumnView *column_view;
     GncTreeModelOwner *owner_model;
     GtkCustomFilter *filter;
     GtkFilterListModel *filtered;
@@ -27,7 +29,7 @@ struct _GncTreeViewOwner
     GDestroyNotify filter_destroy;
 };
 
-G_DEFINE_TYPE (GncTreeViewOwner, gnc_tree_view_owner, GTK_TYPE_COLUMN_VIEW)
+G_DEFINE_TYPE (GncTreeViewOwner, gnc_tree_view_owner, GTK_TYPE_BOX)
 
 typedef enum
 {
@@ -205,7 +207,7 @@ active_bind_cb (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer u
 static GtkColumnViewColumn *
 append_column (GncTreeViewOwner *view, OwnerColumn column)
 {
-    GtkSignalListItemFactory *factory = gtk_signal_list_item_factory_new ();
+    GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
     GtkColumnViewColumn *view_column;
     GtkCustomSorter *sorter = gtk_custom_sorter_new (owner_sort_cb,
                                                      GINT_TO_POINTER (column), NULL);
@@ -234,7 +236,7 @@ append_column (GncTreeViewOwner *view, OwnerColumn column)
     view_column = gtk_column_view_column_new (title,
                                               GTK_LIST_ITEM_FACTORY (factory));
     gtk_column_view_column_set_sorter (view_column, GTK_SORTER (sorter));
-    gtk_column_view_append_column (GTK_COLUMN_VIEW (view), view_column);
+    gtk_column_view_append_column (view->column_view, view_column);
     g_object_unref (sorter);
     g_object_unref (factory);
     return view_column;
@@ -265,8 +267,7 @@ gnc_tree_view_owner_class_init (GncTreeViewOwnerClass *klass)
 static void
 gnc_tree_view_owner_init (GncTreeViewOwner *view)
 {
-    gtk_column_view_set_show_column_separators (GTK_COLUMN_VIEW (view), TRUE);
-    gtk_column_view_set_show_row_separators (GTK_COLUMN_VIEW (view), TRUE);
+    (void)view;
 }
 
 GtkWidget *
@@ -274,16 +275,23 @@ gnc_tree_view_owner_new (GncOwnerType owner_type)
 {
     GncTreeViewOwner *view = g_object_new (GNC_TYPE_TREE_VIEW_OWNER, NULL);
 
+    view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (NULL));
+    gtk_column_view_set_show_column_separators (view->column_view, TRUE);
+    gtk_column_view_set_show_row_separators (view->column_view, TRUE);
+    gtk_widget_set_hexpand (GTK_WIDGET (view->column_view), TRUE);
+    gtk_widget_set_vexpand (GTK_WIDGET (view->column_view), TRUE);
+    gtk_box_append (GTK_BOX (view), GTK_WIDGET (view->column_view));
+
     view->owner_model = gnc_tree_model_owner_new (owner_type);
     view->filter = gtk_custom_filter_new (owner_filter_cb, view, NULL);
     view->filtered = gtk_filter_list_model_new (
         g_object_ref (gnc_tree_model_owner_get_model (view->owner_model)),
         GTK_FILTER (view->filter));
     view->sorted = gtk_sort_list_model_new (G_LIST_MODEL (view->filtered),
-        gtk_column_view_get_sorter (GTK_COLUMN_VIEW (view)));
+        gtk_column_view_get_sorter (view->column_view));
     view->selection = gtk_single_selection_new (G_LIST_MODEL (view->sorted));
     gtk_single_selection_set_autoselect (view->selection, FALSE);
-    gtk_column_view_set_model (GTK_COLUMN_VIEW (view), GTK_SELECTION_MODEL (view->selection));
+    gtk_column_view_set_model (view->column_view, GTK_SELECTION_MODEL (view->selection));
     for (guint i = 0; i <= OWNER_COL_ACTIVE; i++)
         append_column (view, (OwnerColumn)i);
     return GTK_WIDGET (view);
@@ -334,7 +342,7 @@ gnc_tree_view_owner_set_selected_owner (GncTreeViewOwner *view, GncOwner *owner)
         if (match)
         {
             gtk_single_selection_set_selected (view->selection, i);
-            gtk_column_view_scroll_to (GTK_COLUMN_VIEW (view), i, NULL,
+            gtk_column_view_scroll_to (view->column_view, i, NULL,
                                        GTK_LIST_SCROLL_FOCUS, NULL);
             return;
         }

@@ -200,9 +200,9 @@ private:
 
 extern "C"
 {
-void csv_price_imp_assist_prepare_cb (GncImportAssistant  *assistant, GtkWidget *page, CsvImpPriceAssist* info);
-void csv_price_imp_assist_close_cb (GncImportAssistant *gtkassistant, CsvImpPriceAssist* info);
-void csv_price_imp_assist_finish_cb (GncImportAssistant *gtkassistant, CsvImpPriceAssist* info);
+void csv_price_imp_assist_prepare_cb (GncImportAssistant  *assistant, GtkWidget *page, gpointer user_data);
+void csv_price_imp_assist_close_cb (GncImportAssistant *gtkassistant, gpointer user_data);
+void csv_price_imp_assist_finish_cb (GncImportAssistant *gtkassistant, gpointer user_data);
 void csv_price_imp_select_file_cb (GtkButton *button, CsvImpPriceAssist *info);
 void csv_price_imp_preview_del_settings_cb (GtkWidget *button, CsvImpPriceAssist *info);
 void csv_price_imp_preview_save_settings_cb (GtkWidget *button, CsvImpPriceAssist *info);
@@ -225,20 +225,23 @@ void csv_price_imp_preview_enc_sel_cb (GOCharmapSel* selector, const char* encod
 
 void
 csv_price_imp_assist_prepare_cb (GncImportAssistant *assistant, GtkWidget *page,
-        CsvImpPriceAssist* info)
+        gpointer user_data)
 {
+    auto info = static_cast<CsvImpPriceAssist *> (user_data);
     info->assist_prepare_cb(page);
 }
 
 void
-csv_price_imp_assist_close_cb (GncImportAssistant *assistant, CsvImpPriceAssist* info)
+csv_price_imp_assist_close_cb (GncImportAssistant *assistant, gpointer user_data)
 {
+    auto info = static_cast<CsvImpPriceAssist *> (user_data);
     gnc_close_gui_component_by_data (ASSISTANT_CSV_IMPORT_PRICE_CM_CLASS, info);
 }
 
 void
-csv_price_imp_assist_finish_cb (GncImportAssistant *assistant, CsvImpPriceAssist* info)
+csv_price_imp_assist_finish_cb (GncImportAssistant *assistant, gpointer user_data)
 {
+    auto info = static_cast<CsvImpPriceAssist *> (user_data);
     info->assist_finish ();
 }
 
@@ -1308,7 +1311,7 @@ csv_price_preview_item_setup (GtkListItemFactory *factory, GtkListItem *item, gp
 static void
 csv_price_preview_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
-    auto row = csv_price_preview_row_get (gtk_list_item_get_item (item));
+    auto row = csv_price_preview_row_get (G_OBJECT (gtk_list_item_get_item (item)));
     auto column = GPOINTER_TO_UINT (user_data);
     auto child = gtk_list_item_get_child (item);
 

@@ -85,7 +85,7 @@ struct _GncSxSinceLastRunDialog
     GtkColumnViewColumn *transaction_column;
 };
 
-static const gchar *instance_state_names[] =
+G_GNUC_UNUSED static const gchar *instance_state_names[] =
 {
     N_("Ignored"), N_("Postponed"), N_("To-Create"), N_("Reminder"), N_("Created"), NULL
 };
@@ -415,7 +415,6 @@ slr_state_setup (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer 
     const char *states[] = { _("Ignored"), _("Postponed"), _("To-Create"), _("Reminder"), NULL };
     GtkStringList *model = gtk_string_list_new (states);
     GtkWidget *dropdown = gtk_drop_down_new (G_LIST_MODEL (model), NULL);
-    g_object_unref (model);
     g_signal_connect (dropdown, "notify::selected", G_CALLBACK (slr_state_changed), item);
     gtk_list_item_set_child (item, dropdown);
 }

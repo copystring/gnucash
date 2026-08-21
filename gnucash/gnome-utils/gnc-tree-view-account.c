@@ -264,9 +264,15 @@ cell_bind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
     else
     {
         GtkEditableLabel *label = cell_label (list_item, column);
+        gboolean negative = FALSE;
         gchar *text = account ? gnc_tree_model_account_get_string (
-            column->view->account_model, account, column->column, NULL) : g_strdup ("");
+            column->view->account_model, account, column->column, &negative) : g_strdup ("");
         gtk_editable_set_text (GTK_EDITABLE (label), text);
+        if (negative && gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
+                                            GNC_PREF_NEGATIVE_IN_RED))
+            gtk_widget_add_css_class (GTK_WIDGET (label), "gnc-class-negative-numbers");
+        else
+            gtk_widget_remove_css_class (GTK_WIDGET (label), "gnc-class-negative-numbers");
         if (column->column == GNC_TREE_MODEL_ACCOUNT_COL_BALANCE_LIMIT && account)
         {
             gchar *tooltip = gnc_ui_account_get_balance_limit_explanation (account);
@@ -988,23 +994,28 @@ account_filter_dialog_restore (AccountFilterDialog *fd)
 static void
 account_filter_dialog_destroy_cb (GtkWidget *dialog, AccountFilterDialog *fd)
 {
-    if (!fd || fd->dialog != dialog)
+    if (!fd)
         return;
     if (!g_object_get_data (G_OBJECT (dialog), ACCOUNT_FILTER_ACCEPTED))
         account_filter_dialog_restore (fd);
     g_clear_object (&fd->type_model);
-    g_clear_object (&fd->dialog);
+    if (fd->dialog == dialog)
+        fd->dialog = NULL;
 }
 
 static void
 account_filter_dialog_finish (AccountFilterDialog *fd, gboolean accepted)
 {
+    GtkWidget *dialog;
+
     if (!fd || !fd->dialog)
         return;
+
+    dialog = g_steal_pointer (&fd->dialog);
     if (accepted)
-        g_object_set_data (G_OBJECT (fd->dialog), ACCOUNT_FILTER_ACCEPTED,
-                           GINT_TO_POINTER (1));
-    gtk_window_destroy (GTK_WINDOW (fd->dialog));
+        g_object_set_data (G_OBJECT (dialog), ACCOUNT_FILTER_ACCEPTED, GINT_TO_POINTER (1));
+    gtk_window_destroy (GTK_WINDOW (dialog));
+    g_object_unref (dialog);
 }
 
 static void

@@ -86,6 +86,13 @@ void gnc_ab_trans_dialog_templ_list_row_activated_cb(GtkColumnView *view,
 
 typedef struct _GncABTransDialogRunData GncABTransDialogRunData;
 typedef struct _TemplateDeleteRequest TemplateDeleteRequest;
+
+struct _TemplateDeleteRequest
+{
+    GncABTransDialog *dialog;
+    GtkStringObject *row;
+};
+
 static void gnc_ab_trans_dialog_verify_values(GncABTransDialog *td);
 static gboolean gnc_ab_trans_dialog_prepare (GncABTransDialog *td);
 static void gnc_ab_trans_dialog_complete (GncABTransDialogRunData *data,
@@ -1374,8 +1381,8 @@ gnc_ab_trans_dialog_template_compare (gconstpointer left, gconstpointer right,
                                       gpointer user_data)
 {
     (void)user_data;
-    return g_utf8_collate (gtk_string_object_get_string (GTK_STRING_OBJECT (left)),
-                           gtk_string_object_get_string (GTK_STRING_OBJECT (right)));
+    return g_utf8_collate (gtk_string_object_get_string ((GtkStringObject *)left),
+                           gtk_string_object_get_string ((GtkStringObject *)right));
 }
 
 void
@@ -1414,12 +1421,6 @@ gnc_ab_trans_dialog_sort_templ_cb(GtkButton *button, gpointer user_data)
     td->templ_changed = TRUE;
     LEAVE(" ");
 }
-
-struct _TemplateDeleteRequest
-{
-    GncABTransDialog *dialog;
-    GtkStringObject *row;
-};
 
 static void
 template_delete_request_free (TemplateDeleteRequest *request)
@@ -1504,6 +1505,8 @@ gnc_ab_trans_dialog_del_templ_cb(GtkButton *button, gpointer user_data)
         gtk_string_object_get_string (row));
     LEAVE (" ");
 }
+
+#endif
 
 void
 gnc_ab_trans_dialog_ibanentry_filter_cb (GtkEditable *editable,

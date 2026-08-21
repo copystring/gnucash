@@ -81,7 +81,6 @@ static gboolean
 completion_filter_cb (gpointer item, gpointer user_data)
 {
     GNCGeneralSearch *gsl = GNC_GENERAL_SEARCH (user_data);
-    GNCGeneralSearchPrivate *priv = _PRIVATE (gsl);
     const gchar *entry_text = gtk_editable_get_text (GTK_EDITABLE (gsl->entry));
     const gchar *name = gtk_string_object_get_string (GTK_STRING_OBJECT (item));
     gchar *folded_entry;
@@ -216,8 +215,8 @@ entry_focus_leave_cb (G_GNUC_UNUSED GtkEventControllerFocus *controller,
 {
     GNCGeneralSearch *gsl = GNC_GENERAL_SEARCH (user_data);
     GNCGeneralSearchPrivate *priv = _PRIVATE (gsl);
-    GtkWidget *root = gtk_widget_get_root (gsl->entry);
-    GtkWidget *focus = root && GTK_IS_ROOT (root) ? gtk_root_get_focus (GTK_ROOT (root)) : NULL;
+    GtkRoot *root = gtk_widget_get_root (gsl->entry);
+    GtkWidget *focus = root ? gtk_root_get_focus (root) : NULL;
     const gchar *text = gnc_entry_get_text (GTK_ENTRY (gsl->entry));
     gchar *folded_text = g_utf8_casefold (text, -1);
     gpointer selected_item = NULL;

@@ -23,7 +23,12 @@
 
 #include <config.h>
 
+#include <string.h>
+
 #include "gnc-gtk-utils.h"
+#include "gnc-engine.h"
+
+static QofLogModule log_module = GNC_MOD_GUI;
 
 static void
 gnc_box_pack_full (GtkBox *box, GtkWidget *child, gboolean expand,
@@ -91,6 +96,181 @@ gnc_widget_set_all_margins (GtkWidget *widget, gint margin)
     gtk_widget_set_margin_end (widget, margin);
     gtk_widget_set_margin_top (widget, margin);
     gtk_widget_set_margin_bottom (widget, margin);
+}
+
+GdkTexture *
+gnc_texture_new_from_pixbuf (GdkPixbuf *pixbuf)
+{
+    GBytes *bytes;
+    GError *error = NULL;
+    GdkTexture *texture;
+    gchar *encoded = NULL;
+    gsize encoded_size = 0;
+
+    g_return_val_if_fail (GDK_IS_PIXBUF (pixbuf), NULL);
+
+    if (!gdk_pixbuf_save_to_buffer (pixbuf, &encoded, &encoded_size,
+                                    "png", &error, NULL))
+    {
+        PWARN ("Unable to encode pixbuf as PNG: %s",
+               error ? error->message : "unknown error");
+        g_clear_error (&error);
+        return NULL;
+    }
+
+    bytes = g_bytes_new_take (encoded, encoded_size);
+    texture = gdk_texture_new_from_bytes (bytes, &error);
+    g_bytes_unref (bytes);
+
+    if (!texture)
+    {
+        PWARN ("Unable to create texture from PNG data: %s",
+               error ? error->message : "unknown error");
+        g_clear_error (&error);
+    }
+
+    return texture;
+}
+
+typedef struct
+{
+    guint context_id;
+    guint message_id;
+    gchar *text;
+} GncStatusbarMessage;
+
+typedef struct
+{
+    GtkLabel *label;
+    GPtrArray *messages;
+    guint next_message_id;
+} GncStatusbarData;
+
+#define GNC_STATUSBAR_DATA_KEY "gnc-statusbar-data"
+
+static void
+statusbar_message_free (GncStatusbarMessage *message)
+{
+    if (!message)
+        return;
+
+    g_free (message->text);
+    g_free (message);
+}
+
+static void
+statusbar_data_free (GncStatusbarData *data)
+{
+    if (!data)
+        return;
+
+    g_clear_pointer (&data->messages, g_ptr_array_unref);
+    g_free (data);
+}
+
+static GncStatusbarData *
+statusbar_data (GtkWidget *statusbar)
+{
+    return GTK_IS_WIDGET (statusbar)
+        ? g_object_get_data (G_OBJECT (statusbar), GNC_STATUSBAR_DATA_KEY)
+        : NULL;
+}
+
+static void
+statusbar_refresh (GncStatusbarData *data)
+{
+    const gchar *text = " ";
+
+    if (data->messages->len)
+    {
+        GncStatusbarMessage *message =
+            g_ptr_array_index (data->messages, data->messages->len - 1);
+        text = message->text;
+    }
+    gtk_label_set_text (data->label, text);
+}
+
+GtkWidget *
+gnc_statusbar_new (void)
+{
+    GncStatusbarData *data = g_new0 (GncStatusbarData, 1);
+    GtkWidget *statusbar = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *label = gtk_label_new (" ");
+
+    data->label = GTK_LABEL (label);
+    data->messages = g_ptr_array_new_with_free_func (
+        (GDestroyNotify)statusbar_message_free);
+    gtk_widget_add_css_class (statusbar, "statusbar");
+    gtk_widget_set_hexpand (label, TRUE);
+    gtk_label_set_xalign (data->label, 0.0);
+    gtk_box_append (GTK_BOX (statusbar), label);
+    g_object_set_data_full (G_OBJECT (statusbar), GNC_STATUSBAR_DATA_KEY,
+                            data, (GDestroyNotify)statusbar_data_free);
+    return statusbar;
+}
+
+gboolean
+gnc_statusbar_is (GtkWidget *statusbar)
+{
+    return statusbar_data (statusbar) != NULL;
+}
+
+guint
+gnc_statusbar_push (GtkWidget *statusbar, guint context_id, const gchar *text)
+{
+    GncStatusbarData *data = statusbar_data (statusbar);
+    GncStatusbarMessage *message;
+
+    g_return_val_if_fail (data != NULL, 0);
+
+    message = g_new0 (GncStatusbarMessage, 1);
+    message->context_id = context_id;
+    message->message_id = ++data->next_message_id;
+    if (message->message_id == 0)
+        message->message_id = ++data->next_message_id;
+    message->text = g_strdup (text ? text : " ");
+    g_ptr_array_add (data->messages, message);
+    statusbar_refresh (data);
+    return message->message_id;
+}
+
+void
+gnc_statusbar_pop (GtkWidget *statusbar, guint context_id)
+{
+    GncStatusbarData *data = statusbar_data (statusbar);
+
+    g_return_if_fail (data != NULL);
+
+    for (guint index = data->messages->len; index > 0; index--)
+    {
+        GncStatusbarMessage *message =
+            g_ptr_array_index (data->messages, index - 1);
+        if (message->context_id == context_id)
+        {
+            g_ptr_array_remove_index (data->messages, index - 1);
+            break;
+        }
+    }
+    statusbar_refresh (data);
+}
+
+void
+gnc_statusbar_remove (GtkWidget *statusbar, guint context_id, guint message_id)
+{
+    GncStatusbarData *data = statusbar_data (statusbar);
+
+    g_return_if_fail (data != NULL);
+
+    for (guint index = 0; index < data->messages->len; index++)
+    {
+        GncStatusbarMessage *message = g_ptr_array_index (data->messages, index);
+        if (message->context_id == context_id && message->message_id == message_id)
+        {
+            g_ptr_array_remove_index (data->messages, index);
+            break;
+        }
+    }
+    statusbar_refresh (data);
 }
 
 
@@ -189,6 +369,101 @@ gnc_disable_all_actions_in_group (GSimpleActionGroup *action_group)
  * array so that a menu-model update can remove all previous bindings before
  * recreating them. */
 #define GNC_MENU_SHORTCUTS "gnc-menu-shortcuts"
+#define GNC_ACCELERATOR_MAP_PREFIX "<Actions>/"
+
+static GHashTable *accelerator_overrides;
+
+static gchar *
+legacy_accelerator_action_to_menu_action (const gchar *legacy_action)
+{
+    const gchar *action;
+    const gchar *separator;
+
+    if (!g_str_has_prefix (legacy_action, GNC_ACCELERATOR_MAP_PREFIX))
+        return NULL;
+
+    action = legacy_action + strlen (GNC_ACCELERATOR_MAP_PREFIX);
+    separator = strrchr (action, '/');
+    if (!separator || separator == action || !separator[1])
+        return NULL;
+
+    return g_strdup_printf ("%.*s.%s", (gint)(separator - action), action,
+                            separator + 1);
+}
+
+void
+gnc_accelerator_overrides_clear (void)
+{
+    g_clear_pointer (&accelerator_overrides, g_hash_table_unref);
+}
+
+void
+gnc_accelerator_overrides_load_legacy_map (const gchar *filename)
+{
+    GRegex *entry_regex;
+    gchar *contents = NULL;
+    gchar **lines;
+    GError *error = NULL;
+
+    gnc_accelerator_overrides_clear ();
+
+    if (!filename || !*filename || !g_file_test (filename, G_FILE_TEST_EXISTS))
+        return;
+
+    if (!g_file_get_contents (filename, &contents, NULL, &error))
+    {
+        PWARN ("Unable to load accelerator map '%s': %s", filename,
+               error->message);
+        g_clear_error (&error);
+        return;
+    }
+
+    accelerator_overrides = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                     g_free, g_free);
+    entry_regex = g_regex_new ("^\\s*\\(gtk_accel_path\\s+\"([^\"]+)\"\\s+\"([^\"]*)\"\\s*\\)\\s*$",
+                               G_REGEX_OPTIMIZE, 0, NULL);
+    lines = g_strsplit (contents, "\n", -1);
+
+    for (gchar **line = lines; *line; line++)
+    {
+        GMatchInfo *match_info = NULL;
+
+        if (g_regex_match (entry_regex, *line, 0, &match_info))
+        {
+            gchar *legacy_action = g_match_info_fetch (match_info, 1);
+            gchar *action_name = legacy_accelerator_action_to_menu_action (legacy_action);
+
+            if (action_name)
+                g_hash_table_replace (accelerator_overrides, action_name,
+                                      g_match_info_fetch (match_info, 2));
+            g_free (legacy_action);
+        }
+        if (match_info)
+            g_match_info_free (match_info);
+    }
+
+    g_strfreev (lines);
+    g_regex_unref (entry_regex);
+    g_free (contents);
+}
+
+gboolean
+gnc_accelerator_overrides_lookup (const gchar *action_name,
+                                  const gchar **accelerator)
+{
+    if (accelerator)
+        *accelerator = NULL;
+
+    g_return_val_if_fail (action_name != NULL, FALSE);
+
+    if (!accelerator_overrides ||
+        !g_hash_table_contains (accelerator_overrides, action_name))
+        return FALSE;
+
+    if (accelerator)
+        *accelerator = g_hash_table_lookup (accelerator_overrides, action_name);
+    return TRUE;
+}
 
 static void
 clear_menu_shortcuts (GtkShortcutController *shortcut_controller,
@@ -209,22 +484,32 @@ add_menu_shortcuts (GMenuModel *model,
     {
         const gchar *accelerator = NULL;
         const gchar *action_name = NULL;
+        const gchar *override = NULL;
 
-        if (g_menu_model_get_item_attribute (model, index, GNC_MENU_ATTRIBUTE_ACCELERATOR,
-                                              "&s", &accelerator) &&
-            g_menu_model_get_item_attribute (model, index, G_MENU_ATTRIBUTE_ACTION,
+        if (g_menu_model_get_item_attribute (model, index, G_MENU_ATTRIBUTE_ACTION,
                                               "&s", &action_name))
         {
-            GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (accelerator);
-            if (trigger)
-            {
-                GtkShortcutAction *action = gtk_named_action_new (action_name);
-                GtkShortcut *shortcut = gtk_shortcut_new (trigger, action);
-                g_ptr_array_add (shortcuts, g_object_ref (shortcut));
-                gtk_shortcut_controller_add_shortcut (shortcut_controller, shortcut);
-            }
+            if (gnc_accelerator_overrides_lookup (action_name, &override))
+                accelerator = override;
             else
-                PWARN ("Ignoring invalid accelerator '%s' for action '%s'", accelerator, action_name);
+                g_menu_model_get_item_attribute (model, index,
+                                                 GNC_MENU_ATTRIBUTE_ACCELERATOR,
+                                                 "&s", &accelerator);
+
+            if (accelerator && *accelerator)
+            {
+                GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (accelerator);
+                if (trigger)
+                {
+                    GtkShortcutAction *action = gtk_named_action_new (action_name);
+                    GtkShortcut *shortcut = gtk_shortcut_new (trigger, action);
+                    g_ptr_array_add (shortcuts, g_object_ref (shortcut));
+                    gtk_shortcut_controller_add_shortcut (shortcut_controller, shortcut);
+                }
+                else
+                    PWARN ("Ignoring invalid accelerator '%s' for action '%s'", accelerator,
+                           action_name);
+            }
         }
 
         const gchar *link_names[] = { G_MENU_LINK_SECTION, G_MENU_LINK_SUBMENU };
@@ -903,14 +1188,13 @@ gnc_menubar_model_remove_items_with_attrib (GMenuModel *menu_model, const gchar 
 static void
 statusbar_push (GtkWidget *statusbar, const gchar *text)
 {
-    gtk_statusbar_push (GTK_STATUSBAR(statusbar), 0,
-                        text ? text : " ");
+    gnc_statusbar_push (statusbar, 0, text);
 }
 
 static void
 statusbar_pop (GtkWidget *statusbar)
 {
-    gtk_statusbar_pop (GTK_STATUSBAR(statusbar), 0);
+    gnc_statusbar_pop (statusbar, 0);
 }
 
 typedef struct
@@ -1023,7 +1307,7 @@ gnc_menubar_setup_tooltip_to_statusbar_callbacks (GtkWidget  *menubar,
 {
     g_return_if_fail (GTK_IS_WIDGET (menubar));
     g_return_if_fail (G_IS_MENU_MODEL (menu_model));
-    g_return_if_fail (GTK_IS_STATUSBAR (statusbar));
+    g_return_if_fail (gnc_statusbar_is (statusbar));
 
     menu_widget_setup_tooltip_callbacks (menubar, menu_model, statusbar);
 }
@@ -1094,7 +1378,7 @@ gnc_tool_item_setup_tooltip_to_statusbar_callback (GtkWidget *tool_item,
     GtkWidget *child;
 
     g_return_if_fail (tool_item != NULL);
-    g_return_if_fail (statusbar != NULL);
+    g_return_if_fail (gnc_statusbar_is (statusbar));
 
     child = gtk_widget_get_first_child (GTK_WIDGET(tool_item));
     if (!child || g_object_get_data (G_OBJECT (child), "gnc-tool-item-tooltip-controller"))

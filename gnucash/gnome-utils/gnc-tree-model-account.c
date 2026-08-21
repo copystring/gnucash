@@ -11,12 +11,9 @@
 #include "gnc-engine.h"
 #include "dialog-utils.h"
 #include "gnc-event.h"
-#include "gnc-prefs.h"
 #include "gnc-ui-balances.h"
 #include "gnc-ui-util.h"
 #include "qof.h"
-
-static QofLogModule log_module = GNC_MOD_GUI;
 
 enum { MODEL_REBUILDING, MODEL_CHANGED, LAST_SIGNAL };
 static guint signals[LAST_SIGNAL];
@@ -265,15 +262,15 @@ period_balance (GncTreeModelAccount *model, Account *account,
 gchar *
 gnc_tree_model_account_get_string (GncTreeModelAccount *model, Account *account,
                                    GncTreeModelAccountColumn column,
-                                   gchar **foreground)
+                                   gboolean *negative_out)
 {
     gboolean negative = FALSE;
     gchar *value = NULL;
 
     g_return_val_if_fail (GNC_IS_TREE_MODEL_ACCOUNT (model), g_strdup (""));
     g_return_val_if_fail (GNC_IS_ACCOUNT (account), g_strdup (""));
-    if (foreground)
-        *foreground = NULL;
+    if (negative_out)
+        *negative_out = FALSE;
 
     switch (column)
     {
@@ -334,9 +331,8 @@ gnc_tree_model_account_get_string (GncTreeModelAccount *model, Account *account,
     default: value = g_strdup (""); break;
     }
 
-    if (foreground && negative && gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
-                                                       GNC_PREF_NEGATIVE_IN_RED))
-        *foreground = gnc_get_negative_color ();
+    if (negative_out)
+        *negative_out = negative;
     return value ? value : g_strdup ("");
 }
 

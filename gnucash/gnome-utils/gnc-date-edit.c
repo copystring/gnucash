@@ -195,7 +195,7 @@ gnc_date_edit_popup (GNCDateEdit *gde)
     ENTER("gde %p", gde);
 
     /* This code is pretty much just copied from gtk_date_edit_get_date */
-    date_was_valid = qof_scan_date (gtk_entry_get_text (GTK_ENTRY (gde->date_entry)),
+    date_was_valid = qof_scan_date (gtk_editable_get_text (GTK_EDITABLE (gde->date_entry)),
                                     &mtm.tm_mday, &mtm.tm_mon, &mtm.tm_year);
     if (!date_was_valid)
     {
@@ -252,7 +252,7 @@ set_time (GObject *object, GParamSpec *pspec, GNCDateEdit *gde)
         return;
 
     item = GTK_STRING_OBJECT (g_list_model_get_item (model, selected));
-    gtk_entry_set_text (GTK_ENTRY (gde->time_entry),
+    gtk_editable_set_text (GTK_EDITABLE (gde->time_entry),
                         gtk_string_object_get_string (item));
     g_object_unref (item);
     g_signal_emit (G_OBJECT (gde), date_edit_signals [TIME_CHANGED], 0);
@@ -311,7 +311,7 @@ gnc_date_edit_set_time_internal (GNCDateEdit *gde, time64 the_time)
                             mytm->tm_mday,
                             mytm->tm_mon + 1,
                             1900 + mytm->tm_year);
-    gtk_entry_set_text(GTK_ENTRY(gde->date_entry), buffer);
+    gtk_editable_set_text (GTK_EDITABLE (gde->date_entry), buffer);
 
     /* Update the calendar. */
     if (!gde->in_selected_handler)
@@ -326,7 +326,7 @@ gnc_date_edit_set_time_internal (GNCDateEdit *gde, time64 the_time)
         qof_strftime (buffer, sizeof (buffer), "%H:%M", mytm);
     else
         qof_strftime (buffer, sizeof (buffer), "%I:%M %p", mytm);
-    gtk_entry_set_text(GTK_ENTRY(gde->time_entry), buffer);
+    gtk_editable_set_text (GTK_EDITABLE (gde->time_entry), buffer);
 
     gnc_tm_free (mytm);
 
@@ -552,7 +552,7 @@ date_accel_key_pressed (GtkEventControllerKey *controller, guint keyval,
     (void)controller;
     (void)keycode;
 
-    string = gtk_entry_get_text (GTK_ENTRY (gde->date_entry));
+    string = gtk_editable_get_text (GTK_EDITABLE (gde->date_entry));
 
     tm = gnc_date_edit_get_date_internal (gde);
 
@@ -567,7 +567,7 @@ date_accel_key_pressed (GtkEventControllerKey *controller, guint keyval,
     return TRUE;
 }
 
-static gboolean
+static void
 date_focus_leave (GtkEventControllerFocus *controller, gpointer data)
 {
     GNCDateEdit *gde = data;
@@ -596,9 +596,9 @@ create_children (GNCDateEdit *gde)
 
     /* Create the text entry area. */
     gde->date_entry  = gtk_entry_new ();
-    gtk_entry_set_width_chars (GTK_ENTRY (gde->date_entry), 11);
+    gtk_editable_set_width_chars (GTK_EDITABLE (gde->date_entry), 11);
     gnc_box_append_full (GTK_BOX (gde), gde->date_entry, TRUE, TRUE, 0);
-    gtk_widget_show (GTK_WIDGET(gde->date_entry));
+    gtk_widget_set_visible (GTK_WIDGET(gde->date_entry), TRUE);
     key_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (gde->date_entry, key_controller);
     g_signal_connect (key_controller, "key-pressed",
@@ -616,22 +616,23 @@ create_children (GNCDateEdit *gde)
     hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 3);
     gtk_box_set_homogeneous (GTK_BOX (hbox), FALSE);
     gtk_button_set_child (GTK_BUTTON(gde->date_button), hbox);
-    gtk_widget_show (GTK_WIDGET(hbox));
+    gtk_widget_set_visible (GTK_WIDGET(hbox), TRUE);
 
     /* Calendar label, only shown if the date editor has a time field */
     gde->cal_label = gtk_label_new (_("Calendar"));
     gnc_label_set_alignment (gde->cal_label, 0.0, 0.5);
     gnc_box_append_full (GTK_BOX (hbox), gde->cal_label, TRUE, TRUE, 0);
     if (gde->flags & GNC_DATE_EDIT_SHOW_TIME)
-        gtk_widget_show (GTK_WIDGET(gde->cal_label));
+        gtk_widget_set_visible (GTK_WIDGET(gde->cal_label), TRUE);
 
     /* Graphic for the popup button. */
-    arrow = gtk_image_new_from_icon_name ("pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
+    arrow = gtk_image_new_from_icon_name ("pan-down-symbolic");
+    gtk_image_set_icon_size (GTK_IMAGE (arrow), GTK_ICON_SIZE_NORMAL);
 
     gnc_box_append_full (GTK_BOX (hbox), arrow, TRUE, FALSE, 0);
-    gtk_widget_show (GTK_WIDGET(arrow));
+    gtk_widget_set_visible (GTK_WIDGET(arrow), TRUE);
 
-    gtk_widget_show (GTK_WIDGET(gde->date_button));
+    gtk_widget_set_visible (GTK_WIDGET(gde->date_button), TRUE);
 
     /* Time entry controls. */
     gde->time_entry = gtk_entry_new ();
@@ -641,7 +642,6 @@ create_children (GNCDateEdit *gde)
 
     time_model = gtk_string_list_new (NULL);
     gde->time_combo = gtk_drop_down_new (G_LIST_MODEL (time_model), NULL);
-    g_object_unref (time_model);
 
     g_signal_connect (gde->time_combo, "notify::selected",
                       G_CALLBACK (set_time), gde);
@@ -652,8 +652,8 @@ create_children (GNCDateEdit *gde)
 
     if (gde->flags & GNC_DATE_EDIT_SHOW_TIME)
     {
-        gtk_widget_show (GTK_WIDGET(gde->time_entry));
-        gtk_widget_show (GTK_WIDGET(gde->time_combo));
+        gtk_widget_set_visible (GTK_WIDGET(gde->time_entry), TRUE);
+        gtk_widget_set_visible (GTK_WIDGET(gde->time_combo), TRUE);
     }
 
     gde->cal_popup = gtk_popover_new ();
@@ -671,7 +671,7 @@ create_children (GNCDateEdit *gde)
 
     frame = gtk_frame_new (NULL);
     gtk_popover_set_child (GTK_POPOVER (gde->cal_popup), frame);
-    gtk_widget_show (GTK_WIDGET(frame));
+    gtk_widget_set_visible (GTK_WIDGET(frame), TRUE);
 
     gde->calendar = gtk_calendar_new ();
     gtk_calendar_set_show_day_names (GTK_CALENDAR (gde->calendar), TRUE);
@@ -682,7 +682,7 @@ create_children (GNCDateEdit *gde)
                       "day-selected-double-click",
                       G_CALLBACK  (day_selected_double_click), gde);
     gtk_frame_set_child (GTK_FRAME(frame), gde->calendar);
-    gtk_widget_show (GTK_WIDGET(gde->calendar));
+    gtk_widget_set_visible (GTK_WIDGET(gde->calendar), TRUE);
 }
 
 /**
@@ -720,7 +720,7 @@ gnc_date_edit_new_glade (gchar *widget_name,
 
     /* None of the standard glade arguments are used. */
     widget = gnc_date_edit_new(time(NULL), FALSE, FALSE);
-    gtk_widget_show(widget);
+    gtk_widget_set_visible (widget, TRUE);
     return widget;
 }
 
@@ -761,7 +761,7 @@ gnc_date_edit_get_date_internal (GNCDateEdit *gde)
     g_assert(gde != NULL);
     g_assert(GNC_IS_DATE_EDIT(gde));
 
-    date_was_valid = qof_scan_date (gtk_entry_get_text (GTK_ENTRY (gde->date_entry)),
+    date_was_valid = qof_scan_date (gtk_editable_get_text (GTK_EDITABLE (gde->date_entry)),
                                     &tm.tm_mday, &tm.tm_mon, &tm.tm_year);
 
     if (!date_was_valid)
@@ -783,8 +783,8 @@ gnc_date_edit_get_date_internal (GNCDateEdit *gde)
         char *tokp = NULL;
         gchar *temp;
 
-        str = g_strdup (gtk_entry_get_text
-                        (GTK_ENTRY (gde->time_entry)));
+        str = g_strdup (gtk_editable_get_text
+                        (GTK_EDITABLE (gde->time_entry)));
         temp = gnc_strtok_r (str, ": ", &tokp);
         if (temp)
         {
@@ -903,15 +903,15 @@ gnc_date_edit_set_flags (GNCDateEdit *gde, GNCDateEditFlags flags)
     {
         if (flags & GNC_DATE_EDIT_SHOW_TIME)
         {
-            gtk_widget_show (gde->cal_label);
-            gtk_widget_show (gde->time_entry);
-            gtk_widget_show (gde->time_combo);
+            gtk_widget_set_visible (gde->cal_label, TRUE);
+            gtk_widget_set_visible (gde->time_entry, TRUE);
+            gtk_widget_set_visible (gde->time_combo, TRUE);
         }
         else
         {
-            gtk_widget_hide (gde->cal_label);
-            gtk_widget_hide (gde->time_entry);
-            gtk_widget_hide (gde->time_combo);
+            gtk_widget_set_visible (gde->cal_label, FALSE);
+            gtk_widget_set_visible (gde->time_entry, FALSE);
+            gtk_widget_set_visible (gde->time_combo, FALSE);
         }
     }
 

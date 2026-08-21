@@ -1253,7 +1253,6 @@ update_invoice_uri_gui_destroy_cb (GtkWidget *object, gpointer user_data)
     {
         auto plugin_page = GNC_PLUGIN_PAGE_INVOICE(dlr->user_data);
         GncPluginPageInvoicePrivate *priv = GNC_PLUGIN_PAGE_INVOICE_GET_PRIVATE(plugin_page);
-        GtkWindow *parent;
         GncInvoice *invoice = gnc_invoice_window_get_invoice (priv->iw);
         gboolean has_uri = true;
 

@@ -294,9 +294,9 @@ private:
 
 extern "C"
 {
-void csv_tximp_assist_prepare_cb (GncImportAssistant  *assistant, GtkWidget *page, CsvImpTransAssist* info);
-void csv_tximp_assist_close_cb (GncImportAssistant *gtkassistant, CsvImpTransAssist* info);
-void csv_tximp_assist_finish_cb (GncImportAssistant *gtkassistant, CsvImpTransAssist* info);
+void csv_tximp_assist_prepare_cb (GncImportAssistant  *assistant, GtkWidget *page, gpointer user_data);
+void csv_tximp_assist_close_cb (GncImportAssistant *gtkassistant, gpointer user_data);
+void csv_tximp_assist_finish_cb (GncImportAssistant *gtkassistant, gpointer user_data);
 void csv_tximp_select_file_cb (GtkButton *button, CsvImpTransAssist *info);
 void csv_tximp_preview_del_settings_cb (GtkWidget *button, CsvImpTransAssist *info);
 void csv_tximp_preview_save_settings_cb (GtkWidget *button, CsvImpTransAssist *info);
@@ -320,20 +320,23 @@ void csv_tximp_acct_match_button_clicked_cb (GtkWidget *widget, CsvImpTransAssis
 
 void
 csv_tximp_assist_prepare_cb (GncImportAssistant *assistant, GtkWidget *page,
-        CsvImpTransAssist* info)
+        gpointer user_data)
 {
+    auto info = static_cast<CsvImpTransAssist *> (user_data);
     info->assist_prepare_cb(page);
 }
 
 void
-csv_tximp_assist_close_cb (GncImportAssistant *assistant, CsvImpTransAssist* info)
+csv_tximp_assist_close_cb (GncImportAssistant *assistant, gpointer user_data)
 {
+    auto info = static_cast<CsvImpTransAssist *> (user_data);
     gnc_close_gui_component_by_data (ASSISTANT_CSV_IMPORT_TRANS_CM_CLASS, info);
 }
 
 void
-csv_tximp_assist_finish_cb (GncImportAssistant *assistant, CsvImpTransAssist* info)
+csv_tximp_assist_finish_cb (GncImportAssistant *assistant, gpointer user_data)
 {
+    auto info = static_cast<CsvImpTransAssist *> (user_data);
     info->assist_finish ();
 }
 
@@ -498,7 +501,7 @@ static void
 csv_tximp_account_match_item_bind (GtkListItemFactory *factory, GtkListItem *item,
                                    gpointer user_data)
 {
-    auto row = csv_tximp_account_match_row_get (gtk_list_item_get_item (item));
+    auto row = csv_tximp_account_match_row_get (G_OBJECT (gtk_list_item_get_item (item)));
 
     (void)factory;
     gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)),
@@ -1414,7 +1417,7 @@ csv_tximp_preview_item_setup (GtkListItemFactory *factory, GtkListItem *item, gp
 static void
 csv_tximp_preview_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
-    auto row = csv_tximp_preview_row_get (gtk_list_item_get_item (item));
+    auto row = csv_tximp_preview_row_get (G_OBJECT (gtk_list_item_get_item (item)));
     auto column = GPOINTER_TO_UINT (user_data);
     auto child = gtk_list_item_get_child (item);
     (void)factory;
@@ -1958,7 +1961,7 @@ CsvImpTransAssist::assist_account_match_page_prepare ()
         g_list_model_items_changed (G_LIST_MODEL (account_match_store), 0, row_count, row_count);
 
     // Enable the view, possibly after an error
-    gtk_widget_set_sensitive (account_match_view, true);
+    gtk_widget_set_sensitive (GTK_WIDGET (account_match_view), true);
     gtk_widget_set_sensitive (account_match_btn, true);
 
     /* Enable the "Next" Assistant Button */

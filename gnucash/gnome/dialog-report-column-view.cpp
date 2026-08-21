@@ -335,12 +335,12 @@ update_contents_lists(gncp_column_view_edit *view)
         auto row = gtk_string_object_new(_(name));
         auto placement = g_new(ReportPlacementData, 1);
 
-        *placement = {id, columns, rows};
+        *placement = {static_cast<int>(id), static_cast<int>(columns), static_cast<int>(rows)};
         g_object_set_qdata_full(G_OBJECT(row), contents_row_quark(), placement, g_free);
         g_list_store_append(view->contents_store, row);
         g_object_unref(row);
         g_free(name);
-        if (have_selection && id == selected_id)
+        if (have_selection && id == static_cast<guint>(selected_id))
         {
             gtk_single_selection_set_selected(view->contents_selection, position);
             view->contents_selected = static_cast<int>(position);
@@ -645,7 +645,7 @@ gnc_column_view_edit_size_cb(GtkButton *button, gpointer user_data)
     GtkSpinButton *column_spin;
     GtkWidget *cancel_button;
     GtkWidget *ok_button;
-    GtkWidget *root;
+    GtkRoot *root;
     ReportSizeRequest *request;
 
     if (!editor || editor->contents_selected < 0 ||

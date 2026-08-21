@@ -68,6 +68,8 @@ typedef struct _GncSummaryRowClass
     GObjectClass parent_class;
 } GncSummaryRowClass;
 
+GType gnc_summary_row_get_type (void);
+
 #define GNC_TYPE_SUMMARY_ROW (gnc_summary_row_get_type ())
 #define GNC_SUMMARY_ROW(object) \
     (G_TYPE_CHECK_INSTANCE_CAST ((object), GNC_TYPE_SUMMARY_ROW, GncSummaryRow))
@@ -653,7 +655,7 @@ gnc_main_window_summary_new (void)
     gtk_widget_set_name (retval->hbox, "gnc-id-account-summary-bar");
 
     retval->totals_combo = GTK_DROP_DOWN (
-        gtk_drop_down_new (G_LIST_MODEL (retval->datamodel), NULL));
+        gtk_drop_down_new (G_LIST_MODEL (g_object_ref (retval->datamodel)), NULL));
 
     selected_factory = gtk_signal_list_item_factory_new ();
     g_signal_connect (selected_factory, "setup", G_CALLBACK (summarybar_item_setup), NULL);

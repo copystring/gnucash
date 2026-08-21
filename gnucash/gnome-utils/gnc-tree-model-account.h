@@ -76,7 +76,7 @@ void gnc_tree_model_account_clear_cache (GncTreeModelAccount *model);
 gchar *gnc_tree_model_account_get_string (GncTreeModelAccount *model,
                                            Account *account,
                                            GncTreeModelAccountColumn column,
-                                           gchar **foreground);
+                                           gboolean *negative);
 gboolean gnc_tree_model_account_get_boolean (Account *account,
                                               GncTreeModelAccountColumn column);
 

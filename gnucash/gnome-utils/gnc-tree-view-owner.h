@@ -9,7 +9,7 @@
 G_BEGIN_DECLS
 
 #define GNC_TYPE_TREE_VIEW_OWNER (gnc_tree_view_owner_get_type ())
-G_DECLARE_FINAL_TYPE (GncTreeViewOwner, gnc_tree_view_owner, GNC, TREE_VIEW_OWNER, GtkColumnView)
+G_DECLARE_FINAL_TYPE (GncTreeViewOwner, gnc_tree_view_owner, GNC, TREE_VIEW_OWNER, GtkBox)
 
 typedef struct
 {

@@ -1040,7 +1040,7 @@ suggestion_activate_cb (GtkListView *view, guint position, EntrySuggestion *sugg
 {
     auto item = GTK_STRING_OBJECT (g_list_model_get_item (G_LIST_MODEL (suggestion->matches), position));
     (void)view;
-    gtk_entry_set_text (suggestion->entry, gtk_string_object_get_string (item));
+    gtk_editable_set_text (GTK_EDITABLE (suggestion->entry), gtk_string_object_get_string (item));
     gtk_popover_popdown (suggestion->popover);
     g_object_unref (item);
 }
@@ -1119,7 +1119,7 @@ override_widget_clicked (GtkWidget *widget, EntryInfo *entryinfo)
     (void)widget;
     gtk_widget_set_visible (entryinfo->override_widget, false);
     gtk_widget_set_sensitive (GTK_WIDGET (entryinfo->entry), true);
-    gtk_entry_set_text (entryinfo->entry, "");
+    gtk_editable_set_text (GTK_EDITABLE (entryinfo->entry), "");
     gtk_widget_grab_focus (GTK_WIDGET (entryinfo->entry));
     *entryinfo->can_edit = true;
 }
@@ -1131,10 +1131,10 @@ setup_entry (EntryInfo& entryinfo)
     gtk_widget_set_sensitive (GTK_WIDGET (entryinfo.entry), sensitive);
     gtk_widget_set_visible (entryinfo.override_widget, !sensitive);
     if (sensitive && entryinfo.initial && *entryinfo.initial)
-        gtk_entry_set_text (entryinfo.entry, entryinfo.initial);
+        gtk_editable_set_text (GTK_EDITABLE (entryinfo.entry), entryinfo.initial);
     else if (!sensitive)
     {
-        gtk_entry_set_text (entryinfo.entry, _("Click Edit to modify"));
+        gtk_editable_set_text (GTK_EDITABLE (entryinfo.entry), _("Click Edit to modify"));
         g_signal_connect (entryinfo.override_widget, "clicked", G_CALLBACK (override_widget_clicked), &entryinfo);
     }
     setup_entry_suggestion (entryinfo);
@@ -1159,9 +1159,9 @@ edit_fields_dialog_finish (EditFieldsDialog *dialog, gboolean accepted)
 
     if (accepted)
     {
-        auto new_desc = g_strdup (gtk_entry_get_text (dialog->desc_entry));
-        auto new_notes = g_strdup (gtk_entry_get_text (dialog->notes_entry));
-        auto new_memo = g_strdup (gtk_entry_get_text (dialog->memo_entry));
+        auto new_desc = g_strdup (gtk_editable_get_text (GTK_EDITABLE (dialog->desc_entry)));
+        auto new_notes = g_strdup (gtk_editable_get_text (GTK_EDITABLE (dialog->notes_entry)));
+        auto new_memo = g_strdup (gtk_editable_get_text (GTK_EDITABLE (dialog->memo_entry)));
         for (const auto& object : dialog->selected_rows)
         {
             RowInfo row { object.get () };
@@ -1842,7 +1842,7 @@ gnc_gen_trans_init_view (GNCImportMainMatcher *info,
     auto info_factory = gtk_signal_list_item_factory_new ();
     g_signal_connect (info_factory, "setup", G_CALLBACK (matcher_info_setup_cb), nullptr);
     g_signal_connect (info_factory, "bind", G_CALLBACK (matcher_info_bind_cb), nullptr);
-    auto info_column = gtk_column_view_column_new (_("Additional Comments", info_factory);
+    auto info_column = gtk_column_view_column_new (_("Additional Comments"), info_factory);
     gtk_column_view_append_column (info->view, info_column);
     g_object_unref (info_column);
 
@@ -1904,9 +1904,9 @@ gnc_gen_trans_common_setup (GNCImportMainMatcher *info,
     info->user_settings = gnc_import_Settings_new ();
     gnc_import_Settings_set_match_date_hardlimit (info->user_settings, match_date_hardlimit);
 
-    GtkStyleContext *stylectxt = gtk_widget_get_style_context (GTK_WIDGET(parent));
+
     GdkRGBA color;
-    gtk_style_context_get_color (stylectxt, GTK_STATE_FLAG_NORMAL, &color);
+    gtk_widget_get_color (GTK_WIDGET (parent), &color);
     info->dark_theme = gnc_is_dark_theme (&color);
 
     /* The resource provides a neutral GTK4 placeholder. The reusable matcher
@@ -2268,7 +2268,7 @@ refresh_model_row (GNCImportMainMatcher *gui,
                                               gui->user_settings, GTK_WIDGET (gui->view));
         if (pixbuf)
         {
-            row->confidence = gdk_texture_new_for_pixbuf (pixbuf);
+            row->confidence = gnc_texture_new_from_pixbuf (pixbuf);
             g_object_unref (pixbuf);
         }
     }

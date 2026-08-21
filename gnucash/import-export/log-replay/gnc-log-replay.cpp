@@ -638,7 +638,7 @@ static void
 log_replay_file_dialog_finished (GObject *source, GAsyncResult *result,
                                  gpointer user_data)
 {
-    LogReplayFileDialogData *data = user_data;
+    auto data = static_cast<LogReplayFileDialogData *> (user_data);
     GncFileDialogRequest *request = GNC_FILE_DIALOG_REQUEST (source);
     GError *error = NULL;
     GFile *file;

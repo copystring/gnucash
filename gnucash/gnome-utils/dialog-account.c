@@ -75,7 +75,8 @@ typedef struct _AccountWindow
 {
     QofBook   *book;
     gboolean   modal;
-    GtkWidget *dialog;
+    GtkWindow *dialog;
+    gboolean   closing;
 
     AccountDialogType dialog_type;
 
@@ -94,7 +95,7 @@ typedef struct _AccountWindow
 
     GtkWidget     *name_entry;
     GtkWidget     *description_entry;
-    GtkWidget     *color_entry_button;
+    GtkColorDialogButton *color_entry_button;
     GtkWidget     *color_default_button;
     GtkWidget     *code_entry;
     GtkTextBuffer *notes_text_buffer;
@@ -141,16 +142,21 @@ typedef struct _AccountWindow
 
 typedef struct _RenumberDialog
 {
-    GtkWidget *dialog;
+    GtkWindow *dialog;
     GtkWidget *prefix;
     GtkWidget *interval;
     GtkWidget *digits;
     GtkWidget *example1;
     GtkWidget *example2;
 
-    Account   *parent;
+    QofBook   *book;
+    GncGUID    book_guid;
+    GncGUID    parent_guid;
+    gboolean   closing;
     gint       num_children;
 } RenumberDialog;
+
+#define RENUMBER_DIALOG_DATA "gnc-account-renumber-dialog"
 
 /** Static Globals *******************************************************/
 static QofLogModule log_module = GNC_MOD_GUI;
@@ -322,7 +328,7 @@ gnc_account_to_ui (AccountWindow *aw)
     if (!gdk_rgba_parse (&color, string))
         gdk_rgba_parse (&color, DEFAULT_COLOR);
 
-    gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER(aw->color_entry_button), &color);
+    gtk_color_dialog_button_set_rgba (aw->color_entry_button, &color);
 
     commodity = xaccAccountGetCommodity (account);
     gnc_general_select_set_selected (GNC_GENERAL_SELECT(aw->commodity_edit),
@@ -470,7 +476,7 @@ gnc_ui_to_account (AccountWindow *aw)
     Account *parent_account;
     const char *old_string;
     const char *string;
-    GdkRGBA color;
+    const GdkRGBA *color;
     gboolean flag;
     gnc_numeric balance;
     gnc_numeric balance_limit;
@@ -512,8 +518,8 @@ gnc_ui_to_account (AccountWindow *aw)
     if (g_strcmp0 (string, old_string) != 0)
         xaccAccountSetDescription (account, string);
 
-    gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER(aw->color_entry_button), &color);
-    char* new_string = gdk_rgba_to_string (&color);
+    color = gtk_color_dialog_button_get_rgba (aw->color_entry_button);
+    char* new_string = gdk_rgba_to_string (color);
     if (!g_strcmp0 (new_string, DEFAULT_COLOR))
     {
         g_free(new_string);
@@ -807,14 +813,17 @@ typedef struct
     GtkWindow *dialog;
 } AccountTypeConfirmation;
 
+#define ACCOUNT_TYPE_CONFIRMATION_DATA "gnc-account-type-confirmation"
+
 static void
 account_type_confirmation_destroy_cb (GtkWidget *object,
                                       AccountTypeConfirmation *confirmation)
 {
     if (!confirmation)
         return;
+    g_object_set_data (G_OBJECT (object), ACCOUNT_TYPE_CONFIRMATION_DATA, NULL);
     if (confirmation->dialog == GTK_WINDOW (object))
-        g_clear_object (&confirmation->dialog);
+        confirmation->dialog = NULL;
     g_weak_ref_clear (&confirmation->account_window);
     g_free (confirmation);
 }
@@ -822,8 +831,21 @@ account_type_confirmation_destroy_cb (GtkWidget *object,
 static void
 account_type_confirmation_close (AccountTypeConfirmation *confirmation)
 {
-    if (confirmation && confirmation->dialog)
-        gtk_window_destroy (confirmation->dialog);
+    GtkWindow *dialog;
+
+    if (!confirmation || !confirmation->dialog)
+        return;
+
+    dialog = g_steal_pointer (&confirmation->dialog);
+    gtk_window_destroy (dialog);
+    g_object_unref (dialog);
+}
+
+static void
+account_type_confirmation_parent_destroy_cb (GtkWindow *dialog)
+{
+    account_type_confirmation_close (
+        g_object_get_data (G_OBJECT (dialog), ACCOUNT_TYPE_CONFIRMATION_DATA));
 }
 
 static void
@@ -885,6 +907,8 @@ verify_children_compatible (AccountWindow *aw)
     confirmation = g_new0 (AccountTypeConfirmation, 1);
     g_weak_ref_init (&confirmation->account_window, G_OBJECT (aw->dialog));
     confirmation->dialog = GTK_WINDOW (gtk_window_new ());
+    g_object_set_data (G_OBJECT (confirmation->dialog), ACCOUNT_TYPE_CONFIRMATION_DATA,
+                       confirmation);
     gtk_window_set_title (confirmation->dialog, _("Give the children the same type?"));
     gtk_window_set_modal (confirmation->dialog, TRUE);
     gtk_window_set_transient_for (confirmation->dialog, aw->dialog);
@@ -944,7 +968,8 @@ verify_children_compatible (AccountWindow *aw)
                       G_CALLBACK (account_type_confirmation_close_request_cb), confirmation);
     g_signal_connect (confirmation->dialog, "destroy",
                       G_CALLBACK (account_type_confirmation_destroy_cb), confirmation);
-    g_signal_connect_object (aw->dialog, "destroy", G_CALLBACK (gtk_window_destroy),
+    g_signal_connect_object (aw->dialog, "destroy",
+                             G_CALLBACK (account_type_confirmation_parent_destroy_cb),
                              confirmation->dialog, G_CONNECT_SWAPPED);
     gtk_window_present (confirmation->dialog);
     return FALSE;
@@ -1560,7 +1585,7 @@ gnc_account_color_default_cb (GtkWidget *widget, gpointer data)
     AccountWindow *aw = data;
 
     gdk_rgba_parse (&color, DEFAULT_COLOR);
-    gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER(aw->color_entry_button), &color);
+    gtk_color_dialog_button_set_rgba (aw->color_entry_button, &color);
 
 }
 
@@ -1650,7 +1675,6 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     GtkWidget *box;
     GtkWidget *label;
     GtkBuilder  *builder;
-    GtkSelectionModel *selection;
     const gchar *tt = _("This Account contains Transactions.\nChanging this option is not possible.");
     guint32 compat_types = xaccAccountTypesValid ();
 
@@ -1688,7 +1712,7 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     aw->notebook = GTK_WIDGET(gtk_builder_get_object (builder, "account_notebook"));
     aw->name_entry = GTK_WIDGET(gtk_builder_get_object (builder, "name_entry"));
     aw->description_entry = GTK_WIDGET(gtk_builder_get_object (builder, "description_entry"));
-    aw->color_entry_button = GTK_WIDGET(gtk_builder_get_object (builder, "color_entry_button"));
+    aw->color_entry_button = GTK_COLOR_DIALOG_BUTTON (gtk_builder_get_object (builder, "color_entry_button"));
     aw->color_default_button = GTK_WIDGET(gtk_builder_get_object (builder, "color_default_button"));
     aw->code_entry = GTK_WIDGET(gtk_builder_get_object (builder, "code_entry"));
     aw->notes_text_buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW(GTK_WIDGET(
@@ -2358,18 +2382,30 @@ renumber_dialog_destroy_cb (GtkWidget *object, RenumberDialog *data)
     if (!data)
         return;
     data->closing = TRUE;
+    g_object_set_data (G_OBJECT (object), RENUMBER_DIALOG_DATA, NULL);
     if (data->dialog == GTK_WINDOW (object))
-        g_clear_object (&data->dialog);
+        data->dialog = NULL;
     g_free (data);
 }
 
 static void
 renumber_dialog_close (RenumberDialog *data)
 {
+    GtkWindow *dialog;
+
     if (!data || data->closing || !data->dialog)
         return;
+
     data->closing = TRUE;
-    gtk_window_destroy (data->dialog);
+    dialog = g_steal_pointer (&data->dialog);
+    gtk_window_destroy (dialog);
+    g_object_unref (dialog);
+}
+
+static void
+renumber_dialog_parent_destroy_cb (GtkWindow *dialog)
+{
+    renumber_dialog_close (g_object_get_data (G_OBJECT (dialog), RENUMBER_DIALOG_DATA));
 }
 
 static void
@@ -2449,6 +2485,7 @@ gnc_account_renumber_create_dialog (GtkWidget *window, Account *account)
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_renumber_dialog");
     data->dialog = GTK_WINDOW (gtk_builder_get_object (builder, "account_renumber_dialog"));
     g_object_ref (data->dialog);
+    g_object_set_data (G_OBJECT (data->dialog), RENUMBER_DIALOG_DATA, data);
     if (GTK_IS_WINDOW (window))
         gtk_window_set_transient_for (data->dialog, GTK_WINDOW (window));
     gtk_window_set_modal (data->dialog, TRUE);
@@ -2480,7 +2517,7 @@ gnc_account_renumber_create_dialog (GtkWidget *window, Account *account)
                                    GTK_WIDGET (gtk_builder_get_object (builder, "okbutton2")));
     g_object_unref (builder);
     if (GTK_IS_WINDOW (window))
-        g_signal_connect_object (window, "destroy", G_CALLBACK (gtk_window_destroy),
+        g_signal_connect_object (window, "destroy", G_CALLBACK (renumber_dialog_parent_destroy_cb),
                                  data->dialog, G_CONNECT_SWAPPED);
     gtk_window_present (data->dialog);
 }
@@ -2490,7 +2527,7 @@ default_color_button_cb (GtkButton *button, gpointer user_data)
     GdkRGBA color;
 
     if (gdk_rgba_parse (&color, DEFAULT_COLOR))
-        gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER(user_data), &color);
+        gtk_color_dialog_button_set_rgba (GTK_COLOR_DIALOG_BUTTON (user_data), &color);
 }
 
 static void
@@ -2533,7 +2570,7 @@ typedef struct
     QofBook *book;
     GncGUID book_guid;
     GncGUID account_guid;
-    GtkWidget *color_button;
+    GtkColorDialogButton *color_button;
     GtkWidget *over_write;
     GtkWidget *enable_color;
     GtkWidget *enable_placeholder;
@@ -2543,6 +2580,8 @@ typedef struct
     gchar *old_color;
     gboolean closing;
 } CascadePropertiesDialog;
+
+#define CASCADE_PROPERTIES_DIALOG_DATA "gnc-account-cascade-properties-dialog"
 
 static Account *
 cascade_dialog_get_account (CascadePropertiesDialog *data)
@@ -2563,8 +2602,9 @@ cascade_dialog_destroy_cb (GtkWidget *object, CascadePropertiesDialog *data)
     if (!data)
         return;
     data->closing = TRUE;
+    g_object_set_data (G_OBJECT (object), CASCADE_PROPERTIES_DIALOG_DATA, NULL);
     if (data->dialog == GTK_WINDOW (object))
-        g_clear_object (&data->dialog);
+        data->dialog = NULL;
     g_free (data->old_color);
     g_free (data);
 }
@@ -2572,10 +2612,22 @@ cascade_dialog_destroy_cb (GtkWidget *object, CascadePropertiesDialog *data)
 static void
 cascade_dialog_close (CascadePropertiesDialog *data)
 {
+    GtkWindow *dialog;
+
     if (!data || data->closing || !data->dialog)
         return;
+
     data->closing = TRUE;
-    gtk_window_destroy (data->dialog);
+    dialog = g_steal_pointer (&data->dialog);
+    gtk_window_destroy (dialog);
+    g_object_unref (dialog);
+}
+
+static void
+cascade_dialog_parent_destroy_cb (GtkWindow *dialog)
+{
+    cascade_dialog_close (
+        g_object_get_data (G_OBJECT (dialog), CASCADE_PROPERTIES_DIALOG_DATA));
 }
 
 static void
@@ -2583,7 +2635,7 @@ cascade_dialog_apply_cb (GtkButton *button, CascadePropertiesDialog *data)
 {
     Account *account;
     GList *accounts;
-    GdkRGBA new_color;
+    const GdkRGBA *new_color;
     gchar *new_color_string = NULL;
     gboolean color_active, placeholder_active, hidden_active, replace;
     gboolean placeholder, hidden;
@@ -2603,8 +2655,8 @@ cascade_dialog_apply_cb (GtkButton *button, CascadePropertiesDialog *data)
 
     if (color_active)
     {
-        gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (data->color_button), &new_color);
-        new_color_string = gdk_rgba_to_string (&new_color);
+        new_color = gtk_color_dialog_button_get_rgba (data->color_button);
+        new_color_string = gdk_rgba_to_string (new_color);
         if (g_strcmp0 (new_color_string, DEFAULT_COLOR) == 0)
             g_clear_pointer (&new_color_string, g_free);
         update_account_color (account, data->old_color, new_color_string, replace);
@@ -2668,6 +2720,7 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_cascade_dialog");
     data->dialog = GTK_WINDOW (gtk_builder_get_object (builder, "account_cascade_dialog"));
     g_object_ref (data->dialog);
+    g_object_set_data (G_OBJECT (data->dialog), CASCADE_PROPERTIES_DIALOG_DATA, data);
     if (GTK_IS_WINDOW (window))
         gtk_window_set_transient_for (data->dialog, GTK_WINDOW (window));
     gtk_window_set_modal (data->dialog, TRUE);
@@ -2676,9 +2729,8 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
     color_box = GTK_WIDGET (gtk_builder_get_object (builder, "color_box"));
     label = GTK_WIDGET (gtk_builder_get_object (builder, "color_label"));
     data->over_write = GTK_WIDGET (gtk_builder_get_object (builder, "replace_check"));
-    data->color_button = GTK_WIDGET (gtk_builder_get_object (builder, "color_button"));
+    data->color_button = GTK_COLOR_DIALOG_BUTTON (gtk_builder_get_object (builder, "color_button"));
     color_button_default = GTK_WIDGET (gtk_builder_get_object (builder, "color_button_default"));
-    gtk_color_chooser_set_use_alpha (GTK_COLOR_CHOOSER (data->color_button), FALSE);
     g_signal_connect (data->enable_color, "toggled", G_CALLBACK (enable_box_cb), color_box);
     g_signal_connect (color_button_default, "clicked", G_CALLBACK (default_color_button_cb),
                       data->color_button);
@@ -2693,7 +2745,7 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
         data->old_color = g_strdup (color_string);
     if (!gdk_rgba_parse (&color, color_string ? color_string : DEFAULT_COLOR))
         gdk_rgba_parse (&color, DEFAULT_COLOR);
-    gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (data->color_button), &color);
+    gtk_color_dialog_button_set_rgba (data->color_button, &color);
 
     data->enable_placeholder = GTK_WIDGET (gtk_builder_get_object (
         builder, "enable_cascade_placeholder"));
@@ -2730,7 +2782,7 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
                                    GTK_WIDGET (gtk_builder_get_object (builder, "okbutton3")));
     g_object_unref (builder);
     if (GTK_IS_WINDOW (window))
-        g_signal_connect_object (window, "destroy", G_CALLBACK (gtk_window_destroy),
+        g_signal_connect_object (window, "destroy", G_CALLBACK (cascade_dialog_parent_destroy_cb),
                                  data->dialog, G_CONNECT_SWAPPED);
     gtk_window_present (data->dialog);
 }

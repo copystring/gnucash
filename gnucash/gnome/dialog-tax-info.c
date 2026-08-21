@@ -667,7 +667,7 @@ account_to_gui (TaxInfoDialog *ti_dialog, Account *account)
         index = 0;
     gtk_selection_model_select_item (GTK_SELECTION_MODEL (ti_dialog->txf_selection),
                                      index, TRUE);
-    gtk_column_view_scroll_to (GTK_COLUMN_VIEW (ti_dialog->txf_category_view), index,
+    gtk_column_view_scroll_to (GTK_COLUMN_VIEW (ti_dialog->txf_category_view), index, NULL,
                                GTK_LIST_SCROLL_FOCUS, NULL);
 
     str = xaccAccountGetTaxUSPayerNameSource (account);
@@ -747,7 +747,7 @@ window_destroy_cb (GtkWidget *object, gpointer data)
     g_free (ti_dialog);
 }
 
-static voidcursor_changed_cb (GtkWidget *widget, gpointer data)
+static void cursor_changed_cb (GtkWidget *widget, gpointer data)
 {
     TaxInfoDialog *ti_dialog = data;
     GncTreeViewAccount *account_tree;
@@ -1195,7 +1195,6 @@ identity_edit_clicked_cb (GtkButton *button, gpointer user_data)
     types = gtk_string_list_new ((const char * const *)entries->pdata);
     g_ptr_array_free (entries, TRUE);
     edit->type_dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (types), NULL));
-    g_object_unref (types);
     gtk_drop_down_set_selected (edit->type_dropdown, current_item);
     gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (edit->type_dropdown), 1, 1, 1, 1);
     gtk_label_set_mnemonic_widget (GTK_LABEL (label), GTK_WIDGET (edit->type_dropdown));

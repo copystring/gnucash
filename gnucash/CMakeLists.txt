@@ -266,7 +266,7 @@ file(COPY ${ENV_FILE_OUT}
 
 install(FILES ${SCRIPT_LIST} ${VALGRIND_OUTDIR}/gnucash-valgrind DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES ${ENVIRONMENT_FILE_DIR}/environment DESTINATION
-  ${CMAKE_INSTALL_FULL_SYSCONFDIR}/gnucash)
+  ${CMAKE_INSTALL_SYSCONFDIR}/gnucash)
 
 
 set_local_dist(gnucash_DIST_local CMakeLists.txt environment.in generate-gnc-script

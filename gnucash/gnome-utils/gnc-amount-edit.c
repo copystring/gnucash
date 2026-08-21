@@ -39,7 +39,7 @@
 #include "gnc-ui.h"
 
 #ifdef G_OS_WIN32
-# include <gdk/gdkwin32.h>
+# include <gdk/win32/gdkwin32.h>
 #endif
 
 /* Signal codes */
@@ -298,8 +298,6 @@ gnc_amount_edit_key_press (GtkEventControllerKey *key, guint keyval,
                            gpointer user_data)
 {
     GNCAmountEdit *gae = GNC_AMOUNT_EDIT(user_data);
-    gint result;
-
     if (gtk_widget_get_visible (GTK_WIDGET(gae->image)))
     {
         gtk_widget_set_visible (GTK_WIDGET(gae->image), FALSE);
@@ -346,7 +344,7 @@ gnc_amount_edit_key_press (GtkEventControllerKey *key, guint keyval,
 
         gtk_editable_set_position (editable, position);
         g_free (decimal);
-        result = TRUE;
+        return TRUE;
     }
 
     switch (keyval)

@@ -46,16 +46,12 @@ void
 gnc_date_picker_set_date (GNCDatePicker *date_picker,
                           guint day, guint mon, guint year)
 {
-    GDateTime *date;
-
     g_return_if_fail (IS_GNC_DATE_PICKER (date_picker));
     g_return_if_fail (date_picker->calendar != NULL);
 
-    date = g_date_time_new_local (year, mon + 1, day, 0, 0, 0);
-    g_return_if_fail (date != NULL);
-
-    gtk_calendar_select_day (date_picker->calendar, date);
-    g_date_time_unref (date);
+    gtk_calendar_set_year (date_picker->calendar, year);
+    gtk_calendar_set_month (date_picker->calendar, mon);
+    gtk_calendar_set_day (date_picker->calendar, day);
 }
 
 void

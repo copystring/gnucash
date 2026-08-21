@@ -46,7 +46,6 @@ owner_search_dropdown_new (void)
 {
     GtkStringList *model = gtk_string_list_new (NULL);
     GtkDropDown *dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (model), NULL));
-    g_object_unref (model);
     return dropdown;
 }
 

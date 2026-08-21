@@ -29,11 +29,10 @@ if (WITH_SQL)
     ${backend_dbi_noinst_HEADERS}
   )
 
-  set(WINSOCK_LIB "")
-  if(MINGW64)
-    set(WINSOCK_LIB "-lws2_32")
+  if(WIN32)
+    target_link_libraries(gncmod-backend-dbi ${WS2_LIB})
   endif()
-  target_link_libraries(gncmod-backend-dbi gnc-backend-sql gnc-engine ${GTK2_LDFLAGS} ${Boost_REGEX_LIBRARY} ${LIBDBI_LIBRARY} ${WINSOCK_LIB})
+  target_link_libraries(gncmod-backend-dbi gnc-backend-sql gnc-engine ${GTK2_LDFLAGS} ${Boost_REGEX_LIBRARY} ${LIBDBI_LIBRARY})
 
   target_compile_definitions(gncmod-backend-dbi PRIVATE -DG_LOG_DOMAIN=\"gnc.backend.dbi\")
 

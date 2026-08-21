@@ -94,14 +94,13 @@ dialog_changed_internal (GtkWidget *widget, bool sensitive)
 {
     g_return_if_fail(widget);
 
-    auto toplevel{gtk_widget_get_toplevel(widget)};
-    if (toplevel == widget && !GTK_IS_WINDOW(toplevel))
+    auto root{gtk_widget_get_root (widget)};
+    if (!GTK_IS_WINDOW (root))
         return;
-    g_assert(toplevel && GTK_IS_WINDOW(toplevel));
 
     auto option_win =
-        static_cast<GncOptionsDialog*>(g_object_get_data(G_OBJECT(toplevel),
-                                                     "optionwin"));
+        static_cast<GncOptionsDialog*>(g_object_get_data (G_OBJECT (root),
+                                                           "optionwin"));
 
     if (option_win) // this null when part of assistant
         option_win->set_sensitive(sensitive);
@@ -208,7 +207,7 @@ create_content_box()
 static GtkGrid*
 create_options_box(GtkBox* content_box)
 {
-    auto options_scrolled_win = gtk_scrolled_window_new(NULL, NULL);
+    auto options_scrolled_win = gtk_scrolled_window_new ();
     gnc_box_append_full(GTK_BOX(content_box), options_scrolled_win,
                        TRUE, TRUE, 0);
 
@@ -257,12 +256,12 @@ setup_notebook_pages(GncOptionsDialog* dlg, GtkBox* page_content_box,
 
         if (page_count > MAX_TAB_COUNT - 1)   /* Convert 1-based -> 0-based */
         {
-            gtk_widget_show(dlg->get_page_list());
+            gtk_widget_set_visible (dlg->get_page_list (), TRUE);
             gtk_notebook_set_show_tabs(GTK_NOTEBOOK(notebook), FALSE);
             gtk_notebook_set_show_border(GTK_NOTEBOOK(notebook), FALSE);
         }
         else
-            gtk_widget_hide(dlg->get_page_list());
+            gtk_widget_set_visible (dlg->get_page_list (), FALSE);
 
     }
     return page_count;
@@ -280,7 +279,7 @@ dialog_append_page(GncOptionsDialog* dlg, GncOptionSectionPtr& section)
 
     auto page_label = gtk_label_new(_(name));
     PINFO("Page_label is %s", _(name));
-    gtk_widget_show(page_label);
+    gtk_widget_set_visible (page_label, TRUE);
 
     /* Build this options page */
     auto page_content_box = create_content_box();
@@ -358,7 +357,7 @@ GncOptionsDialog::build_contents(GncOptionDB  *odb, bool show_dialog)
     }
     dialog_changed_internal(m_window, FALSE);
     if (show_dialog)
-        gtk_widget_show(m_window);
+        gtk_window_present (GTK_WINDOW (m_window));
 }
 
 void GncOptionsDialog::call_apply_cb() noexcept
@@ -382,15 +381,24 @@ void GncOptionsDialog::call_help_cb() noexcept
 
 void GncOptionsDialog::call_close_cb() noexcept
 {
+    if (m_destroying || m_closing)
+        return;
+
+    m_closing = true;
     if (m_close_cb)
     {
-        gtk_window_close(GTK_WINDOW(m_window));
-        (m_close_cb)(this, m_close_cb_data);
+        auto close_cb = m_close_cb;
+        auto close_cb_data = m_close_cb_data;
+
+        m_close_cb = nullptr;
+        m_close_cb_data = nullptr;
+        gtk_window_destroy (GTK_WINDOW (m_window));
+        close_cb (this, close_cb_data);
+        return;
     }
-    else
-    {
-        gtk_widget_hide(m_window);
-    }
+
+    m_closing = false;
+    gtk_widget_set_visible (m_window, FALSE);
 }
 
 void GncOptionsDialog::call_book_help_cb() noexcept
@@ -440,13 +448,13 @@ dialog_ok_button_cb(GtkWidget * widget, GncOptionsDialog *win)
     win->call_close_cb();
 }
 
-// "destroy" signal handler
-static void
-dialog_destroy_cb (GtkWidget *object, GncOptionsDialog *win)
+static gboolean
+dialog_close_request_cb (GtkWindow *window, GncOptionsDialog *win)
 {
-    win->call_close_cb();
+    component_close_handler (win);
+    (void)window;
+    return TRUE;
 }
-
 // GtkEventControllerKey::key-pressed signal handler
 static gboolean
 dialog_window_key_pressed_cb (GtkEventControllerKey *key, guint keyval,
@@ -600,7 +608,7 @@ GncOptionsDialog::GncOptionsDialog(bool modal, const char* title,
 
     /* modal */
     if (modal)
-        gtk_widget_hide (GTK_WIDGET(m_apply_button));
+        gtk_widget_set_visible (GTK_WIDGET (m_apply_button), FALSE);
 
     /* glade doesn't support a notebook with zero pages */
     auto hbox = GTK_WIDGET(gtk_builder_get_object (builder,
@@ -609,7 +617,7 @@ GncOptionsDialog::GncOptionsDialog(bool modal, const char* title,
 
     gtk_widget_set_vexpand (m_notebook, TRUE);
 
-    gtk_widget_show(m_notebook);
+    gtk_widget_set_visible (m_notebook, TRUE);
     gnc_box_append_full(GTK_BOX(hbox), m_notebook, TRUE, TRUE, 5);
 
     auto component_id = gnc_register_gui_component (m_component_class,
@@ -618,7 +626,7 @@ GncOptionsDialog::GncOptionsDialog(bool modal, const char* title,
                                                     this);
     gnc_gui_component_set_session (component_id, gnc_get_current_session());
 
-    g_signal_connect (m_window, "destroy", G_CALLBACK(dialog_destroy_cb), this);
+    g_signal_connect (m_window, "close-request", G_CALLBACK(dialog_close_request_cb), this);
 
     m_key_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (m_window, m_key_controller);
@@ -634,7 +642,7 @@ GncOptionsDialog::~GncOptionsDialog()
         return;
     m_destroying = true;
     gnc_unregister_gui_component_by_data(m_component_class, this);
-    g_signal_handlers_disconnect_by_func(m_window, (gpointer)dialog_destroy_cb, this);
+    g_signal_handlers_disconnect_by_func(m_window, (gpointer)dialog_close_request_cb, this);
     if (m_key_controller)
     {
         g_signal_handlers_disconnect_by_func(m_key_controller,
@@ -657,6 +665,7 @@ GncOptionsDialog::~GncOptionsDialog()
             option.set_ui_item(std::unique_ptr<GncOptionUIItem>(nullptr));
         });
     });
+    g_object_set_data (G_OBJECT (m_window), "optionwin", nullptr);
     g_object_unref(m_window);
 }
 

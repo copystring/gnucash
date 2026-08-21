@@ -50,6 +50,8 @@ typedef struct
     GObjectClass parent_class;
 } GncReportComboItemClass;
 
+GType gnc_report_combo_item_get_type (void) G_GNUC_CONST;
+
 G_DEFINE_TYPE (GncReportComboItem, gnc_report_combo_item, G_TYPE_OBJECT)
 
 enum

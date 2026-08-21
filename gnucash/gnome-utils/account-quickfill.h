@@ -45,6 +45,8 @@
 #include "Account.h"
 #include "QuickFill.h"
 
+G_BEGIN_DECLS
+
 typedef gboolean (*AccountBoolCB) (Account*, gpointer);
 
 #define GNC_TYPE_ACCOUNT_LIST_ITEM (gnc_account_list_item_get_type ())
@@ -89,6 +91,8 @@ GListModel* gnc_get_shared_account_name_list_model (Account* root,
                                                     const char* key,
                                                     AccountBoolCB cb,
                                                     gpointer cb_data);
+
+G_END_DECLS
 
 #endif
 

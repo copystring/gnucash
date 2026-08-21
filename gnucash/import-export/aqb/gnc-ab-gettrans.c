@@ -44,6 +44,7 @@
 #include "gnc-ab-standing-orders.h"
 #include "gnc-gwen-gui.h"
 #include "gnc-ui.h"
+#include "gnc-ui-util.h"
 #include "qof.h"
 
 /* This static indicates the debugging module that this .o belongs to.  */

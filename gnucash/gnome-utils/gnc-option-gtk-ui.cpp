@@ -29,6 +29,7 @@
 #include <memory>
 #include <qof.h>
 #include <gnc-engine.h> // for GNC_MOD_GUI
+#include <gnc-ui-util.h> // for gnc_get_current_book
 #include <gnc-commodity.h> // for GNC_COMMODITY
 #include "gnc-account-sel.h" // for GNC_ACCOUNT_SEL
 #include "gnc-currency-edit.h" //for GNC_CURRENCY_EDIT
@@ -389,7 +390,9 @@ static void
 option_dropdown_selection_changed_cb (GObject *object, GParamSpec *pspec,
                                       gpointer user_data)
 {
-    gnc_option_changed_widget_cb (GTK_WIDGET (object), user_data);
+    gnc_option_changed_widget_cb (GTK_WIDGET (object),
+                                  static_cast<GncOption *> (user_data));
+    (void)pspec;
 }
 
 static GtkWidget *
@@ -1195,7 +1198,7 @@ account_list_item_bind_cb (GtkSignalListItemFactory *factory,
     {
         g_signal_connect_object (row, "notify::expanded",
                                  G_CALLBACK (account_list_row_expanded_cb),
-                                 root, 0);
+                                 root, G_CONNECT_DEFAULT);
         g_object_set_data (G_OBJECT (row),
                            s_account_list_expansion_listener_data, root);
     }
@@ -1378,10 +1381,10 @@ create_account_widget (GncOption& option, char *name)
                             selection, g_object_unref);
     g_signal_connect_object (model, "items-changed",
                              G_CALLBACK (account_list_model_items_changed_cb),
-                             root, 0);
+                             root, G_CONNECT_DEFAULT);
     g_signal_connect_object (source, "items-changed",
                              G_CALLBACK (account_list_source_items_changed_cb),
-                             root, 0);
+                             root, G_CONNECT_DEFAULT);
 
     factory = gtk_signal_list_item_factory_new ();
     g_signal_connect (factory, "setup",
@@ -1779,25 +1782,26 @@ public:
         auto rgba_str{g_strdup_printf("#%s", value.c_str())};
         if (gdk_rgba_parse(&color, rgba_str))
         {
-            auto color_button = GTK_COLOR_CHOOSER(get_widget());
-            gtk_color_chooser_set_rgba(color_button, &color);
+            auto color_button = GTK_COLOR_DIALOG_BUTTON (get_widget ());
+            gtk_color_dialog_button_set_rgba (color_button, &color);
         }
         g_free(rgba_str);
     }
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-        GdkRGBA color;
-        auto color_button = GTK_COLOR_CHOOSER(get_widget());
-        gtk_color_chooser_get_rgba(color_button, &color);
+        auto color_button = GTK_COLOR_DIALOG_BUTTON (get_widget ());
+        auto color = gtk_color_dialog_button_get_rgba (color_button);
+        if (!color)
+            return;
         auto rgba_str = g_strdup_printf("%2x%2x%2x%2x",
-                                        (uint8_t)(color.red * 255),
-                                        (uint8_t)(color.green * 255),
-                                        (uint8_t)(color.blue * 255),
-                                        (uint8_t)(color.alpha * 255));
+                                        (uint8_t)(color->red * 255),
+                                        (uint8_t)(color->green * 255),
+                                        (uint8_t)(color->blue * 255),
+                                        (uint8_t)(color->alpha * 255));
         auto rgb_str = g_strdup_printf("%2x%2x%2x",
-                                       (uint8_t)(color.red * 255),
-                                       (uint8_t)(color.green * 255),
-                                       (uint8_t)(color.blue * 255));
+                                       (uint8_t)(color->red * 255),
+                                       (uint8_t)(color->green * 255),
+                                       (uint8_t)(color->blue * 255));
 // sample-report.scm uses an old HTML4 attribute that doesn't understand alpha.
         option.set_value(std::string{rgb_str});
         g_free(rgba_str);
@@ -1808,13 +1812,15 @@ public:
 template<> void
 create_option_widget<GncOptionUIType::COLOR> (GncOption& option, GtkGrid *page_box, int row)
 {
-    auto widget = gtk_color_button_new();
-    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(widget), TRUE);
+    auto dialog = gtk_color_dialog_new ();
+    gtk_color_dialog_set_with_alpha (dialog, TRUE);
+    auto widget = gtk_color_dialog_button_new (dialog);
+    g_object_unref (dialog);
 
     option.set_ui_item(std::make_unique<GncGtkColorUIItem>(widget));
     option.set_ui_item_from_option();
 
-    g_signal_connect(G_OBJECT(widget), "color-set",
+    g_signal_connect(G_OBJECT(widget), "notify::rgba",
                      G_CALLBACK(gnc_option_changed_widget_cb), &option);
     wrap_widget(option, widget, page_box, row);
 }
@@ -1826,31 +1832,40 @@ public:
         GncOptionGtkUIItem{widget, GncOptionUIType::FONT} {}
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
-        GtkFontChooser *font_chooser = GTK_FONT_CHOOSER(get_widget());
-        gtk_font_chooser_set_font(font_chooser,
-                                  option.get_value<std::string>().c_str());
-
+        auto description = pango_font_description_from_string (
+            option.get_value<std::string>().c_str ());
+        gtk_font_dialog_button_set_font_desc (
+            GTK_FONT_DIALOG_BUTTON (get_widget ()), description);
+        pango_font_description_free (description);
     }
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-        GtkFontChooser *font_chooser = GTK_FONT_CHOOSER(get_widget());
-        option.set_value(std::string{gtk_font_chooser_get_font(font_chooser)});
+        auto description = gtk_font_dialog_button_get_font_desc (
+            GTK_FONT_DIALOG_BUTTON (get_widget ()));
+        if (!description)
+            return;
+        auto font = pango_font_description_to_string (description);
+        option.set_value(std::string{font});
+        g_free (font);
     }
 };
 
 template<> void
 create_option_widget<GncOptionUIType::FONT> (GncOption& option, GtkGrid *page_box, int row)
 {
-    auto widget{gtk_font_button_new()};
-    g_object_set(G_OBJECT(widget),
-                 "use-font", TRUE,
-                 "show-style", TRUE,
-                 "show-size", TRUE,
-                 (char *)NULL);
+    auto dialog = gtk_font_dialog_new ();
+    auto widget = gtk_font_dialog_button_new (dialog);
+    g_object_unref (dialog);
+    gtk_font_dialog_button_set_level (GTK_FONT_DIALOG_BUTTON (widget),
+                                      GTK_FONT_LEVEL_FONT);
+    gtk_font_dialog_button_set_use_font (GTK_FONT_DIALOG_BUTTON (widget),
+                                         TRUE);
+    gtk_font_dialog_button_set_use_size (GTK_FONT_DIALOG_BUTTON (widget),
+                                         TRUE);
 
     option.set_ui_item(std::make_unique<GncGtkFontUIItem>(widget));
     option.set_ui_item_from_option();
-    g_signal_connect(G_OBJECT(widget), "font-set",
+    g_signal_connect(G_OBJECT(widget), "notify::font-desc",
                      G_CALLBACK(gnc_option_changed_widget_cb), &option);
     wrap_widget(option, widget, page_box, row);
 }
@@ -2339,7 +2354,9 @@ static void
 budget_option_selection_changed_cb (GObject *object, GParamSpec *pspec,
                                     gpointer user_data)
 {
-    gnc_option_changed_widget_cb (GTK_WIDGET (object), user_data);
+    gnc_option_changed_widget_cb (GTK_WIDGET (object),
+                                  static_cast<GncOption *> (user_data));
+    (void)pspec;
 }
 
 class GncGtkBudgetUIItem : public GncOptionGtkUIItem

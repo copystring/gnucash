@@ -37,7 +37,6 @@
 #include "gnc-plugin-file-history.h"
 #include "gnc-session.h"
 
-static QofLogModule log_module = GNC_MOD_GUI;
 
 /* MariaDB/MySQL/Postgres optimize localhost to a unix socket but
  * flatpak won't connect to unix sockets without gymnastics default to
@@ -116,14 +115,14 @@ geturl( FileAccessWindow* faw )
     }
     else                    /* db protocol was chosen */
     {
-        host = gtk_entry_get_text( faw->tf_host );
-        path = g_strdup(gtk_entry_get_text(faw->tf_database));
-        username = gtk_entry_get_text( faw->tf_username );
-        password = gtk_entry_get_text( faw->tf_password );
+        host = gtk_editable_get_text (GTK_EDITABLE (faw->tf_host));
+        path = g_strdup (gtk_editable_get_text (GTK_EDITABLE (faw->tf_database)));
+        username = gtk_editable_get_text (GTK_EDITABLE (faw->tf_username));
+        password = gtk_editable_get_text (GTK_EDITABLE (faw->tf_password));
     }
 
     g_assert (faw->tf_port != NULL);
-    port_text = gtk_entry_get_text (faw->tf_port);
+    port_text = gtk_editable_get_text (GTK_EDITABLE (faw->tf_port));
     if (port_text && *port_text)
         port = atoi (port_text) & 0xffff;
 
@@ -304,13 +303,13 @@ set_widget_sensitivity( FileAccessWindow* faw, gboolean is_file_based_uri )
 {
     if (is_file_based_uri)
     {
-        gtk_widget_show (faw->frame_file);
-        gtk_widget_hide (faw->frame_database);
+        gtk_widget_set_visible (faw->frame_file, TRUE);
+        gtk_widget_set_visible (faw->frame_database, FALSE);
     }
     else
     {
-        gtk_widget_show(faw->frame_database);
-        gtk_widget_hide(faw->frame_file);
+        gtk_widget_set_visible (faw->frame_database, TRUE);
+        gtk_widget_set_visible (faw->frame_file, FALSE);
     }
 //    gtk_widget_set_sensitive( faw->frame_file, is_file_based_uri );
 //	gtk_widget_set_sensitive( faw->frame_database, !is_file_based_uri );
@@ -438,10 +437,10 @@ gnc_ui_file_access (GtkWindow *parent, int type)
     faw->frame_database = GTK_WIDGET(gtk_builder_get_object (builder, "frame_database" ));
     faw->readonly_checkbutton = GTK_WIDGET(gtk_builder_get_object (builder, "readonly_checkbutton"));
     faw->tf_host = GTK_ENTRY(gtk_builder_get_object (builder, "tf_host" ));
-    gtk_entry_set_text( faw->tf_host, DEFAULT_HOST );
+    gtk_editable_set_text (GTK_EDITABLE (faw->tf_host), DEFAULT_HOST);
     faw->tf_database = GTK_ENTRY(gtk_builder_get_object (builder, "tf_database" ));
     default_db = get_default_database();
-    gtk_entry_set_text( faw->tf_database, default_db );
+    gtk_editable_set_text (GTK_EDITABLE (faw->tf_database), default_db);
     faw->tf_username = GTK_ENTRY(gtk_builder_get_object (builder, "tf_username" ));
     faw->tf_password = GTK_ENTRY(gtk_builder_get_object (builder, "tf_password" ));
     faw->tf_port = GTK_ENTRY(gtk_builder_get_object (builder, "tf_port" ));

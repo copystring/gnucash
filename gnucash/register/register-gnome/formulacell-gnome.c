@@ -44,7 +44,8 @@
 #include "table-allgui.h"
 
 #ifdef G_OS_WIN32
-# include <gdk/gdkwin32.h>
+# include <gdk/gdk.h>
+# include <gdk/win32/gdkwin32.h>
 #endif
 
 //static QofLogModule log_module = GNC_MOD_REGISTER;

@@ -1264,7 +1264,8 @@ gnc_table_deferred_edit_replay (Table *table, gpointer user_data)
         break;
     }
 
-    gnc_table_refresh_gui (table, FALSE);
+    if (table->gui_handlers.refresh)
+        table->gui_handlers.refresh (table, FALSE);
 }
 
 static void

@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
-  <requires lib="gtk" version="4.0" />
+  <requires lib="gtk" version="4.10" />
+  <object class="GtkColorDialog" id="account_cascade_color_dialog">
+    <property name="with-alpha">0</property>
+  </object>
+  <object class="GtkColorDialog" id="account_color_dialog">
+    <property name="with-alpha">0</property>
+  </object>
   <object class="GtkWindow" id="account_cascade_dialog">
     <property name="title" translatable="1">Cascade Account Values</property>
     <child>
@@ -100,7 +106,8 @@
                   <object class="GtkBox" id="color_button_box">
                     <property name="halign">center</property>
                     <child>
-                      <object class="GtkColorButton" id="color_button">
+                      <object class="GtkColorDialogButton" id="color_button">
+                        <property name="dialog">account_cascade_color_dialog</property>
                         <property name="focusable">1</property>
                         <property name="receives-default">1</property>
                       </object>
@@ -836,7 +843,8 @@
                               <property name="row">7</property>
                             </layout>
                             <child>
-                              <object class="GtkColorButton" id="color_entry_button">
+                              <object class="GtkColorDialogButton" id="color_entry_button">
+                                <property name="dialog">account_color_dialog</property>
                                 <property name="focusable">1</property>
                                 <property name="receives-default">1</property>
                               </object>

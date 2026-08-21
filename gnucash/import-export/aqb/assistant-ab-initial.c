@@ -775,7 +775,7 @@ account_list_clicked_cb (GtkColumnView *view, guint position, gpointer user_data
         selection->ab_acc = ab_acc;
         selection->old_value = old_value;
         g_weak_ref_init (&selection->window, info->window);
-        gnc_import_select_account_async (info->window, NULL, TRUE,
+        gnc_import_select_account_async (GTK_WIDGET (info->window), NULL, TRUE,
                                          longname, commodity, ACCT_TYPE_BANK,
                                          old_value, account_picker_finished_cb,
                                          selection);

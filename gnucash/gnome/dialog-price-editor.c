@@ -209,7 +209,7 @@ price_to_gui (PriceEditDialog *pedit_dialog)
 
     gnc_date_edit_set_time (GNC_DATE_EDIT (pedit_dialog->date_edit), date);
 
-    gtk_entry_set_text (GTK_ENTRY (pedit_dialog->source_entry), source);
+    gnc_entry_set_text (GTK_ENTRY (pedit_dialog->source_entry), source);
 
     gtk_drop_down_set_selected (GTK_DROP_DOWN (pedit_dialog->type_combobox),
                                 type_string_to_index (type));
@@ -294,7 +294,7 @@ pedit_save_request_collect (PriceEditDialog *pedit_dialog,
     request->commodity_guid = *qof_instance_get_guid (QOF_INSTANCE (commodity));
     request->currency_guid = *qof_instance_get_guid (QOF_INSTANCE (currency));
     request->date = gnc_date_edit_get_date (GNC_DATE_EDIT (pedit_dialog->date_edit));
-    request->source = g_strdup (gtk_entry_get_text (
+    request->source = g_strdup (gnc_entry_get_text (
         GTK_ENTRY (pedit_dialog->source_entry)));
     request->type = g_strdup (type_index_to_string (gtk_drop_down_get_selected (
         GTK_DROP_DOWN (pedit_dialog->type_combobox))));
@@ -722,7 +722,7 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
                                     gnc_default_currency ());
     pedit_dialog->currency_edit = w;
     gnc_box_append_full (GTK_BOX (box), w, TRUE, TRUE, 0);
-    gtk_widget_show (w);
+    gtk_widget_set_visible (w, TRUE);
     g_signal_connect (G_OBJECT (w), "changed",
                       G_CALLBACK (pedit_data_changed_cb), pedit_dialog);
     label = GTK_WIDGET(gtk_builder_get_object (builder, "currency_label"));
@@ -732,7 +732,7 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
     w = gnc_date_edit_new (time (NULL), FALSE, FALSE);
     pedit_dialog->date_edit = w;
     gnc_box_append_full (GTK_BOX (box), w, TRUE, TRUE, 0);
-    gtk_widget_show (w);
+    gtk_widget_set_visible (w, TRUE);
     g_signal_connect (G_OBJECT (w), "date_changed",
                       G_CALLBACK (pedit_data_changed_cb), pedit_dialog);
     g_signal_connect (G_OBJECT (GNC_DATE_EDIT (w)->date_entry), "changed",
@@ -757,7 +757,7 @@ gnc_price_pedit_dialog_create (GtkWidget *parent,
                                               (GNC_CURRENCY_EDIT (pedit_dialog->currency_edit)));
     gnc_amount_edit_set_print_info (GNC_AMOUNT_EDIT (w), print_info);
     gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
-    gtk_widget_show (w);
+    gtk_widget_set_visible (w, TRUE);
     label = GTK_WIDGET(gtk_builder_get_object (builder, "price_label"));
     gnc_amount_edit_make_mnemonic_target (GNC_AMOUNT_EDIT(w), label);
 

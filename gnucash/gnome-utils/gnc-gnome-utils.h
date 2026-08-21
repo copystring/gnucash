@@ -78,6 +78,7 @@ void gnc_launch_doclink (GtkWindow *parent, const char *uri);
  *  be found or loaded..
  */
 GtkWidget * gnc_gnome_get_picture (const char *name);
+GtkWidget * gnc_gnome_get_pixmap (const char *name);
 
 
 /** Given a file name, find and load the requested pixbuf.  This

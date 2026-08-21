@@ -2968,8 +2968,9 @@ static GncSplitRegisterSaveResult
         request->value_changed = value_changed;
         gnc_split_register_async_request_track (reg, &request->base,
                                                 split_register_recalc_request_cancel);
+        GtkWidget *owner = gnc_split_register_get_parent (reg);
         gnc_choose_option_dialog_async
-            (gnc_split_register_get_parent (reg), _("Recalculate Transaction"),
+            (GTK_IS_WINDOW (owner) ? GTK_WINDOW (owner) : NULL, _("Recalculate Transaction"),
              _("The values entered for this transaction are inconsistent. Which "
                "value would you like to have recalculated?"), choices,
              default_choice, split_register_recalc_choice_finished, request);

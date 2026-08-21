@@ -92,3 +92,4 @@ add_test(NAME test-real-data
    CONFIGURATIONS Debug;Release
 )
 set_tests_properties(test-real-data PROPERTIES ENVIRONMENT "${test-real-data-env}")
+gnc_add_test_runtime_path(test-real-data)

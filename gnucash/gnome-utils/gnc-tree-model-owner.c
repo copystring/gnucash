@@ -18,6 +18,8 @@ struct _GncOwnerRow
 typedef struct _GncOwnerRow GncOwnerRow;
 typedef struct _GncOwnerRowClass { GObjectClass parent_class; } GncOwnerRowClass;
 
+GType gnc_owner_row_get_type (void);
+
 #define GNC_TYPE_OWNER_ROW (gnc_owner_row_get_type ())
 G_DEFINE_TYPE (GncOwnerRow, gnc_owner_row, G_TYPE_OBJECT)
 

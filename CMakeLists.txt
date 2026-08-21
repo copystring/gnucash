@@ -127,11 +127,8 @@ set(LIBEXECDIR_BUILD ${CMAKE_BINARY_DIR}/libexec)
 set(BINDIR_BUILD     ${CMAKE_BINARY_DIR}/bin)
 
 # We need to distinguish between MinGW.org and MinGW-w64:
-if (MINGW)
-  string(FIND ${CMAKE_C_COMPILER} "msys2" IS_MSYS2)
-  if(${IS_MSYS2} GREATER_EQUAL 0)
-    set(MINGW64 ON)
-  endif()
+if (MINGW AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+  set(MINGW64 ON)
 endif()
 
 # Find a proper bash executable
@@ -339,8 +336,12 @@ if (GUILE3_FOUND) # found guile-3.0
   set(GUILE_EFFECTIVE_VERSION 3.0)
   set(GUILE_INCLUDE_DIRS ${GUILE3_INCLUDE_DIRS})
   set(GUILE_LDFLAGS ${GUILE3_LDFLAGS})
-  pkg_get_variable (GUILD_EXECUTABLE guile-3.0 guild)
-  pkg_get_variable (GUILE_EXECUTABLE guile-3.0 guile)
+  if (NOT GUILD_EXECUTABLE)
+    pkg_get_variable (GUILD_EXECUTABLE guile-3.0 guild)
+  endif()
+  if (NOT GUILE_EXECUTABLE)
+    pkg_get_variable (GUILE_EXECUTABLE guile-3.0 guile)
+  endif()
   if (NOT GUILD_EXECUTABLE)
     find_program (GUILD_EXECUTABLE NAMES guild3.0 guild)
   endif()
@@ -358,8 +359,12 @@ elseif (GUILE22_FOUND) # found guile-2.2
   set(GUILE_EFFECTIVE_VERSION 2.2)
   set(GUILE_INCLUDE_DIRS ${GUILE22_INCLUDE_DIRS})
   set(GUILE_LDFLAGS ${GUILE22_LDFLAGS})
-  pkg_get_variable (GUILD_EXECUTABLE guile-2.2 guild)
-  pkg_get_variable (GUILE_EXECUTABLE guile-2.2 guile)
+  if (NOT GUILD_EXECUTABLE)
+    pkg_get_variable (GUILD_EXECUTABLE guile-2.2 guild)
+  endif()
+  if (NOT GUILE_EXECUTABLE)
+    pkg_get_variable (GUILE_EXECUTABLE guile-2.2 guile)
+  endif()
   if (NOT GUILD_EXECUTABLE)
     find_program (GUILD_EXECUTABLE NAMES guild2.2 guild)
   endif()
@@ -377,8 +382,12 @@ elseif (GUILE2_FOUND) # found guile-2.0
   set(GUILE_EFFECTIVE_VERSION 2.0)
   set(GUILE_INCLUDE_DIRS ${GUILE2_INCLUDE_DIRS})
   set(GUILE_LDFLAGS ${GUILE2_LDFLAGS})
-  pkg_get_variable (GUILD_EXECUTABLE guile-2.0 guild)
-  pkg_get_variable (GUILE_EXECUTABLE guile-2.0 guile)
+  if (NOT GUILD_EXECUTABLE)
+    pkg_get_variable (GUILD_EXECUTABLE guile-2.0 guild)
+  endif()
+  if (NOT GUILE_EXECUTABLE)
+    pkg_get_variable (GUILE_EXECUTABLE guile-2.0 guile)
+  endif()
   if (NOT GUILD_EXECUTABLE)
     find_program (GUILD_EXECUTABLE NAMES guild2.0 guild)
   endif()
@@ -586,6 +595,30 @@ endif()
 get_filename_component(PERL_DIR ${PERL_EXECUTABLE} DIRECTORY)
 
 find_program(POD2MAN_EXECUTABLE pod2man HINTS ${PERL_DIR})
+if (NOT POD2MAN_EXECUTABLE)
+  execute_process(COMMAND
+          ${PERL_EXECUTABLE} -MPod::Man -e ""
+          ERROR_QUIET
+          RESULT_VARIABLE have_pod_man)
+  if (${have_pod_man} EQUAL 0)
+    # Some Windows Perl distributions ship Pod::Man without the pod2man
+    # launcher. The generated man pages still only require the core module.
+    set(_POD2MAN_WRAPPER "${CMAKE_BINARY_DIR}/pod2man-wrapper.pl")
+    file(WRITE "${_POD2MAN_WRAPPER}" [=[
+use strict;
+use warnings;
+
+use Pod::Man;
+
+die "Usage: pod2man-wrapper.pl INPUT OUTPUT" unless @ARGV == 2;
+
+Pod::Man->new()->parse_from_file(@ARGV);
+]=])
+    set(POD2MAN_EXECUTABLE "${_POD2MAN_WRAPPER}")
+  else()
+    message(SEND_ERROR "pod2man executable or Perl Pod::Man module not found.")
+  endif()
+endif()
 
 #ICU
 find_package(ICU 78.0 REQUIRED COMPONENTS uc i18n)

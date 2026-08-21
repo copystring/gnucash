@@ -237,6 +237,8 @@ typedef struct LoanData_
 
 typedef struct _LoanReviewRow { GObject parent_instance; GPtrArray *cells; } LoanReviewRow;
 typedef struct _LoanReviewRowClass { GObjectClass parent_class; } LoanReviewRowClass;
+GType loan_review_row_get_type ();
+
 G_DEFINE_TYPE (LoanReviewRow, loan_review_row, G_TYPE_OBJECT)
 static void loan_review_row_finalize (GObject *object)
 {

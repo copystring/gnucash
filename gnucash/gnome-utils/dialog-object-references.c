@@ -66,12 +66,6 @@ object_references_dialog_close_clicked_cb (GtkButton *button,
     gtk_window_destroy (dialog);
     (void)button;
 }
-static void
-object_references_dialog_destroyed (GtkWidget *dialog, gpointer user_data)
-{
-    (void)user_data;
-    g_object_unref (dialog);
-}
 
 void
 gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
@@ -132,8 +126,6 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
                       G_CALLBACK (object_references_dialog_close_clicked_cb),
                       dialog);
 
-    g_object_ref (dialog);
-    g_signal_connect (dialog, "destroy", G_CALLBACK (object_references_dialog_destroyed), NULL);
     g_object_unref(G_OBJECT(builder));
     gtk_window_set_modal (GTK_WINDOW(dialog), TRUE);
     gtk_window_present (GTK_WINDOW(dialog));

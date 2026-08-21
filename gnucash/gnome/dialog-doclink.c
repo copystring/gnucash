@@ -374,7 +374,6 @@ get_uri_dialog_uri_type_selected_cb (GtkToggleButton *button, gpointer user_data
 {
     DoclinkUpdate *dlu = user_data;
     GtkRoot *top = gtk_widget_get_root (GTK_WIDGET(button)); //button_file
-    gboolean active = gtk_check_button_get_active (GTK_CHECK_BUTTON(button));
 
     // make the window resize after hiding widgets
     if (gtk_check_button_get_active (GTK_CHECK_BUTTON(button)))

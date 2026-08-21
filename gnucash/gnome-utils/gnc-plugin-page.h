@@ -78,7 +78,7 @@ struct GncPluginPage
                                 *   plugin.  This field is private to
                                 *   the gnucash window management
                                 *   code.  */
-} GncPluginPage;
+};
 
 
 /** The class data structure for a content plugin. */

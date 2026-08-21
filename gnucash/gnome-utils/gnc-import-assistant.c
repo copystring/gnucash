@@ -273,7 +273,7 @@ gnc_import_assistant_new (GtkWindow *window, GtkStack *stack, GtkWidget *title,
     g_signal_connect (state->cancel, "clicked", G_CALLBACK (cancel_clicked), window);
     g_signal_connect (state->close, "clicked", G_CALLBACK (close_clicked), window);
     g_signal_connect (window, "close-request", G_CALLBACK (close_requested), window);
-    shortcuts = gtk_shortcut_controller_new ();
+    shortcuts = GTK_SHORTCUT_CONTROLLER (gtk_shortcut_controller_new ());
     gtk_shortcut_controller_add_shortcut (
         shortcuts, gtk_shortcut_new (gtk_keyval_trigger_new (GDK_KEY_Escape, 0),
                                      gtk_callback_action_new (escape_pressed, window, NULL)));

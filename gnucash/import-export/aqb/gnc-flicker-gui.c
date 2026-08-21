@@ -220,7 +220,7 @@ static void
 do_flicker_drawing (GtkWidget *widget, cairo_t *cr)
 {
     /* Always align the flicker display in the middle of the drawing area */
-    flickerdraw.width = gtk_widget_get_allocated_width (widget);
+    flickerdraw.width = gtk_widget_get_width (widget);
 
     /* Start position of the first bar */
     flickerdraw.x_drawpos = (flickerdraw.width - 4 * flickerdraw.margin -
