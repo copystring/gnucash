@@ -16,6 +16,10 @@ set(test_gnc_html_report_document_SOURCES
   test-gnc-html-report-document.cpp
 )
 
+set(test_gnc_html_webview2_clipboard_SOURCES
+  test-gnc-html-webview2-clipboard.cpp
+)
+
 gnc_add_test(test-gnc-html-url-policy
   "${test_gnc_html_url_policy_SOURCES}"
   HTML_TEST_INCLUDE_DIRS
@@ -24,6 +28,12 @@ gnc_add_test(test-gnc-html-url-policy
 
 gnc_add_test(test-gnc-html-report-document
   "${test_gnc_html_report_document_SOURCES}"
+  HTML_TEST_INCLUDE_DIRS
+  HTML_TEST_LIBS
+)
+
+gnc_add_test(test-gnc-html-webview2-clipboard
+  "${test_gnc_html_webview2_clipboard_SOURCES}"
   HTML_TEST_INCLUDE_DIRS
   HTML_TEST_LIBS
 )
@@ -38,4 +48,5 @@ set_dist_list(test_html_DIST
   test-gnc-html-dist-manifest.cmake
   ${test_gnc_html_url_policy_SOURCES}
   ${test_gnc_html_report_document_SOURCES}
+  ${test_gnc_html_webview2_clipboard_SOURCES}
 )

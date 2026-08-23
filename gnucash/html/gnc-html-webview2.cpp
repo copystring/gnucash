@@ -41,6 +41,7 @@
 #include "gnc-gui-query.h"
 #include "gnc-html-history.h"
 #include "gnc-html-p.h"
+#include "gnc-html-webview2-clipboard.hpp"
 #include "gnc-html-webview2.hpp"
 #include "gnc-prefs.h"
 
@@ -1139,14 +1140,108 @@ impl_webview2_reload (GncHtml *html, gboolean force_rebuild)
         (void)priv->web_view->Reload ();
 }
 
+class CopyToClipboardCompletedHandler final
+    : public CallbackBase<ICoreWebView2ExecuteScriptCompletedHandler>
+{
+public:
+    using CallbackBase::CallbackBase;
+
+    HRESULT STDMETHODCALLTYPE QueryInterface (REFIID requested, void **object) override
+    {
+        return query_interface (requested, object,
+                                IID_ICoreWebView2ExecuteScriptCompletedHandler);
+    }
+
+    HRESULT STDMETHODCALLTYPE Invoke (HRESULT error, LPCWSTR result) override
+    {
+        if (FAILED (error))
+        {
+            log_hresult ("copy", error);
+            return S_OK;
+        }
+
+        auto owner = self ();
+        if (!owner)
+            return S_OK;
+        auto json_result = to_utf8 (result);
+        if (!json_result)
+        {
+            PERR ("WebView2 returned no selection data for copy.");
+            return S_OK;
+        }
+        auto selection = gnc_html_webview2_decode_clipboard_selection (json_result);
+        g_free (json_result);
+        if (selection.result == GncHtmlWebView2ClipboardResult::no_selection)
+        {
+            DEBUG ("WebView2 copy requested without a report selection.");
+            return S_OK;
+        }
+        if (selection.result == GncHtmlWebView2ClipboardResult::invalid_result)
+        {
+            PERR ("WebView2 returned invalid selection data for copy.");
+            return S_OK;
+        }
+
+        auto priv = priv_for (owner);
+        if (!priv->view)
+        {
+            PERR ("WebView2 cannot copy a report selection without a GTK widget.");
+            return S_OK;
+        }
+        auto clipboard = gtk_widget_get_clipboard (priv->view);
+        if (!clipboard)
+        {
+            PERR ("GTK did not provide a clipboard for the WebView2 report.");
+            return S_OK;
+        }
+        auto provider = gnc_html_webview2_clipboard_content_provider (selection);
+        if (!provider)
+        {
+            PERR ("WebView2 could not create a content provider for report copy.");
+            return S_OK;
+        }
+        const auto copied = gdk_clipboard_set_content (clipboard, provider);
+        g_object_unref (provider);
+        if (!copied)
+            PERR ("GTK could not set the WebView2 report clipboard content.");
+        return S_OK;
+    }
+};
+
 static void
 impl_webview2_copy_to_clipboard (GncHtml *html)
 {
     auto priv = priv_for (GNC_HTML_WEBVIEW2 (html));
-    if (priv->view)
-        gtk_widget_grab_focus (priv->view);
+    if (!priv->view || !priv->web_view)
+    {
+        PERR ("WebView2 cannot copy a report selection before its view is ready.");
+        return;
+    }
+    if (!gtk_widget_grab_focus (priv->view))
+        DEBUG ("WebView2 report view could not take focus for copy.");
     if (priv->controller)
-        (void)priv->controller->MoveFocus (COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+    {
+        const auto focus_result = priv->controller->MoveFocus (
+            COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        if (FAILED (focus_result))
+            log_hresult ("focus for copy", focus_result);
+    }
+
+    /* Encode both selection forms as ASCII-hex fields for a small, exact JSON
+     * result contract. The host advertises the decoded text and HTML together. */
+    static constexpr wchar_t copy_selection_script[] =
+        L"(() => { const selection = window.getSelection(); if (!selection || "
+        L"selection.rangeCount === 0 || selection.isCollapsed) return null; const text = "
+        L"selection.toString(); if (!text) return null; const container = document.createElement('div'); "
+        L"for (let index = 0; index < selection.rangeCount; ++index) container.append("
+        L"selection.getRangeAt(index).cloneContents()); const html = container.innerHTML; if (!html) "
+        L"return null; const encode = value => Array.from(new TextEncoder().encode(value), byte => "
+        L"byte.toString(16).padStart(2, '0')).join(''); return `${encode(text)}:${encode(html)}`; })()";
+    auto handler = new CopyToClipboardCompletedHandler (GNC_HTML_WEBVIEW2 (html));
+    const auto result = priv->web_view->ExecuteScript (copy_selection_script, handler);
+    handler->Release ();
+    if (FAILED (result))
+        log_hresult ("copy request", result);
 }
 
 static gboolean
