@@ -283,5 +283,9 @@ function(gnc_gtest_configure)
       message(FATAL_ERROR "GMOCK not found. Please install it or set GTEST_ROOT")
     endif()
   endif()
+  gnc_validate_mingw_target_paths(VARIABLES
+    GTEST_SRC_DIR GTEST_INCLUDE_DIR GTEST_SHARED_LIB GTEST_MAIN_LIB
+    GMOCK_SRC_DIR GMOCK_INCLUDE_DIR GMOCK_SHARED_LIB GMOCK_MAIN_LIB)
+
   set(GMOCK_FOUND YES PARENT_SCOPE)
 endfunction()

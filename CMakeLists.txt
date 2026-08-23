@@ -52,6 +52,7 @@ include (GncAddSchemeTargets)
 include (GncAddGSchemaTargets)
 include (GncAddTest)
 include (GncGenerateGResources)
+include (GncMinGWTargetPaths)
 include (MakeDistFiles)
 include (GNUInstallDirs)
 include (TestBigEndian)
@@ -131,54 +132,6 @@ if (MINGW AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   set(MINGW64 ON)
 endif()
 
-# A MinGW compiler must never consume the MSYS runtime headers or import
-# libraries. Derive the target prefix from the selected compiler instead of
-# CMAKE_PREFIX_PATH: the latter intentionally names the MSYS installation in
-# the Windows build support and therefore also contains usr/.
-if (MINGW)
-  get_filename_component (GNC_MINGW_BINDIR "${CMAKE_C_COMPILER}" DIRECTORY)
-  get_filename_component (GNC_MINGW_TARGET_PREFIX "${GNC_MINGW_BINDIR}" DIRECTORY)
-  set (GNC_MINGW_TARGET_INCLUDEDIR "${GNC_MINGW_TARGET_PREFIX}/include")
-  set (GNC_MINGW_TARGET_LIBDIR "${GNC_MINGW_TARGET_PREFIX}/lib")
-
-  foreach (required_file
-      "${GNC_MINGW_TARGET_INCLUDEDIR}/iconv.h"
-      "${GNC_MINGW_TARGET_INCLUDEDIR}/libintl.h"
-      "${GNC_MINGW_TARGET_INCLUDEDIR}/ltdl.h"
-      "${GNC_MINGW_TARGET_INCLUDEDIR}/regex.h"
-      "${GNC_MINGW_TARGET_LIBDIR}/libiconv.dll.a"
-      "${GNC_MINGW_TARGET_LIBDIR}/libintl.dll.a"
-      "${GNC_MINGW_TARGET_LIBDIR}/libltdl.dll.a"
-      "${GNC_MINGW_TARGET_LIBDIR}/libregex.dll.a")
-    if (NOT EXISTS "${required_file}")
-      message (FATAL_ERROR "Missing MinGW target dependency: ${required_file}")
-    endif()
-  endforeach()
-
-  # These names are used both by GnuCash's own find_* calls and by CMake's
-  # FindIconv/FindIntl modules. Cache them before any finder can select
-  # MSYS /usr/include or /usr/lib.
-  set (Iconv_INCLUDE_DIR "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
-    "MinGW target iconv include directory" FORCE)
-  set (Iconv_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libiconv.dll.a" CACHE FILEPATH
-    "MinGW target iconv library" FORCE)
-  set (Intl_INCLUDE_DIR "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
-    "MinGW target libintl include directory" FORCE)
-  set (Intl_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libintl.dll.a" CACHE FILEPATH
-    "MinGW target libintl library" FORCE)
-  set (LIBINTL_INCLUDE_PATH "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
-    "MinGW target libintl include directory" FORCE)
-  set (LIBINTL_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libintl.dll.a" CACHE FILEPATH
-    "MinGW target libintl library" FORCE)
-  set (LTDL_INCLUDE_PATH "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
-    "MinGW target ltdl include directory" FORCE)
-  set (REGEX_INCLUDE_PATH "${GNC_MINGW_TARGET_INCLUDEDIR}" CACHE PATH
-    "MinGW target regex include directory" FORCE)
-  set (REGEX_LIB_PATH "${GNC_MINGW_TARGET_LIBDIR}" CACHE PATH
-    "MinGW target regex library directory" FORCE)
-  set (REGEX_LIBRARY "${GNC_MINGW_TARGET_LIBDIR}/libregex.dll.a" CACHE FILEPATH
-    "MinGW target regex library" FORCE)
-endif()
 # Find a proper bash executable
 
 set(GNC_SHELL $ENV{GNC_SHELL})
@@ -255,7 +208,8 @@ if (WIN32)
   #set(LIBXSLT_INCLUDE_DIR ${CMAKE_PREFIX_PATH}/libxslt/include)
   #set(LIBXSLT_XSLTPROC_EXECUTABLE ${CMAKE_PREFIX_PATH}/libxslt/bin/xsltproc)
   #Prevent creating a console window on startup and harden the executable.
-  set(CMAKE_EXE_LINKER_FLAGS "-mwindows -Wl,--nxcompat -Wl,--dynamicbase")
+  gnc_append_flags_once(CMAKE_EXE_LINKER_FLAGS
+    -mwindows -Wl,--nxcompat -Wl,--dynamicbase)
   #Find the winsock2 library
   find_library(WINSOCK_LIB wsock32)
   find_library(WS2_LIB ws2_32)
@@ -486,7 +440,10 @@ if (WITH_AQBANKING)
   pkg_check_modules (AQBANKING REQUIRED aqbanking>=6.9.1)
   set(CMAKE_REQUIRED_INCLUDES "${AQBANKING_INCLUDE_DIRS}"
     "${GWENHYWFAR_INCLUDE_DIRS}")
-  set(CMAKE_REQUIRED_LIBRARIES "${AQBANKING_LD_FLAGS}")
+  set(CMAKE_REQUIRED_LIBRARIES "${AQBANKING_LDFLAGS}")
+  # These probe inputs are consumed before the global dependency-path check.
+  gnc_validate_mingw_target_paths(VARIABLES CMAKE_REQUIRED_INCLUDES
+    CMAKE_REQUIRED_LIBRARIES)
   include(CheckSymbolExists)
   check_symbol_exists("AB_Banking_RuntimeConfig_SetCharValue"
     "aqbanking/banking.h" AQB_HAS_RUNTIME_CONFIG)
@@ -500,11 +457,9 @@ endif()
 if (WITH_OFX)
   pkg_check_modules (LIBOFX REQUIRED libofx>=0.10.9)
   include(CheckCXXSourceRuns)
-  if (WIN32)
-      set(CMAKE_REQUIRED_LIBRARIES "-L ${CMAKE_PREFIX_PATH}/libofx/lib -lofx")
-  else()
-      set(CMAKE_REQUIRED_LIBRARIES "-lofx")
-  endif()
+  set(CMAKE_REQUIRED_LIBRARIES "${LIBOFX_LDFLAGS}")
+  # This probe runs before the global dependency-path check.
+  gnc_validate_mingw_target_paths(VARIABLES CMAKE_REQUIRED_LIBRARIES)
       CHECK_CXX_SOURCE_RUNS("
 #include <time.h>
 #include <stdlib.h>
@@ -693,6 +648,64 @@ endif()
 if (NOT HAVE_BOOST)
 message (SEND_ERROR "A suitable Boost is not installed, and is required. GnuCash requires that Boost be compatible and compiled with C++17. Please install it and ensure that the following libraries are built: date_time, filesystem, locale, regex, program_options and system.")
 endif()
+
+# MinGW build tools may run in an MSYS environment, but target compilation
+# must never consume the MSYS runtime's headers or libraries. Validate finder
+# results after discovery so that toolchain files, CMAKE_SYSROOT,
+# CMAKE_FIND_ROOT_PATH, and explicit cache values retain their normal meaning.
+# WebView2 and MinGW DLLs are target runtime artifacts. Build-host executables
+# such as Bash, pkg-config, Guile, SWIG, and Perl are intentionally not target
+# inputs and therefore aren't listed here.
+set(_GNC_MINGW_TARGET_PATH_VARIABLES
+  Iconv_INCLUDE_DIR Iconv_INCLUDE_DIRS Iconv_LIBRARY Iconv_LIBRARIES
+  Intl_INCLUDE_DIR Intl_INCLUDE_DIRS Intl_LIBRARY Intl_LIBRARIES
+  CMAKE_C_FLAGS CMAKE_CXX_FLAGS
+  CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS
+  CMAKE_MODULE_LINKER_FLAGS
+  LIBINTL_INCLUDE_PATH LIBINTL_LIBRARY
+  LTDL_INCLUDE_PATH
+  REGEX_INCLUDE_PATH REGEX_LIB_PATH REGEX_LIBRARY REGEX_LDFLAGS
+  WEBVIEW2_INCLUDE_DIR WEBVIEW2_LOADER_DLL
+  WEBVIEW2_RUNTIME_EXECUTABLE WEBVIEW2_FIXED_RUNTIME_DIR
+  HTMLHELP_INCLUDE_PATH HTMLHELP_LIBRARY WINSOCK_LIB WS2_LIB
+  LIBXSLT_INCLUDE_DIR LIBXSLT_INCLUDE_DIRS LIBXSLT_LIBRARIES
+  LIBDBI_INCLUDE_PATH LIBDBI_LIBRARY LIBDBI_DRIVERS
+  Python3_INCLUDE_DIRS Python3_LIBRARIES
+  ICU_INCLUDE_DIRS ICU_LIBRARIES
+  GUILE_INCLUDE_DIRS GUILE_LDFLAGS
+  Boost_INCLUDE_DIRS Boost_LIBRARIES)
+foreach(_pkg GLIB2 GIO GOBJECT GMODULE GTHREAD LIBXML2 LIBXSLT WEBKIT
+    GTK4 GTK4MACOS ZLIB GUILE3 GUILE22 GUILE2 GWENHYWFAR AQBANKING
+    GWEN_GTK4 LIBOFX LIBSECRET)
+  list(APPEND _GNC_MINGW_TARGET_PATH_VARIABLES
+    ${_pkg}_INCLUDE_DIRS ${_pkg}_LIBRARY_DIRS
+    ${_pkg}_CFLAGS ${_pkg}_CFLAGS_OTHER
+    ${_pkg}_LDFLAGS ${_pkg}_LDFLAGS_OTHER)
+endforeach()
+
+# CMake consumes configuration-specific flags only for configured build types.
+set(_GNC_MINGW_CONFIGURATIONS
+  ${CMAKE_BUILD_TYPE} ${CMAKE_CONFIGURATION_TYPES})
+foreach(_config IN LISTS _GNC_MINGW_CONFIGURATIONS)
+  if("${_config}" STREQUAL "")
+    continue()
+  endif()
+  string(TOUPPER "${_config}" _config_upper)
+  foreach(_flag_prefix CMAKE_C_FLAGS CMAKE_CXX_FLAGS
+      CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS
+      CMAKE_MODULE_LINKER_FLAGS)
+    list(APPEND _GNC_MINGW_TARGET_PATH_VARIABLES
+      ${_flag_prefix}_${_config_upper})
+  endforeach()
+endforeach()
+list(REMOVE_DUPLICATES _GNC_MINGW_TARGET_PATH_VARIABLES)
+gnc_validate_mingw_target_paths(
+  VARIABLES ${_GNC_MINGW_TARGET_PATH_VARIABLES})
+unset(_GNC_MINGW_CONFIGURATIONS)
+unset(_GNC_MINGW_TARGET_PATH_VARIABLES)
+unset(_config)
+unset(_config_upper)
+unset(_flag_prefix)
 
 
 # Compiler flags
@@ -1177,6 +1190,7 @@ endif()
     set(LIBDW2 "")
   endif()
   set(MINGW_DLLS ${LIBSTDC++} ${LIBDW2})
+  gnc_validate_mingw_target_paths(VARIABLES MINGW_DLLS)
   install(PROGRAMS ${MINGW_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
   file(COPY ${MINGW_DLLS} DESTINATION ${BINDIR_BUILD}
     # Do permissions matter for windows?
