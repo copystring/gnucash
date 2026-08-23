@@ -20,6 +20,10 @@ set(test_gnc_html_webview2_clipboard_SOURCES
   test-gnc-html-webview2-clipboard.cpp
 )
 
+set(test_gnc_html_webview2_coordinates_SOURCES
+  test-gnc-html-webview2-coordinates.cpp
+)
+
 gnc_add_test(test-gnc-html-url-policy
   "${test_gnc_html_url_policy_SOURCES}"
   HTML_TEST_INCLUDE_DIRS
@@ -38,6 +42,12 @@ gnc_add_test(test-gnc-html-webview2-clipboard
   HTML_TEST_LIBS
 )
 
+gnc_add_test(test-gnc-html-webview2-coordinates
+  "${test_gnc_html_webview2_coordinates_SOURCES}"
+  HTML_TEST_INCLUDE_DIRS
+  HTML_TEST_LIBS
+)
+
 add_test(NAME test-gnc-html-dist-manifest
   COMMAND ${CMAKE_COMMAND}
     -D DIST_MANIFEST=${CMAKE_BINARY_DIR}/dist_manifest.txt
@@ -49,4 +59,5 @@ set_dist_list(test_html_DIST
   ${test_gnc_html_url_policy_SOURCES}
   ${test_gnc_html_report_document_SOURCES}
   ${test_gnc_html_webview2_clipboard_SOURCES}
+  ${test_gnc_html_webview2_coordinates_SOURCES}
 )

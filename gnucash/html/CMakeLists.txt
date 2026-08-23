@@ -67,7 +67,7 @@ list(REMOVE_DUPLICATES html_DIST_HEADERS)
 list(REMOVE_DUPLICATES html_DIST_SOURCES)
 
 set_local_dist(html_DIST_local CMakeLists.txt ${html_DIST_HEADERS} ${html_DIST_SOURCES}
-  gnc-html-webview2-clipboard.hpp
+  gnc-html-webview2-clipboard.hpp gnc-html-webview2-coordinates.hpp
   gnc-html.i ${html_EXTRA_DIST} html.scm)
 
 add_library (gnc-html

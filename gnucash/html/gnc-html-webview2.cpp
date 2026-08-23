@@ -42,6 +42,7 @@
 #include "gnc-html-history.h"
 #include "gnc-html-p.h"
 #include "gnc-html-webview2-clipboard.hpp"
+#include "gnc-html-webview2-coordinates.hpp"
 #include "gnc-html-webview2.hpp"
 #include "gnc-prefs.h"
 
@@ -674,22 +675,46 @@ webview2_focus_enter (GtkEventControllerFocus *, gpointer user_data)
         (void)priv->controller->MoveFocus (COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 }
 
-static POINT
-webview2_point_from_widget (GtkWidget *widget, double x, double y)
+static gboolean
+webview2_surface_point_from_widget (GtkWidget *widget, double x, double y,
+                                    double *surface_x, double *surface_y)
 {
-    auto root = gtk_widget_get_root (widget);
-    auto root_widget = root && GTK_IS_WIDGET (root) ? GTK_WIDGET (root) : nullptr;
-    double root_x = x, root_y = y;
+    auto native = gtk_widget_get_native (widget);
+    if (!native)
+        return FALSE;
     const graphene_point_t point = GRAPHENE_POINT_INIT (static_cast<float> (x),
                                                          static_cast<float> (y));
-    graphene_point_t root_point;
-    if (root_widget && gtk_widget_compute_point (widget, root_widget, &point, &root_point))
-    {
-        root_x = root_point.x;
-        root_y = root_point.y;
-    }
-    const auto scale = gtk_widget_get_scale_factor (widget);
-    return {static_cast<LONG> (root_x * scale), static_cast<LONG> (root_y * scale)};
+    graphene_point_t surface_point;
+    if (!gtk_widget_compute_point (widget, GTK_WIDGET (native), &point, &surface_point))
+        return FALSE;
+    *surface_x = surface_point.x;
+    *surface_y = surface_point.y;
+    return TRUE;
+}
+
+static gboolean
+webview2_controller_point_from_surface (GtkWidget *widget, double surface_x, double surface_y,
+                                        POINT *controller_point)
+{
+    auto native = gtk_widget_get_native (widget);
+    if (!native)
+        return FALSE;
+    auto surface = gtk_native_get_surface (native);
+    if (!surface)
+        return FALSE;
+    const auto point = gnc_html_webview2_controller_point_from_surface (
+        surface_x, surface_y, static_cast<double> (gdk_surface_get_scale (surface)));
+    *controller_point = {point.x, point.y};
+    return TRUE;
+}
+
+static gboolean
+webview2_controller_point_from_widget (GtkWidget *widget, double x, double y, POINT *point)
+{
+    double surface_x = 0.0, surface_y = 0.0;
+    if (!webview2_surface_point_from_widget (widget, x, y, &surface_x, &surface_y))
+        return FALSE;
+    return webview2_controller_point_from_surface (widget, surface_x, surface_y, point);
 }
 
 static void
@@ -700,7 +725,9 @@ webview2_click_pressed (GtkGestureClick *gesture, int, double x, double y,
     auto priv = priv_for (self);
     if (!priv->composition_controller)
         return;
-    const auto point = webview2_point_from_widget (priv->view, x, y);
+    POINT point;
+    if (!webview2_controller_point_from_widget (priv->view, x, y, &point))
+        return;
     const auto button = gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture));
     COREWEBVIEW2_MOUSE_EVENT_KIND kind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN;
     if (button == GDK_BUTTON_SECONDARY)
@@ -719,7 +746,9 @@ webview2_click_released (GtkGestureClick *gesture, int, double x, double y,
     auto priv = priv_for (GNC_HTML_WEBVIEW2 (user_data));
     if (!priv->composition_controller)
         return;
-    const auto point = webview2_point_from_widget (priv->view, x, y);
+    POINT point;
+    if (!webview2_controller_point_from_widget (priv->view, x, y, &point))
+        return;
     const auto button = gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture));
     COREWEBVIEW2_MOUSE_EVENT_KIND kind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
     if (button == GDK_BUTTON_SECONDARY)
@@ -736,7 +765,9 @@ webview2_motion (GtkEventControllerMotion *, double x, double y, gpointer user_d
     auto priv = priv_for (GNC_HTML_WEBVIEW2 (user_data));
     if (!priv->composition_controller)
         return;
-    const auto point = webview2_point_from_widget (priv->view, x, y);
+    POINT point;
+    if (!webview2_controller_point_from_widget (priv->view, x, y, &point))
+        return;
     (void)priv->composition_controller->SendMouseInput (
         COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, 0,
         point);
@@ -765,12 +796,20 @@ webview2_scroll (GtkEventControllerScroll *controller, double delta_x, double de
     auto event = gtk_event_controller_get_current_event (GTK_EVENT_CONTROLLER (controller));
     if (!event)
         return GDK_EVENT_STOP;
+    auto native = gtk_widget_get_native (priv->view);
+    if (!native || gdk_event_get_surface (event) != gtk_native_get_surface (native))
+    {
+        PERR ("WebView2 received a scroll event from a different GTK surface.");
+        return GDK_EVENT_STOP;
+    }
     double x = 0.0, y = 0.0;
     if (!gdk_event_get_position (event, &x, &y))
         return GDK_EVENT_STOP;
     const auto modifiers = webview2_mouse_modifiers (
         gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (controller)));
-    const auto point = webview2_point_from_widget (priv->view, x, y);
+    POINT point;
+    if (!webview2_controller_point_from_surface (priv->view, x, y, &point))
+        return GDK_EVENT_STOP;
     if (delta_x != 0.0)
     {
         const auto delta = static_cast<LONG> (-delta_x * WHEEL_DELTA);
@@ -868,20 +907,16 @@ webview2_update_bounds (GncHtmlWebView2 *self)
     if (!priv->controller || !priv->view)
         return;
 
-    auto root = gtk_widget_get_root (priv->view);
-    auto root_widget = root && GTK_IS_WIDGET (root) ? GTK_WIDGET (root) : nullptr;
     double x = 0.0, y = 0.0;
-    const graphene_point_t point = GRAPHENE_POINT_INIT (0.0f, 0.0f);
-    graphene_point_t root_point;
-    if (root_widget && gtk_widget_compute_point (priv->view, root_widget, &point, &root_point))
-    {
-        x = root_point.x;
-        y = root_point.y;
-    }
-    const auto scale = gtk_widget_get_scale_factor (priv->view);
-    const RECT bounds = {static_cast<LONG> (x * scale), static_cast<LONG> (y * scale),
-                         static_cast<LONG> ((x + gtk_widget_get_width (priv->view)) * scale),
-                         static_cast<LONG> ((y + gtk_widget_get_height (priv->view)) * scale)};
+    if (!webview2_surface_point_from_widget (priv->view, 0.0, 0.0, &x, &y))
+        return;
+    POINT top_left, bottom_right;
+    if (!webview2_controller_point_from_surface (priv->view, x, y, &top_left) ||
+        !webview2_controller_point_from_surface (
+            priv->view, x + gtk_widget_get_width (priv->view),
+            y + gtk_widget_get_height (priv->view), &bottom_right))
+        return;
+    const RECT bounds = {top_left.x, top_left.y, bottom_right.x, bottom_right.y};
     (void)priv->controller->put_Bounds (bounds);
     (void)priv->controller->put_IsVisible (gtk_widget_get_visible (priv->view));
 }
