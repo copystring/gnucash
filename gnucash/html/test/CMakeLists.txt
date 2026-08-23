@@ -28,8 +28,14 @@ gnc_add_test(test-gnc-html-report-document
   HTML_TEST_LIBS
 )
 
+add_test(NAME test-gnc-html-dist-manifest
+  COMMAND ${CMAKE_COMMAND}
+    -D DIST_MANIFEST=${CMAKE_BINARY_DIR}/dist_manifest.txt
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/test-gnc-html-dist-manifest.cmake)
+
 set_dist_list(test_html_DIST
   CMakeLists.txt
+  test-gnc-html-dist-manifest.cmake
   ${test_gnc_html_url_policy_SOURCES}
   ${test_gnc_html_report_document_SOURCES}
 )

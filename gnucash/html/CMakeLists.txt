@@ -23,6 +23,18 @@ set (html_SOURCES
   gnc-html-factory.cpp
 )
 
+set (html_BACKEND_HEADERS
+  gnc-html-webkit2.hpp
+  gnc-html-webview2.hpp
+  gnc-html-wkwebview.hpp
+)
+
+set (html_BACKEND_SOURCES
+  gnc-html-webkit2.cpp
+  gnc-html-webview2.cpp
+  gnc-html-wkwebview.mm
+)
+
 if (GNC_REPORT_WEBKITGTK6)
   list(APPEND html_HEADERS gnc-html-webkit2.hpp)
   list(APPEND html_SOURCES gnc-html-webkit2.cpp)
@@ -49,7 +61,13 @@ gnc_add_scheme_targets(scm-gnc-html
     DEPENDS "${GUILE_DEPENDS}"
     MAKE_LINKS)
 
-set_dist_list(html_DIST CMakeLists.txt ${html_HEADERS} ${html_SOURCES} gnc-html.i ${html_EXTRA_DIST} html.scm)
+set (html_DIST_HEADERS ${html_HEADERS} ${html_BACKEND_HEADERS})
+set (html_DIST_SOURCES ${html_SOURCES} ${html_BACKEND_SOURCES})
+list(REMOVE_DUPLICATES html_DIST_HEADERS)
+list(REMOVE_DUPLICATES html_DIST_SOURCES)
+
+set_local_dist(html_DIST_local CMakeLists.txt ${html_DIST_HEADERS} ${html_DIST_SOURCES}
+  gnc-html.i ${html_EXTRA_DIST} html.scm)
 
 add_library (gnc-html
   ${html_SOURCES}
@@ -116,3 +134,5 @@ if (GNC_REPORT_WEBVIEW2)
 endif()
 
 install(FILES ${html_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/gnucash)
+
+set(html_DIST ${html_DIST_local} ${test_html_DIST} PARENT_SCOPE)
