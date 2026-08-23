@@ -1141,15 +1141,17 @@ endif()
 #automake-provided version.
 set (_CMD create_symlink)
 if (WIN32)
-  set(_CMD copy)
-endif()
-
-install(CODE
-" execute_process(
+  install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+          DESTINATION ${CMAKE_INSTALL_DOCDIR}
+          RENAME COPYING)
+else()
+  install(CODE
+  " execute_process(
       COMMAND ${CMAKE_COMMAND} -E ${_CMD} LICENSE COPYING
       WORKING_DIRECTORY ${CMAKE_INSTALL_DOCDIR}
   )"
-)
+  )
+endif()
 
 #For windows, copy in some DLLs from Mingw
 
