@@ -26,6 +26,11 @@ project (gnucash
 
 enable_testing()
 
+add_test(NAME check-no-local-main-loop-pumps
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+    -P ${CMAKE_SOURCE_DIR}/cmake/check-no-local-main-loop-pumps.cmake)
+
 set (PACKAGE_NAME GnuCash)
 set (PACKAGE_BUGREPORT "https://bugs.gnucash.org")
 set (PACKAGE_STRING "${PACKAGE_NAME} ${PROJECT_VERSION}")
