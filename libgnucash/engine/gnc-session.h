@@ -30,6 +30,15 @@ void gnc_clear_current_session(void);
 void gnc_set_current_session (QofSession *session);
 gboolean gnc_current_session_exist(void);
 
+/**
+ * Return the generation of the process-wide current-session slot.
+ *
+ * The generation changes whenever the slot changes identity. Session
+ * operation leases capture it so that a continuation from an earlier current
+ * session cannot mutate a later one.
+ */
+guint64 gnc_current_session_get_generation(void);
+
 #ifdef __cplusplus
 }
 #endif

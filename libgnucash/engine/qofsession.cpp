@@ -47,6 +47,7 @@
 #endif
 
 #include "qof.h"
+#include "gnc-session.h"
 #include "qofobject-p.h"
 
 static QofLogModule log_module = QOF_MOD_SESSION;
@@ -63,10 +64,21 @@ static QofLogModule log_module = QOF_MOD_SESSION;
 #include <algorithm>
 #include <string>
 #include <sstream>
+#include <new>
 
 using ProviderVec =  std::vector<QofBackendProvider_ptr>;
 static ProviderVec s_providers;
 static const std::string empty_string{};
+
+struct QofSessionOperationLease
+{
+    QofSession *session{};
+    QofBook *book{};
+    guint64 operation_id{};
+    guint64 session_generation{};
+    guint64 current_session_generation{};
+    bool active{};
+};
 /*
  * These getters are used in tests to reach static vars from outside
  * They should be removed when no longer needed
@@ -121,14 +133,112 @@ QofSessionImpl::QofSessionImpl (QofBook* book) noexcept
     m_book {book},
     m_uri {},
     m_saving {false},
+    m_creating {false},
+    m_operation_generation {1},
+    m_next_operation_id {1},
+    m_operation_lease {},
     m_last_err {},
     m_error_message {}
 {
 }
 
+QofSessionOperationLease *
+QofSessionImpl::acquire_operation_lease () noexcept
+{
+    if (m_operation_lease &&
+        !operation_lease_is_valid (m_operation_lease))
+        invalidate_operation_lease ();
+
+    if (m_operation_lease)
+        return nullptr;
+
+    auto lease = new (std::nothrow) QofSessionOperationLease;
+    if (!lease)
+        return nullptr;
+
+    lease->session = this;
+    lease->book = m_book;
+    lease->operation_id = m_next_operation_id++;
+    if (m_next_operation_id == 0)
+        m_next_operation_id = 1;
+    lease->session_generation = m_operation_generation;
+    lease->current_session_generation =
+        gnc_current_session_get_generation ();
+    lease->active = true;
+    m_operation_lease = lease;
+    return lease;
+}
+
+bool
+QofSessionImpl::operation_lease_is_valid (
+    const QofSessionOperationLease *lease) const noexcept
+{
+    return lease && lease->active && lease->session == this &&
+           m_operation_lease == lease && lease->book == m_book &&
+           lease->session_generation == m_operation_generation &&
+           lease->current_session_generation ==
+               gnc_current_session_get_generation ();
+}
+
+bool
+QofSessionImpl::has_active_operation_lease () const noexcept
+{
+    return operation_lease_is_valid (m_operation_lease);
+}
+
+void
+QofSessionImpl::invalidate_operation_lease () noexcept
+{
+    m_operation_generation++;
+    if (m_operation_generation == 0)
+        m_operation_generation = 1;
+
+    auto lease = m_operation_lease;
+    m_operation_lease = nullptr;
+    if (lease)
+    {
+        lease->active = false;
+        lease->session = nullptr;
+        lease->book = nullptr;
+    }
+}
+
+void
+QofSessionImpl::release_operation_lease (
+    QofSessionOperationLease *lease) noexcept
+{
+    if (!lease)
+        return;
+
+    if (m_operation_lease == lease)
+        invalidate_operation_lease ();
+    else
+    {
+        lease->active = false;
+        lease->session = nullptr;
+        lease->book = nullptr;
+    }
+    delete lease;
+}
+
+static bool
+legacy_operation_allowed (const QofSession *session,
+                          const char *operation) noexcept
+{
+    if (!session)
+        return false;
+    if (!session->has_active_operation_lease ())
+        return true;
+
+    PWARN ("Refusing legacy %s while an operation lease owns session %p",
+           operation, session);
+    return false;
+}
+
 QofSessionImpl::~QofSessionImpl () noexcept
 {
     ENTER ("sess=%p uri=%s", this, m_uri.c_str ());
+    invalidate_operation_lease ();
     end ();
     destroy_backend ();
     qof_book_set_backend (m_book, nullptr);
@@ -140,13 +250,66 @@ QofSessionImpl::~QofSessionImpl () noexcept
 void
 qof_session_destroy (QofSession * session)
 {
+    if (!legacy_operation_allowed (session, "destroy"))
+        return;
     delete session;
+}
+
+gboolean
+qof_session_destroy_with_lease (QofSession *session,
+                                QofSessionOperationLease *lease)
+{
+    if (!session || !session->operation_lease_is_valid (lease))
+        return FALSE;
+
+    session->invalidate_operation_lease ();
+    delete session;
+    return TRUE;
 }
 
 QofSession *
 qof_session_new (QofBook* book)
 {
     return new QofSessionImpl(book);
+}
+
+QofSessionOperationLease *
+qof_session_operation_lease_acquire (QofSession *session)
+{
+    return session ? session->acquire_operation_lease () : nullptr;
+}
+
+gboolean
+qof_session_operation_lease_is_valid (
+    const QofSessionOperationLease *lease, const QofSession *session)
+{
+    return session && session->operation_lease_is_valid (lease);
+}
+
+guint64
+qof_session_operation_lease_get_id (const QofSessionOperationLease *lease)
+{
+    if (!lease || !lease->session ||
+        !lease->session->operation_lease_is_valid (lease))
+        return 0;
+    return lease->operation_id;
+}
+
+void
+qof_session_operation_lease_release (QofSessionOperationLease *lease)
+{
+    if (!lease)
+        return;
+    if (lease->session)
+        lease->session->release_operation_lease (lease);
+    else
+        delete lease;
+}
+
+gboolean
+qof_session_has_active_operation_lease (const QofSession *session)
+{
+    return session && session->has_active_operation_lease ();
 }
 
 void
@@ -238,6 +401,7 @@ QofSessionImpl::load (QofPercentageFunc percentage_func) noexcept
     {
         // Something failed, delete and restore new ones.
         destroy_backend();
+        invalidate_operation_lease ();
         qof_book_destroy (m_book);
         m_book = qof_book_new();
         LEAVE ("error from backend %d", get_error ());
@@ -592,8 +756,19 @@ qof_session_get_file_path (const QofSession *session)
 void
 qof_session_ensure_all_data_loaded (QofSession *session)
 {
-    if (session == nullptr) return;
-    return session->ensure_all_data_loaded ();
+    if (!legacy_operation_allowed (session, "ensure-all-data-loaded"))
+        return;
+    session->ensure_all_data_loaded ();
+}
+
+gboolean
+qof_session_ensure_all_data_loaded_with_lease (
+    QofSession *session, const QofSessionOperationLease *lease)
+{
+    if (!session || !session->operation_lease_is_valid (lease))
+        return FALSE;
+    session->ensure_all_data_loaded ();
+    return TRUE;
 }
 
 const char *
@@ -613,31 +788,81 @@ qof_session_get_backend (const QofSession *session)
 void
 qof_session_begin (QofSession *session, const char * uri, SessionOpenMode mode)
 {
-    if (!session) return;
+    if (!legacy_operation_allowed (session, "begin"))
+        return;
     session->begin(uri, mode);
+}
+
+gboolean
+qof_session_begin_with_lease (QofSession *session,
+                              const QofSessionOperationLease *lease,
+                              const char *uri, SessionOpenMode mode)
+{
+    if (!session || !session->operation_lease_is_valid (lease))
+        return FALSE;
+    session->begin (uri, mode);
+    return TRUE;
 }
 
 void
 qof_session_load (QofSession *session,
                   QofPercentageFunc percentage_func)
 {
-    if (!session) return;
+    if (!legacy_operation_allowed (session, "load"))
+        return;
     session->load (percentage_func);
+}
+
+gboolean
+qof_session_load_with_lease (QofSession *session,
+                             QofSessionOperationLease *lease,
+                             QofPercentageFunc percentage_func)
+{
+    if (!session || !session->operation_lease_is_valid (lease))
+        return FALSE;
+    session->load (percentage_func);
+    if (!session->operation_lease_is_valid (lease))
+        session->invalidate_operation_lease ();
+    return TRUE;
 }
 
 void
 qof_session_save (QofSession *session,
                   QofPercentageFunc percentage_func)
 {
-    if (!session) return;
+    if (!legacy_operation_allowed (session, "save"))
+        return;
     session->save (percentage_func);
+}
+
+gboolean
+qof_session_save_with_lease (QofSession *session,
+                             const QofSessionOperationLease *lease,
+                             QofPercentageFunc percentage_func)
+{
+    if (!session || !session->operation_lease_is_valid (lease))
+        return FALSE;
+    session->save (percentage_func);
+    return TRUE;
 }
 
 void
 qof_session_safe_save(QofSession *session, QofPercentageFunc percentage_func)
 {
-    if (!session) return;
+    if (!legacy_operation_allowed (session, "safe-save"))
+        return;
     session->safe_save (percentage_func);
+}
+
+gboolean
+qof_session_safe_save_with_lease (
+    QofSession *session, const QofSessionOperationLease *lease,
+    QofPercentageFunc percentage_func)
+{
+    if (!session || !session->operation_lease_is_valid (lease))
+        return FALSE;
+    session->safe_save (percentage_func);
+    return TRUE;
 }
 
 gboolean
@@ -650,16 +875,47 @@ qof_session_save_in_progress(const QofSession *session)
 void
 qof_session_end (QofSession *session)
 {
-    if (!session) return;
+    if (!legacy_operation_allowed (session, "end"))
+        return;
     session->end ();
+}
+
+gboolean
+qof_session_end_with_lease (QofSession *session,
+                            const QofSessionOperationLease *lease)
+{
+    if (!session || !session->operation_lease_is_valid (lease))
+        return FALSE;
+    session->end ();
+    return TRUE;
 }
 
 void
 qof_session_swap_data (QofSession *session_1, QofSession *session_2)
 {
     if (session_1 == session_2) return;
-    if (!session_1 || !session_2) return;
+    if (!legacy_operation_allowed (session_1, "swap-data") ||
+        !legacy_operation_allowed (session_2, "swap-data"))
+        return;
     session_1->swap_books (*session_2);
+    session_1->invalidate_operation_lease ();
+    session_2->invalidate_operation_lease ();
+}
+
+gboolean
+qof_session_swap_data_with_leases (
+    QofSession *session_1, QofSessionOperationLease *lease_1,
+    QofSession *session_2, QofSessionOperationLease *lease_2)
+{
+    if (!session_1 || !session_2 || session_1 == session_2 ||
+        !session_1->operation_lease_is_valid (lease_1) ||
+        !session_2->operation_lease_is_valid (lease_2))
+        return FALSE;
+
+    session_1->swap_books (*session_2);
+    session_1->invalidate_operation_lease ();
+    session_2->invalidate_operation_lease ();
+    return TRUE;
 }
 
 gboolean
@@ -672,8 +928,23 @@ qof_session_events_pending (const QofSession *session)
 gboolean
 qof_session_process_events (QofSession *session)
 {
-    if (!session) return FALSE;
+    if (!legacy_operation_allowed (session, "process-events"))
+        return FALSE;
     return session->process_events ();
+}
+
+gboolean
+qof_session_process_events_with_lease (
+    QofSession *session, const QofSessionOperationLease *lease,
+    gboolean *engine_modified)
+{
+    if (engine_modified)
+        *engine_modified = FALSE;
+    if (!session || !engine_modified ||
+        !session->operation_lease_is_valid (lease))
+        return FALSE;
+    *engine_modified = session->process_events ();
+    return TRUE;
 }
 
 gboolean
@@ -681,8 +952,27 @@ qof_session_export (QofSession *tmp_session,
                     QofSession *real_session,
                     QofPercentageFunc percentage_func)
 {
-    if ((!tmp_session) || (!real_session)) return FALSE;
+    if (!legacy_operation_allowed (tmp_session, "export") ||
+        !legacy_operation_allowed (real_session, "export"))
+        return FALSE;
     return tmp_session->export_session (*real_session, percentage_func);
+}
+
+gboolean
+qof_session_export_with_leases (
+    QofSession *tmp_session, const QofSessionOperationLease *tmp_lease,
+    QofSession *real_session, const QofSessionOperationLease *real_lease,
+    QofPercentageFunc percentage_func, gboolean *exported)
+{
+    if (exported)
+        *exported = FALSE;
+    if (!tmp_session || !real_session || tmp_session == real_session ||
+        !exported ||
+        !tmp_session->operation_lease_is_valid (tmp_lease) ||
+        !real_session->operation_lease_is_valid (real_lease))
+        return FALSE;
+    *exported = tmp_session->export_session (*real_session, percentage_func);
+    return TRUE;
 }
 
 /* ================= Static function access for testing ================= */

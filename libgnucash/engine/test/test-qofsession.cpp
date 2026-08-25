@@ -29,6 +29,7 @@
 
 #include "../guid.hpp"
 #include <qofsession.hpp>
+#include <gnc-session.h>
 #include <qof-backend.hpp>
 #include <cstdlib>
 #include "../gnc-backend-prov.hpp"
@@ -251,5 +252,172 @@ TEST (QofSessionTest, export_session)
     s2.export_session (s1, nullptr);
     EXPECT_EQ (exported_book, b1);
 
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionOperationLeaseTest, is_exclusive_and_session_bound)
+{
+    auto session_1 = qof_session_new (qof_book_new ());
+    auto session_2 = qof_session_new (qof_book_new ());
+    auto book_1 = qof_session_get_book (session_1);
+    auto book_2 = qof_session_get_book (session_2);
+    auto lease = qof_session_operation_lease_acquire (session_1);
+
+    ASSERT_NE (lease, nullptr);
+    auto operation_id = qof_session_operation_lease_get_id (lease);
+    EXPECT_NE (operation_id, 0);
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (lease, session_1));
+    EXPECT_FALSE (qof_session_operation_lease_is_valid (lease, session_2));
+    EXPECT_EQ (qof_session_operation_lease_acquire (session_1), nullptr);
+    EXPECT_FALSE (qof_session_save_with_lease (session_2, lease, nullptr));
+
+    qof_session_swap_data (session_1, session_2);
+    EXPECT_EQ (qof_session_get_book (session_1), book_1);
+    EXPECT_EQ (qof_session_get_book (session_2), book_2);
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (lease, session_1));
+
+    qof_session_operation_lease_release (lease);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session_1));
+
+    auto next_lease = qof_session_operation_lease_acquire (session_1);
+    ASSERT_NE (next_lease, nullptr);
+    EXPECT_NE (qof_session_operation_lease_get_id (next_lease), operation_id);
+    qof_session_operation_lease_release (next_lease);
+
+    qof_session_swap_data (session_1, session_2);
+    EXPECT_EQ (qof_session_get_book (session_1), book_2);
+    EXPECT_EQ (qof_session_get_book (session_2), book_1);
+
+    qof_session_destroy (session_1);
+    qof_session_destroy (session_2);
+}
+
+TEST (QofSessionOperationLeaseTest, protects_session_operations)
+{
+    qof_backend_register_provider (get_provider ());
+    auto session_1 = qof_session_new (qof_book_new ());
+    auto session_2 = qof_session_new (qof_book_new ());
+    auto lease_1 = qof_session_operation_lease_acquire (session_1);
+    auto lease_2 = qof_session_operation_lease_acquire (session_2);
+    ASSERT_NE (lease_1, nullptr);
+    ASSERT_NE (lease_2, nullptr);
+
+    EXPECT_FALSE (qof_session_begin_with_lease (
+        session_1, lease_2, "book1", SESSION_NORMAL_OPEN));
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (lease_1, session_1));
+
+    qof_session_begin (session_1, "book1", SESSION_NORMAL_OPEN);
+    EXPECT_STREQ (qof_session_get_url (session_1), "");
+    EXPECT_TRUE (qof_session_begin_with_lease (
+        session_1, lease_1, "book1", SESSION_NORMAL_OPEN));
+    EXPECT_STREQ (qof_session_get_url (session_1), "book1");
+
+    load_error = false;
+    ASSERT_TRUE (qof_session_load_with_lease (session_1, lease_1, nullptr));
+    ASSERT_TRUE (qof_session_operation_lease_is_valid (lease_1, session_1));
+
+    sync_called = false;
+    qof_book_mark_session_dirty (qof_session_get_book (session_1));
+    qof_session_save (session_1, nullptr);
+    EXPECT_FALSE (sync_called);
+    EXPECT_TRUE (qof_session_save_with_lease (session_1, lease_1, nullptr));
+    EXPECT_TRUE (sync_called);
+
+    safe_sync_called = false;
+    qof_session_safe_save (session_1, nullptr);
+    EXPECT_FALSE (safe_sync_called);
+    EXPECT_TRUE (qof_session_safe_save_with_lease (
+        session_1, lease_1, nullptr));
+    EXPECT_TRUE (safe_sync_called);
+
+    qof_session_end (session_1);
+    EXPECT_STREQ (qof_session_get_url (session_1), "book1");
+    EXPECT_TRUE (qof_session_end_with_lease (session_1, lease_1));
+    EXPECT_STREQ (qof_session_get_url (session_1), "");
+
+    EXPECT_FALSE (qof_session_destroy_with_lease (session_1, lease_2));
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (lease_1, session_1));
+    EXPECT_TRUE (qof_session_destroy_with_lease (session_1, lease_1));
+    EXPECT_EQ (qof_session_operation_lease_get_id (lease_1), 0);
+    qof_session_operation_lease_release (lease_1);
+
+    qof_session_operation_lease_release (lease_2);
+    qof_session_destroy (session_2);
+    qof_backend_unregister_all_providers ();
+    sync_called = false;
+    safe_sync_called = false;
+    load_error = true;
+}
+
+TEST (QofSessionOperationLeaseTest, current_session_change_invalidates_lease)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session_1 = qof_session_new (qof_book_new ());
+    auto session_2 = qof_session_new (qof_book_new ());
+    gnc_set_current_session (session_1);
+    auto generation = gnc_current_session_get_generation ();
+    auto lease = qof_session_operation_lease_acquire (session_1);
+    ASSERT_NE (lease, nullptr);
+
+    gnc_set_current_session (session_2);
+    EXPECT_NE (gnc_current_session_get_generation (), generation);
+    EXPECT_FALSE (qof_session_operation_lease_is_valid (lease, session_1));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session_1));
+    EXPECT_EQ (qof_session_operation_lease_get_id (lease), 0);
+
+    qof_session_operation_lease_release (lease);
+    qof_session_destroy (session_1);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest, swap_requires_both_leases_and_invalidates_them)
+{
+    auto session_1 = qof_session_new (qof_book_new ());
+    auto session_2 = qof_session_new (qof_book_new ());
+    auto book_1 = qof_session_get_book (session_1);
+    auto book_2 = qof_session_get_book (session_2);
+    auto lease_1 = qof_session_operation_lease_acquire (session_1);
+    auto lease_2 = qof_session_operation_lease_acquire (session_2);
+    ASSERT_NE (lease_1, nullptr);
+    ASSERT_NE (lease_2, nullptr);
+
+    EXPECT_FALSE (qof_session_swap_data_with_leases (
+        session_1, lease_2, session_2, lease_1));
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (lease_1, session_1));
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (lease_2, session_2));
+    EXPECT_EQ (qof_session_get_book (session_1), book_1);
+    EXPECT_EQ (qof_session_get_book (session_2), book_2);
+
+    EXPECT_TRUE (qof_session_swap_data_with_leases (
+        session_1, lease_1, session_2, lease_2));
+    EXPECT_EQ (qof_session_get_book (session_1), book_2);
+    EXPECT_EQ (qof_session_get_book (session_2), book_1);
+    EXPECT_FALSE (qof_session_operation_lease_is_valid (lease_1, session_1));
+    EXPECT_FALSE (qof_session_operation_lease_is_valid (lease_2, session_2));
+
+    qof_session_operation_lease_release (lease_1);
+    qof_session_operation_lease_release (lease_2);
+    qof_session_destroy (session_1);
+    qof_session_destroy (session_2);
+}
+
+TEST (QofSessionOperationLeaseTest, book_replacement_invalidates_lease)
+{
+    qof_backend_register_provider (get_provider ());
+    auto session = qof_session_new (qof_book_new ());
+    auto lease = qof_session_operation_lease_acquire (session);
+    ASSERT_NE (lease, nullptr);
+    ASSERT_TRUE (qof_session_begin_with_lease (
+        session, lease, "book1", SESSION_NORMAL_OPEN));
+
+    load_error = true;
+    EXPECT_TRUE (qof_session_load_with_lease (session, lease, nullptr));
+    EXPECT_FALSE (qof_session_operation_lease_is_valid (lease, session));
+    EXPECT_EQ (qof_session_operation_lease_get_id (lease), 0);
+
+    qof_session_operation_lease_release (lease);
+    qof_session_destroy (session);
     qof_backend_unregister_all_providers ();
 }

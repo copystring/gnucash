@@ -28,7 +28,16 @@
 #include "TransLog.h"
 
 static QofSession * current_session = NULL;
+static guint64 current_session_generation = 1;
 static QofLogModule log_module = GNC_MOD_ENGINE;
+
+static void
+advance_current_session_generation (void)
+{
+    current_session_generation++;
+    if (current_session_generation == 0)
+        current_session_generation = 1;
+}
 
 QofSession *
 gnc_get_current_session (void)
@@ -38,6 +47,7 @@ gnc_get_current_session (void)
         QofBook* book = qof_book_new ();
         qof_event_suspend();
         current_session = qof_session_new (book);
+        advance_current_session_generation ();
         qof_event_resume();
     }
 
@@ -50,21 +60,33 @@ gnc_current_session_exist(void)
     return (current_session != NULL);
 }
 
+guint64
+gnc_current_session_get_generation(void)
+{
+    return current_session_generation;
+}
+
 void
 gnc_set_current_session (QofSession *session)
 {
+    if (current_session == session)
+        return;
+
     if (current_session)
         PINFO("Leak of current session.");
     current_session = session;
+    advance_current_session_generation ();
 }
 
 void gnc_clear_current_session()
 {
     if (current_session)
     {
-        xaccLogDisable();
-        qof_session_destroy(current_session);
-        xaccLogEnable();
+        QofSession *session = current_session;
         current_session = NULL;
+        advance_current_session_generation ();
+        xaccLogDisable();
+        qof_session_destroy(session);
+        xaccLogEnable();
     }
 }

@@ -74,6 +74,13 @@ struct QofSessionImpl
     const std::string& get_file_path () const noexcept;
     bool is_saving () const noexcept;
 
+    QofSessionOperationLease * acquire_operation_lease () noexcept;
+    bool operation_lease_is_valid (
+        const QofSessionOperationLease *) const noexcept;
+    bool has_active_operation_lease () const noexcept;
+    void invalidate_operation_lease () noexcept;
+    void release_operation_lease (QofSessionOperationLease *) noexcept;
+
     /**
      * Terminates the current backend.
      */
@@ -99,6 +106,9 @@ private:
 
     bool m_saving;
     bool m_creating;
+    guint64 m_operation_generation;
+    guint64 m_next_operation_id;
+    QofSessionOperationLease *m_operation_lease;
 
     /* If any book subroutine failed, this records the failure reason
      * (file not found, etc).
