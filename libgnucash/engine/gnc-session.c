@@ -72,6 +72,18 @@ gnc_set_current_session (QofSession *session)
     if (current_session == session)
         return;
 
+    if (current_session &&
+        qof_session_has_active_operation_lease (current_session))
+    {
+        PWARN ("Refusing to replace the current session while it is leased");
+        return;
+    }
+    if (session && qof_session_has_active_operation_lease (session))
+    {
+        PWARN ("Refusing to install a leased session as current");
+        return;
+    }
+
     if (current_session)
         PINFO("Leak of current session.");
     current_session = session;
@@ -82,6 +94,12 @@ void gnc_clear_current_session()
 {
     if (current_session)
     {
+        if (qof_session_has_active_operation_lease (current_session))
+        {
+            PWARN ("Refusing to clear a leased current session without its token");
+            return;
+        }
+
         QofSession *session = current_session;
         current_session = NULL;
         advance_current_session_generation ();
@@ -89,4 +107,27 @@ void gnc_clear_current_session()
         qof_session_destroy(session);
         xaccLogEnable();
     }
+}
+
+gboolean
+gnc_clear_current_session_with_lease (QofSessionOperationLease *lease)
+{
+    QofSession *session;
+
+    if (!current_session ||
+        !qof_session_operation_lease_is_valid (lease, current_session))
+        return FALSE;
+
+    session = current_session;
+    current_session = NULL;
+    xaccLogDisable ();
+    if (!qof_session_destroy_with_lease (session, lease))
+    {
+        current_session = session;
+        xaccLogEnable ();
+        return FALSE;
+    }
+    advance_current_session_generation ();
+    xaccLogEnable ();
+    return TRUE;
 }

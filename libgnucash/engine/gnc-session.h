@@ -27,6 +27,11 @@ extern "C" {
 
 QofSession * gnc_get_current_session (void);
 void gnc_clear_current_session(void);
+
+/** Destroy and clear the current session when @a lease owns it. */
+gboolean gnc_clear_current_session_with_lease (
+    QofSessionOperationLease *lease);
+
 void gnc_set_current_session (QofSession *session);
 gboolean gnc_current_session_exist(void);
 

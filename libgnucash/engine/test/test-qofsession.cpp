@@ -40,6 +40,8 @@ static bool safe_sync_called {false};
 static bool sync_called {false};
 static bool load_error {true};
 static bool data_loaded {false};
+static bool observe_current_session_during_end {false};
+static bool current_session_was_detached_on_end {false};
 
 struct DestroyAccount
 {
@@ -61,7 +63,12 @@ public:
     QofSessionMockBackend(const QofSessionMockBackend&&) = delete;
     virtual ~QofSessionMockBackend() = default;
     void session_begin(QofSession*, const char*, SessionOpenMode) {}
-    void session_end() {}
+    void session_end()
+    {
+        if (observe_current_session_during_end)
+            current_session_was_detached_on_end =
+                !gnc_current_session_exist ();
+    }
     void load(QofBook*, QofBackendLoadType);
     void sync(QofBook*);
     void safe_sync(QofBook*);
@@ -292,6 +299,68 @@ TEST (QofSessionOperationLeaseTest, is_exclusive_and_session_bound)
     qof_session_destroy (session_2);
 }
 
+TEST (QofSessionOperationLeaseTest, exposes_exclusive_operation_kind)
+{
+    auto session = qof_session_new (qof_book_new ());
+    auto lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE_AS);
+
+    ASSERT_NE (lease, nullptr);
+    EXPECT_EQ (qof_session_operation_lease_get_kind (lease),
+               QOF_SESSION_OPERATION_SAVE_AS);
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        session, QOF_SESSION_OPERATION_SAVE_AS));
+    EXPECT_FALSE (qof_session_has_active_operation_kind (
+        session, QOF_SESSION_OPERATION_SAVE));
+    EXPECT_EQ (qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_EXPORT), nullptr);
+
+    qof_session_operation_lease_release (lease);
+    EXPECT_FALSE (qof_session_has_active_operation_kind (
+        session, QOF_SESSION_OPERATION_SAVE_AS));
+    qof_session_destroy (session);
+}
+
+TEST (QofSessionOperationLeaseTest, clears_current_session_only_for_owner)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    qof_backend_register_provider (get_provider ());
+    auto current = qof_session_new (qof_book_new ());
+    auto foreign = qof_session_new (qof_book_new ());
+    qof_session_begin (current, "book1", SESSION_NORMAL_OPEN);
+    qof_book_set_backend (qof_session_get_book (current),
+                          qof_session_get_backend (current));
+    gnc_set_current_session (current);
+    auto generation = gnc_current_session_get_generation ();
+    auto current_lease = qof_session_operation_lease_acquire_for (
+        current, QOF_SESSION_OPERATION_CLOSE);
+    auto foreign_lease = qof_session_operation_lease_acquire_for (
+        foreign, QOF_SESSION_OPERATION_CLOSE);
+
+    ASSERT_NE (current_lease, nullptr);
+    ASSERT_NE (foreign_lease, nullptr);
+    EXPECT_FALSE (gnc_clear_current_session_with_lease (foreign_lease));
+    EXPECT_TRUE (gnc_current_session_exist ());
+    EXPECT_EQ (gnc_get_current_session (), current);
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+
+    observe_current_session_during_end = true;
+    current_session_was_detached_on_end = false;
+    EXPECT_TRUE (gnc_clear_current_session_with_lease (current_lease));
+    observe_current_session_during_end = false;
+    EXPECT_TRUE (current_session_was_detached_on_end);
+    EXPECT_FALSE (gnc_current_session_exist ());
+    EXPECT_NE (gnc_current_session_get_generation (), generation);
+    EXPECT_EQ (qof_session_operation_lease_get_id (current_lease), 0);
+
+    qof_session_operation_lease_release (current_lease);
+    qof_session_operation_lease_release (foreign_lease);
+    qof_session_destroy (foreign);
+    qof_backend_unregister_all_providers ();
+}
+
 TEST (QofSessionOperationLeaseTest, protects_session_operations)
 {
     qof_backend_register_provider (get_provider ());
@@ -349,7 +418,7 @@ TEST (QofSessionOperationLeaseTest, protects_session_operations)
     load_error = true;
 }
 
-TEST (QofSessionOperationLeaseTest, current_session_change_invalidates_lease)
+TEST (QofSessionOperationLeaseTest, current_lease_blocks_set_and_legacy_clear)
 {
     if (gnc_current_session_exist ())
         gnc_clear_current_session ();
@@ -361,15 +430,51 @@ TEST (QofSessionOperationLeaseTest, current_session_change_invalidates_lease)
     auto lease = qof_session_operation_lease_acquire (session_1);
     ASSERT_NE (lease, nullptr);
 
+    gnc_set_current_session (session_1);
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+    EXPECT_EQ (gnc_get_current_session (), session_1);
+
     gnc_set_current_session (session_2);
-    EXPECT_NE (gnc_current_session_get_generation (), generation);
-    EXPECT_FALSE (qof_session_operation_lease_is_valid (lease, session_1));
-    EXPECT_FALSE (qof_session_has_active_operation_lease (session_1));
-    EXPECT_EQ (qof_session_operation_lease_get_id (lease), 0);
+    gnc_clear_current_session ();
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+    EXPECT_EQ (gnc_get_current_session (), session_1);
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (lease, session_1));
 
     qof_session_operation_lease_release (lease);
-    qof_session_destroy (session_1);
+    gnc_set_current_session (session_2);
+    EXPECT_NE (gnc_current_session_get_generation (), generation);
+    EXPECT_EQ (gnc_get_current_session (), session_2);
     gnc_clear_current_session ();
+    EXPECT_FALSE (gnc_current_session_exist ());
+    qof_session_destroy (session_1);
+}
+
+TEST (QofSessionOperationLeaseTest, leased_replacement_cannot_become_current)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto current = qof_session_new (qof_book_new ());
+    auto replacement = qof_session_new (qof_book_new ());
+    gnc_set_current_session (current);
+    auto generation = gnc_current_session_get_generation ();
+    auto replacement_lease = qof_session_operation_lease_acquire (
+        replacement);
+    ASSERT_NE (replacement_lease, nullptr);
+
+    gnc_set_current_session (replacement);
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+    EXPECT_EQ (gnc_get_current_session (), current);
+    EXPECT_TRUE (qof_session_operation_lease_is_valid (
+        replacement_lease, replacement));
+
+    qof_session_operation_lease_release (replacement_lease);
+    gnc_set_current_session (replacement);
+    EXPECT_NE (gnc_current_session_get_generation (), generation);
+    EXPECT_EQ (gnc_get_current_session (), replacement);
+    gnc_clear_current_session ();
+    EXPECT_FALSE (gnc_current_session_exist ());
+    qof_session_destroy (current);
 }
 
 TEST (QofSessionOperationLeaseTest, swap_requires_both_leases_and_invalidates_them)

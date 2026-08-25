@@ -74,10 +74,12 @@ struct QofSessionImpl
     const std::string& get_file_path () const noexcept;
     bool is_saving () const noexcept;
 
-    QofSessionOperationLease * acquire_operation_lease () noexcept;
+    QofSessionOperationLease * acquire_operation_lease (
+        QofSessionOperationKind) noexcept;
     bool operation_lease_is_valid (
         const QofSessionOperationLease *) const noexcept;
     bool has_active_operation_lease () const noexcept;
+    bool has_active_operation_kind (QofSessionOperationKind) const noexcept;
     void invalidate_operation_lease () noexcept;
     void release_operation_lease (QofSessionOperationLease *) noexcept;
 

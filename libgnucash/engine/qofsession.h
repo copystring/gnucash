@@ -136,6 +136,17 @@ typedef enum
 typedef struct QofSessionImpl QofSession;
 typedef struct QofSessionOperationLease QofSessionOperationLease;
 
+/** Semantic type of an exclusive session operation. */
+typedef enum
+{
+    QOF_SESSION_OPERATION_GENERIC = 0,
+    QOF_SESSION_OPERATION_OPEN,
+    QOF_SESSION_OPERATION_SAVE,
+    QOF_SESSION_OPERATION_SAVE_AS,
+    QOF_SESSION_OPERATION_EXPORT,
+    QOF_SESSION_OPERATION_CLOSE
+} QofSessionOperationKind;
+
 /**
  * Acquire the exclusive mutation lease for @a session.
  *
@@ -148,12 +159,21 @@ typedef struct QofSessionOperationLease QofSessionOperationLease;
 QofSessionOperationLease *
 qof_session_operation_lease_acquire (QofSession *session);
 
+/** Acquire an exclusive mutation lease tagged with @a kind. */
+QofSessionOperationLease *
+qof_session_operation_lease_acquire_for (QofSession *session,
+                                         QofSessionOperationKind kind);
+
 /** Return whether @a lease still owns @a session and its current book. */
 gboolean qof_session_operation_lease_is_valid (
     const QofSessionOperationLease *lease, const QofSession *session);
 
 /** Return the unique operation id, or zero for an invalid token. */
 guint64 qof_session_operation_lease_get_id (
+    const QofSessionOperationLease *lease);
+
+/** Return the operation kind, or GENERIC for an invalid token. */
+QofSessionOperationKind qof_session_operation_lease_get_kind (
     const QofSessionOperationLease *lease);
 
 /**
@@ -167,6 +187,10 @@ void qof_session_operation_lease_release (QofSessionOperationLease *lease);
 
 /** Return whether @a session currently has a valid exclusive lease. */
 gboolean qof_session_has_active_operation_lease (const QofSession *session);
+
+/** Return whether @a session is owned by a valid lease of @a kind. */
+gboolean qof_session_has_active_operation_kind (
+    const QofSession *session, QofSessionOperationKind kind);
 
 QofSession * qof_session_new (QofBook* book);
 void         qof_session_destroy (QofSession *session);

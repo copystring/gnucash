@@ -77,6 +77,7 @@ struct QofSessionOperationLease
     guint64 operation_id{};
     guint64 session_generation{};
     guint64 current_session_generation{};
+    QofSessionOperationKind kind{QOF_SESSION_OPERATION_GENERIC};
     bool active{};
 };
 /*
@@ -143,7 +144,7 @@ QofSessionImpl::QofSessionImpl (QofBook* book) noexcept
 }
 
 QofSessionOperationLease *
-QofSessionImpl::acquire_operation_lease () noexcept
+QofSessionImpl::acquire_operation_lease (QofSessionOperationKind kind) noexcept
 {
     if (m_operation_lease &&
         !operation_lease_is_valid (m_operation_lease))
@@ -164,6 +165,7 @@ QofSessionImpl::acquire_operation_lease () noexcept
     lease->session_generation = m_operation_generation;
     lease->current_session_generation =
         gnc_current_session_get_generation ();
+    lease->kind = kind;
     lease->active = true;
     m_operation_lease = lease;
     return lease;
@@ -184,6 +186,13 @@ bool
 QofSessionImpl::has_active_operation_lease () const noexcept
 {
     return operation_lease_is_valid (m_operation_lease);
+}
+
+bool
+QofSessionImpl::has_active_operation_kind (QofSessionOperationKind kind) const noexcept
+{
+    return operation_lease_is_valid (m_operation_lease) &&
+           m_operation_lease->kind == kind;
 }
 
 void
@@ -276,7 +285,15 @@ qof_session_new (QofBook* book)
 QofSessionOperationLease *
 qof_session_operation_lease_acquire (QofSession *session)
 {
-    return session ? session->acquire_operation_lease () : nullptr;
+    return qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_GENERIC);
+}
+
+QofSessionOperationLease *
+qof_session_operation_lease_acquire_for (QofSession *session,
+                                         QofSessionOperationKind kind)
+{
+    return session ? session->acquire_operation_lease (kind) : nullptr;
 }
 
 gboolean
@@ -295,6 +312,15 @@ qof_session_operation_lease_get_id (const QofSessionOperationLease *lease)
     return lease->operation_id;
 }
 
+QofSessionOperationKind
+qof_session_operation_lease_get_kind (const QofSessionOperationLease *lease)
+{
+    if (!lease || !lease->session ||
+        !lease->session->operation_lease_is_valid (lease))
+        return QOF_SESSION_OPERATION_GENERIC;
+    return lease->kind;
+}
+
 void
 qof_session_operation_lease_release (QofSessionOperationLease *lease)
 {
@@ -310,6 +336,13 @@ gboolean
 qof_session_has_active_operation_lease (const QofSession *session)
 {
     return session && session->has_active_operation_lease ();
+}
+
+gboolean
+qof_session_has_active_operation_kind (const QofSession *session,
+                                       QofSessionOperationKind kind)
+{
+    return session && session->has_active_operation_kind (kind);
 }
 
 void

@@ -64,8 +64,76 @@
 static QofLogModule log_module = GNC_MOD_GUI;
 
 static GNCShutdownCB shutdown_cb = NULL;
-static gint save_in_progress = 0;
 
+typedef struct
+{
+    QofSessionOperationLease *lease_a;
+    QofSessionOperationLease *lease_b;
+} GncFileSessionLeasePair;
+
+static void
+file_session_lease_pair_release (GncFileSessionLeasePair *pair)
+{
+    if (!pair)
+        return;
+    qof_session_operation_lease_release (pair->lease_a);
+    qof_session_operation_lease_release (pair->lease_b);
+    pair->lease_a = NULL;
+    pair->lease_b = NULL;
+}
+
+static gboolean
+file_session_lease_pair_acquire (QofSession *session_a,
+                                 QofSessionOperationKind kind_a,
+                                 QofSession *session_b,
+                                 QofSessionOperationKind kind_b,
+                                 GncFileSessionLeasePair *pair)
+{
+    g_return_val_if_fail (pair != NULL, FALSE);
+
+    pair->lease_a = NULL;
+    pair->lease_b = NULL;
+    if (!session_a || !session_b || session_a == session_b)
+        return FALSE;
+
+    if ((guintptr)session_a < (guintptr)session_b)
+    {
+        pair->lease_a = qof_session_operation_lease_acquire_for (session_a, kind_a);
+        if (pair->lease_a)
+            pair->lease_b = qof_session_operation_lease_acquire_for (session_b, kind_b);
+    }
+    else
+    {
+        pair->lease_b = qof_session_operation_lease_acquire_for (session_b, kind_b);
+        if (pair->lease_b)
+            pair->lease_a = qof_session_operation_lease_acquire_for (session_a, kind_a);
+    }
+
+    if (pair->lease_a && pair->lease_b)
+        return TRUE;
+
+    file_session_lease_pair_release (pair);
+    return FALSE;
+}
+
+static gboolean
+file_session_destroy (QofSession *session)
+{
+    QofSessionOperationLease *lease;
+    gboolean destroyed;
+
+    if (!session)
+        return TRUE;
+    lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_CLOSE);
+    if (!lease)
+        return FALSE;
+    xaccLogDisable ();
+    destroyed = qof_session_destroy_with_lease (session, lease);
+    xaccLogEnable ();
+    qof_session_operation_lease_release (lease);
+    return destroyed;
+}
 
 struct _GncFileDialogRequest
 {
@@ -602,6 +670,7 @@ typedef struct
     QofSession *session;
     QofBook *book;
     gchar *session_url;
+    guint64 session_generation;
     gboolean uh_oh;
     GncFileSessionErrorCallback completed;
     gpointer user_data;
@@ -612,6 +681,8 @@ file_session_error_context_is_current (GncFileHistoryRemovalRequest *request)
 {
     QofSession *session;
 
+    if (gnc_current_session_get_generation () != request->session_generation)
+        return FALSE;
     if (!request->session)
         return !gnc_current_session_exist ();
     if (!gnc_current_session_exist ())
@@ -759,6 +830,7 @@ file_session_error_request_new (GtkWindow *parent,
 
     g_weak_ref_init (&request->parent, parent);
     request->has_parent = parent != NULL;
+    request->session_generation = gnc_current_session_get_generation ();
     if (gnc_current_session_exist ())
     {
         request->session = gnc_get_current_session ();
@@ -1269,6 +1341,7 @@ gnc_file_new_after_query (GtkWindow *parent, gboolean can_continue,
                           gpointer user_data)
 {
     QofSession *session;
+    QofSessionOperationLease *close_lease;
 
     (void)user_data;
     if (!can_continue)
@@ -1277,11 +1350,24 @@ gnc_file_new_after_query (GtkWindow *parent, gboolean can_continue,
     if (gnc_current_session_exist())
     {
         session = gnc_get_current_session ();
+        close_lease = qof_session_operation_lease_acquire_for (
+            session, QOF_SESSION_OPERATION_CLOSE);
+        if (!close_lease)
+            return;
+
         qof_event_suspend ();
         gnc_hook_run(HOOK_BOOK_CLOSED, session);
         gnc_close_gui_component_by_session (session);
         gnc_state_save (session);
-        gnc_clear_current_session();
+        if (!gnc_current_session_exist () ||
+            gnc_get_current_session () != session ||
+            !gnc_clear_current_session_with_lease (close_lease))
+        {
+            qof_session_operation_lease_release (close_lease);
+            qof_event_resume ();
+            return;
+        }
+        qof_session_operation_lease_release (close_lease);
         qof_event_resume ();
     }
 
@@ -1506,6 +1592,7 @@ typedef struct
     QofSession *expected_session;
     QofBook *expected_book;
     gchar *expected_url;
+    guint64 expected_generation;
     QofSession *new_session;
     QofBackendError last_error;
 } GncFileOpenOperation;
@@ -1526,10 +1613,8 @@ file_open_discard_new_session (GncFileOpenOperation *operation)
 {
     if (!operation->new_session)
         return;
-    xaccLogDisable ();
-    qof_session_destroy (operation->new_session);
-    xaccLogEnable ();
-    operation->new_session = NULL;
+    if (file_session_destroy (operation->new_session))
+        operation->new_session = NULL;
 }
 
 static gboolean
@@ -1537,6 +1622,8 @@ file_open_operation_is_current (GncFileOpenOperation *operation)
 {
     QofSession *session;
 
+    if (gnc_current_session_get_generation () != operation->expected_generation)
+        return FALSE;
     if (!operation->expected_session)
         return !gnc_current_session_exist ();
     if (!gnc_current_session_exist ())
@@ -1558,11 +1645,23 @@ static void
 file_open_commit (GncFileOpenOperation *operation, GtkWindow *parent)
 {
     QofSession *new_session = operation->new_session;
+    QofSessionOperationLease *close_lease = NULL;
 
     if (!new_session || !file_open_operation_is_current (operation))
     {
         file_open_operation_fail (operation);
         return;
+    }
+
+    if (operation->expected_session)
+    {
+        close_lease = qof_session_operation_lease_acquire_for (
+            operation->expected_session, QOF_SESSION_OPERATION_CLOSE);
+        if (!close_lease)
+        {
+            file_open_operation_fail (operation);
+            return;
+        }
     }
 
     qof_event_suspend ();
@@ -1571,8 +1670,17 @@ file_open_commit (GncFileOpenOperation *operation, GtkWindow *parent)
         gnc_hook_run (HOOK_BOOK_CLOSED, operation->expected_session);
         gnc_close_gui_component_by_session (operation->expected_session);
         gnc_state_save (operation->expected_session);
-        gnc_clear_current_session ();
+        if (!file_open_operation_is_current (operation) ||
+            !gnc_clear_current_session_with_lease (close_lease))
+        {
+            qof_session_operation_lease_release (close_lease);
+            qof_event_resume ();
+            file_open_operation_fail (operation);
+            return;
+        }
+        qof_session_operation_lease_release (close_lease);
     }
+
     gnc_set_current_session (new_session);
     operation->new_session = NULL;
     qof_event_resume ();
@@ -1762,10 +1870,19 @@ file_open_after_loaded_error (GtkWindow *parent, gboolean uh_oh, gpointer user_d
 
     if (operation->last_error == ERR_SQL_DB_TOO_OLD)
     {
+        QofSessionOperationLease *lease =
+            qof_session_operation_lease_acquire_for (
+                operation->new_session, QOF_SESSION_OPERATION_OPEN);
+        gboolean authorized = lease != NULL;
+
         gnc_window_show_progress (_("Re-saving user data…"), 0.0);
-        qof_session_safe_save (operation->new_session, gnc_window_show_progress);
+        if (authorized)
+            authorized = qof_session_safe_save_with_lease (
+                operation->new_session, lease, gnc_window_show_progress);
         gnc_window_show_progress (NULL, -1.0);
-        operation->last_error = qof_session_get_error (operation->new_session);
+        qof_session_operation_lease_release (lease);
+        operation->last_error = authorized ?
+            qof_session_get_error (operation->new_session) : ERR_BACKEND_MISC;
         show_session_error_async (parent, operation->last_error, operation->filename,
                                   GNC_FILE_DIALOG_SAVE, file_open_upgrade_finished,
                                   operation);
@@ -1820,6 +1937,8 @@ file_open_start (GncFileOpenOperation *operation)
     gchar *password = NULL;
     gchar *path = NULL;
     gint32 port = 0;
+    QofSessionOperationLease *lease;
+    gboolean authorized;
 
     if ((operation->has_parent && !parent) ||
         !file_open_operation_is_current (operation))
@@ -1848,13 +1967,18 @@ file_open_start (GncFileOpenOperation *operation)
     }
 
     operation->new_session = qof_session_new (qof_book_new ());
-    qof_session_begin (operation->new_session, newfile,
-                       operation->mode == GNC_FILE_OPEN_BREAK_LOCK ?
-                       SESSION_BREAK_LOCK :
-                       operation->mode == GNC_FILE_OPEN_NEW_STORE ?
-                       SESSION_NEW_STORE :
-                       (operation->is_readonly ? SESSION_READ_ONLY : SESSION_NORMAL_OPEN));
-    operation->last_error = qof_session_get_error (operation->new_session);
+    lease = qof_session_operation_lease_acquire_for (
+        operation->new_session, QOF_SESSION_OPERATION_OPEN);
+    authorized = lease && qof_session_begin_with_lease (
+        operation->new_session, lease, newfile,
+        operation->mode == GNC_FILE_OPEN_BREAK_LOCK ?
+        SESSION_BREAK_LOCK :
+        operation->mode == GNC_FILE_OPEN_NEW_STORE ?
+        SESSION_NEW_STORE :
+        (operation->is_readonly ? SESSION_READ_ONLY : SESSION_NORMAL_OPEN));
+    qof_session_operation_lease_release (lease);
+    operation->last_error = authorized ?
+        qof_session_get_error (operation->new_session) : ERR_BACKEND_MISC;
     if (operation->last_error != ERR_BACKEND_NO_ERR)
     {
         QofBackendError error = operation->last_error;
@@ -1884,9 +2008,21 @@ file_open_start (GncFileOpenOperation *operation)
 
     xaccLogDisable ();
     gnc_window_show_progress (_("Loading user data…"), 0.0);
-    qof_session_load (operation->new_session, gnc_window_show_progress);
+    lease = qof_session_operation_lease_acquire_for (
+        operation->new_session, QOF_SESSION_OPERATION_OPEN);
+    authorized = lease && qof_session_load_with_lease (
+        operation->new_session, lease, gnc_window_show_progress);
+    qof_session_operation_lease_release (lease);
     gnc_window_show_progress (NULL, -1.0);
     xaccLogEnable ();
+    if (!authorized)
+    {
+        operation->last_error = ERR_BACKEND_MISC;
+        show_session_error_async (parent, operation->last_error, newfile,
+                                  GNC_FILE_DIALOG_OPEN, file_open_error_finished,
+                                  operation);
+        goto file_open_start_out;
+    }
     if (operation->is_readonly)
         qof_book_mark_readonly (qof_session_get_book (operation->new_session));
 
@@ -1894,6 +2030,8 @@ file_open_start (GncFileOpenOperation *operation)
     show_session_error_async (parent, operation->last_error, newfile,
                               GNC_FILE_DIALOG_OPEN, file_open_after_loaded_error,
                               operation);
+
+file_open_start_out:
     g_free (scheme);
     g_free (hostname);
     g_free (username);
@@ -2028,6 +2166,7 @@ gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonl
     operation->is_readonly = is_readonly;
     operation->reset_bayes_conversion = reset_bayes_conversion;
     operation->mode = break_lock ? GNC_FILE_OPEN_BREAK_LOCK : GNC_FILE_OPEN_NORMAL;
+    operation->expected_generation = gnc_current_session_get_generation ();
     if (gnc_current_session_exist ())
     {
         session = gnc_get_current_session ();
@@ -2226,6 +2365,7 @@ typedef struct
     QofSession *session;
     QofBook *book;
     gchar *session_url;
+    guint64 session_generation;
     GncFileExportMode mode;
 } GncFileExportRequest;
 
@@ -2245,6 +2385,8 @@ file_export_request_is_current (GncFileExportRequest *request)
 {
     QofSession *session;
 
+    if (gnc_current_session_get_generation () != request->session_generation)
+        return FALSE;
     if (!gnc_current_session_exist ())
         return FALSE;
     session = gnc_get_current_session ();
@@ -2302,13 +2444,8 @@ file_export_error_finished (GtkWindow *parent, gboolean uh_oh, gpointer user_dat
 
 static void
 file_export_begin_error (GncFileExportRequest *request, GtkWindow *parent,
-                         QofSession *new_session, QofBackendError error,
-                         const gchar *newfile)
+                         QofBackendError error, const gchar *newfile)
 {
-    xaccLogDisable ();
-    qof_session_destroy (new_session);
-    xaccLogEnable ();
-
     if (error == ERR_BACKEND_STORE_EXISTS &&
         request->mode == GNC_FILE_EXPORT_NEW_STORE)
     {
@@ -2349,6 +2486,9 @@ file_export_start (GncFileExportRequest *request)
     gchar *password = NULL;
     gchar *path = NULL;
     gint32 port = 0;
+    QofSessionOperationLease *lease;
+    GncFileSessionLeasePair pair = { NULL, NULL };
+    gboolean authorized;
 
     if ((request->has_parent && !parent) || !file_export_request_is_current (request))
     {
@@ -2422,15 +2562,20 @@ file_export_start (GncFileExportRequest *request)
     }
 
     new_session = qof_session_new (NULL);
-    qof_session_begin (new_session, newfile,
-                       request->mode == GNC_FILE_EXPORT_OVERWRITE ?
-                       SESSION_NEW_OVERWRITE :
-                       request->mode == GNC_FILE_EXPORT_BREAK_LOCK ?
-                       SESSION_BREAK_LOCK : SESSION_NEW_STORE);
-    io_err = qof_session_get_error (new_session);
+    lease = qof_session_operation_lease_acquire_for (
+        new_session, QOF_SESSION_OPERATION_EXPORT);
+    authorized = lease && qof_session_begin_with_lease (
+        new_session, lease, newfile,
+        request->mode == GNC_FILE_EXPORT_OVERWRITE ?
+        SESSION_NEW_OVERWRITE :
+        request->mode == GNC_FILE_EXPORT_BREAK_LOCK ?
+        SESSION_BREAK_LOCK : SESSION_NEW_STORE);
+    qof_session_operation_lease_release (lease);
+    io_err = authorized ? qof_session_get_error (new_session) : ERR_BACKEND_MISC;
     if (io_err != ERR_BACKEND_NO_ERR)
     {
-        file_export_begin_error (request, parent, new_session, io_err, newfile);
+        (void)file_session_destroy (new_session);
+        file_export_begin_error (request, parent, io_err, newfile);
         g_free (scheme);
         g_free (hostname);
         g_free (username);
@@ -2444,12 +2589,21 @@ file_export_start (GncFileExportRequest *request)
     qof_event_suspend ();
     gnc_set_busy_cursor (NULL, TRUE);
     gnc_window_show_progress (_("Exporting file…"), 0.0);
-    ok = qof_session_export (new_session, current_session, gnc_window_show_progress);
+    ok = FALSE;
+    authorized = file_session_lease_pair_acquire (
+        new_session, QOF_SESSION_OPERATION_EXPORT,
+        current_session, QOF_SESSION_OPERATION_EXPORT, &pair);
+    if (authorized)
+        authorized = qof_session_export_with_leases (
+            new_session, pair.lease_a, current_session, pair.lease_b,
+            gnc_window_show_progress, &ok);
+    file_session_lease_pair_release (&pair);
+    if (!authorized)
+        ok = FALSE;
     gnc_window_show_progress (NULL, -1.0);
     gnc_unset_busy_cursor (NULL);
-    xaccLogDisable ();
-    qof_session_destroy (new_session);
-    xaccLogEnable ();
+    if (!file_session_destroy (new_session))
+        ok = FALSE;
     qof_event_resume ();
 
     if (!ok)
@@ -2483,6 +2637,7 @@ gnc_file_do_export (GtkWindow *parent, const char *filename)
     request->session = session;
     request->book = qof_session_get_book (session);
     request->session_url = g_strdup (qof_session_get_url (session));
+    request->session_generation = gnc_current_session_get_generation ();
     request->mode = GNC_FILE_EXPORT_NEW_STORE;
     file_export_start (request);
 }
@@ -2503,6 +2658,7 @@ typedef struct
     QofSession *session;
     QofBook *book;
     gchar *session_url;
+    guint64 session_generation;
     GncFileQuerySaveCallback completed;
     gpointer user_data;
 } GncFileSaveErrorRequest;
@@ -2520,6 +2676,8 @@ file_save_error_request_is_current (GncFileSaveErrorRequest *request)
 {
     QofSession *session;
 
+    if (gnc_current_session_get_generation () != request->session_generation)
+        return FALSE;
     if (!gnc_current_session_exist ())
         return FALSE;
     session = gnc_get_current_session ();
@@ -2601,6 +2759,8 @@ gnc_file_save_async (GtkWindow *parent,
     QofBackendError io_err;
     const char *newfile;
     QofSession *session;
+    QofSessionOperationLease *lease;
+    gboolean authorized;
 
     ENTER (" ");
 
@@ -2623,13 +2783,28 @@ gnc_file_save_async (GtkWindow *parent,
         return;
     }
 
-    save_in_progress++;
+    lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE);
+    if (!lease)
+    {
+        gnc_file_save_complete (parent, completed, user_data, FALSE);
+        LEAVE ("Session operation already in progress.");
+        return;
+    }
+
     gnc_set_busy_cursor (NULL, TRUE);
     gnc_window_show_progress (_("Writing file…"), 0.0);
-    qof_session_save (session, gnc_window_show_progress);
+    authorized = qof_session_save_with_lease (
+        session, lease, gnc_window_show_progress);
     gnc_window_show_progress (NULL, -1.0);
     gnc_unset_busy_cursor (NULL);
-    save_in_progress--;
+    qof_session_operation_lease_release (lease);
+    if (!authorized)
+    {
+        gnc_file_save_complete (parent, completed, user_data, FALSE);
+        LEAVE ("Session operation was invalidated.");
+        return;
+    }
 
     io_err = qof_session_get_error (session);
     if (ERR_BACKEND_NO_ERR != io_err)
@@ -2641,6 +2816,7 @@ gnc_file_save_async (GtkWindow *parent,
         request->session = session;
         request->book = qof_session_get_book (session);
         request->session_url = g_strdup (qof_session_get_url (session));
+        request->session_generation = gnc_current_session_get_generation ();
         request->completed = completed;
         request->user_data = user_data;
         newfile = qof_session_get_url (session);
@@ -2781,6 +2957,7 @@ typedef struct
     QofSession *session;
     QofBook *book;
     gchar *session_url;
+    guint64 session_generation;
     GncFileSaveAsMode mode;
     GncFileQuerySaveCallback completed;
     gpointer user_data;
@@ -2802,6 +2979,8 @@ file_save_as_operation_is_current (GncFileSaveAsOperation *operation)
 {
     QofSession *session;
 
+    if (gnc_current_session_get_generation () != operation->session_generation)
+        return FALSE;
     if (!gnc_current_session_exist ())
         return FALSE;
     session = gnc_get_current_session ();
@@ -2881,21 +3060,9 @@ file_save_as_lock_finished (GtkWindow *parent, gboolean uh_oh,
 }
 
 static void
-file_save_as_cleanup_begin (QofSession *new_session)
-{
-    xaccLogDisable ();
-    qof_session_destroy (new_session);
-    xaccLogEnable ();
-    save_in_progress--;
-}
-
-static void
 file_save_as_begin_error (GncFileSaveAsOperation *operation, GtkWindow *parent,
-                          QofSession *new_session, QofBackendError error,
-                          const gchar *newfile)
+                          QofBackendError error, const gchar *newfile)
 {
-    file_save_as_cleanup_begin (new_session);
-
     if (error == ERR_BACKEND_STORE_EXISTS &&
         operation->mode == GNC_FILE_SAVE_AS_NEW_STORE)
     {
@@ -2943,6 +3110,9 @@ file_save_as_start (GncFileSaveAsOperation *operation)
     gchar *path = NULL;
     gint32 port = 0;
     QofBackendError io_err;
+    QofSessionOperationLease *lease;
+    GncFileSessionLeasePair pair = { NULL, NULL };
+    gboolean authorized;
 
     if ((operation->has_parent && !parent) ||
         !file_save_as_operation_is_current (operation))
@@ -3017,69 +3187,124 @@ file_save_as_start (GncFileSaveAsOperation *operation)
 
     qof_event_suspend ();
     gnc_suspend_gui_refresh ();
-    qof_session_ensure_all_data_loaded (session);
+    lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE_AS);
+    authorized = lease && qof_session_ensure_all_data_loaded_with_lease (
+        session, lease);
+    qof_session_operation_lease_release (lease);
     gnc_resume_gui_refresh ();
     qof_event_resume ();
+    if (!authorized)
+    {
+        show_session_error_async (parent, ERR_BACKEND_MISC, newfile,
+                                  GNC_FILE_DIALOG_SAVE,
+                                  file_save_as_error_finished, operation);
+        goto file_save_as_start_out;
+    }
 
-    save_in_progress++;
     new_session = qof_session_new (NULL);
-    qof_session_begin (new_session, newfile,
-                       operation->mode == GNC_FILE_SAVE_AS_OVERWRITE ?
-                       SESSION_NEW_OVERWRITE :
-                       operation->mode == GNC_FILE_SAVE_AS_BREAK_LOCK ?
-                       SESSION_BREAK_LOCK : SESSION_NEW_STORE);
-    io_err = qof_session_get_error (new_session);
+    authorized = file_session_lease_pair_acquire (
+        session, QOF_SESSION_OPERATION_SAVE_AS,
+        new_session, QOF_SESSION_OPERATION_SAVE_AS, &pair);
+    if (authorized)
+        authorized = qof_session_begin_with_lease (
+            new_session, pair.lease_b, newfile,
+            operation->mode == GNC_FILE_SAVE_AS_OVERWRITE ?
+            SESSION_NEW_OVERWRITE :
+            operation->mode == GNC_FILE_SAVE_AS_BREAK_LOCK ?
+            SESSION_BREAK_LOCK : SESSION_NEW_STORE);
+    io_err = authorized ? qof_session_get_error (new_session) : ERR_BACKEND_MISC;
     if (io_err != ERR_BACKEND_NO_ERR)
     {
-        file_save_as_begin_error (operation, parent, new_session, io_err, newfile);
-        g_free (scheme);
-        g_free (hostname);
-        g_free (username);
-        g_free (password);
-        g_free (path);
-        g_free (newfile);
-        g_clear_object (&parent);
-        return;
+        if (pair.lease_b)
+        {
+            xaccLogDisable ();
+            (void)qof_session_destroy_with_lease (new_session, pair.lease_b);
+            xaccLogEnable ();
+        }
+        else
+            (void)file_session_destroy (new_session);
+        file_session_lease_pair_release (&pair);
+        file_save_as_begin_error (operation, parent, io_err, newfile);
+        goto file_save_as_start_out;
     }
 
     if (!gnc_uri_is_file_scheme (scheme))
         gnc_keyring_set_password (scheme, hostname, port, path, username, password);
 
     qof_event_suspend ();
-    qof_session_swap_data (session, new_session);
+    authorized = qof_session_swap_data_with_leases (
+        session, pair.lease_a, new_session, pair.lease_b);
+    file_session_lease_pair_release (&pair);
+    if (!authorized)
+    {
+        qof_event_resume ();
+        (void)file_session_destroy (new_session);
+        show_session_error_async (parent, ERR_BACKEND_MISC, newfile,
+                                  GNC_FILE_DIALOG_SAVE,
+                                  file_save_as_error_finished, operation);
+        goto file_save_as_start_out;
+    }
+
+    authorized = file_session_lease_pair_acquire (
+        session, QOF_SESSION_OPERATION_SAVE_AS,
+        new_session, QOF_SESSION_OPERATION_SAVE_AS, &pair);
+    if (!authorized)
+        g_error ("Unable to reacquire Save As leases after an atomic swap");
     qof_book_mark_session_dirty (qof_session_get_book (new_session));
     qof_event_resume ();
 
     gnc_set_busy_cursor (NULL, TRUE);
     gnc_window_show_progress (_("Writing file…"), 0.0);
-    qof_session_save (new_session, gnc_window_show_progress);
+    authorized = qof_session_save_with_lease (
+        new_session, pair.lease_b, gnc_window_show_progress);
     gnc_window_show_progress (NULL, -1.0);
     gnc_unset_busy_cursor (NULL);
-    io_err = qof_session_get_error (new_session);
+    io_err = authorized ? qof_session_get_error (new_session) : ERR_BACKEND_MISC;
     if (io_err != ERR_BACKEND_NO_ERR)
     {
+        gboolean swapped_back;
+
         qof_event_suspend ();
-        qof_session_swap_data (new_session, session);
-        qof_session_destroy (new_session);
+        swapped_back = qof_session_swap_data_with_leases (
+            new_session, pair.lease_b, session, pair.lease_a);
         qof_event_resume ();
-        save_in_progress--;
+        file_session_lease_pair_release (&pair);
+        if (swapped_back)
+            (void)file_session_destroy (new_session);
+        else
+            PWARN ("Save As rollback lost its session authority");
         show_session_error_async (parent, io_err, newfile, GNC_FILE_DIALOG_SAVE,
                                   file_save_as_error_finished, operation);
     }
     else
     {
+        gboolean cleared;
+
         qof_event_suspend ();
         gnc_gui_component_reset_session (session, new_session);
-        gnc_clear_current_session ();
+        qof_session_operation_lease_release (pair.lease_b);
+        pair.lease_b = NULL;
+        cleared = gnc_clear_current_session_with_lease (pair.lease_a);
+        qof_session_operation_lease_release (pair.lease_a);
+        pair.lease_a = NULL;
+        if (!cleared)
+        {
+            qof_event_resume ();
+            show_session_error_async (parent, ERR_BACKEND_MISC, newfile,
+                                      GNC_FILE_DIALOG_SAVE,
+                                      file_save_as_error_finished, operation);
+            goto file_save_as_start_out;
+        }
         gnc_set_current_session (new_session);
         qof_event_resume ();
         xaccReopenLog ();
         gnc_add_history (new_session);
         gnc_hook_run (HOOK_BOOK_SAVED, new_session);
-        save_in_progress--;
         file_save_as_operation_complete (operation, TRUE);
     }
 
+file_save_as_start_out:
     g_free (scheme);
     g_free (hostname);
     g_free (username);
@@ -3111,6 +3336,7 @@ gnc_file_do_save_as_async (GtkWindow *parent, const char *filename,
     operation->session = session;
     operation->book = qof_session_get_book (session);
     operation->session_url = g_strdup (qof_session_get_url (session));
+    operation->session_generation = gnc_current_session_get_generation ();
     operation->mode = GNC_FILE_SAVE_AS_NEW_STORE;
     operation->completed = completed;
     operation->user_data = user_data;
@@ -3124,8 +3350,11 @@ gnc_file_do_save_as (GtkWindow *parent, const char *filename)
 }
 typedef struct
 {
+    QofSession *session;
     QofBook *book;
     gchar *fileurl;
+    gchar *session_url;
+    guint64 session_generation;
     gboolean open_readonly;
 } GncFileRevertRequest;
 
@@ -3133,14 +3362,26 @@ static void
 gnc_file_revert_finished (GtkWindow *parent, gint response, gpointer user_data)
 {
     GncFileRevertRequest *request = user_data;
+    QofSessionOperationLease *lease = NULL;
 
     if (response == GTK_RESPONSE_YES && gnc_current_session_exist () &&
-        qof_session_get_book (gnc_get_current_session ()) == request->book)
+        gnc_current_session_get_generation () == request->session_generation &&
+        gnc_get_current_session () == request->session &&
+        qof_session_get_book (request->session) == request->book &&
+        g_strcmp0 (qof_session_get_url (request->session),
+                   request->session_url) == 0)
     {
-        qof_book_mark_session_saved (request->book);
-        gnc_file_open_file (parent, request->fileurl, request->open_readonly);
+        lease = qof_session_operation_lease_acquire_for (
+            request->session, QOF_SESSION_OPERATION_OPEN);
+        if (lease)
+        {
+            qof_book_mark_session_saved (request->book);
+            qof_session_operation_lease_release (lease);
+            gnc_file_open_file (parent, request->fileurl, request->open_readonly);
+        }
     }
     g_free (request->fileurl);
+    g_free (request->session_url);
     g_free (request);
 }
 
@@ -3164,8 +3405,11 @@ gnc_file_revert (GtkWindow *parent)
     filename = tmp ? tmp + 1 : fileurl;
 
     request = g_new0 (GncFileRevertRequest, 1);
+    request->session = session;
     request->book = qof_session_get_book (session);
     request->fileurl = g_strdup (fileurl);
+    request->session_url = g_strdup (qof_session_get_url (session));
+    request->session_generation = gnc_current_session_get_generation ();
     request->open_readonly = qof_book_is_readonly (request->book);
     gnc_verify_dialog_async (parent, FALSE, gnc_file_revert_finished, request,
                              title, filename);
@@ -3175,11 +3419,19 @@ void
 gnc_file_quit (void)
 {
     QofSession *session;
+    QofSessionOperationLease *close_lease;
 
     if (!gnc_current_session_exist ())
         return;
     gnc_set_busy_cursor (NULL, TRUE);
     session = gnc_get_current_session ();
+    close_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_CLOSE);
+    if (!close_lease)
+    {
+        gnc_unset_busy_cursor (NULL);
+        return;
+    }
 
     /* disable events; otherwise the mass deletion of accounts and
      * transactions during shutdown would cause massive redraws */
@@ -3188,7 +3440,16 @@ gnc_file_quit (void)
     gnc_hook_run(HOOK_BOOK_CLOSED, session);
     gnc_close_gui_component_by_session (session);
     gnc_state_save (session);
-    gnc_clear_current_session();
+    if (!gnc_current_session_exist () ||
+        gnc_get_current_session () != session ||
+        !gnc_clear_current_session_with_lease (close_lease))
+    {
+        qof_session_operation_lease_release (close_lease);
+        qof_event_resume ();
+        gnc_unset_busy_cursor (NULL);
+        return;
+    }
+    qof_session_operation_lease_release (close_lease);
 
     qof_event_resume ();
     gnc_unset_busy_cursor (NULL);
@@ -3206,7 +3467,11 @@ gnc_file_save_in_progress (void)
     if (gnc_current_session_exist())
     {
         QofSession *session = gnc_get_current_session();
-        return (qof_session_save_in_progress(session) || save_in_progress > 0);
+        return qof_session_save_in_progress (session) ||
+               qof_session_has_active_operation_kind (
+                   session, QOF_SESSION_OPERATION_SAVE) ||
+               qof_session_has_active_operation_kind (
+                   session, QOF_SESSION_OPERATION_SAVE_AS);
     }
     return FALSE;
 }
