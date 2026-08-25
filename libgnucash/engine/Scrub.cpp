@@ -45,6 +45,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <unordered_set>
+#include <vector>
 
 #include "Account.h"
 #include "AccountP.hpp"
@@ -70,6 +71,15 @@ struct GncScrubContext
     QofSessionOperationLease *lease;
     guint64 operation_id;
     gint cancelled;
+};
+
+struct GncScrubJob
+{
+    GncScrubContext *context;
+    QofBook *book;
+    std::vector<GncGUID> transaction_guids;
+    size_t cursor;
+    GncScrubJobState state;
 };
 
 
@@ -224,6 +234,125 @@ get_all_transactions (Account *account, bool descendants)
     if (descendants)
         gnc_account_foreach_descendant (account, add_transactions);
     return set;
+}
+
+static void
+gnc_scrub_job_finish (GncScrubJob *job, GncScrubJobState state)
+{
+    if (!job || job->state != GNC_SCRUB_JOB_RUNNING)
+        return;
+
+    job->state = state;
+    gnc_scrub_context_end (job->context);
+}
+
+GncScrubJob *
+gnc_scrub_orphans_job_begin (Account *account, gboolean descendants)
+{
+    if (!account)
+        return nullptr;
+
+    auto book = qof_instance_get_book (QOF_INSTANCE (account));
+    auto context = gnc_scrub_context_begin (book);
+    if (!context)
+        return nullptr;
+
+    auto job = new GncScrubJob{context, book, {}, 0, GNC_SCRUB_JOB_RUNNING};
+    auto transactions = get_all_transactions (account, descendants);
+    job->transaction_guids.reserve (transactions.size ());
+    for (auto transaction : transactions)
+        job->transaction_guids.push_back (*xaccTransGetGUID (transaction));
+    return job;
+}
+
+GncScrubJobState
+gnc_scrub_job_step (GncScrubJob *job, guint max_transactions)
+{
+    if (!job)
+        return GNC_SCRUB_JOB_FAILED;
+    if (job->state != GNC_SCRUB_JOB_RUNNING)
+        return job->state;
+    if (max_transactions == 0)
+    {
+        gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+        return job->state;
+    }
+    if (gnc_scrub_context_is_cancelled (job->context))
+    {
+        gnc_scrub_job_finish (job, GNC_SCRUB_JOB_CANCELLED);
+        return job->state;
+    }
+    if (!gnc_scrub_context_is_active (job->context))
+    {
+        gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+        return job->state;
+    }
+
+    guint processed = 0;
+    while (processed < max_transactions &&
+           job->cursor < job->transaction_guids.size ())
+    {
+        if (gnc_scrub_context_is_cancelled (job->context))
+        {
+            gnc_scrub_job_finish (job, GNC_SCRUB_JOB_CANCELLED);
+            return job->state;
+        }
+        if (!gnc_scrub_context_is_active (job->context))
+        {
+            gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+            return job->state;
+        }
+
+        auto transaction = xaccTransLookup (
+            &job->transaction_guids[job->cursor], job->book);
+        ++job->cursor;
+        ++processed;
+        if (transaction)
+            xaccTransScrubOrphansWithContext (transaction, job->context);
+    }
+
+    if (job->cursor == job->transaction_guids.size ())
+        gnc_scrub_job_finish (job, GNC_SCRUB_JOB_DONE);
+    return job->state;
+}
+
+void
+gnc_scrub_job_cancel (GncScrubJob *job)
+{
+    if (!job || job->state != GNC_SCRUB_JOB_RUNNING)
+        return;
+
+    gnc_scrub_context_cancel (job->context);
+    gnc_scrub_job_finish (job, GNC_SCRUB_JOB_CANCELLED);
+}
+
+GncScrubJobState
+gnc_scrub_job_get_state (const GncScrubJob *job)
+{
+    return job ? job->state : GNC_SCRUB_JOB_FAILED;
+}
+
+guint
+gnc_scrub_job_get_total (const GncScrubJob *job)
+{
+    return job ? static_cast<guint> (job->transaction_guids.size ()) : 0;
+}
+
+guint
+gnc_scrub_job_get_completed (const GncScrubJob *job)
+{
+    return job ? static_cast<guint> (job->cursor) : 0;
+}
+
+void
+gnc_scrub_job_free (GncScrubJob *job)
+{
+    if (!job)
+        return;
+
+    gnc_scrub_job_cancel (job);
+    gnc_scrub_context_unref (job->context);
+    delete job;
 }
 
 /* ================================================================ */

@@ -76,6 +76,18 @@ extern "C" {
 /** Opaque, book-bound authority for one synchronous GUI scrub operation. */
 typedef struct GncScrubContext GncScrubContext;
 
+/** Opaque, resumable engine scrub operation. */
+typedef struct GncScrubJob GncScrubJob;
+
+/** Terminal and non-terminal states returned by gnc_scrub_job_step(). */
+typedef enum
+{
+    GNC_SCRUB_JOB_RUNNING,
+    GNC_SCRUB_JOB_DONE,
+    GNC_SCRUB_JOB_CANCELLED,
+    GNC_SCRUB_JOB_FAILED,
+} GncScrubJobState;
+
 /**
  * Acquire the current session's exclusive SCRUB lease for @a book.
  *
@@ -101,6 +113,34 @@ gboolean gnc_scrub_context_owns_book (const GncScrubContext *context,
 
 /** Release the SCRUB lease exactly once without dropping context references. */
 void gnc_scrub_context_end (GncScrubContext *context);
+
+/**
+ * Start a resumable orphan-scrub pass for @a account.
+ *
+ * The job snapshots the affected transaction GUIDs while acquiring the
+ * current session's SCRUB lease. It never retains transaction pointers across
+ * steps. Call gnc_scrub_job_step() until it returns a terminal state, then
+ * call gnc_scrub_job_free().
+ */
+GncScrubJob *gnc_scrub_orphans_job_begin (Account *account,
+                                          gboolean descendants);
+
+/**
+ * Process at most @a max_transactions snapshot entries in this turn.
+ * A zero limit is invalid and terminates the job as failed.
+ */
+GncScrubJobState gnc_scrub_job_step (GncScrubJob *job,
+                                     guint max_transactions);
+
+/** Cancel a job and release its SCRUB lease without waiting for another step. */
+void gnc_scrub_job_cancel (GncScrubJob *job);
+
+GncScrubJobState gnc_scrub_job_get_state (const GncScrubJob *job);
+guint gnc_scrub_job_get_total (const GncScrubJob *job);
+guint gnc_scrub_job_get_completed (const GncScrubJob *job);
+
+/** Release a job. Releasing a running job cancels it first. */
+void gnc_scrub_job_free (GncScrubJob *job);
 
 /** Context-aware variants share cancellation and authority through recursion. */
 void xaccTransScrubOrphansWithContext (Transaction *trans,

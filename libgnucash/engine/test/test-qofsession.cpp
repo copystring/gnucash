@@ -36,6 +36,10 @@
 #include <cstdlib>
 #include "../gnc-backend-prov.hpp"
 #include "../Account.h"
+#include "../Split.h"
+#include "../Transaction.h"
+#include "../gnc-commodity.h"
+#include <vector>
 
 static QofBook * exported_book {nullptr};
 static bool safe_sync_called {false};
@@ -119,6 +123,70 @@ static QofBackendProvider_ptr
 get_provider ()
 {
     return QofBackendProvider_ptr {new MockProvider {"Mock Backend", "file"}};
+}
+
+struct ScrubJobBook
+{
+    QofBook *book;
+    Account *root;
+    Account *account;
+    gnc_commodity *currency;
+    std::vector<Split *> orphan_splits;
+
+    ScrubJobBook (QofBook *target_book, guint transaction_count)
+        : book {target_book}
+        , root {gnc_account_create_root (book)}
+        , account {xaccMallocAccount (book)}
+        , currency {gnc_commodity_new (book, "Test Currency", "CURRENCY",
+                                       "TST", "", 100)}
+    {
+        xaccAccountBeginEdit (account);
+        xaccAccountSetName (account, "Test account");
+        xaccAccountSetType (account, ACCT_TYPE_BANK);
+        xaccAccountSetCommodity (account, currency);
+        gnc_account_append_child (root, account);
+        xaccAccountCommitEdit (account);
+
+        for (guint i = 0; i < transaction_count; ++i)
+        {
+            auto transaction = xaccMallocTransaction (book);
+            auto attached = xaccMallocSplit (book);
+            auto orphan = xaccMallocSplit (book);
+            xaccTransBeginEdit (transaction);
+            xaccTransSetCurrency (transaction, currency);
+            xaccSplitSetParent (attached, transaction);
+            xaccSplitSetAccount (attached, account);
+            xaccSplitSetParent (orphan, transaction);
+            xaccTransCommitEdit (transaction);
+            orphan_splits.push_back (orphan);
+        }
+    }
+};
+
+static void
+scrub_job_progress (const char *, double)
+{
+}
+
+static Account *
+expect_orphans_scrubbed (const ScrubJobBook& fixture)
+{
+    Account *destination = nullptr;
+    for (auto split : fixture.orphan_splits)
+    {
+        auto account = xaccSplitGetAccount (split);
+        EXPECT_NE (account, nullptr);
+        if (!destination)
+            destination = account;
+        else
+            EXPECT_EQ (account, destination);
+    }
+    if (destination)
+    {
+        EXPECT_EQ (xaccAccountGetType (destination), ACCT_TYPE_BANK);
+        EXPECT_EQ (xaccAccountGetCommodity (destination), fixture.currency);
+    }
+    return destination;
 }
 
 TEST (QofSessionTest, swap_books)
@@ -626,4 +694,138 @@ TEST (QofSessionOperationLeaseTest, scrub_context_releases_exactly_once)
     EXPECT_FALSE (gnc_current_session_exist ());
     EXPECT_EQ (gnc_current_session_get_generation (), generation);
     gnc_scrub_context_unref (retained);
+}
+
+TEST (QofSessionOperationLeaseTest, orphan_scrub_job_is_incremental_and_matches_sync)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ScrubJobBook incremental {qof_session_get_book (session), 3};
+    auto sync_book = qof_book_new ();
+    ScrubJobBook synchronous {sync_book, 3};
+    gnc_set_current_session (session);
+
+    auto job = gnc_scrub_orphans_job_begin (incremental.account, FALSE);
+    ASSERT_NE (job, nullptr);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 3);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 0);
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        session, QOF_SESSION_OPERATION_SCRUB));
+    EXPECT_EQ (qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE), nullptr);
+
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        session, QOF_SESSION_OPERATION_SCRUB));
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 2);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 3);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    auto incremental_destination = expect_orphans_scrubbed (incremental);
+
+    xaccAccountScrubOrphans (synchronous.account, scrub_job_progress);
+    auto synchronous_destination = expect_orphans_scrubbed (synchronous);
+    ASSERT_NE (incremental_destination, nullptr);
+    ASSERT_NE (synchronous_destination, nullptr);
+    EXPECT_STREQ (xaccAccountGetName (incremental_destination),
+                  xaccAccountGetName (synchronous_destination));
+
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+    qof_book_destroy (sync_book);
+}
+
+TEST (QofSessionOperationLeaseTest, orphan_scrub_job_cancel_releases_lease_once)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ScrubJobBook fixture {qof_session_get_book (session), 2};
+    gnc_set_current_session (session);
+    auto job = gnc_scrub_orphans_job_begin (fixture.account, FALSE);
+    ASSERT_NE (job, nullptr);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+
+    gnc_scrub_job_cancel (job);
+    EXPECT_EQ (gnc_scrub_job_get_state (job), GNC_SCRUB_JOB_CANCELLED);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_CANCELLED);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+
+    auto next_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE);
+    ASSERT_NE (next_lease, nullptr);
+    qof_session_operation_lease_release (next_lease);
+    gnc_scrub_job_cancel (job);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest, orphan_scrub_job_zero_step_fails_and_releases_lease)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ScrubJobBook fixture {qof_session_get_book (session), 1};
+    gnc_set_current_session (session);
+    auto job = gnc_scrub_orphans_job_begin (fixture.account, FALSE);
+    ASSERT_NE (job, nullptr);
+
+    EXPECT_EQ (gnc_scrub_job_step (job, 0), GNC_SCRUB_JOB_FAILED);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest, orphan_scrub_job_free_cancels_and_releases_lease_once)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ScrubJobBook fixture {qof_session_get_book (session), 2};
+    gnc_set_current_session (session);
+    auto job = gnc_scrub_orphans_job_begin (fixture.account, FALSE);
+    ASSERT_NE (job, nullptr);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+
+    gnc_scrub_job_free (job);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    auto next_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE);
+    ASSERT_NE (next_lease, nullptr);
+    qof_session_operation_lease_release (next_lease);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest, orphan_scrub_job_prevents_session_or_book_staleness)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto current = qof_session_new (qof_book_new ());
+    auto foreign = qof_session_new (qof_book_new ());
+    auto current_book = qof_session_get_book (current);
+    ScrubJobBook fixture {current_book, 1};
+    gnc_set_current_session (current);
+    auto job = gnc_scrub_orphans_job_begin (fixture.account, FALSE);
+    ASSERT_NE (job, nullptr);
+
+    gnc_set_current_session (foreign);
+    EXPECT_EQ (gnc_get_current_session (), current);
+    qof_session_swap_data (current, foreign);
+    EXPECT_EQ (qof_session_get_book (current), current_book);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (current));
+
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+    qof_session_destroy (foreign);
 }
