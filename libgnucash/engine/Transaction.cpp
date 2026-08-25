@@ -44,6 +44,7 @@
 
 #include "AccountP.hpp"
 #include "Scrub.h"
+#include "ScrubP.h"
 #include "Scrub3.h"
 #include "TransactionP.hpp"
 #include "SplitP.hpp"
@@ -1435,6 +1436,8 @@ do_destroy (QofInstance* inst)
 
 /* Temporary hack for data consistency */
 static int scrub_data = 1;
+static void TransScrubGains (Transaction *trans, Account *gain_acc);
+
 void xaccEnableDataScrubbing(void)
 {
     scrub_data = 1;
@@ -1568,12 +1571,12 @@ xaccTransCommitEdit (Transaction *trans)
          * Call the trans scrub routine to fix it. Indirectly, this
          * routine also performs a number of other transaction fixes too.
          */
-        xaccTransScrubImbalance (trans, nullptr, nullptr);
+        xaccTransScrubImbalanceInternal (trans, nullptr, nullptr, nullptr);
         /* Get the cap gains into a consistent state as well. */
 
         /* Lot Scrubbing is temporarily disabled. */
         if (g_getenv("GNC_AUTO_SCRUB_LOTS") != nullptr)
-            xaccTransScrubGains (trans, nullptr);
+            TransScrubGains (trans, nullptr);
 
         /* Allow scrubbing in transaction commit again */
         scrub_data = 1;
@@ -2672,8 +2675,8 @@ xaccTransScrubGainsDate (Transaction *trans)
 
 /* ============================================================== */
 
-void
-xaccTransScrubGains (Transaction *trans, Account *gain_acc)
+static void
+TransScrubGains (Transaction *trans, Account *gain_acc)
 {
     SplitList *node;
 
@@ -2696,7 +2699,7 @@ restart:
             gboolean altered = FALSE;
             s->gains &= ~GAINS_STATUS_ADIRTY;
             if (s->lot)
-                altered = xaccScrubLot(s->lot);
+                altered = xaccScrubLotInternal (s->lot, nullptr);
             else
                 altered = xaccSplitAssign(s);
             if (altered) goto restart;
@@ -2712,6 +2715,15 @@ restart:
         );
 
     LEAVE("(trans=%p)", trans);
+}
+
+void
+xaccTransScrubGains (Transaction *trans, Account *gain_acc)
+{
+    if (!trans || !gnc_scrub_legacy_operation_allowed (
+                      xaccTransGetBook (trans), "transaction gains scrub"))
+        return;
+    TransScrubGains (trans, gain_acc);
 }
 
 Split *

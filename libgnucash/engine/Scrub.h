@@ -73,16 +73,53 @@ extern "C" {
     for orphaned inodes.
     @{  */
 
-/** The gnc_set_abort_scrub () method causes a currently running scrub operation
- *    to stop, if abort is TRUE; gnc_set_abort_scrub(FALSE) must be called before
- *    any scrubbing operation.
- */
-void gnc_set_abort_scrub (gboolean abort);
-gboolean gnc_get_abort_scrub (void);
+/** Opaque, book-bound authority for one synchronous GUI scrub operation. */
+typedef struct GncScrubContext GncScrubContext;
 
-/** The gnc_get_ongoing_scrub () method returns TRUE if a scrub operation is ongoing.
+/**
+ * Acquire the current session's exclusive SCRUB lease for @a book.
+ *
+ * Acquisition fails unless @a book belongs to the current session and no other
+ * operation owns that session. The caller must call
+ * gnc_scrub_context_end() before returning to the main loop and then release
+ * its reference with gnc_scrub_context_unref().
  */
-gboolean gnc_get_ongoing_scrub (void);
+GncScrubContext *gnc_scrub_context_begin (QofBook *book);
+
+/** Retain/release a context reference for an asynchronous cancel callback. */
+GncScrubContext *gnc_scrub_context_ref (GncScrubContext *context);
+void gnc_scrub_context_unref (GncScrubContext *context);
+
+/** Cancel only this operation. Cancellation of an ended context is a no-op. */
+void gnc_scrub_context_cancel (GncScrubContext *context);
+gboolean gnc_scrub_context_is_cancelled (const GncScrubContext *context);
+
+/** Return whether the context still owns its original current session and book. */
+gboolean gnc_scrub_context_is_active (const GncScrubContext *context);
+gboolean gnc_scrub_context_owns_book (const GncScrubContext *context,
+                                      const QofBook *book);
+
+/** Release the SCRUB lease exactly once without dropping context references. */
+void gnc_scrub_context_end (GncScrubContext *context);
+
+/** Context-aware variants share cancellation and authority through recursion. */
+void xaccTransScrubOrphansWithContext (Transaction *trans,
+                                       GncScrubContext *context);
+void xaccAccountScrubOrphansWithContext (Account *acc,
+                                         QofPercentageFunc percentagefunc,
+                                         GncScrubContext *context);
+void xaccAccountTreeScrubOrphansWithContext (Account *acc,
+                                             QofPercentageFunc percentagefunc,
+                                             GncScrubContext *context);
+void xaccTransScrubImbalanceWithContext (Transaction *trans, Account *root,
+                                         Account *parent,
+                                         GncScrubContext *context);
+void xaccAccountScrubImbalanceWithContext (Account *acc,
+                                           QofPercentageFunc percentagefunc,
+                                           GncScrubContext *context);
+void xaccAccountTreeScrubImbalanceWithContext (Account *acc,
+                                               QofPercentageFunc percentagefunc,
+                                               GncScrubContext *context);
 
 /** The xaccTransScrubOrphans() method scrubs only the splits in the
  *    given transaction.

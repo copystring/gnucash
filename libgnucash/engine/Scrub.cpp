@@ -50,6 +50,7 @@
 #include "AccountP.hpp"
 #include "Account.hpp"
 #include "Scrub.h"
+#include "ScrubP.h"
 #include "Transaction.h"
 #include "TransactionP.hpp"
 #include "gnc-commodity.h"
@@ -60,8 +61,16 @@
 #define G_LOG_DOMAIN "gnc.engine.scrub"
 
 static QofLogModule log_module = G_LOG_DOMAIN;
-static gboolean abort_now = FALSE;
-static gint scrub_depth = 0;
+
+struct GncScrubContext
+{
+    gatomicrefcount ref_count;
+    QofSession *session;
+    QofBook *book;
+    QofSessionOperationLease *lease;
+    guint64 operation_id;
+    gint cancelled;
+};
 
 
 static Account* xaccScrubUtilityGetOrMakeAccount (Account *root,
@@ -70,23 +79,135 @@ static Account* xaccScrubUtilityGetOrMakeAccount (Account *root,
                                                   GNCAccountType acctype,
                                                   gboolean placeholder,
                                                   gboolean checkname);
+static void TransScrubCurrency (Transaction *trans,
+                                GncScrubContext *context);
+static void AccountScrubCommodity (Account *account);
+static void TransScrubSplits (Transaction *trans, GncScrubContext *context);
+static void SplitScrub (Split *split, GncScrubContext *context);
+
+GncScrubContext *
+gnc_scrub_context_begin (QofBook *book)
+{
+    if (!book || !gnc_current_session_exist ())
+        return nullptr;
+
+    auto session = gnc_get_current_session ();
+    if (qof_session_get_book (session) != book)
+    {
+        PWARN ("Refusing scrub context for a book outside the current session");
+        return nullptr;
+    }
+
+    auto lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SCRUB);
+    if (!lease)
+        return nullptr;
+
+    auto context = g_new0 (GncScrubContext, 1);
+    g_atomic_ref_count_init (&context->ref_count);
+    context->session = session;
+    context->book = book;
+    context->lease = lease;
+    context->operation_id = qof_session_operation_lease_get_id (lease);
+    return context;
+}
+
+GncScrubContext *
+gnc_scrub_context_ref (GncScrubContext *context)
+{
+    if (context)
+        g_atomic_ref_count_inc (&context->ref_count);
+    return context;
+}
+
+gboolean
+gnc_scrub_context_is_active (const GncScrubContext *context)
+{
+    if (!context || !context->lease ||
+        !gnc_current_session_exist ())
+        return FALSE;
+
+    auto current = gnc_get_current_session ();
+    return current && current == context->session &&
+           qof_session_get_book (current) == context->book &&
+           qof_session_operation_lease_get_id (context->lease) ==
+               context->operation_id &&
+           qof_session_operation_lease_get_kind (context->lease) ==
+               QOF_SESSION_OPERATION_SCRUB;
+}
+
+gboolean
+gnc_scrub_context_owns_book (const GncScrubContext *context,
+                             const QofBook *book)
+{
+    return book && context && context->book == book &&
+           gnc_scrub_context_is_active (context);
+}
 
 void
-gnc_set_abort_scrub (gboolean abort)
+gnc_scrub_context_cancel (GncScrubContext *context)
 {
-    abort_now = abort;
+    if (gnc_scrub_context_is_active (context))
+        g_atomic_int_set (&context->cancelled, TRUE);
 }
 
 gboolean
-gnc_get_abort_scrub (void)
+gnc_scrub_context_is_cancelled (const GncScrubContext *context)
 {
-    return abort_now;
+    return context &&
+           g_atomic_int_get (const_cast<gint *> (&context->cancelled));
+}
+
+void
+gnc_scrub_context_end (GncScrubContext *context)
+{
+    if (!context || !context->lease)
+        return;
+
+    auto lease = context->lease;
+    context->lease = nullptr;
+    qof_session_operation_lease_release (lease);
+}
+
+void
+gnc_scrub_context_unref (GncScrubContext *context)
+{
+    if (!context || !g_atomic_ref_count_dec (&context->ref_count))
+        return;
+
+    gnc_scrub_context_end (context);
+    g_free (context);
 }
 
 gboolean
-gnc_get_ongoing_scrub (void)
+gnc_scrub_context_validate_for_book (const GncScrubContext *context,
+                                     const QofBook *book,
+                                     const char *operation)
 {
-    return scrub_depth > 0;
+    if (gnc_scrub_context_owns_book (context, book))
+        return TRUE;
+
+    PWARN ("Refusing %s without its active book-bound scrub context",
+           operation ? operation : "scrub");
+    return FALSE;
+}
+
+gboolean
+gnc_scrub_legacy_operation_allowed (const QofBook *book,
+                                    const char *operation)
+{
+    if (!gnc_current_session_exist ())
+        return TRUE;
+
+    auto session = gnc_get_current_session ();
+    if (qof_session_get_book (session) != book ||
+        !qof_session_has_active_operation_kind (
+            session, QOF_SESSION_OPERATION_SCRUB))
+        return TRUE;
+
+    PWARN ("Refusing legacy %s while an explicit scrub context owns book %p",
+           operation ? operation : "scrub", book);
+    return FALSE;
 }
 
 /* ================================================================ */
@@ -108,14 +229,15 @@ get_all_transactions (Account *account, bool descendants)
 /* ================================================================ */
 
 static void
-TransScrubOrphansFast (Transaction *trans, Account *root)
+TransScrubOrphansFast (Transaction *trans, Account *root,
+                       GncScrubContext *context)
 {
     g_return_if_fail (trans && trans->common_currency && root);
 
     for (GList *node = trans->splits; node; node = node->next)
     {
         Split *split = GNC_SPLIT(node->data);
-        if (abort_now) break;
+        if (gnc_scrub_context_is_cancelled (context)) break;
 
         if (split->acc) continue;
 
@@ -136,10 +258,15 @@ TransScrubOrphansFast (Transaction *trans, Account *root)
 }
 
 static void
-AccountScrubOrphans (Account *acc, bool descendants, QofPercentageFunc percentagefunc)
+AccountScrubOrphans (Account *acc, bool descendants,
+                     QofPercentageFunc percentagefunc,
+                     GncScrubContext *context)
 {
     if (!acc) return;
-    scrub_depth++;
+    auto book = qof_instance_get_book (QOF_INSTANCE (acc));
+    if (context && !gnc_scrub_context_validate_for_book (
+                       context, book, "account orphan scrub"))
+        return;
 
     auto transactions = get_all_transactions (acc, descendants);
     auto total_trans = transactions.size();
@@ -153,45 +280,56 @@ AccountScrubOrphans (Account *acc, bool descendants, QofPercentageFunc percentag
             char *progress_msg = g_strdup_printf (message, current_trans, total_trans);
             (percentagefunc)(progress_msg, (100 * current_trans) / total_trans);
             g_free (progress_msg);
-            if (abort_now) break;
+            if (gnc_scrub_context_is_cancelled (context)) break;
         }
 
-        TransScrubOrphansFast (trans, gnc_account_get_root (acc));
+        TransScrubOrphansFast (trans, gnc_account_get_root (acc), context);
         current_trans++;
     }
     (percentagefunc)(nullptr, -1.0);
-    scrub_depth--;
 }
 
 void
 xaccAccountScrubOrphans (Account *acc, QofPercentageFunc percentagefunc)
 {
-    AccountScrubOrphans (acc, false, percentagefunc);
+    if (!acc || !gnc_scrub_legacy_operation_allowed (
+                    qof_instance_get_book (QOF_INSTANCE (acc)),
+                    "account orphan scrub"))
+        return;
+    AccountScrubOrphans (acc, false, percentagefunc, nullptr);
 }
 
 void
 xaccAccountTreeScrubOrphans (Account *acc, QofPercentageFunc percentagefunc)
 {
-    AccountScrubOrphans (acc, true, percentagefunc);
+    if (!acc || !gnc_scrub_legacy_operation_allowed (
+                    qof_instance_get_book (QOF_INSTANCE (acc)),
+                    "account-tree orphan scrub"))
+        return;
+    AccountScrubOrphans (acc, true, percentagefunc, nullptr);
 }
 
-void
-xaccTransScrubOrphans (Transaction *trans)
+static void
+TransScrubOrphans (Transaction *trans, GncScrubContext *context)
 {
     SplitList *node;
-    QofBook *book = nullptr;
     Account *root = nullptr;
 
     if (!trans) return;
+    auto book = xaccTransGetBook (trans);
+    if (context && !gnc_scrub_context_validate_for_book (
+                       context, book, "transaction orphan scrub"))
+        return;
 
     for (node = trans->splits; node; node = node->next)
     {
         Split *split = GNC_SPLIT(node->data);
-        if (abort_now) break;
+        if (gnc_scrub_context_is_cancelled (context)) break;
 
         if (split->acc)
         {
-            TransScrubOrphansFast (trans, gnc_account_get_root(split->acc));
+            TransScrubOrphansFast (trans, gnc_account_get_root(split->acc),
+                                   context);
             return;
         }
     }
@@ -202,39 +340,80 @@ xaccTransScrubOrphans (Transaction *trans)
      * XXX we should probably *always* to this, instead of the above loop!
      */
     PINFO ("Free Floating Transaction!");
-    book = xaccTransGetBook (trans);
     root = gnc_book_get_root_account (book);
-    TransScrubOrphansFast (trans, root);
+    TransScrubOrphansFast (trans, root, context);
+}
+
+void
+xaccTransScrubOrphans (Transaction *trans)
+{
+    if (!trans || !gnc_scrub_legacy_operation_allowed (
+                      xaccTransGetBook (trans), "transaction orphan scrub"))
+        return;
+    TransScrubOrphans (trans, nullptr);
+}
+
+void
+xaccTransScrubOrphansWithContext (Transaction *trans,
+                                  GncScrubContext *context)
+{
+    TransScrubOrphans (trans, context);
+}
+
+void
+xaccAccountScrubOrphansWithContext (Account *acc,
+                                    QofPercentageFunc percentagefunc,
+                                    GncScrubContext *context)
+{
+    AccountScrubOrphans (acc, false, percentagefunc, context);
+}
+
+void
+xaccAccountTreeScrubOrphansWithContext (Account *acc,
+                                        QofPercentageFunc percentagefunc,
+                                        GncScrubContext *context)
+{
+    AccountScrubOrphans (acc, true, percentagefunc, context);
 }
 
 /* ================================================================ */
 
 void
-xaccAccountTreeScrubSplits (Account *account)
+xaccAccountScrubSplits (Account *account)
 {
-    if (!account) return;
-
-    xaccAccountScrubSplits (account);
-    gnc_account_foreach_descendant(account,
-                                   (AccountCb)xaccAccountScrubSplits, nullptr);
+    if (!account || !gnc_scrub_legacy_operation_allowed (
+                        qof_instance_get_book (QOF_INSTANCE (account)),
+                        "account split scrub"))
+        return;
+    for (auto split : xaccAccountGetSplits (account))
+        SplitScrub (split, nullptr);
 }
 
 void
-xaccAccountScrubSplits (Account *account)
+xaccAccountTreeScrubSplits (Account *account)
 {
-    scrub_depth++;
-    for (auto s : xaccAccountGetSplits (account))
-    {
-        if (abort_now) break;
-        xaccSplitScrub (s);
-    }
-    scrub_depth--;
+    if (!account || !gnc_scrub_legacy_operation_allowed (
+                        qof_instance_get_book (QOF_INSTANCE (account)),
+                        "account-tree split scrub"))
+        return;
+
+    for (auto split : xaccAccountGetSplits (account))
+        SplitScrub (split, nullptr);
+    gnc_account_foreach_descendant (
+        account,
+        [] (Account *descendant, gpointer)
+        {
+            for (auto split : xaccAccountGetSplits (descendant))
+                SplitScrub (split, nullptr);
+        },
+        nullptr);
 }
 
 /* if dry_run is true, this function will analyze the split and
    return true if the split will be modified during the actual scrub. */
 static bool
-split_scrub_or_dry_run (Split *split, bool dry_run)
+split_scrub_or_dry_run (Split *split, bool dry_run,
+                        GncScrubContext *context)
 {
     Account *account;
     Transaction *trans;
@@ -262,7 +441,7 @@ split_scrub_or_dry_run (Split *split, bool dry_run)
         if (dry_run)
             return true;
         else
-            xaccTransScrubOrphans (trans);
+            TransScrubOrphans (trans, context);
         account = xaccSplitGetAccount (split);
     }
 
@@ -309,7 +488,7 @@ split_scrub_or_dry_run (Split *split, bool dry_run)
         if (dry_run)
             return true;
         else
-            xaccAccountScrubCommodity (account);
+            AccountScrubCommodity (account);
     }
     if (!acc_commodity || !gnc_commodity_equiv(acc_commodity, currency))
     {
@@ -352,22 +531,25 @@ split_scrub_or_dry_run (Split *split, bool dry_run)
 
 static void
 AccountScrubImbalance (Account *acc, bool descendants,
-                       QofPercentageFunc percentagefunc)
+                       QofPercentageFunc percentagefunc,
+                       GncScrubContext *context)
 {
     const char *message = _("Looking for imbalances in transaction date %s: %u of %zu");
 
     if (!acc) return;
 
-    QofBook *book = qof_session_get_book (gnc_get_current_session ());
+    auto book = qof_instance_get_book (QOF_INSTANCE (acc));
+    if (context && !gnc_scrub_context_validate_for_book (
+                       context, book, "account imbalance scrub"))
+        return;
     Account *root = gnc_book_get_root_account (book);
     auto transactions = get_all_transactions (acc, descendants);
     auto count = transactions.size();
     auto curr_trans = 0;
 
-    scrub_depth++;
     for (auto trans : transactions)
     {
-        if (abort_now) break;
+        if (gnc_scrub_context_is_cancelled (context)) break;
 
         PINFO("Start processing transaction %d of %zu", curr_trans + 1, count);
 
@@ -380,19 +562,18 @@ AccountScrubImbalance (Account *acc, bool descendants,
             g_free (date);
         }
 
-        TransScrubOrphansFast (trans, root);
-        xaccTransScrubCurrency(trans);
-        xaccTransScrubImbalance (trans, root, nullptr);
+        TransScrubOrphansFast (trans, root, context);
+        TransScrubCurrency (trans, context);
+        xaccTransScrubImbalanceInternal (trans, root, nullptr, context);
 
         PINFO("Finished processing transaction %d of %zu", curr_trans + 1, count);
         curr_trans++;
     }
     (percentagefunc)(nullptr, -1.0);
-    scrub_depth--;
 }
 
-void
-xaccTransScrubSplits (Transaction *trans)
+static void
+TransScrubSplits (Transaction *trans, GncScrubContext *context)
 {
     if (!trans) return;
 
@@ -403,7 +584,7 @@ xaccTransScrubSplits (Transaction *trans)
     bool must_scrub = false;
 
     for (GList *n = xaccTransGetSplitList (trans); !must_scrub && n; n = g_list_next (n))
-        if (split_scrub_or_dry_run (GNC_SPLIT(n->data), true))
+        if (split_scrub_or_dry_run (GNC_SPLIT(n->data), true, context))
             must_scrub = true;
 
     if (!must_scrub)
@@ -413,7 +594,7 @@ xaccTransScrubSplits (Transaction *trans)
     /* The split scrub expects the transaction to have a currency! */
 
     for (GList *n = xaccTransGetSplitList (trans); n; n = g_list_next (n))
-        xaccSplitScrub (GNC_SPLIT(n->data));
+        SplitScrub (GNC_SPLIT(n->data), context);
 
     xaccTransCommitEdit(trans);
 }
@@ -421,9 +602,28 @@ xaccTransScrubSplits (Transaction *trans)
 /* ================================================================ */
 
 void
+xaccTransScrubSplits (Transaction *trans)
+{
+    if (!trans || !gnc_scrub_legacy_operation_allowed (
+                      xaccTransGetBook (trans), "transaction split scrub"))
+        return;
+    TransScrubSplits (trans, nullptr);
+}
+
+static void
+SplitScrub (Split *split, GncScrubContext *context)
+{
+    split_scrub_or_dry_run (split, false, context);
+}
+
+void
 xaccSplitScrub (Split *split)
 {
-    split_scrub_or_dry_run (split, false);
+    if (!split || !gnc_scrub_legacy_operation_allowed (
+                      qof_instance_get_book (QOF_INSTANCE (split)),
+                      "split scrub"))
+        return;
+    SplitScrub (split, nullptr);
 }
 
 /* ================================================================ */
@@ -432,13 +632,37 @@ xaccSplitScrub (Split *split)
 void
 xaccAccountTreeScrubImbalance (Account *acc, QofPercentageFunc percentagefunc)
 {
-    AccountScrubImbalance (acc, true, percentagefunc);
+    if (!acc || !gnc_scrub_legacy_operation_allowed (
+                    qof_instance_get_book (QOF_INSTANCE (acc)),
+                    "account-tree imbalance scrub"))
+        return;
+    AccountScrubImbalance (acc, true, percentagefunc, nullptr);
 }
 
 void
 xaccAccountScrubImbalance (Account *acc, QofPercentageFunc percentagefunc)
 {
-    AccountScrubImbalance (acc, false, percentagefunc);
+    if (!acc || !gnc_scrub_legacy_operation_allowed (
+                    qof_instance_get_book (QOF_INSTANCE (acc)),
+                    "account imbalance scrub"))
+        return;
+    AccountScrubImbalance (acc, false, percentagefunc, nullptr);
+}
+
+void
+xaccAccountScrubImbalanceWithContext (Account *acc,
+                                      QofPercentageFunc percentagefunc,
+                                      GncScrubContext *context)
+{
+    AccountScrubImbalance (acc, false, percentagefunc, context);
+}
+
+void
+xaccAccountTreeScrubImbalanceWithContext (Account *acc,
+                                          QofPercentageFunc percentagefunc,
+                                          GncScrubContext *context)
+{
+    AccountScrubImbalance (acc, true, percentagefunc, context);
 }
 
 static Split *
@@ -580,7 +804,8 @@ get_trading_split (Transaction *trans, Account *base,
 
 static void
 add_balance_split (Transaction *trans, gnc_numeric imbalance,
-                   Account *root, Account *account)
+                   Account *root, Account *account,
+                   GncScrubContext *context)
 {
     const gnc_commodity *commodity;
     gnc_numeric old_value, new_value;
@@ -629,14 +854,15 @@ add_balance_split (Transaction *trans, gnc_numeric imbalance,
         xaccSplitSetAmount (balance_split, new_value);
     }
 
-    xaccSplitScrub (balance_split);
+    SplitScrub (balance_split, context);
     xaccTransCommitEdit (trans);
 }
 
 /* Balance a transaction without trading accounts. */
 static void
 gnc_transaction_balance_no_trading (Transaction *trans, Account *root,
-                                    Account *account)
+                                    Account *account,
+                                    GncScrubContext *context)
 {
     gnc_numeric imbalance  = xaccTransGetImbalanceValue (trans);
 
@@ -645,7 +871,7 @@ gnc_transaction_balance_no_trading (Transaction *trans, Account *root,
     {
         PINFO ("Value unbalanced transaction");
 
-        add_balance_split (trans, imbalance, root, account);
+        add_balance_split (trans, imbalance, root, account, context);
     }
 
 }
@@ -712,7 +938,8 @@ xaccTransClearTradingSplits (Transaction *trans)
 }
 
 static void
-gnc_transaction_balance_trading (Transaction *trans, Account *root)
+gnc_transaction_balance_trading (Transaction *trans, Account *root,
+                                 GncScrubContext *context)
 {
     MonetaryList *imbal_list;
     MonetaryList *imbalance_commod;
@@ -774,7 +1001,7 @@ gnc_transaction_balance_trading (Transaction *trans, Account *root)
             xaccSplitSetValue (balance_split, new_value);
         }
 
-        xaccSplitScrub (balance_split);
+        SplitScrub (balance_split, context);
         xaccTransCommitEdit (trans);
     }
 
@@ -787,7 +1014,8 @@ gnc_transaction_balance_trading (Transaction *trans, Account *root)
  * @param root the root account
  */
 static void
-gnc_transaction_balance_trading_more_splits (Transaction *trans, Account *root)
+gnc_transaction_balance_trading_more_splits (Transaction *trans, Account *root,
+                                             GncScrubContext *context)
 {
     /* Copy the split list so we don't see the splits we're adding */
     GList *splits_dup = g_list_copy(trans->splits), *splits = nullptr;
@@ -827,7 +1055,7 @@ gnc_transaction_balance_trading_more_splits (Transaction *trans, Account *root)
             /* Don't change the balance split's amount since the amount
                is zero in the split we're working on */
 
-            xaccSplitScrub (balance_split);
+            SplitScrub (balance_split, context);
             xaccTransCommitEdit (trans);
         }
     }
@@ -842,17 +1070,24 @@ gnc_transaction_balance_trading_more_splits (Transaction *trans, Account *root)
  */
 
 void
-xaccTransScrubImbalance (Transaction *trans, Account *root,
-                         Account *account)
+xaccTransScrubImbalanceInternal (Transaction *trans, Account *root,
+                                 Account *account,
+                                 GncScrubContext *context)
 {
     gnc_numeric imbalance;
 
     if (!trans) return;
+    auto book = xaccTransGetBook (trans);
+    if (context && !gnc_scrub_context_validate_for_book (
+                       context, book, "transaction imbalance scrub"))
+        return;
+    if (gnc_scrub_context_is_cancelled (context))
+        return;
 
     ENTER ("()");
 
     /* Must look for orphan splits even if there is no imbalance. */
-    xaccTransScrubSplits (trans);
+    TransScrubSplits (trans, context);
 
     /* Return immediately if things are balanced. */
     if (xaccTransIsBalanced (trans))
@@ -863,7 +1098,7 @@ xaccTransScrubImbalance (Transaction *trans, Account *root,
 
     if (! xaccTransUseTradingAccounts (trans))
     {
-        gnc_transaction_balance_no_trading (trans, root, account);
+        gnc_transaction_balance_no_trading (trans, root, account, context);
         LEAVE ("transaction balanced, no managed trading accounts");
         return;
     }
@@ -874,10 +1109,10 @@ xaccTransScrubImbalance (Transaction *trans, Account *root,
     {
         PINFO ("Value unbalanced transaction");
 
-        add_balance_split (trans, imbalance, root, account);
+        add_balance_split (trans, imbalance, root, account, context);
     }
 
-    gnc_transaction_balance_trading (trans, root);
+    gnc_transaction_balance_trading (trans, root, context);
     if (gnc_numeric_zero_p(xaccTransGetImbalanceValue(trans)))
     {
         LEAVE ("()");
@@ -888,10 +1123,27 @@ xaccTransScrubImbalance (Transaction *trans, Account *root,
        realized gain/loss splits.  Add a reversing split for each of them to
        balance the value. */
 
-    gnc_transaction_balance_trading_more_splits (trans, root);
+    gnc_transaction_balance_trading_more_splits (trans, root, context);
     if (!gnc_numeric_zero_p(xaccTransGetImbalanceValue(trans)))
         PERR("Balancing currencies unbalanced value");
 
+}
+
+void
+xaccTransScrubImbalance (Transaction *trans, Account *root, Account *account)
+{
+    if (!trans || !gnc_scrub_legacy_operation_allowed (
+                      xaccTransGetBook (trans), "transaction imbalance scrub"))
+        return;
+    xaccTransScrubImbalanceInternal (trans, root, account, nullptr);
+}
+
+void
+xaccTransScrubImbalanceWithContext (Transaction *trans, Account *root,
+                                    Account *account,
+                                    GncScrubContext *context)
+{
+    xaccTransScrubImbalanceInternal (trans, root, account, context);
 }
 
 /* ================================================================ */
@@ -1117,8 +1369,8 @@ xaccTransFindCommonCurrency (Transaction *trans, QofBook *book)
 
 /* ================================================================ */
 
-void
-xaccTransScrubCurrency (Transaction *trans)
+static void
+TransScrubCurrency (Transaction *trans, GncScrubContext *context)
 {
     SplitList *node;
     gnc_commodity *currency;
@@ -1129,7 +1381,7 @@ xaccTransScrubCurrency (Transaction *trans)
      * this routine will fail.  Therefore, we want to make sure that
      * there are no orphans (splits without parent account).
      */
-    xaccTransScrubOrphans (trans);
+    TransScrubOrphans (trans, context);
 
     currency = xaccTransGetCurrency (trans);
     if (currency && gnc_commodity_is_currency(currency)) return;
@@ -1232,10 +1484,19 @@ xaccTransScrubCurrency (Transaction *trans)
 
 }
 
+void
+xaccTransScrubCurrency (Transaction *trans)
+{
+    if (!trans || !gnc_scrub_legacy_operation_allowed (
+                      xaccTransGetBook (trans), "transaction currency scrub"))
+        return;
+    TransScrubCurrency (trans, nullptr);
+}
+
 /* ================================================================ */
 
-void
-xaccAccountScrubCommodity (Account *account)
+static void
+AccountScrubCommodity (Account *account)
 {
     gnc_commodity *commodity;
 
@@ -1263,6 +1524,16 @@ xaccAccountScrubCommodity (Account *account)
 
     PERR ("Account \"%s\" does not have a commodity!",
           xaccAccountGetName(account));
+}
+
+void
+xaccAccountScrubCommodity (Account *account)
+{
+    if (!account || !gnc_scrub_legacy_operation_allowed (
+                        qof_instance_get_book (QOF_INSTANCE (account)),
+                        "account commodity scrub"))
+        return;
+    AccountScrubCommodity (account);
 }
 
 /* ================================================================ */
@@ -1293,22 +1564,21 @@ scrub_trans_currency_helper (Transaction *t, gpointer data)
 static void
 scrub_account_commodity_helper (Account *account, gpointer data)
 {
-    scrub_depth++;
-    xaccAccountScrubCommodity (account);
+    AccountScrubCommodity (account);
     xaccAccountDeleteOldData (account);
-    scrub_depth--;
 }
 
 void
 xaccAccountTreeScrubCommodities (Account *acc)
 {
-    if (!acc) return;
-    scrub_depth++;
+    if (!acc || !gnc_scrub_legacy_operation_allowed (
+                    qof_instance_get_book (QOF_INSTANCE (acc)),
+                    "account-tree commodity scrub"))
+        return;
     xaccAccountTreeForEachTransaction (acc, scrub_trans_currency_helper, nullptr);
 
     scrub_account_commodity_helper (acc, nullptr);
     gnc_account_foreach_descendant (acc, scrub_account_commodity_helper, nullptr);
-    scrub_depth--;
 }
 
 /* ================================================================ */
@@ -1368,14 +1638,16 @@ xaccAccountTreeScrubQuoteSources (Account *root, gnc_commodity_table *table)
         LEAVE("Oops");
         return;
     }
-    scrub_depth++;
+    if (!gnc_scrub_legacy_operation_allowed (
+            qof_instance_get_book (QOF_INSTANCE (root)),
+            "account-tree quote-source scrub"))
+        return;
     gnc_commodity_table_foreach_commodity (table, check_quote_source, &new_style);
 
     move_quote_source(root, GINT_TO_POINTER(new_style));
     gnc_account_foreach_descendant (root, move_quote_source,
                                     GINT_TO_POINTER(new_style));
     LEAVE("Migration done");
-    scrub_depth--;
 }
 
 /* ================================================================ */
@@ -1386,8 +1658,10 @@ xaccAccountScrubKvp (Account *account)
     GValue v = G_VALUE_INIT;
     gchar *str2;
 
-    if (!account) return;
-    scrub_depth++;
+    if (!account || !gnc_scrub_legacy_operation_allowed (
+                        qof_instance_get_book (QOF_INSTANCE (account)),
+                        "account KVP scrub"))
+        return;
 
     qof_instance_get_kvp (QOF_INSTANCE (account), &v, 1, "notes");
     if (G_VALUE_HOLDS_STRING (&v))
@@ -1406,7 +1680,6 @@ xaccAccountScrubKvp (Account *account)
 
     g_value_unset (&v);
     qof_instance_slot_delete_if_empty (QOF_INSTANCE (account), "hbci");
-    scrub_depth--;
 }
 
 /* ================================================================ */

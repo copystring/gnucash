@@ -389,6 +389,7 @@ typedef struct GncPluginPageRegisterPrivate
     Query* filter_query;     // saved filter query for comparison
     FinishPendingRequest* finish_pending_request;
     VoidTransactionRequest* void_transaction_request;
+    GncScrubContext* scrub_context;
 
     SortData sd;
     FilterData fd;
@@ -588,6 +589,14 @@ gnc_plugin_page_register_finalize (GObject* object)
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER (object));
 
     ENTER ("object %p", object);
+
+    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (object);
+    if (priv->scrub_context)
+    {
+        gnc_scrub_context_cancel (priv->scrub_context);
+        gnc_scrub_context_unref (priv->scrub_context);
+        priv->scrub_context = nullptr;
+    }
 
     G_OBJECT_CLASS (gnc_plugin_page_register_parent_class)->finalize (object);
     LEAVE (" ");
@@ -1618,8 +1627,6 @@ gnc_plugin_page_register_update_edit_menu (GncPluginPage* plugin_page, gboolean 
     g_simple_action_set_enabled (G_SIMPLE_ACTION(action), can_paste);
 }
 
-static gboolean is_scrubbing = FALSE;
-static gboolean show_abort_verify = TRUE;
 static const char*
 check_repair_abort_YN = N_("'Check & Repair' is currently running, do you want to abort it?");
 
@@ -1630,6 +1637,7 @@ struct FinishPendingRequest
     GWeakRef parent;
     GCancellable* cancellable;
     gulong parent_destroy_handler;
+    GncScrubContext* scrub_context;
     GncPluginPageRegisterPendingCallback callback;
     gpointer user_data;
     GDestroyNotify user_data_destroy;
@@ -1656,6 +1664,7 @@ finish_pending_request_free (FinishPendingRequest* request)
     g_weak_ref_clear (&request->parent);
     g_weak_ref_clear (&request->page);
     g_clear_object (&request->cancellable);
+    gnc_scrub_context_unref (request->scrub_context);
     if (request->user_data_destroy)
         request->user_data_destroy (request->user_data);
     g_free (request);
@@ -1731,13 +1740,11 @@ finish_pending_scrub_finished (GObject* source_object, GAsyncResult* result,
     }
     else if (response == 1)
     {
-        show_abort_verify = FALSE;
-        gnc_set_abort_scrub (TRUE);
+        gnc_scrub_context_cancel (request->scrub_context);
         finish_pending_continue (request);
     }
     else
     {
-        show_abort_verify = FALSE;
         finish_pending_request_complete (request, FALSE);
     }
     finish_pending_request_unref (request);
@@ -1824,7 +1831,8 @@ finish_pending_continue (FinishPendingRequest* request)
         return;
     }
 
-    if (is_scrubbing && show_abort_verify)
+    if (gnc_scrub_context_is_active (request->scrub_context) &&
+        !gnc_scrub_context_is_cancelled (request->scrub_context))
     {
         const char* buttons[] = { _("Cancel"), _("Abort"), nullptr };
         auto alert = gtk_alert_dialog_new ("%s", _(check_repair_abort_YN));
@@ -1929,6 +1937,7 @@ gnc_plugin_page_register_finish_pending_async
     g_weak_ref_init (&request->parent, parent);
     request->cancellable = cancellable ? g_object_ref (cancellable) :
                                          g_cancellable_new ();
+    request->scrub_context = gnc_scrub_context_ref (priv->scrub_context);
     request->callback = callback;
     request->user_data = user_data;
     request->user_data_destroy = user_data_destroy;
@@ -4445,8 +4454,36 @@ gnc_plugin_page_register_cmd_schedule (GSimpleAction *simple,
     LEAVE (" ");
 }
 
+static GncScrubContext*
+register_scrub_begin (GncPluginPageRegister* page, QofBook* book)
+{
+    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+    if (priv->scrub_context)
+        return nullptr;
+
+    auto context = gnc_scrub_context_begin (book);
+    if (!context)
+        return nullptr;
+
+    priv->scrub_context = gnc_scrub_context_ref (context);
+    return context;
+}
+
 static void
-scrub_split (Split *split)
+register_scrub_end (GncPluginPageRegister* page, GncScrubContext* context)
+{
+    auto priv = GNC_PLUGIN_PAGE_REGISTER_GET_PRIVATE (page);
+    if (priv->scrub_context == context)
+    {
+        gnc_scrub_context_unref (priv->scrub_context);
+        priv->scrub_context = nullptr;
+    }
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_unref (context);
+}
+
+static void
+scrub_split (Split *split, GncScrubContext* context)
 {
     Account *acct;
     Transaction *trans;
@@ -4458,12 +4495,13 @@ scrub_split (Split *split)
     lot = xaccSplitGetLot (split);
     g_return_if_fail (trans);
 
-    xaccTransScrubOrphans (trans);
-    xaccTransScrubImbalance (trans, gnc_get_current_root_account(), NULL);
-    if (lot && xaccAccountIsAPARType (xaccAccountGetType (acct)))
+    xaccTransScrubOrphansWithContext (trans, context);
+    xaccTransScrubImbalanceWithContext (
+        trans, gnc_get_current_root_account(), NULL, context);
+    if (lot && acct && xaccAccountIsAPARType (xaccAccountGetType (acct)))
     {
-        gncScrubBusinessLot (lot);
-        gncScrubBusinessSplit (split);
+        gncScrubBusinessLotWithContext (lot, context);
+        gncScrubBusinessSplitWithContext (split, context);
     }
 }
 
@@ -4476,6 +4514,8 @@ gnc_plugin_page_register_cmd_scrub_current (GSimpleAction *simple,
     GncPluginPageRegisterPrivate* priv;
     Query* query;
     SplitRegister* reg;
+    Split* split;
+    GncScrubContext* context;
 
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER (page));
 
@@ -4490,9 +4530,17 @@ gnc_plugin_page_register_cmd_scrub_current (GSimpleAction *simple,
     }
 
     reg = gnc_ledger_display_get_split_register (priv->ledger);
+    split = gnc_split_register_get_current_split (reg);
+    if (!split)
+        return;
+    context = register_scrub_begin (
+        page, qof_instance_get_book (QOF_INSTANCE (split)));
+    if (!context)
+        return;
 
     gnc_suspend_gui_refresh();
-    scrub_split (gnc_split_register_get_current_split (reg));
+    scrub_split (split, context);
+    register_scrub_end (page, context);
     gnc_resume_gui_refresh();
     LEAVE (" ");
 }
@@ -4500,10 +4548,11 @@ gnc_plugin_page_register_cmd_scrub_current (GSimpleAction *simple,
 static void
 scrub_abort_verify_finished (GtkWindow *parent, gint response, gpointer user_data)
 {
+    auto context = static_cast<GncScrubContext *> (user_data);
     (void)parent;
-    (void)user_data;
     if (response == GTK_RESPONSE_YES)
-        gnc_set_abort_scrub (TRUE);
+        gnc_scrub_context_cancel (context);
+    gnc_scrub_context_unref (context);
 }
 
 static gboolean
@@ -4515,14 +4564,15 @@ scrub_kp_handler (GtkEventControllerKey *key, guint keyval,
 
     (void)keycode;
     (void)state;
-    (void)user_data;
+    auto context = static_cast<GncScrubContext *> (user_data);
     if (keyval != GDK_KEY_Escape)
         return FALSE;
 
     widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (key));
     if (widget && GTK_IS_WINDOW (widget))
         gnc_verify_dialog_async (GTK_WINDOW (widget), FALSE,
-                                 scrub_abort_verify_finished, nullptr,
+                                 scrub_abort_verify_finished,
+                                 gnc_scrub_context_ref (context),
                                  "%s", _(check_repair_abort_YN));
     return TRUE;
 }
@@ -4540,6 +4590,8 @@ gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
     GtkEventController *scrub_key_controller;
     gulong scrub_kp_handler_ID;
     const char* message = _ ("Checking splits in current register: %u of %u");
+    GncScrubContext* context;
+    QofBook* book;
 
     g_return_if_fail (GNC_IS_PLUGIN_PAGE_REGISTER (page));
 
@@ -4553,19 +4605,29 @@ gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
         return;
     }
 
+    auto books = qof_query_get_books (query);
+    book = books ? static_cast<QofBook *> (books->data) : nullptr;
+    if (!book || books->next)
+    {
+        LEAVE ("query isn't bound to one book");
+        return;
+    }
+    context = register_scrub_begin (page, book);
+    if (!context)
+        return;
+
     gnc_suspend_gui_refresh();
-    is_scrubbing = TRUE;
-    gnc_set_abort_scrub (FALSE);
     window = GNC_WINDOW (GNC_PLUGIN_PAGE (page)->window);
     scrub_key_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET (window), scrub_key_controller);
     scrub_kp_handler_ID = g_signal_connect (scrub_key_controller, "key-pressed",
-                                            G_CALLBACK (scrub_kp_handler), NULL);
+                                            G_CALLBACK (scrub_kp_handler), context);
     gnc_window_set_progressbar_window (window);
 
     splits = qof_query_run (query);
     split_count = g_list_length (splits);
-    for (node = splits; node && !gnc_get_abort_scrub (); node = node->next, curr_split_no++)
+    for (node = splits; node && !gnc_scrub_context_is_cancelled (context);
+         node = node->next, curr_split_no++)
     {
         auto split = GNC_SPLIT(node->data);
 
@@ -4574,7 +4636,7 @@ gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
         PINFO ("Start processing split %d of %d",
                curr_split_no + 1, split_count);
 
-        scrub_split (split);
+        scrub_split (split, context);
 
         PINFO ("Finished processing split %d of %d",
                curr_split_no + 1, split_count);
@@ -4588,11 +4650,10 @@ gnc_plugin_page_register_cmd_scrub_all (GSimpleAction *simple,
     }
 
     g_signal_handler_disconnect (scrub_key_controller, scrub_kp_handler_ID);
+    gtk_widget_remove_controller (GTK_WIDGET (window), scrub_key_controller);
     gnc_window_show_progress (NULL, -1.0);
-    is_scrubbing = FALSE;
-    show_abort_verify = TRUE;
-    gnc_set_abort_scrub (FALSE);
 
+    register_scrub_end (page, context);
     gnc_resume_gui_refresh();
     LEAVE (" ");
 }

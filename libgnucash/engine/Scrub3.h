@@ -33,6 +33,7 @@
 #define XACC_SCRUB3_H
 
 #include "gnc-engine.h"
+#include "Scrub.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +58,8 @@ extern "C" {
  *    any splits were deleted.
  */
 gboolean xaccScrubLot (GNCLot *lot);
+gboolean xaccScrubLotWithContext (GNCLot *lot,
+                                  GncScrubContext *context);
 
 /** The xaccAccountScrubLots() routine makes sure that every split
  *    in the account is assigned to a lot, and that then, every
@@ -72,6 +75,10 @@ gboolean xaccScrubLot (GNCLot *lot);
  */
 void xaccAccountScrubLots (Account *acc);
 void xaccAccountTreeScrubLots (Account *acc);
+void xaccAccountScrubLotsWithContext (Account *acc,
+                                      GncScrubContext *context);
+void xaccAccountTreeScrubLotsWithContext (Account *acc,
+                                          GncScrubContext *context);
 
 /** @} */
 

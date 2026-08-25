@@ -30,6 +30,8 @@
 #include "../guid.hpp"
 #include <qofsession.hpp>
 #include <gnc-session.h>
+#include <Scrub.h>
+#include <ScrubP.h>
 #include <qof-backend.hpp>
 #include <cstdlib>
 #include "../gnc-backend-prov.hpp"
@@ -525,4 +527,103 @@ TEST (QofSessionOperationLeaseTest, book_replacement_invalidates_lease)
     qof_session_operation_lease_release (lease);
     qof_session_destroy (session);
     qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionOperationLeaseTest, scrub_context_is_current_book_bound)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto current = qof_session_new (qof_book_new ());
+    auto foreign = qof_session_new (qof_book_new ());
+    auto current_book = qof_session_get_book (current);
+    auto foreign_book = qof_session_get_book (foreign);
+    gnc_set_current_session (current);
+    auto generation = gnc_current_session_get_generation ();
+
+    EXPECT_EQ (gnc_scrub_context_begin (foreign_book), nullptr);
+    auto context = gnc_scrub_context_begin (current_book);
+    ASSERT_NE (context, nullptr);
+    EXPECT_TRUE (gnc_scrub_context_is_active (context));
+    EXPECT_TRUE (gnc_scrub_context_owns_book (context, current_book));
+    EXPECT_FALSE (gnc_scrub_context_owns_book (context, foreign_book));
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        current, QOF_SESSION_OPERATION_SCRUB));
+    EXPECT_EQ (qof_session_operation_lease_acquire_for (
+        current, QOF_SESSION_OPERATION_SAVE), nullptr);
+    EXPECT_FALSE (gnc_scrub_legacy_operation_allowed (
+        current_book, "test scrub"));
+    EXPECT_TRUE (gnc_scrub_legacy_operation_allowed (
+        foreign_book, "test scrub"));
+
+    gnc_scrub_context_cancel (context);
+    EXPECT_TRUE (gnc_scrub_context_is_cancelled (context));
+    gnc_set_current_session (foreign);
+    EXPECT_EQ (gnc_get_current_session (), current);
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+    EXPECT_TRUE (gnc_scrub_context_is_active (context));
+
+    gnc_scrub_context_end (context);
+    EXPECT_FALSE (gnc_scrub_context_is_active (context));
+    EXPECT_FALSE (qof_session_has_active_operation_kind (
+        current, QOF_SESSION_OPERATION_SCRUB));
+    EXPECT_TRUE (gnc_scrub_legacy_operation_allowed (
+        current_book, "test scrub"));
+    gnc_scrub_context_unref (context);
+
+    gnc_set_current_session (foreign);
+    EXPECT_EQ (gnc_get_current_session (), foreign);
+    gnc_clear_current_session ();
+    qof_session_destroy (current);
+}
+
+TEST (QofSessionOperationLeaseTest, scrub_checks_do_not_create_current_session)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto generation = gnc_current_session_get_generation ();
+    auto book = qof_book_new ();
+    ASSERT_FALSE (gnc_current_session_exist ());
+
+    EXPECT_EQ (gnc_scrub_context_begin (book), nullptr);
+    EXPECT_FALSE (gnc_current_session_exist ());
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+    EXPECT_TRUE (gnc_scrub_legacy_operation_allowed (
+        book, "headless scrub"));
+    EXPECT_FALSE (gnc_current_session_exist ());
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+
+    qof_book_destroy (book);
+}
+
+TEST (QofSessionOperationLeaseTest, scrub_context_releases_exactly_once)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    gnc_set_current_session (session);
+    auto context = gnc_scrub_context_begin (qof_session_get_book (session));
+    ASSERT_NE (context, nullptr);
+    auto retained = gnc_scrub_context_ref (context);
+
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_end (context);
+    EXPECT_FALSE (gnc_scrub_context_is_active (context));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    gnc_scrub_context_unref (context);
+
+    auto next_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE);
+    ASSERT_NE (next_lease, nullptr);
+    qof_session_operation_lease_release (next_lease);
+    gnc_clear_current_session ();
+    auto generation = gnc_current_session_get_generation ();
+    ASSERT_FALSE (gnc_current_session_exist ());
+
+    EXPECT_FALSE (gnc_scrub_context_is_active (retained));
+    EXPECT_FALSE (gnc_current_session_exist ());
+    EXPECT_EQ (gnc_current_session_get_generation (), generation);
+    gnc_scrub_context_unref (retained);
 }

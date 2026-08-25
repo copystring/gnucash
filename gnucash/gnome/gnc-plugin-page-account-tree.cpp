@@ -116,6 +116,7 @@ typedef struct GncPluginPageAccountTreePrivate
     GncTreeViewAccount *tree_view;
     gint         component_id;
     AccountFilterDialog fd;
+    GncScrubContext *scrub_context;
 } GncPluginPageAccountTreePrivate;
 
 #define GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE(o)  \
@@ -308,20 +309,37 @@ gnc_plugin_page_account_tree_new (void)
 
 G_DEFINE_TYPE_WITH_PRIVATE(GncPluginPageAccountTree, gnc_plugin_page_account_tree, GNC_TYPE_PLUGIN_PAGE)
 
-static gboolean show_abort_verify = TRUE;
-
-static void
-prepare_scrubbing ()
+static GncScrubContext *
+prepare_scrubbing (GncPluginPageAccountTree *page, QofBook *book)
 {
+    auto priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE (page);
+    if (priv->scrub_context)
+        return nullptr;
+
+    auto context = gnc_scrub_context_begin (book);
+    if (!context)
+        return nullptr;
+
+    priv->scrub_context = gnc_scrub_context_ref (context);
     gnc_suspend_gui_refresh ();
-    gnc_set_abort_scrub (FALSE);
+    return context;
 }
 
 static void
-finish_scrubbing (GncWindow *window, gulong handler_id)
+finish_scrubbing (GncPluginPageAccountTree *page, GncWindow *window,
+                  GtkEventController *controller, gulong handler_id,
+                  GncScrubContext *context)
 {
-    g_signal_handler_disconnect (G_OBJECT(window), handler_id);
-    show_abort_verify = TRUE;
+    auto priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE (page);
+    g_signal_handler_disconnect (controller, handler_id);
+    gtk_widget_remove_controller (GTK_WIDGET (window), controller);
+    if (priv->scrub_context == context)
+    {
+        gnc_scrub_context_unref (priv->scrub_context);
+        priv->scrub_context = nullptr;
+    }
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_unref (context);
     gnc_resume_gui_refresh ();
 }
 
@@ -335,6 +353,7 @@ struct AccountFinishPendingRequest
     GWeakRef parent;
     GCancellable *cancellable;
     gulong parent_destroy_handler;
+    GncScrubContext *scrub_context;
     GncPluginPagePendingCallback callback;
     gpointer user_data;
     gboolean completed;
@@ -360,6 +379,7 @@ account_finish_pending_request_free (AccountFinishPendingRequest *request)
     g_weak_ref_clear (&request->parent);
     g_clear_object (&request->page);
     g_clear_object (&request->cancellable);
+    gnc_scrub_context_unref (request->scrub_context);
     g_free (request);
 }
 
@@ -410,10 +430,9 @@ account_finish_pending_alert_finished (GObject *source_object, GAsyncResult *res
     }
     else
     {
-        show_abort_verify = FALSE;
         if (response == 1)
         {
-            gnc_set_abort_scrub (TRUE);
+            gnc_scrub_context_cancel (request->scrub_context);
             account_finish_pending_request_complete (request, TRUE);
         }
         else
@@ -430,26 +449,23 @@ gnc_plugin_page_account_finish_pending_async (GncPluginPage *page,
 {
     auto request = g_new0 (AccountFinishPendingRequest, 1);
     auto parent = gnc_plugin_page_get_window (page);
+    auto priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE (page);
 
     g_atomic_ref_count_init (&request->ref_count);
     request->page = GNC_PLUGIN_PAGE (g_object_ref (page));
     g_weak_ref_init (&request->parent, parent);
     request->cancellable = cancellable ? G_CANCELLABLE (g_object_ref (cancellable)) :
                                          g_cancellable_new ();
+    request->scrub_context = gnc_scrub_context_ref (priv->scrub_context);
     request->callback = callback;
     request->user_data = user_data;
     if (parent)
         request->parent_destroy_handler = g_signal_connect
             (parent, "destroy", G_CALLBACK (account_finish_pending_parent_destroyed), request);
 
-    if (!gnc_get_ongoing_scrub ())
+    if (!gnc_scrub_context_is_active (request->scrub_context))
     {
         account_finish_pending_request_complete (request, TRUE);
-        return;
-    }
-    if (!show_abort_verify)
-    {
-        account_finish_pending_request_complete (request, gnc_get_abort_scrub ());
         return;
     }
     if (!parent || !GTK_IS_WINDOW (parent))
@@ -559,6 +575,12 @@ gnc_plugin_page_account_tree_finalize (GObject *object)
     priv = GNC_PLUGIN_PAGE_ACCOUNT_TREE_GET_PRIVATE(page);
     g_return_if_fail (priv != NULL);
 
+    if (priv->scrub_context)
+    {
+        gnc_scrub_context_cancel (priv->scrub_context);
+        gnc_scrub_context_unref (priv->scrub_context);
+        priv->scrub_context = nullptr;
+    }
     G_OBJECT_CLASS (gnc_plugin_page_account_tree_parent_class)->finalize (object);
     LEAVE(" ");
 }
@@ -2336,10 +2358,11 @@ gnc_plugin_page_account_tree_cmd_lots (GSimpleAction *simple,
 static void
 scrub_abort_verify_finished (GtkWindow *parent, gint response, gpointer user_data)
 {
+    auto context = static_cast<GncScrubContext *> (user_data);
     (void)parent;
-    (void)user_data;
     if (response == GTK_RESPONSE_YES)
-        gnc_set_abort_scrub (TRUE);
+        gnc_scrub_context_cancel (context);
+    gnc_scrub_context_unref (context);
 }
 
 static gboolean
@@ -2349,14 +2372,15 @@ scrub_kp_handler (GtkEventControllerKey *key, guint keyval,
 {
     (void)keycode;
     (void)state;
-    (void)user_data;
+    auto context = static_cast<GncScrubContext *> (user_data);
     if (keyval != GDK_KEY_Escape)
         return FALSE;
 
     auto widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (key));
     if (widget && GTK_IS_WINDOW (widget))
         gnc_verify_dialog_async (GTK_WINDOW (widget), FALSE,
-                                 scrub_abort_verify_finished, nullptr,
+                                 scrub_abort_verify_finished,
+                                 gnc_scrub_context_ref (context),
                                  "%s", _(check_repair_abort_YN));
     return TRUE;
 }
@@ -2370,29 +2394,34 @@ gnc_plugin_page_account_tree_cmd_scrub (GSimpleAction *simple,
     Account *account = gnc_plugin_page_account_tree_get_current_account (page);
     GncWindow *window;
     gulong scrub_kp_handler_ID;
+    GncScrubContext *context;
 
     g_return_if_fail (account != NULL);
 
-    prepare_scrubbing ();
+    context = prepare_scrubbing (
+        page, qof_instance_get_book (QOF_INSTANCE (account)));
+    if (!context)
+        return;
 
     window = GNC_WINDOW(GNC_PLUGIN_PAGE (page)->window);
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(window), event_controller);
     scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-pressed",
-                                            G_CALLBACK(scrub_kp_handler), nullptr);
+                                            G_CALLBACK(scrub_kp_handler), context);
     gnc_window_set_progressbar_window (window);
 
-    xaccAccountScrubOrphans (account, gnc_window_show_progress);
-    xaccAccountScrubImbalance (account, gnc_window_show_progress);
+    xaccAccountScrubOrphansWithContext (account, gnc_window_show_progress, context);
+    xaccAccountScrubImbalanceWithContext (account, gnc_window_show_progress, context);
 
     // XXX: Lots/capital gains scrubbing is disabled
     if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountScrubLots(account);
+        xaccAccountScrubLotsWithContext (account, context);
 
-    gncScrubBusinessAccount(account, gnc_window_show_progress);
+    gncScrubBusinessAccountWithContext (account, gnc_window_show_progress, context);
 
-    finish_scrubbing (window, scrub_kp_handler_ID);
+    finish_scrubbing (page, window, event_controller, scrub_kp_handler_ID,
+                      context);
 }
 
 static void
@@ -2404,29 +2433,34 @@ gnc_plugin_page_account_tree_cmd_scrub_sub (GSimpleAction *simple,
     Account *account = gnc_plugin_page_account_tree_get_current_account (page);
     GncWindow *window;
     gulong scrub_kp_handler_ID;
+    GncScrubContext *context;
 
     g_return_if_fail (account != NULL);
 
-    prepare_scrubbing ();
+    context = prepare_scrubbing (
+        page, qof_instance_get_book (QOF_INSTANCE (account)));
+    if (!context)
+        return;
 
     window = GNC_WINDOW(GNC_PLUGIN_PAGE (page)->window);
 
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(window), event_controller);
     scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-pressed",
-                                            G_CALLBACK(scrub_kp_handler), NULL);
+                                            G_CALLBACK(scrub_kp_handler), context);
     gnc_window_set_progressbar_window (window);
 
-    xaccAccountTreeScrubOrphans (account, gnc_window_show_progress);
-    xaccAccountTreeScrubImbalance (account, gnc_window_show_progress);
+    xaccAccountTreeScrubOrphansWithContext (account, gnc_window_show_progress, context);
+    xaccAccountTreeScrubImbalanceWithContext (account, gnc_window_show_progress, context);
 
     // XXX: Lots/capital gains scrubbing is disabled
     if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountTreeScrubLots(account);
+        xaccAccountTreeScrubLotsWithContext (account, context);
 
-    gncScrubBusinessAccountTree(account, gnc_window_show_progress);
+    gncScrubBusinessAccountTreeWithContext (account, gnc_window_show_progress, context);
 
-    finish_scrubbing (window, scrub_kp_handler_ID);
+    finish_scrubbing (page, window, event_controller, scrub_kp_handler_ID,
+                      context);
 }
 
 static void
@@ -2438,25 +2472,32 @@ gnc_plugin_page_account_tree_cmd_scrub_all (GSimpleAction *simple,
     Account *root = gnc_get_current_root_account ();
     GncWindow *window;
     gulong scrub_kp_handler_ID;
+    if (!root)
+        return;
+    GncScrubContext *context;
 
-    prepare_scrubbing ();
+    context = prepare_scrubbing (
+        page, qof_instance_get_book (QOF_INSTANCE (root)));
+    if (!context)
+        return;
 
     window = GNC_WINDOW(GNC_PLUGIN_PAGE (page)->window);
     GtkEventController *event_controller = gtk_event_controller_key_new ();
     gtk_widget_add_controller (GTK_WIDGET(window), event_controller);
     scrub_kp_handler_ID = g_signal_connect (G_OBJECT(event_controller), "key-pressed",
-                                            G_CALLBACK(scrub_kp_handler), NULL);
+                                            G_CALLBACK(scrub_kp_handler), context);
     gnc_window_set_progressbar_window (window);
 
-    xaccAccountTreeScrubOrphans (root, gnc_window_show_progress);
-    xaccAccountTreeScrubImbalance (root, gnc_window_show_progress);
+    xaccAccountTreeScrubOrphansWithContext (root, gnc_window_show_progress, context);
+    xaccAccountTreeScrubImbalanceWithContext (root, gnc_window_show_progress, context);
     // XXX: Lots/capital gains scrubbing is disabled
     if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountTreeScrubLots(root);
+        xaccAccountTreeScrubLotsWithContext (root, context);
 
-    gncScrubBusinessAccountTree(root, gnc_window_show_progress);
+    gncScrubBusinessAccountTreeWithContext (root, gnc_window_show_progress, context);
 
-    finish_scrubbing (window, scrub_kp_handler_ID);
+    finish_scrubbing (page, window, event_controller, scrub_kp_handler_ID,
+                      context);
 }
 
 /** @} */

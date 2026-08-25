@@ -1913,15 +1913,24 @@ gnc_recn_scrub_cb (GSimpleAction *simple,
     if (account == NULL)
         return;
 
+    auto context = gnc_scrub_context_begin (
+        qof_instance_get_book (QOF_INSTANCE (account)));
+    if (!context)
+        return;
+
     gnc_suspend_gui_refresh ();
 
-    xaccAccountTreeScrubOrphans (account, gnc_window_show_progress);
-    xaccAccountTreeScrubImbalance (account, gnc_window_show_progress);
+    xaccAccountTreeScrubOrphansWithContext (
+        account, gnc_window_show_progress, context);
+    xaccAccountTreeScrubImbalanceWithContext (
+        account, gnc_window_show_progress, context);
 
     // XXX: Lots are disabled.
     if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountTreeScrubLots(account);
+        xaccAccountTreeScrubLotsWithContext (account, context);
 
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_unref (context);
     gnc_resume_gui_refresh ();
 }
 

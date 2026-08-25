@@ -17,6 +17,7 @@
 #include "gnc-commodity.h"
 #include "qof.h"
 #include "gnc-lot.h"
+#include "Scrub.h"
 #include "Scrub3.h"
 #include "ScrubBusiness.h"
 #include "Transaction.h"
@@ -209,10 +210,50 @@ static void new_lot_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
 { GNCLotViewer *lv = user_data; GNCLot *lot; save_current_lot (lv); lot = gnc_lot_make_default (lv->account); xaccAccountInsertLot (lv->account, lot); lv_refresh (lv); select_lot (lv, lot); }
 static void delete_lot_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
 { GNCLotViewer *lv = user_data; GNCLot *lot = lv->selected_lot; if (!lot || gncInvoiceGetInvoiceFromLot (lot)) return; xaccAccountRemoveLot (gnc_lot_get_account (lot), lot); gnc_lot_destroy (lot); unset_lot (lv); lv_refresh (lv); }
+
 static void scrub_lot_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
-{ GNCLotViewer *lv = user_data; if (!lv->selected_lot) return; if (xaccAccountIsAPARType (xaccAccountGetType (lv->account))) gncScrubBusinessLot (lv->selected_lot); else xaccScrubLot (lv->selected_lot); lv_refresh (lv); }
+{
+    GNCLotViewer *lv = user_data;
+    GncScrubContext *context;
+
+    if (!lv->selected_lot)
+        return;
+    context = gnc_scrub_context_begin (
+        qof_instance_get_book (QOF_INSTANCE (lv->account)));
+    if (!context)
+        return;
+
+    if (xaccAccountIsAPARType (xaccAccountGetType (lv->account)))
+        gncScrubBusinessLotWithContext (lv->selected_lot, context);
+    else
+        xaccScrubLotWithContext (lv->selected_lot, context);
+
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_unref (context);
+    lv_refresh (lv);
+}
+
 static void scrub_account_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
-{ GNCLotViewer *lv = user_data; gnc_suspend_gui_refresh (); if (xaccAccountIsAPARType (xaccAccountGetType (lv->account))) gncScrubBusinessAccountLots (lv->account, gnc_window_show_progress); else xaccAccountScrubLots (lv->account); gnc_resume_gui_refresh (); lv_refresh (lv); }
+{
+    GNCLotViewer *lv = user_data;
+    GncScrubContext *context = gnc_scrub_context_begin (
+        qof_instance_get_book (QOF_INSTANCE (lv->account)));
+
+    if (!context)
+        return;
+
+    gnc_suspend_gui_refresh ();
+    if (xaccAccountIsAPARType (xaccAccountGetType (lv->account)))
+        gncScrubBusinessAccountLotsWithContext (
+            lv->account, gnc_window_show_progress, context);
+    else
+        xaccAccountScrubLotsWithContext (lv->account, context);
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_unref (context);
+    gnc_resume_gui_refresh ();
+    lv_refresh (lv);
+}
+
 static void close_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data) { gnc_close_gui_component_by_data (LOT_VIEWER_CM_CLASS, user_data); }
 static gboolean close_request_cb (G_GNUC_UNUSED GtkWindow *window, gpointer user_data) { gnc_close_gui_component_by_data (LOT_VIEWER_CM_CLASS, user_data); return TRUE; }
 static gboolean escape_cb (G_GNUC_UNUSED GtkWidget *widget, G_GNUC_UNUSED GVariant *args, gpointer user_data) { gnc_close_gui_component_by_data (LOT_VIEWER_CM_CLASS, user_data); return TRUE; }

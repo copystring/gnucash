@@ -42,6 +42,7 @@
 #include "AccountP.hpp"
 #include "Scrub2.h"
 #include "Scrub3.h"
+#include "ScrubP.h"
 #include "Transaction.h"
 #include "TransactionP.hpp"
 
@@ -82,7 +83,7 @@ gains_possible (GNCLot *lot)
  */
 
 gboolean
-xaccScrubLot (GNCLot *lot)
+xaccScrubLotInternal (GNCLot *lot, GncScrubContext *context)
 {
     gboolean splits_deleted = FALSE;
     gnc_numeric lot_baln;
@@ -91,6 +92,8 @@ xaccScrubLot (GNCLot *lot)
     GNCPolicy *pcy;
 
     if (!lot) return FALSE;
+    if (gnc_scrub_context_is_cancelled (context)) return FALSE;
+
     ENTER ("(lot=%p) %s", lot, gnc_lot_get_title(lot));
 
     acc = gnc_lot_get_account (lot);
@@ -153,13 +156,33 @@ rethin:
     return splits_deleted;
 }
 
+gboolean
+xaccScrubLot (GNCLot *lot)
+{
+    auto book = lot ? qof_instance_get_book (QOF_INSTANCE (lot)) : nullptr;
+    if (!lot || !gnc_scrub_legacy_operation_allowed (book, "lot scrub"))
+        return FALSE;
+    return xaccScrubLotInternal (lot, nullptr);
+}
+
+gboolean
+xaccScrubLotWithContext (GNCLot *lot, GncScrubContext *context)
+{
+    auto book = lot ? qof_instance_get_book (QOF_INSTANCE (lot)) : nullptr;
+    if (!lot || !gnc_scrub_context_validate_for_book (
+                    context, book, "lot scrub"))
+        return FALSE;
+    return xaccScrubLotInternal (lot, context);
+}
+
 /* ============================================================== */
 
-void
-xaccAccountScrubLots (Account *acc)
+static void
+AccountScrubLots (Account *acc, GncScrubContext *context)
 {
     LotList *lots, *node;
     if (!acc) return;
+    if (gnc_scrub_context_is_cancelled (context)) return;
     if (FALSE == xaccAccountHasTrades (acc)) return;
 
     ENTER ("(acc=%s)", xaccAccountGetName(acc));
@@ -170,7 +193,9 @@ xaccAccountScrubLots (Account *acc)
     for (node = lots; node; node = node->next)
     {
         GNCLot *lot = GNC_LOT(node->data);
-        xaccScrubLot (lot);
+        if (gnc_scrub_context_is_cancelled (context))
+            break;
+        xaccScrubLotInternal (lot, context);
     }
     g_list_free(lots);
     xaccAccountCommitEdit(acc);
@@ -179,20 +204,68 @@ xaccAccountScrubLots (Account *acc)
 
 /* ============================================================== */
 
+struct LotTreeScrubData
+{
+    GncScrubContext *context;
+};
+
 static void
 lot_scrub_cb (Account *acc, gpointer data)
 {
+    auto scrub_data = static_cast<LotTreeScrubData *> (data);
     if (FALSE == xaccAccountHasTrades (acc)) return;
-    xaccAccountScrubLots (acc);
+    if (gnc_scrub_context_is_cancelled (scrub_data->context)) return;
+    AccountScrubLots (acc, scrub_data->context);
+}
+
+static void
+AccountTreeScrubLots (Account *acc, GncScrubContext *context)
+{
+    if (!acc) return;
+    LotTreeScrubData data {context};
+    gnc_account_foreach_descendant (acc, lot_scrub_cb, &data);
+    if (!gnc_scrub_context_is_cancelled (context))
+        AccountScrubLots (acc, context);
+}
+
+void
+xaccAccountScrubLots (Account *acc)
+{
+    auto book = acc ? qof_instance_get_book (QOF_INSTANCE (acc)) : nullptr;
+    if (!acc || !gnc_scrub_legacy_operation_allowed (book, "account lot scrub"))
+        return;
+    AccountScrubLots (acc, nullptr);
+}
+
+void
+xaccAccountScrubLotsWithContext (Account *acc, GncScrubContext *context)
+{
+    auto book = acc ? qof_instance_get_book (QOF_INSTANCE (acc)) : nullptr;
+    if (!acc || !gnc_scrub_context_validate_for_book (
+                    context, book, "account lot scrub"))
+        return;
+    AccountScrubLots (acc, context);
 }
 
 void
 xaccAccountTreeScrubLots (Account *acc)
 {
-    if (!acc) return;
+    auto book = acc ? qof_instance_get_book (QOF_INSTANCE (acc)) : nullptr;
+    if (!acc || !gnc_scrub_legacy_operation_allowed (
+                    book, "account-tree lot scrub"))
+        return;
+    AccountTreeScrubLots (acc, nullptr);
+}
 
-    gnc_account_foreach_descendant(acc, lot_scrub_cb, nullptr);
-    xaccAccountScrubLots (acc);
+void
+xaccAccountTreeScrubLotsWithContext (Account *acc,
+                                     GncScrubContext *context)
+{
+    auto book = acc ? qof_instance_get_book (QOF_INSTANCE (acc)) : nullptr;
+    if (!acc || !gnc_scrub_context_validate_for_book (
+                    context, book, "account-tree lot scrub"))
+        return;
+    AccountTreeScrubLots (acc, context);
 }
 
 /* ========================== END OF FILE  ========================= */
