@@ -155,7 +155,7 @@ enum
 
 static void gxi_data_destroy (GncXmlImportData *data);
 static void gxi_ambiguous_info_destroy (GncXmlImportData *data);
-static void gxi_session_destroy (GncXmlImportData *data);
+static gboolean gxi_session_destroy (GncXmlImportData *data);
 static gboolean gxi_check_file (GncXmlImportData *data);
 static void gxi_sort_ambiguous_list (GncXmlImportData *data);
 static gboolean gxi_parse_file (GncXmlImportData *data);
@@ -747,16 +747,82 @@ gxi_ambiguous_info_destroy (GncXmlImportData *data)
     }
 }
 
-static void
+static gboolean
 gxi_session_destroy (GncXmlImportData *data)
 {
-    if (data->session)
-    {
-        xaccLogDisable ();
-        qof_session_destroy (data->session);
-        xaccLogEnable ();
-        data->session = NULL;
-    }
+    QofSessionOperationLease *lease;
+    gboolean destroyed;
+
+    if (!data->session)
+        return TRUE;
+
+    lease = qof_session_operation_lease_acquire_for (
+        data->session, QOF_SESSION_OPERATION_CLOSE);
+    xaccLogDisable ();
+    destroyed = lease && qof_session_destroy_with_lease (data->session, lease);
+    xaccLogEnable ();
+    qof_session_operation_lease_release (lease);
+    if (!destroyed)
+        return FALSE;
+
+    data->session = NULL;
+    return TRUE;
+}
+
+static gboolean
+gxi_session_begin (QofSession *session, const gchar *filename)
+{
+    QofSessionOperationLease *lease;
+    gboolean begun;
+
+    lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_OPEN);
+    begun = lease && qof_session_begin_with_lease (
+        session, lease, filename, SESSION_READ_ONLY);
+    qof_session_operation_lease_release (lease);
+    return begun;
+}
+
+static gboolean
+gxi_session_load (QofSession *session)
+{
+    QofSessionOperationLease *lease;
+    gboolean loaded;
+
+    lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_OPEN);
+    loaded = lease && qof_session_load_with_lease (
+        session, lease, gxi_update_progress_bar);
+    qof_session_operation_lease_release (lease);
+    return loaded;
+}
+
+static gboolean
+gxi_session_parse_with_subst (QofSession *session, QofBackend *backend,
+                              QofBook *book, GHashTable *subst)
+{
+    QofSessionOperationLease *lease;
+    gboolean parsed;
+
+    lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_OPEN);
+    parsed = lease && gnc_xml2_parse_with_subst (backend, book, subst);
+    qof_session_operation_lease_release (lease);
+    return parsed;
+}
+
+static gboolean
+gxi_session_save (QofSession *session)
+{
+    QofSessionOperationLease *lease;
+    gboolean saved;
+
+    lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE);
+    saved = lease && qof_session_save_with_lease (
+        session, lease, gxi_update_progress_bar);
+    qof_session_operation_lease_release (lease);
+    return saved;
 }
 
 static void
@@ -1206,7 +1272,11 @@ gxi_parse_file (GncXmlImportData *data)
     gxi_session_destroy (data);
     session = qof_session_new (NULL);
     data->session = session;
-    qof_session_begin (session, data->filename, SESSION_READ_ONLY);
+    if (!gxi_session_begin (session, data->filename))
+    {
+        message = _("The file could not be reopened.");
+        goto cleanup_parse_file;
+    }
     io_err = qof_session_get_error (session);
     if (io_err != ERR_BACKEND_NO_ERR)
     {
@@ -1216,7 +1286,13 @@ gxi_parse_file (GncXmlImportData *data)
 
     xaccLogDisable ();
     gxi_update_progress_bar (_("Reading file…"), 0.0);
-    qof_session_load (session, gxi_update_progress_bar);
+    if (!gxi_session_load (session))
+    {
+        gxi_update_progress_bar (NULL, -1.0);
+        xaccLogEnable ();
+        message = _("The file could not be reopened.");
+        goto cleanup_parse_file;
+    }
     gxi_update_progress_bar (NULL, -1.0);
     xaccLogEnable ();
 
@@ -1239,7 +1315,7 @@ gxi_parse_file (GncXmlImportData *data)
     backend = qof_book_get_backend (book);
 
     gxi_update_progress_bar (_("Parsing file…"), 0.0);
-    success = gnc_xml2_parse_with_subst (backend, book, data->subst);
+    success = gxi_session_parse_with_subst (session, backend, book, data->subst);
     gxi_update_progress_bar (NULL, -1.0);
 
     if (success)
@@ -1271,7 +1347,13 @@ gxi_save_file (GncXmlImportData *data)
     g_return_val_if_fail (data && data->session, FALSE);
 
     gxi_update_progress_bar (_("Writing file…"), 0.0);
-    qof_session_save (data->session, gxi_update_progress_bar);
+    if (!gxi_session_save (data->session))
+    {
+        gxi_update_progress_bar (NULL, -1.0);
+        gxi_set_error (data, _("The converted file could not be saved."));
+        gxi_session_destroy (data);
+        return FALSE;
+    }
     gxi_update_progress_bar (NULL, -1.0);
 
     io_err = qof_session_get_error (data->session);
