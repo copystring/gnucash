@@ -128,54 +128,6 @@ gnc_gwen_date_to_time64 (const GNC_GWEN_DATE* date)
     return gnc_dmy2time64_neutral (day, month, year);
 }
 
-void
-gnc_GWEN_Init (void)
-{
-    gchar* gwen_logging = g_strdup (g_getenv ("GWEN_LOGLEVEL"));
-    gchar* aqb_logging = g_strdup (g_getenv ("AQBANKING_LOGLEVEL"));
-
-    /* Initialize gwen library */
-    GWEN_Init();
-
-    /* Initialize gwen logging */
-    if (gnc_prefs_get_bool (GNC_PREFS_GROUP_AQBANKING, GNC_PREF_VERBOSE_DEBUG))
-    {
-        if (!gwen_logging)
-        {
-            GWEN_Logger_SetLevel (NULL, GWEN_LoggerLevel_Info);
-            GWEN_Logger_SetLevel (GWEN_LOGDOMAIN, GWEN_LoggerLevel_Info);
-        }
-        if (!aqb_logging)
-            GWEN_Logger_SetLevel (AQBANKING_LOGDOMAIN, GWEN_LoggerLevel_Debug);
-    }
-    else
-    {
-        if (!gwen_logging)
-        {
-            GWEN_Logger_SetLevel (NULL, GWEN_LoggerLevel_Error);
-            GWEN_Logger_SetLevel (GWEN_LOGDOMAIN, GWEN_LoggerLevel_Error);
-        }
-        if (!aqb_logging)
-            GWEN_Logger_SetLevel (AQBANKING_LOGDOMAIN, GWEN_LoggerLevel_Warning);
-    }
-    g_free (gwen_logging);
-    g_free (aqb_logging);
-    gnc_GWEN_Gui_log_init();
-}
-
-void
-gnc_GWEN_Fini (void)
-{
-    /* Shutdown the GWEN_GUIs */
-    gnc_GWEN_Gui_shutdown();
-    GWEN_Logger_SetLevel (NULL, GWEN_LoggerLevel_Error);
-    GWEN_Logger_SetLevel (GWEN_LOGDOMAIN, GWEN_LoggerLevel_Warning);
-    GWEN_Logger_SetLevel (AQBANKING_LOGDOMAIN, GWEN_LoggerLevel_Warning);
-
-    /* Finalize gwen library */
-    GWEN_Fini();
-}
-
 static GWEN_GUI *gnc_gwengui_extended_by_ABBanking;
 
 AB_BANKING *
