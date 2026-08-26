@@ -98,6 +98,18 @@ gnc_widget_set_all_margins (GtkWidget *widget, gint margin)
     gtk_widget_set_margin_bottom (widget, margin);
 }
 
+void
+gnc_window_bind_to_application (GtkWindow *window)
+{
+    GApplication *application;
+
+    g_return_if_fail (GTK_IS_WINDOW (window));
+
+    application = g_application_get_default ();
+    if (GTK_IS_APPLICATION (application))
+        gtk_window_set_application (window, GTK_APPLICATION (application));
+}
+
 GdkTexture *
 gnc_texture_new_from_pixbuf (GdkPixbuf *pixbuf)
 {

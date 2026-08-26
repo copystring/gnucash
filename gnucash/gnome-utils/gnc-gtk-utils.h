@@ -63,6 +63,16 @@ void gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
 /** Set the four GTK4 widget margins corresponding to a legacy container border. */
 void gnc_widget_set_all_margins (GtkWidget *widget, gint margin);
 
+/**
+ * Bind a newly created top-level window to the running GtkApplication.
+ *
+ * A transient parent does not replace the application association: GTK needs
+ * the latter to include the window in application lifecycle management. The
+ * helper is intentionally a no-op outside the GUI process, so utility code
+ * remains usable in tests and early startup.
+ */
+void gnc_window_bind_to_application (GtkWindow *window);
+
 /** Create a GdkTexture from a pixbuf without using deprecated GDK APIs. */
 GdkTexture *gnc_texture_new_from_pixbuf (GdkPixbuf *pixbuf);
 

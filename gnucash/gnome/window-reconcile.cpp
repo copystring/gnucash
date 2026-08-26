@@ -2230,6 +2230,7 @@ recnWindowWithBalance (GtkWidget *parent, Account *account, gnc_numeric new_endi
     recnData->new_ending = new_ending;
     recnData->statement_date = statement_date;
     recnData->window = gtk_window_new ();
+    gnc_window_bind_to_application (GTK_WINDOW (recnData->window));
     recnData->delete_refresh = FALSE;
     new (&recnData->autoclear_splits) SplitsVec();
     new (&recnData->initially_cleared_splits) SplitsVec();

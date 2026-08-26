@@ -1,4 +1,5 @@
 set(test_aqb_SOURCES test-aqb.c test-kvp.c test-standing-orders.c)
+set(test_flicker_gui_SOURCES test-flicker-gui.c)
 
 set(test_aqb_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common
@@ -25,10 +26,14 @@ set(test_aqb_LIBS
 )
 
 set_dist_list(test_aqb_DIST ${test_aqb_SOURCES} file-book.gnucash
-  file-book-hbcislot.gnucash CMakeLists.txt )
+  file-book-hbcislot.gnucash ${test_flicker_gui_SOURCES} CMakeLists.txt )
 if(WITH_AQBANKING)
   gnc_add_test(test-aqb
     "${test_aqb_SOURCES}"
     test_aqb_INCLUDE_DIRS
     test_aqb_LIBS SRCDIR=${CMAKE_CURRENT_SOURCE_DIR})
+  gnc_add_test(test-flicker-gui
+    "${test_flicker_gui_SOURCES}"
+    test_aqb_INCLUDE_DIRS
+    test_aqb_LIBS)
  endif()

@@ -1118,6 +1118,7 @@ gwen_message_window_new (GtkWindow *parent, const gchar *title,
     GtkWidget *label;
     gchar *raw_text = strip_html (g_strdup (text));
 
+    gnc_window_bind_to_application (window);
     label = gtk_label_new (raw_text);
     g_free (raw_text);
     gtk_label_set_justify (GTK_LABEL (label), GTK_JUSTIFY_LEFT);

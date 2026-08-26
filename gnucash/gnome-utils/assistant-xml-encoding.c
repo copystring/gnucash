@@ -33,6 +33,7 @@
 #include "dialog-utils.h"
 #include "gnc-backend-xml.h"
 #include "gnc-component-manager.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-uri-utils.h"
 #include "gnc-ui.h"
 
@@ -434,6 +435,7 @@ gxi_create_window (GncXmlImportData *data, GtkWindow *parent)
         return FALSE;
     }
 
+    gnc_window_bind_to_application (window);
     data->window = g_object_ref (window);
     data->stack = GTK_STACK (gtk_builder_get_object (builder,
                                                       "xml_encoding_stack"));
@@ -885,6 +887,7 @@ gxi_update_progress_bar (const gchar *message, double percentage)
     if (!progress_window)
     {
         progress_window = gtk_window_new ();
+        gnc_window_bind_to_application (GTK_WINDOW (progress_window));
         progress_bar = GTK_PROGRESS_BAR (gtk_progress_bar_new ());
         gtk_window_set_title (GTK_WINDOW (progress_window), _("Converting file"));
         gtk_progress_bar_set_show_text (progress_bar, TRUE);
@@ -1747,6 +1750,7 @@ gxi_edit_encodings_clicked_cb (GtkButton *button, GncXmlImportData *data)
     }
 
     window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (window);
     data->encodings_window = g_object_ref (window);
     data->encodings_backup = g_list_copy (data->encodings);
     gtk_window_set_title (window, _("Edit the list of encodings"));
