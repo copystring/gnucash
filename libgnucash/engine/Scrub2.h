@@ -34,6 +34,9 @@
 
 #include "gnc-engine.h"
 
+typedef struct GncScrubContext GncScrubContext;
+typedef struct GncLotAssignmentPlan GncLotAssignmentPlan;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -60,6 +63,54 @@ extern "C" {
  *   implements a FIFO accounting policy.
  */
 void xaccAccountAssignLots (Account *acc);
+
+/** State of a bounded, context-bound account lot-assignment plan. */
+typedef enum
+{
+    GNC_LOT_ASSIGNMENT_PLAN_RUNNING,
+    GNC_LOT_ASSIGNMENT_PLAN_DONE,
+    GNC_LOT_ASSIGNMENT_PLAN_CANCELLED,
+    GNC_LOT_ASSIGNMENT_PLAN_STALE,
+    GNC_LOT_ASSIGNMENT_PLAN_FAILED,
+} GncLotAssignmentPlanState;
+
+/**
+ * Create a bounded FIFO lot-assignment plan for @a account.
+ *
+ * The caller supplies an already active scrub context. The plan retains that
+ * context but never acquires or releases its SCRUB lease; it is consequently
+ * safe to use as one phase of a larger composite scrub job. Account and split
+ * identity are retained only as GUIDs, never as object pointers across turns.
+ */
+GncLotAssignmentPlan *gnc_lot_assignment_plan_begin (Account *account,
+                                                      GncScrubContext *context);
+
+/**
+ * Perform at most @a max_work queued split-to-lot work units.
+ *
+ * At most @a max_work queued GUIDs are dequeued and resolved in one turn,
+ * including entries that are already assigned, missing, void, or otherwise
+ * ineligible. Successful assignments are counted separately by
+ * gnc_lot_assignment_plan_get_completed(). A zero limit is a no-op. A split
+ * remainder created while closing a lot is queued ahead of the next original
+ * split, but is not examined until a later work unit.
+ */
+GncLotAssignmentPlanState gnc_lot_assignment_plan_step (
+    GncLotAssignmentPlan *plan, guint max_work);
+
+/** Stop this plan only. It deliberately does not cancel the shared context. */
+void gnc_lot_assignment_plan_cancel (GncLotAssignmentPlan *plan);
+GncLotAssignmentPlanState gnc_lot_assignment_plan_get_state (
+    const GncLotAssignmentPlan *plan);
+/** Number of queued GUIDs examined across all bounded work turns. */
+guint gnc_lot_assignment_plan_get_examined (
+    const GncLotAssignmentPlan *plan);
+/** Number of successful individual split-to-lot assignments. */
+guint gnc_lot_assignment_plan_get_completed (
+    const GncLotAssignmentPlan *plan);
+
+/** Release the retained context reference. Passing NULL is a no-op. */
+void gnc_lot_assignment_plan_free (GncLotAssignmentPlan *plan);
 
 /** The xaccLotFill() routine attempts to assign splits to the
  *  indicated lot until the lot balance goes to zero, or until
