@@ -195,6 +195,12 @@ QofSessionImpl::has_active_operation_kind (QofSessionOperationKind kind) const n
            m_operation_lease->kind == kind;
 }
 
+guint64
+QofSessionImpl::operation_generation () const noexcept
+{
+    return m_operation_generation;
+}
+
 void
 QofSessionImpl::invalidate_operation_lease () noexcept
 {
@@ -343,6 +349,12 @@ qof_session_has_active_operation_kind (const QofSession *session,
                                        QofSessionOperationKind kind)
 {
     return session && session->has_active_operation_kind (kind);
+}
+
+guint64
+qof_session_get_operation_generation (const QofSession *session)
+{
+    return session ? session->operation_generation () : 0;
 }
 
 void

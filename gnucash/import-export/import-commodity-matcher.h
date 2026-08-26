@@ -30,6 +30,7 @@ extern "C" {
 #endif
 
 #include "gnc-commodity.h"
+#include "gnc-session.h"
 #include <gtk/gtk.h>
 
 /** Find a commodity by CUSIP without showing a user interface or changing
@@ -51,6 +52,17 @@ void gnc_import_select_commodity_async (GtkWidget *parent,
                                         GCancellable *cancellable,
                                         GncImportCommoditySelectedCB callback,
                                         gpointer user_data);
+
+/** Context-aware variant for asynchronous imports. The context carries only
+ * identity between main-loop turns; every mutation acquires a fresh short
+ * operation section. */
+void gnc_import_select_commodity_async_with_operation_context (
+    GtkWidget *parent, const char *cusip, gboolean ask_on_unknown,
+    const char *default_fullname, const char *default_mnemonic,
+    GCancellable *cancellable,
+    GncSessionOperationContext *operation_context,
+    GncImportCommoditySelectedCB callback,
+    gpointer user_data);
 
 
 #ifdef __cplusplus

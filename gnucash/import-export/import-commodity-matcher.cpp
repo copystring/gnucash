@@ -86,6 +86,7 @@ set_commodity_cusip (gnc_commodity *commodity, const char *cusip)
 struct CommoditySelectionRequest
 {
     gchar *cusip;
+    GncSessionOperationContext *operation_context;
     GncImportCommoditySelectedCB callback;
     gpointer user_data;
 };
@@ -94,14 +95,25 @@ static void
 commodity_selection_finished (gnc_commodity *commodity, gpointer user_data)
 {
     auto request = static_cast<CommoditySelectionRequest *> (user_data);
-    if (commodity)
+    auto accepted = commodity != nullptr;
+    auto operation_started = !request->operation_context ||
+        gnc_session_operation_context_begin (request->operation_context);
+    if (!operation_started)
+    {
+        commodity = nullptr;
+        accepted = false;
+    }
+    else if (commodity)
         set_commodity_cusip (commodity, request->cusip);
+    if (request->operation_context && operation_started)
+        gnc_session_operation_context_end (request->operation_context);
     auto callback = request->callback;
     auto callback_data = request->user_data;
     g_free (request->cusip);
+    gnc_session_operation_context_unref (request->operation_context);
     g_free (request);
     if (callback)
-        callback (commodity, commodity != nullptr, callback_data);
+        callback (commodity, accepted, callback_data);
 }
 
 
@@ -114,25 +126,53 @@ gnc_import_select_commodity_async (GtkWidget *parent, const char *cusip,
                                     GncImportCommoditySelectedCB callback,
                                     gpointer user_data)
 {
+    gnc_import_select_commodity_async_with_operation_context (
+        parent, cusip, ask_on_unknown, default_fullname, default_mnemonic,
+        cancellable, nullptr, callback, user_data);
+}
+
+void
+gnc_import_select_commodity_async_with_operation_context (
+    GtkWidget *parent, const char *cusip, gboolean ask_on_unknown,
+    const char *default_fullname, const char *default_mnemonic,
+    GCancellable *cancellable,
+    GncSessionOperationContext *operation_context,
+    GncImportCommoditySelectedCB callback, gpointer user_data)
+{
+    if (operation_context &&
+        !gnc_session_operation_context_is_current (operation_context))
+    {
+        if (callback)
+            callback (nullptr, FALSE, user_data);
+        return;
+    }
     auto commodity = gnc_import_find_commodity_by_cusip (cusip);
     if (commodity || !ask_on_unknown)
     {
-        set_commodity_cusip (commodity, cusip);
+        auto operation_started = !operation_context ||
+            gnc_session_operation_context_begin (operation_context);
+        if (operation_started)
+            set_commodity_cusip (commodity, cusip);
+        if (operation_context && operation_started)
+            gnc_session_operation_context_end (operation_context);
         if (callback)
-            callback (commodity, commodity != nullptr, user_data);
+            callback (operation_started ? commodity : nullptr,
+                      operation_started && commodity != nullptr, user_data);
         return;
     }
 
     auto request = g_new0 (CommoditySelectionRequest, 1);
     request->cusip = g_strdup (cusip);
+    request->operation_context =
+        gnc_session_operation_context_ref (operation_context);
     request->callback = callback;
     request->user_data = user_data;
     const gchar *message =
         _("Please select a commodity to match the following exchange "
           "specific code. Please note that the exchange code of the "
           "commodity you select will be overwritten.");
-    gnc_ui_select_commodity_async_full (nullptr, parent, DIAG_COMM_ALL, message,
-                                        cusip, default_fullname, default_mnemonic,
-                                        cancellable, commodity_selection_finished,
-                                        request);
+    gnc_ui_select_commodity_async_full_with_operation_context (
+        nullptr, parent, DIAG_COMM_ALL, message, cusip, default_fullname,
+        default_mnemonic, cancellable, operation_context,
+        commodity_selection_finished, request);
 }/**@}*/

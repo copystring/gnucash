@@ -25,6 +25,7 @@
 #define DIALOG_ACCOUNT_H
 
 #include "Account.h"
+#include "gnc-session.h"
 #include <gtk/gtk.h>
 
 #ifdef __cplusplus
@@ -142,6 +143,11 @@ typedef void (*GncNewAccountCreatedCB) (Account *account, gboolean accepted,
 void gnc_ui_new_accounts_from_name_with_defaults_async (
     GtkWindow *parent, const char *name, GList *valid_types,
     const gnc_commodity *default_commodity, Account *parent_acct,
+    GncNewAccountCreatedCB callback, gpointer user_data);
+void gnc_ui_new_accounts_from_name_with_defaults_async_with_operation_context (
+    GtkWindow *parent, const char *name, GList *valid_types,
+    const gnc_commodity *default_commodity, Account *parent_acct,
+    GncSessionOperationContext *operation_context,
     GncNewAccountCreatedCB callback, gpointer user_data);
 
 /*

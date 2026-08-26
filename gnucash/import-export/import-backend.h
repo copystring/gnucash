@@ -28,8 +28,10 @@
 #ifndef IMPORT_BACKEND_H
 #define IMPORT_BACKEND_H
 
+#include <gio/gio.h>
 #include "Transaction.h"
 #include "import-settings.h"
+#include "gnc-session.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -178,6 +180,11 @@ GNCImportTransInfo* gnc_import_TransInfo_new(Transaction* trans, Account* base_a
 
 /** Destructor */
 void gnc_import_TransInfo_delete (GNCImportTransInfo *info);
+
+/** Free importer-owned metadata without inspecting or changing the stored
+ * transaction. This is only for abandoning an asynchronous importer after its
+ * book/session snapshot has become invalid. */
+void gnc_import_TransInfo_discard (GNCImportTransInfo *info);
 
 /** Returns the stored list of possible matches. */
 GList *gnc_import_TransInfo_get_match_list (const GNCImportTransInfo *info);

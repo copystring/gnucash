@@ -31,6 +31,7 @@
 #define IMPORT_ACCOUNT_MATCHER_H
 
 #include "Account.h"
+#include "gnc-session.h"
 #include <gtk/gtk.h>
 
 #ifdef __cplusplus
@@ -140,6 +141,16 @@ void gnc_import_select_account_async_no_mutation (GtkWidget *parent,
                                                   Account *default_selection,
                                                   GncImportAccountSelectedCB callback,
                                                   gpointer user_data);
+
+/** No-mutation account selection whose optional account-creation dialog uses
+ * short sections from @a context for every book mutation. */
+void gnc_import_select_account_async_no_mutation_with_operation_context (
+    GtkWidget *parent, const gchar *account_online_id_value,
+    gboolean prompt_on_no_match, const gchar *account_human_description,
+    const gnc_commodity *new_account_default_commodity,
+    GNCAccountType new_account_default_type, Account *default_selection,
+    GncSessionOperationContext *context,
+    GncImportAccountSelectedCB callback, gpointer user_data);
 #ifdef __cplusplus
 }
 #endif

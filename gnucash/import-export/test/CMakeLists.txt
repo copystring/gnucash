@@ -21,14 +21,19 @@ gnc_add_test(test-import-pending-matches test-import-pending-matches.cpp
 set(IMPORT_ACCOUNT_MATCHER_TEST_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common # for config.h
   ${CMAKE_SOURCE_DIR}/gnucash/import-export
+  ${CMAKE_SOURCE_DIR}/gnucash/import-export/ofx
   ${CMAKE_SOURCE_DIR}/libgnucash/engine
   ${CMAKE_SOURCE_DIR}/libgnucash/app-utils
   ${CMAKE_SOURCE_DIR}/gnucash/gnome-utils
   ${GTEST_INCLUDE_DIR}
   )
 
+set(IMPORT_ACCOUNT_MATCHER_TEST_SOURCES
+  gtest-import-account-matcher.cpp
+  ${CMAKE_SOURCE_DIR}/gnucash/import-export/ofx/gnc-ofx-import-teardown.cpp)
+
 set(IMPORT_ACCOUNT_MATCHER_TEST_LIBS gnc-generic-import gnc-engine test-core gtest)
-gnc_add_test(test-import-account-matcher gtest-import-account-matcher.cpp
+gnc_add_test(test-import-account-matcher "${IMPORT_ACCOUNT_MATCHER_TEST_SOURCES}"
   IMPORT_ACCOUNT_MATCHER_TEST_INCLUDE_DIRS IMPORT_ACCOUNT_MATCHER_TEST_LIBS)
 
 set(gtest_import_backend_INCLUDE_DIRS

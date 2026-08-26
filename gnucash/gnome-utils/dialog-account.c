@@ -85,6 +85,7 @@ typedef struct _AccountWindow
     GncGUID  created_account_guid;
     GncNewAccountCreatedCB creation_callback;
     gpointer creation_callback_data;
+    GncSessionOperationContext *operation_context;
 
     gchar **subaccount_names;
     gchar **next_name;
@@ -188,6 +189,7 @@ void gnc_account_name_insert_text_cb (GtkWidget   *entry,
 static void set_auto_interest_box (AccountWindow *aw);
 static void gnc_account_type_update (AccountWindow *aw);
 static void gnc_finish_ok (AccountWindow *aw);
+static void account_window_close (AccountWindow *aw);
 static gboolean account_commodity_filter (Account *account, gpointer user_data);
 static void account_parent_selection_changed_cb (GtkSelectionModel *selection,
                                                  guint position, guint n_items,
@@ -743,7 +745,19 @@ make_children_compatible (AccountWindow *aw)
 static void
 gnc_finish_ok (AccountWindow *aw)
 {
+    gboolean operation_held = FALSE;
+
     ENTER("aw %p", aw);
+    if (aw->operation_context)
+    {
+        operation_held = gnc_session_operation_context_begin (
+            aw->operation_context);
+        if (!operation_held)
+        {
+            account_window_close (aw);
+            return;
+        }
+    }
     gnc_suspend_gui_refresh ();
 
     /* make the account changes */
@@ -791,6 +805,8 @@ gnc_finish_ok (AccountWindow *aw)
 
         gnc_resume_gui_refresh ();
         LEAVE("1");
+        if (operation_held)
+            gnc_session_operation_context_end (aw->operation_context);
         return;
     }
 
@@ -803,6 +819,8 @@ gnc_finish_ok (AccountWindow *aw)
     /* so it doesn't get freed on close */
     aw->account = *guid_null ();
 
+    if (operation_held)
+        gnc_session_operation_context_end (aw->operation_context);
     gnc_close_gui_component (aw->component_id);
     LEAVE("2");
 }
@@ -1221,6 +1239,12 @@ gnc_account_window_ok_cb (GtkButton *button, AccountWindow *aw)
 {
     if (!aw || aw->closing)
         return;
+    if (aw->operation_context &&
+        !gnc_session_operation_context_is_current (aw->operation_context))
+    {
+        account_window_close (aw);
+        return;
+    }
     switch (aw->dialog_type)
     {
     case NEW_ACCOUNT:
@@ -1263,11 +1287,23 @@ void
 gnc_account_window_destroy_cb (GtkWidget *object, gpointer data)
 {
     AccountWindow *aw = data;
-    Account *account;
+    Account *account = NULL;
+    gboolean operation_held = FALSE;
 
     ENTER("object %p, aw %p", object, aw);
     aw->closing = TRUE;
-    account = aw_get_account (aw);
+    if (aw->operation_context &&
+        !guid_equal (&aw->account, guid_null ()))
+    {
+        operation_held = gnc_session_operation_context_begin (
+            aw->operation_context);
+        if (!operation_held)
+            operation_held = gnc_session_operation_context_begin_cleanup (
+                aw->operation_context);
+    }
+    if (!aw->operation_context || operation_held ||
+        guid_equal (&aw->account, guid_null ()))
+        account = aw_get_account (aw);
 
     aw_clear_selection_handler (aw);
     gnc_suspend_gui_refresh ();
@@ -1290,21 +1326,24 @@ gnc_account_window_destroy_cb (GtkWidget *object, gpointer data)
 
     default:
         PERR ("unexpected dialog type\n");
-        gnc_resume_gui_refresh ();
-        LEAVE(" ");
-        return;
+        break;
     }
 
     if (aw->component_id)
         gnc_unregister_gui_component (aw->component_id);
 
     gnc_resume_gui_refresh ();
+    if (operation_held)
+        gnc_session_operation_context_end (aw->operation_context);
 
     if (aw->creation_callback)
     {
         Account *created_account = NULL;
 
-        if (aw->book == gnc_get_current_book () &&
+        if ((!aw->operation_context ||
+             gnc_session_operation_context_is_current (
+                 aw->operation_context)) &&
+            aw->book == gnc_get_current_book () &&
             !guid_equal (&aw->created_account_guid, guid_null ()))
         {
             created_account = xaccAccountLookup (&aw->created_account_guid, aw->book);
@@ -1323,6 +1362,7 @@ gnc_account_window_destroy_cb (GtkWidget *object, gpointer data)
         aw->next_name = NULL;
     }
 
+    gnc_session_operation_context_unref (aw->operation_context);
     g_clear_object (&aw->dialog);
     g_free (aw);
     LEAVE(" ");
@@ -1969,7 +2009,8 @@ gnc_ui_new_account_window_internal (GtkWindow *parent,
                                     gchar **subaccount_names,
                                     GList *valid_types,
                                     const gnc_commodity * default_commodity,
-                                    gboolean modal)
+                                    gboolean modal,
+                                    GncSessionOperationContext *operation_context)
 {
     const gnc_commodity *commodity, *parent_commodity;
     AccountWindow *aw;
@@ -1982,6 +2023,8 @@ gnc_ui_new_account_window_internal (GtkWindow *parent,
 
     aw->book = book;
     aw->modal = modal;
+    aw->operation_context =
+        gnc_session_operation_context_ref (operation_context);
     aw->dialog_type = NEW_ACCOUNT;
 
     aw->valid_types = 0;
@@ -2115,11 +2158,20 @@ gnc_split_account_name (QofBook *book, const char *in_name, Account **base_accou
  ************************************************************/
 
 void
-gnc_ui_new_accounts_from_name_with_defaults_async (
+gnc_ui_new_accounts_from_name_with_defaults_async_with_operation_context (
     GtkWindow *parent, const char *name, GList *valid_types,
     const gnc_commodity *default_commodity, Account *parent_acct,
+    GncSessionOperationContext *operation_context,
     GncNewAccountCreatedCB callback, gpointer user_data)
 {
+    if (operation_context &&
+        !gnc_session_operation_context_is_current (operation_context))
+    {
+        if (callback)
+            callback (NULL, FALSE, user_data);
+        return;
+    }
+
     QofBook *book = gnc_get_current_book ();
     AccountWindow *aw;
     Account *base_account = NULL;
@@ -2138,9 +2190,20 @@ gnc_ui_new_accounts_from_name_with_defaults_async (
     if (parent_acct)
         base_account = parent_acct;
 
+    if (operation_context &&
+        !gnc_session_operation_context_begin (operation_context))
+    {
+        g_strfreev (subaccount_names);
+        if (callback)
+            callback (NULL, FALSE, user_data);
+        return;
+    }
     aw = gnc_ui_new_account_window_internal (parent, book, base_account,
                                              subaccount_names, valid_types,
-                                             default_commodity, FALSE);
+                                             default_commodity, FALSE,
+                                             operation_context);
+    if (operation_context)
+        gnc_session_operation_context_end (operation_context);
     if (!aw)
     {
         g_strfreev (subaccount_names);
@@ -2156,6 +2219,17 @@ gnc_ui_new_accounts_from_name_with_defaults_async (
         g_signal_connect_object (parent, "destroy",
                                  G_CALLBACK (gtk_window_destroy), aw->dialog,
                                  G_CONNECT_SWAPPED);
+}
+
+void
+gnc_ui_new_accounts_from_name_with_defaults_async (
+    GtkWindow *parent, const char *name, GList *valid_types,
+    const gnc_commodity *default_commodity, Account *parent_acct,
+    GncNewAccountCreatedCB callback, gpointer user_data)
+{
+    gnc_ui_new_accounts_from_name_with_defaults_async_with_operation_context (
+        parent, name, valid_types, default_commodity, parent_acct, NULL,
+        callback, user_data);
 }
 /************************************************************
  *            Entry points for a non-Modal Dialog           *
@@ -2245,7 +2319,7 @@ gnc_ui_new_account_with_types_and_commodity (GtkWindow *parent, QofBook *book, G
                                              gnc_commodity *default_commodity)
 {
     gnc_ui_new_account_window_internal (parent, book, NULL, NULL,
-                                        valid_types, default_commodity, FALSE);
+                                        valid_types, default_commodity, FALSE, NULL);
 }
 
 /*
@@ -2263,7 +2337,7 @@ gnc_ui_new_account_window (GtkWindow *parent, QofBook *book,
         g_return_if_fail(gnc_account_get_book (parent_acct) == book);
 
     gnc_ui_new_account_window_internal (parent, book, parent_acct, NULL, NULL,
-                                        NULL, FALSE);
+                                        NULL, FALSE, NULL);
 }
 
 /************************************************************

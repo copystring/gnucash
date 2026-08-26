@@ -45,6 +45,7 @@ struct AccountPicker
     GNCAccountType account_type;
     GncImportAccountSelectedCB callback;
     gpointer user_data;
+    GncSessionOperationContext *operation_context;
     gboolean assign_online_id;
     gboolean finished;
     gboolean creating_account;
@@ -156,6 +157,14 @@ static void
 picker_selection_changed (GtkSelectionModel *selection, guint position, guint n_items,
                           AccountPicker *picker)
 {
+    if (picker->operation_context &&
+        !gnc_session_operation_context_is_current (picker->operation_context))
+    {
+        gtk_widget_set_visible (picker->warning_box, FALSE);
+        gtk_widget_set_visible (GTK_WIDGET (picker->warning), FALSE);
+        gtk_widget_set_sensitive (GTK_WIDGET (picker->ok_button), FALSE);
+        return;
+    }
     auto account = picker_selected_account (picker);
     auto placeholder = account && xaccAccountGetPlaceholder (account);
     gtk_widget_set_visible (picker->warning_box, placeholder);
@@ -177,12 +186,25 @@ picker_finish (AccountPicker *picker, gboolean accepted)
 {
     if (!picker || picker->finished)
         return;
+    if (accepted && picker->operation_context &&
+        !gnc_session_operation_context_is_current (picker->operation_context))
+        accepted = FALSE;
     picker->finished = TRUE;
     auto account = accepted ? picker_selected_account (picker) : nullptr;
     if (account && xaccAccountGetPlaceholder (account))
         account = nullptr;
+    auto operation_started = TRUE;
     if (account && picker->assign_online_id && picker->online_id)
-        xaccAccountSetOnlineID (account, picker->online_id);
+    {
+        operation_started = !picker->operation_context ||
+            gnc_session_operation_context_begin (picker->operation_context);
+        if (operation_started)
+            xaccAccountSetOnlineID (account, picker->online_id);
+        else
+            account = nullptr;
+        if (picker->operation_context && operation_started)
+            gnc_session_operation_context_end (picker->operation_context);
+    }
     if (picker->window)
     {
         gnc_save_window_size (GNC_PREFS_GROUP, picker->window);
@@ -193,9 +215,11 @@ picker_finish (AccountPicker *picker, gboolean accepted)
     g_clear_object (&picker->rows);
     auto callback = picker->callback;
     auto user_data = picker->user_data;
+    auto operation_context = picker->operation_context;
     g_free (picker->online_id);
     g_free (picker->description);
     g_free (picker);
+    gnc_session_operation_context_unref (operation_context);
     if (callback)
         callback (account, account != nullptr, user_data);
 }
@@ -260,6 +284,12 @@ picker_account_created (Account *account, gboolean accepted, gpointer user_data)
         picker_finish (picker, FALSE);
         return;
     }
+    if (picker->operation_context &&
+        !gnc_session_operation_context_is_current (picker->operation_context))
+    {
+        picker_finish (picker, FALSE);
+        return;
+    }
     gtk_widget_set_sensitive (GTK_WIDGET (picker->window), TRUE);
     if (!accepted || !account)
         return;
@@ -276,13 +306,20 @@ picker_add_account (GtkButton *button, AccountPicker *picker)
     GList *types = nullptr;
     if (picker->creating_account)
         return;
+    if (picker->operation_context &&
+        !gnc_session_operation_context_is_current (picker->operation_context))
+    {
+        picker_finish (picker, FALSE);
+        return;
+    }
     if (picker->account_type != ACCT_TYPE_NONE)
         types = g_list_prepend (types, GINT_TO_POINTER (picker->account_type));
     picker->creating_account = TRUE;
     gtk_widget_set_sensitive (GTK_WIDGET (picker->window), FALSE);
-    gnc_ui_new_accounts_from_name_with_defaults_async (
+    gnc_ui_new_accounts_from_name_with_defaults_async_with_operation_context (
         picker->window, picker->description, types, picker->commodity,
-        picker_selected_account (picker), picker_account_created, picker);
+        picker_selected_account (picker), picker->operation_context,
+        picker_account_created, picker);
     g_list_free (types);
     (void)button;
 }
@@ -333,6 +370,7 @@ gnc_import_select_account_async_internal (GtkWidget *parent, const gchar *online
                                           const gnc_commodity *commodity,
                                           GNCAccountType account_type,
                                           Account *default_selection,
+                                          GncSessionOperationContext *operation_context,
                                           GncImportAccountSelectedCB callback,
                                           gpointer user_data,
                                           gboolean assign_online_id)
@@ -351,6 +389,8 @@ gnc_import_select_account_async_internal (GtkWidget *parent, const gchar *online
     picker->account_type = account_type;
     picker->callback = callback;
     picker->user_data = user_data;
+    picker->operation_context =
+        gnc_session_operation_context_ref (operation_context);
     picker->assign_online_id = assign_online_id;
     auto builder = gtk_builder_new ();
     gnc_builder_add_from_file (builder, "dialog-import.glade", "account_picker_dialog");
@@ -396,7 +436,8 @@ gnc_import_select_account_async (GtkWidget *parent, const gchar *online_id,
 {
     gnc_import_select_account_async_internal (parent, online_id, prompt_on_no_match,
                                               description, commodity, account_type,
-                                              default_selection, callback, user_data, TRUE);
+                                              default_selection, nullptr, callback,
+                                              user_data, TRUE);
 }
 
 void
@@ -411,7 +452,29 @@ gnc_import_select_account_async_no_mutation (GtkWidget *parent, const gchar *onl
 {
     gnc_import_select_account_async_internal (parent, online_id, prompt_on_no_match,
                                               description, commodity, account_type,
-                                              default_selection, callback, user_data, FALSE);
+                                              default_selection, nullptr, callback,
+                                              user_data, FALSE);
+}
+
+void
+gnc_import_select_account_async_no_mutation_with_operation_context (
+    GtkWidget *parent, const gchar *online_id, gboolean prompt_on_no_match,
+    const gchar *description, const gnc_commodity *commodity,
+    GNCAccountType account_type, Account *default_selection,
+    GncSessionOperationContext *operation_context,
+    GncImportAccountSelectedCB callback, gpointer user_data)
+{
+    if (!operation_context ||
+        !gnc_session_operation_context_is_current (operation_context))
+    {
+        if (callback)
+            callback (nullptr, FALSE, user_data);
+        return;
+    }
+    gnc_import_select_account_async_internal (
+        parent, online_id, prompt_on_no_match, description, commodity,
+        account_type, default_selection, operation_context, callback,
+        user_data, FALSE);
 }
 
 Account*

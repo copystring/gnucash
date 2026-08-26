@@ -41,6 +41,10 @@
 
 #include "Account.h"
 #include "Transaction.h"
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+#include "gnc-ofx-import-test-seam.h"
+#endif
+#include "gnc-ofx-import-teardown.h"
 #include "engine-helpers.h"
 #include "gnc-ofx-import.h"
 #include "gnc-file.h"
@@ -71,6 +75,9 @@ static QofLogModule log_module = GNC_MOD_IMPORT;
 
 static gboolean auto_create_commodity = FALSE;
 typedef struct OfxTransactionData OfxTransactionData;
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+struct GncOfxImportTestSeam;
+#endif
 
 // Structure we use to gather information about statement balance/account etc.
 typedef struct _ofx_info
@@ -79,6 +86,8 @@ typedef struct _ofx_info
     GtkWindow* parent;
     gulong parent_destroy_handler;
     gboolean parent_destroyed;
+    GncOfxImportLifecycle *lifecycle;
+    GncSessionOperationContext *operation_context; /* borrowed from lifecycle */
     GNCImportMainMatcher *gnc_ofx_importer_gui;
     Account *last_import_account;
     Account *last_investment_account;
@@ -89,7 +98,43 @@ typedef struct _ofx_info
     GSList* file_list;                      // List of OFX files to import
     GList* trans_list;                      // We store the processed ofx transactions here
     gint response;                          // Response sent by the match gui
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+    GncOfxImportTestSeam *test_seam;       // Borrowed, internal test observer only
+#endif
 } ofx_info ;
+
+class OfxOperationSection
+{
+public:
+    explicit OfxOperationSection (GncSessionOperationContext *context,
+                                  gboolean cleanup = FALSE)
+        : m_context {gnc_session_operation_context_ref (context)},
+          m_active {cleanup ? gnc_session_operation_context_begin_cleanup (m_context)
+                            : gnc_session_operation_context_begin (m_context)}
+    {
+    }
+
+    ~OfxOperationSection ()
+    {
+        end ();
+        gnc_session_operation_context_unref (m_context);
+    }
+
+    explicit operator bool () const { return m_active; }
+    void end ()
+    {
+        if (!m_active)
+            return;
+        gnc_session_operation_context_end (m_context);
+        m_active = FALSE;
+    }
+    OfxOperationSection (const OfxOperationSection&) = delete;
+    OfxOperationSection& operator= (const OfxOperationSection&) = delete;
+
+private:
+    GncSessionOperationContext *m_context;
+    gboolean m_active;
+};
 
 struct OfxAccountSelection
 {
@@ -133,6 +178,7 @@ struct OfxStatementSelection
 struct OfxImportState
 {
     ofx_info *info;
+    GncOfxImportAsyncState *registration;
     GWeakRef parent;
     gulong parent_destroy_handler;
     gboolean has_parent;
@@ -154,6 +200,18 @@ struct OfxImportState
     GncGUID investment_parent_guid;
 };
 
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+struct GncOfxImportTestSeam
+{
+    ofx_info *info;
+    OfxImportState *state;
+    guint metadata_cleanup_calls;
+    guint payload_destroy_calls;
+    guint reconcile_calls;
+    GncImportOperationTeardownResult result;
+};
+#endif
+
 static std::string
 ofx_utf8_string (const char *value)
 {
@@ -168,9 +226,17 @@ ofx_utf8_string (const char *value)
 static gboolean
 ofx_import_state_book_is_current (const OfxImportState *state)
 {
+    if (!state || !state->info || !state->registration ||
+        !gnc_ofx_import_async_state_is_active (state->registration) ||
+        state->info->lifecycle !=
+            gnc_ofx_import_async_state_get_lifecycle (
+                state->registration) ||
+        !gnc_session_operation_context_is_current (
+            state->info->operation_context))
+        return FALSE;
     auto book = gnc_get_current_book ();
-    return state && book && guid_equal (&state->book_guid,
-                                        qof_instance_get_guid (QOF_INSTANCE (book)));
+    return book && guid_equal (&state->book_guid,
+                               qof_instance_get_guid (QOF_INSTANCE (book)));
 }
 
 static Account *
@@ -1057,16 +1123,21 @@ gnc_file_ofx_import_process_file (ofx_info* info);
 static void
 gnc_file_ofx_import_parse_current_file (OfxImportState *state);
 static void
-ofx_info_free (ofx_info *info);
+ofx_info_free (gpointer user_data);
+static void
+ofx_info_release (ofx_info *info);
 static void
 gnc_ofx_abort_import (ofx_info *info);
+static void
+gnc_ofx_match_done (GtkWidget *widget, gpointer user_data);
 
 // gnc_ofx_process_next_file processes the next file in the info->file_list.
 static void
 gnc_ofx_process_next_file (GtkWidget *widget, gpointer user_data)
 {
     ofx_info* info = (ofx_info*) user_data;
-    if (!info || info->parent_destroyed)
+    if (!info || info->parent_destroyed ||
+        !gnc_session_operation_context_is_current (info->operation_context))
     {
         gnc_ofx_abort_import (info);
         return;
@@ -1084,18 +1155,50 @@ gnc_ofx_process_next_file (GtkWidget *widget, gpointer user_data)
     else
     {
         // Final cleanup.
-        ofx_info_free (info);
+        ofx_info_release (info);
     }
     (void)widget;
 }
 
 static void
-gnc_ofx_on_match_click (GtkWidget *widget, gint response_id, gpointer user_data)
+gnc_ofx_matcher_finished (gboolean accepted, gpointer user_data)
 {
-    // Record the response of the user. If cancel we won't go to the next file, etc.
-    ofx_info* info = (ofx_info*)user_data;
-    info->response = response_id;
-    (void)widget;
+    auto info = static_cast<ofx_info *> (user_data);
+    if (!info)
+        return;
+    info->gnc_ofx_importer_gui = nullptr;
+    info->response = accepted ? GTK_RESPONSE_OK : GTK_RESPONSE_CANCEL;
+    gnc_ofx_match_done (nullptr, info);
+}
+
+static gboolean
+gnc_ofx_create_matcher (ofx_info *info)
+{
+    if (!info ||
+        !gnc_session_operation_context_is_current (info->operation_context))
+        return FALSE;
+    info->gnc_ofx_importer_gui = gnc_gen_trans_list_new (
+        GTK_WIDGET (info->parent), nullptr, FALSE, 42, FALSE);
+    if (!info->gnc_ofx_importer_gui)
+        return FALSE;
+    if (gnc_gen_trans_list_bind_operation_teardown (
+            info->gnc_ofx_importer_gui,
+            gnc_ofx_import_lifecycle_get_teardown (info->lifecycle)))
+        return TRUE;
+    gnc_gen_trans_list_delete (info->gnc_ofx_importer_gui);
+    info->gnc_ofx_importer_gui = nullptr;
+    return FALSE;
+}
+
+static void
+gnc_ofx_reconcile_destroyed (GObject *window, gpointer user_data)
+{
+    auto info = static_cast<ofx_info *> (user_data);
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+    if (info && info->test_seam)
+        info->test_seam->reconcile_calls++;
+#endif
+    gnc_ofx_match_done (GTK_WIDGET (window), info);
 }
 
 static void
@@ -1103,7 +1206,8 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
 {
     ofx_info* info = (ofx_info*) user_data;
 
-    if (!info || info->parent_destroyed)
+    if (!info || info->parent_destroyed ||
+        !gnc_session_operation_context_is_current (info->operation_context))
     {
         gnc_ofx_abort_import (info);
         return;
@@ -1124,7 +1228,11 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
           * remaining in our list (happens if several accounts exist
           * in the same ofx).
           */
-        info->gnc_ofx_importer_gui = gnc_gen_trans_list_new (GTK_WIDGET (info->parent), NULL, FALSE, 42, FALSE);
+        if (!gnc_ofx_create_matcher (info))
+        {
+            gnc_ofx_abort_import (info);
+            return;
+        }
         runMatcher (info, NULL, true);
         return;
     }
@@ -1133,7 +1241,7 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
     {
         auto statement = static_cast<OfxStatementSelection *> (info->statement->data);
         // Open a reconcile window.
-        Account* account = gnc_import_select_account (gnc_gen_trans_list_widget(info->gnc_ofx_importer_gui),
+        Account* account = gnc_import_select_account (GTK_WIDGET (info->parent),
                                                       statement->account_id.c_str (),
                                                       0, NULL, NULL, ACCT_TYPE_NONE, NULL, NULL);
         if (account && statement->ledger_balance_valid)
@@ -1145,9 +1253,16 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
             RecnWindow* rec_window = recnWindowWithBalance (GTK_WIDGET (info->parent), account, value,
                                                             statement->ledger_balance_date);
 
-            // Connect to destroy, at which point we'll process the next OFX file..
-            g_signal_connect (G_OBJECT (gnc_ui_reconcile_window_get_window (rec_window)), "destroy",
-                              G_CALLBACK (gnc_ofx_match_done), info);
+            /* The continuation owns a lifecycle reference and is centrally
+             * disconnected by terminal cleanup before the payload can die. */
+            if (!gnc_ofx_import_lifecycle_connect_destroy (
+                    info->lifecycle,
+                    G_OBJECT (gnc_ui_reconcile_window_get_window (rec_window)),
+                    gnc_ofx_reconcile_destroyed, info))
+            {
+                gnc_ofx_abort_import (info);
+                return;
+            }
             if (info->statement->next)
                 info->statement = info->statement->next;
             else
@@ -1195,7 +1310,14 @@ make_date_amount_key (const Split* split)
 static void
 runMatcher (ofx_info* info, char * selected_filename, gboolean go_to_next_file)
 {
-    if (!info || info->parent_destroyed)
+    if (!info || info->parent_destroyed ||
+        !gnc_session_operation_context_is_current (info->operation_context))
+    {
+        gnc_ofx_abort_import (info);
+        return;
+    }
+    OfxOperationSection operation {info->operation_context};
+    if (!operation)
     {
         gnc_ofx_abort_import (info);
         return;
@@ -1247,8 +1369,11 @@ runMatcher (ofx_info* info, char * selected_filename, gboolean go_to_next_file)
         else
         {
             trans_map[date_amount_key] = account;
-            gnc_gen_trans_list_add_trans (info->gnc_ofx_importer_gui, trans);
-            info->num_trans_processed ++;
+            if (gnc_gen_trans_list_add_trans_with_operation (
+                    info->gnc_ofx_importer_gui, trans))
+                info->num_trans_processed ++;
+            else
+                trans_list_remain = g_list_prepend (trans_list_remain, trans);
         }
     }
     g_list_free (info->trans_list);
@@ -1261,36 +1386,19 @@ runMatcher (ofx_info* info, char * selected_filename, gboolean go_to_next_file)
     // See whether the view has anything in it and warn the user if not.
     if (gnc_gen_trans_list_empty (info->gnc_ofx_importer_gui))
     {
-        gnc_gen_trans_list_delete (info->gnc_ofx_importer_gui);
+        gnc_gen_trans_list_delete_with_operation (info->gnc_ofx_importer_gui);
+        info->gnc_ofx_importer_gui = nullptr;
         if (info->num_trans_processed)
-        {
             gnc_info_dialog (parent, _("While importing transactions from OFX file '%s' found %d previously imported transactions, no new transactions."),
                              selected_filename,
                              info->num_trans_processed);
-            // This is required to ensure we don't mistakenly assume the user canceled.
-            info->response = GTK_RESPONSE_OK;
-            gnc_ofx_match_done (NULL, info);
-            return;
-        }
+        info->response = GTK_RESPONSE_OK;
+        operation.end ();
+        gnc_ofx_match_done (nullptr, info);
+        return;
     }
     else
     {
-        /* Show the match dialog and connect to the "destroy" signal
-         so we can trigger a reconcile when the user clicks OK when
-         done matching transactions if required. Connecting to
-         response isn't enough because only when the matcher is
-         destroyed do imported transactions get recorded */
-        g_signal_connect (G_OBJECT (gnc_gen_trans_list_widget (info->gnc_ofx_importer_gui)),
-                          "destroy",
-                          G_CALLBACK (gnc_ofx_match_done),
-                          info);
-        
-        // Connect to response so we know if the user pressed "cancel".
-        g_signal_connect (G_OBJECT (gnc_gen_trans_list_widget (info->gnc_ofx_importer_gui)),
-                          "response",
-                          G_CALLBACK (gnc_ofx_on_match_click),
-                          info);
-        
         gnc_gen_trans_list_show_all (info->gnc_ofx_importer_gui);
         
         // Show or hide the check box for reconciling after match,
@@ -1307,6 +1415,8 @@ runMatcher (ofx_info* info, char * selected_filename, gboolean go_to_next_file)
                           "toggled",
                           G_CALLBACK (reconcile_when_close_toggled_cb),
                           info);
+        gnc_gen_trans_list_present (info->gnc_ofx_importer_gui,
+                                    gnc_ofx_matcher_finished, info);
     }
 }
 
@@ -1315,37 +1425,73 @@ ofx_info_parent_destroyed (GtkWidget *window, gpointer user_data)
 {
     auto info = static_cast<ofx_info *> (user_data);
     if (info)
+    {
         info->parent_destroyed = TRUE;
+        gnc_ofx_abort_import (info);
+    }
     (void)window;
 }
 
 static void
-ofx_info_free (ofx_info *info)
+ofx_info_free (gpointer user_data)
 {
+    auto info = static_cast<ofx_info *> (user_data);
     if (!info)
         return;
     if (info->parent && info->parent_destroy_handler)
         g_signal_handler_disconnect (info->parent, info->parent_destroy_handler);
     g_clear_object (&info->parent);
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+    if (info->test_seam)
+    {
+        info->test_seam->info = nullptr;
+        info->test_seam->payload_destroy_calls++;
+    }
+#endif
     g_free (info);
+}
+
+static void
+ofx_info_release (ofx_info *info)
+{
+    if (!info || !info->lifecycle)
+        return;
+    auto lifecycle = info->lifecycle;
+    info->lifecycle = nullptr;
+    info->operation_context = nullptr;
+    gnc_ofx_import_lifecycle_finish (lifecycle);
+}
+
+static void
+gnc_ofx_abort_import_metadata_cleanup (
+    GncOfxImportLifecycle *lifecycle,
+    GncImportOperationTeardownResult result,
+    gpointer user_data)
+{
+    auto info = static_cast<ofx_info *> (user_data);
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+    if (info->test_seam)
+    {
+        info->test_seam->metadata_cleanup_calls++;
+        info->test_seam->result = result;
+    }
+#endif
+    g_assert (!info->gnc_ofx_importer_gui);
+    g_assert (!info->trans_list);
+    g_list_free_full (info->statement, ofx_statement_selection_free);
+    info->statement = nullptr;
+    g_slist_free_full (info->file_list, g_free);
+    info->file_list = nullptr;
+    g_assert (lifecycle == info->lifecycle);
+    (void)result;
 }
 
 static void
 gnc_ofx_abort_import (ofx_info *info)
 {
-    if (!info)
+    if (!info || !info->lifecycle)
         return;
-
-    g_list_free_full (info->statement, ofx_statement_selection_free);
-    for (GList *node = info->trans_list; node; node = node->next)
-    {
-        auto transaction = static_cast<Transaction*> (node->data);
-        xaccTransDestroy (transaction);
-        xaccTransCommitEdit (transaction);
-    }
-    g_list_free (info->trans_list);
-    g_slist_free_full (info->file_list, g_free);
-    ofx_info_free (info);
+    gnc_ofx_import_lifecycle_request (info->lifecycle);
 }
 
 static void
@@ -1367,7 +1513,11 @@ ofx_import_state_free (OfxImportState *state)
         g_signal_handler_disconnect (parent, state->parent_destroy_handler);
     g_clear_object (&parent);
     g_weak_ref_clear (&state->parent);
+    auto registration = state->registration;
+    state->registration = nullptr;
+    state->info = nullptr;
     delete state;
+    gnc_ofx_import_async_state_unref (registration);
 }
 
 static void
@@ -1375,10 +1525,8 @@ ofx_import_state_abort (OfxImportState *state)
 {
     if (!state)
         return;
-    auto info = state->info;
-    state->info = nullptr;
+    gnc_ofx_import_async_state_request_teardown (state->registration);
     ofx_import_state_free (state);
-    gnc_ofx_abort_import (info);
 }
 
 static gboolean
@@ -1617,9 +1765,10 @@ ofx_import_state_create_investment (OfxImportState *state, Account *parent,
     if (!xaccAccountTypesCompatible (xaccAccountGetType (parent), ACCT_TYPE_STOCK))
         types = g_list_prepend (types, GINT_TO_POINTER (xaccAccountGetType (parent)));
     auto window = ofx_import_state_parent (state);
-    gnc_ui_new_accounts_from_name_with_defaults_async (
+    gnc_ui_new_accounts_from_name_with_defaults_async_with_operation_context (
         window, description, types, commodity, parent,
-        ofx_import_state_investment_created, state);
+        state->info->operation_context, ofx_import_state_investment_created,
+        state);
     g_clear_object (&window);
     g_list_free (types);
     g_free (description);
@@ -1713,10 +1862,11 @@ ofx_import_state_continue (OfxImportState *state)
             continue;
         }
         auto window = ofx_import_state_parent (state);
-        gnc_import_select_account_async_no_mutation (
+        gnc_import_select_account_async_no_mutation_with_operation_context (
             GTK_WIDGET (window), selection.online_id.c_str (), TRUE,
             selection.description.c_str (), ofx_account_selection_commodity (state, selection),
-            selection.account_type, nullptr, ofx_import_state_account_selected, state);
+            selection.account_type, nullptr, state->info->operation_context,
+            ofx_import_state_account_selected, state);
         g_clear_object (&window);
         return;
     }
@@ -1726,7 +1876,15 @@ ofx_import_state_continue (OfxImportState *state)
         const auto &selection = state->securities[state->security_index];
         auto commodity = gnc_import_find_commodity_by_cusip (selection.unique_id.c_str ());
         if (!commodity && auto_create_commodity)
+        {
+            OfxOperationSection operation {state->info->operation_context};
+            if (!operation)
+            {
+                ofx_import_state_abort (state);
+                return;
+            }
             commodity = ofx_create_commodity (selection);
+        }
         if (commodity)
         {
             if (!ofx_import_state_commodity_is_current (state, commodity))
@@ -1739,10 +1897,11 @@ ofx_import_state_continue (OfxImportState *state)
             continue;
         }
         auto window = ofx_import_state_parent (state);
-        gnc_import_select_commodity_async (GTK_WIDGET (window), selection.unique_id.c_str (),
-                                            TRUE, selection.fullname.c_str (),
-                                            selection.mnemonic.c_str (), nullptr,
-                                            ofx_import_state_security_selected, state);
+        gnc_import_select_commodity_async_with_operation_context (
+            GTK_WIDGET (window), selection.unique_id.c_str (), TRUE,
+            selection.fullname.c_str (), selection.mnemonic.c_str (), nullptr,
+            state->info->operation_context, ofx_import_state_security_selected,
+            state);
         g_clear_object (&window);
         return;
     }
@@ -1770,9 +1929,10 @@ ofx_import_state_continue (OfxImportState *state)
         auto window = ofx_import_state_parent (state);
         auto description = g_strdup_printf (_("Stock account for security \"%s\""),
                                             selection.security_name.c_str ());
-        gnc_import_select_account_async_no_mutation (
+        gnc_import_select_account_async_no_mutation_with_operation_context (
             GTK_WIDGET (window), selection.online_id.c_str (), TRUE, description, commodity,
-            ACCT_TYPE_STOCK, parent, ofx_import_state_investment_selected, state);
+            ACCT_TYPE_STOCK, parent, state->info->operation_context,
+            ofx_import_state_investment_selected, state);
         g_free (description);
         g_clear_object (&window);
         return;
@@ -1814,18 +1974,20 @@ ofx_import_state_continue (OfxImportState *state)
                                             selection.security_name.c_str ());
         auto window = ofx_import_state_parent (state);
         auto last = ofx_import_state_account (state, state->last_income_guid);
-        gnc_import_select_account_async_no_mutation (
+        gnc_import_select_account_async_no_mutation_with_operation_context (
             GTK_WIDGET (window), nullptr, TRUE, description, currency, ACCT_TYPE_INCOME, last,
-            ofx_import_state_income_selected, state);
+            state->info->operation_context, ofx_import_state_income_selected,
+            state);
         g_free (description);
         g_clear_object (&window);
         return;
     }
 
-    auto parent = ofx_import_state_parent (state);
-    state->info->gnc_ofx_importer_gui = gnc_gen_trans_list_new (GTK_WIDGET (parent), nullptr,
-                                                                 FALSE, 42, FALSE);
-    g_clear_object (&parent);
+    if (!gnc_ofx_create_matcher (state->info))
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
     gnc_file_ofx_import_parse_current_file (state);
 }
 
@@ -1841,29 +2003,52 @@ ofx_import_state_new_book_options_finished (GtkWindow *parent, gboolean applied,
     (void)parent;
 }
 
-static void
-gnc_file_ofx_import_process_file (ofx_info *info)
+static OfxImportState *
+ofx_import_state_new (ofx_info *info)
 {
-    if (!info || !info->file_list)
-        return;
-    if (info->parent_destroyed)
-    {
-        gnc_ofx_abort_import (info);
-        return;
-    }
-
+    if (!info || !info->lifecycle ||
+        gnc_ofx_import_lifecycle_is_terminal (info->lifecycle))
+        return nullptr;
     auto state = new OfxImportState {};
     state->info = info;
+    state->registration = gnc_ofx_import_async_state_new (info->lifecycle);
+    if (!state->registration)
+    {
+        delete state;
+        return nullptr;
+    }
     state->has_parent = info->parent != nullptr;
     state->parent_destroyed = info->parent_destroyed;
     g_weak_ref_init (&state->parent, info->parent);
     if (info->parent)
         state->parent_destroy_handler = g_signal_connect (
-            info->parent, "destroy", G_CALLBACK (ofx_import_state_parent_destroyed), state);
+            info->parent, "destroy",
+            G_CALLBACK (ofx_import_state_parent_destroyed), state);
     state->book_guid = *qof_instance_get_guid (QOF_INSTANCE (gnc_get_current_book ()));
     state->last_investment_guid = *guid_null ();
     state->last_income_guid = *guid_null ();
     state->investment_parent_guid = *guid_null ();
+    return state;
+}
+
+static void
+gnc_file_ofx_import_process_file (ofx_info *info)
+{
+    if (!info || !info->file_list)
+        return;
+    if (info->parent_destroyed ||
+        !gnc_session_operation_context_is_current (info->operation_context))
+    {
+        gnc_ofx_abort_import (info);
+        return;
+    }
+
+    auto state = ofx_import_state_new (info);
+    if (!state)
+    {
+        gnc_ofx_abort_import (info);
+        return;
+    }
 
     auto context = libofx_get_new_context ();
     auto filename = static_cast<gchar *> (info->file_list->data);
@@ -1907,6 +2092,12 @@ gnc_file_ofx_import_parse_current_file (OfxImportState *state)
         ofx_import_state_abort (state);
         return;
     }
+    OfxOperationSection operation {info->operation_context};
+    if (!operation)
+    {
+        ofx_import_state_abort (state);
+        return;
+    }
 
     auto filename = static_cast<char *> (info->file_list->data);
     auto libofx_context = libofx_get_new_context ();
@@ -1923,6 +2114,7 @@ gnc_file_ofx_import_parse_current_file (OfxImportState *state)
     ofx_set_security_cb (libofx_context, ofx_proc_security_cb, state);
     libofx_proc_file (libofx_context, selected_filename, AUTODETECT);
     libofx_free_context (libofx_context);
+    operation.end ();
     ofx_import_state_free (state);
     runMatcher (info, selected_filename, TRUE);
 #ifdef G_OS_WIN32
@@ -1943,11 +2135,48 @@ ofx_file_dialog_data_free (OfxFileDialogData *data)
     g_free (data);
 }
 
+static ofx_info *
+ofx_info_new (GtkWindow *parent, GSList *selected_filenames,
+              GApplication *application,
+              GncSessionOperationContext *operation_context)
+{
+    g_return_val_if_fail (G_IS_APPLICATION (application), nullptr);
+    g_return_val_if_fail (operation_context, nullptr);
+
+    auto info = g_new0 (ofx_info, 1);
+    info->num_trans_processed = 0;
+    info->statement = nullptr;
+    info->last_investment_account = nullptr;
+    info->last_import_account = nullptr;
+    info->last_income_account = nullptr;
+    info->parent = parent ? GTK_WINDOW (g_object_ref (parent)) : nullptr;
+    info->run_reconcile = FALSE;
+    info->file_list = selected_filenames;
+    info->trans_list = nullptr;
+    info->response = 0;
+    info->lifecycle = gnc_ofx_import_lifecycle_new (
+        operation_context, application,
+        &info->gnc_ofx_importer_gui, &info->trans_list,
+        gnc_ofx_abort_import_metadata_cleanup, info, ofx_info_free);
+    if (!info->lifecycle)
+    {
+        info->file_list = nullptr;
+        ofx_info_free (info);
+        return nullptr;
+    }
+    info->operation_context = gnc_ofx_import_lifecycle_get_context (
+        info->lifecycle);
+    if (info->parent)
+        info->parent_destroy_handler = g_signal_connect (
+            info->parent, "destroy", G_CALLBACK (ofx_info_parent_destroyed),
+            info);
+    return info;
+}
+
 static void
 ofx_import_selected_files (GtkWindow *parent, GSList *selected_filenames)
 {
     char *default_dir;
-    ofx_info *info;
 
     if (!selected_filenames)
         return;
@@ -1962,22 +2191,187 @@ ofx_import_selected_files (GtkWindow *parent, GSList *selected_filenames)
         gnc_prefs_get_bool (GNC_PREFS_GROUP_IMPORT, GNC_PREF_AUTO_COMMODITY);
 
     DEBUG ("Opening selected file(s)");
-    info = g_new (ofx_info, 1);
-    info->num_trans_processed = 0;
-    info->statement = NULL;
-    info->last_investment_account = NULL;
-    info->last_import_account = NULL;
-    info->last_income_account = NULL;
-    info->parent = parent ? GTK_WINDOW (g_object_ref (parent)) : NULL;
-    if (info->parent)
-        info->parent_destroy_handler = g_signal_connect (
-            info->parent, "destroy", G_CALLBACK (ofx_info_parent_destroyed), info);
-    info->run_reconcile = FALSE;
-    info->file_list = selected_filenames;
-    info->trans_list = NULL;
-    info->response = 0;
+    if (!gnc_current_session_exist ())
+    {
+        g_slist_free_full (selected_filenames, g_free);
+        return;
+    }
+    auto operation_context = gnc_session_operation_context_new (
+        qof_session_get_book (gnc_get_current_session ()),
+        QOF_SESSION_OPERATION_IMPORT);
+    if (!operation_context)
+    {
+        PWARN ("Refusing OFX import while another session operation is active");
+        g_slist_free_full (selected_filenames, g_free);
+        return;
+    }
+
+    auto application = g_application_get_default ();
+    if (!G_IS_APPLICATION (application))
+    {
+        PWARN ("Refusing asynchronous OFX import without a GApplication lifecycle");
+        gnc_session_operation_context_unref (operation_context);
+        g_slist_free_full (selected_filenames, g_free);
+        return;
+    }
+
+    auto info = ofx_info_new (parent, selected_filenames,
+                              G_APPLICATION (application),
+                              operation_context);
+    gnc_session_operation_context_unref (operation_context);
+    if (!info)
+    {
+        g_slist_free_full (selected_filenames, g_free);
+        return;
+    }
     gnc_file_ofx_import_process_file (info);
 }
+
+#ifdef GNC_OFX_IMPORT_TEST_SEAM
+GncOfxImportTestSeam *
+gnc_ofx_import_test_seam_new (GApplication *application)
+{
+    g_return_val_if_fail (G_IS_APPLICATION (application), nullptr);
+    if (!gnc_current_session_exist ())
+        return nullptr;
+    auto operation_context = gnc_session_operation_context_new (
+        qof_session_get_book (gnc_get_current_session ()),
+        QOF_SESSION_OPERATION_IMPORT);
+    if (!operation_context)
+        return nullptr;
+    auto seam = g_new0 (GncOfxImportTestSeam, 1);
+    seam->result = GNC_IMPORT_OPERATION_TEARDOWN_STALE;
+    seam->info = ofx_info_new (nullptr, nullptr, application,
+                               operation_context);
+    gnc_session_operation_context_unref (operation_context);
+    if (!seam->info)
+    {
+        g_free (seam);
+        return nullptr;
+    }
+    seam->info->test_seam = seam;
+    return seam;
+}
+
+void
+gnc_ofx_import_test_seam_free (GncOfxImportTestSeam *seam)
+{
+    if (!seam)
+        return;
+    g_return_if_fail (!seam->info);
+    g_return_if_fail (!seam->state);
+    g_free (seam);
+}
+
+static gboolean
+gnc_ofx_import_test_begin_state (GncOfxImportTestSeam *seam)
+{
+    g_return_val_if_fail (seam && seam->info && !seam->state, FALSE);
+    seam->state = ofx_import_state_new (seam->info);
+    return seam->state != nullptr;
+}
+
+gboolean
+gnc_ofx_import_test_begin_account_state (GncOfxImportTestSeam *seam)
+{
+    return gnc_ofx_import_test_begin_state (seam);
+}
+
+gboolean
+gnc_ofx_import_test_begin_commodity_state (GncOfxImportTestSeam *seam)
+{
+    return gnc_ofx_import_test_begin_state (seam);
+}
+
+void
+gnc_ofx_import_test_parent_destroy (GncOfxImportTestSeam *seam)
+{
+    g_return_if_fail (seam && seam->info);
+    ofx_info_parent_destroyed (nullptr, seam->info);
+}
+
+void
+gnc_ofx_import_test_complete_account_cancel (GncOfxImportTestSeam *seam)
+{
+    g_return_if_fail (seam && seam->state);
+    auto state = seam->state;
+    seam->state = nullptr;
+    ofx_import_state_account_selected (nullptr, FALSE, state);
+}
+
+void
+gnc_ofx_import_test_complete_commodity_cancel (GncOfxImportTestSeam *seam)
+{
+    g_return_if_fail (seam && seam->state);
+    auto state = seam->state;
+    seam->state = nullptr;
+    ofx_import_state_security_selected (nullptr, FALSE, state);
+}
+
+gboolean
+gnc_ofx_import_test_create_matcher (GncOfxImportTestSeam *seam)
+{
+    g_return_val_if_fail (seam && seam->info, FALSE);
+    return gnc_ofx_create_matcher (seam->info);
+}
+
+gboolean
+gnc_ofx_import_test_add_open_transaction (GncOfxImportTestSeam *seam)
+{
+    g_return_val_if_fail (seam && seam->info, FALSE);
+    auto book = gnc_get_current_book ();
+    if (!book)
+        return FALSE;
+    auto transaction = xaccMallocTransaction (book);
+    if (!transaction)
+        return FALSE;
+    xaccTransBeginEdit (transaction);
+    seam->info->trans_list = g_list_append (seam->info->trans_list,
+                                            transaction);
+    return TRUE;
+}
+
+GtkWindow *
+gnc_ofx_import_test_attach_reconcile (GncOfxImportTestSeam *seam)
+{
+    g_return_val_if_fail (seam && seam->info, nullptr);
+    auto window = GTK_WINDOW (gtk_window_new ());
+    g_object_ref_sink (window);
+    if (!gnc_ofx_import_lifecycle_connect_destroy (
+            seam->info->lifecycle, G_OBJECT (window),
+            gnc_ofx_reconcile_destroyed, seam->info))
+    {
+        gtk_window_destroy (window);
+        g_object_unref (window);
+        return nullptr;
+    }
+    return window;
+}
+
+guint
+gnc_ofx_import_test_metadata_cleanup_calls (const GncOfxImportTestSeam *seam)
+{
+    return seam ? seam->metadata_cleanup_calls : 0;
+}
+
+guint
+gnc_ofx_import_test_payload_destroy_calls (const GncOfxImportTestSeam *seam)
+{
+    return seam ? seam->payload_destroy_calls : 0;
+}
+
+guint
+gnc_ofx_import_test_reconcile_calls (const GncOfxImportTestSeam *seam)
+{
+    return seam ? seam->reconcile_calls : 0;
+}
+
+GncImportOperationTeardownResult
+gnc_ofx_import_test_cleanup_result (const GncOfxImportTestSeam *seam)
+{
+    return seam ? seam->result : GNC_IMPORT_OPERATION_TEARDOWN_STALE;
+}
+#endif
 
 static GSList *
 ofx_file_list_from_selection (GListModel *files)

@@ -38,8 +38,10 @@ extern "C" {
 #endif
 
 #include "Transaction.h"
+#include "gnc-session.h"
 #include "import-backend.h"
 #include "import-match-picker.h"
+#include "import-operation-teardown.h"
 
 #include <stdbool.h>
 
@@ -145,9 +147,28 @@ void gnc_gen_trans_list_add_tp_cb (GNCImportMainMatcher *info,
                                    GNCTransactionProcessedCB trans_processed_cb,
                                    gpointer user_data);
 
+/** Bind an asynchronous matcher to its workflow's single teardown owner.
+ * Cancellation requests that owner; only the owner's one terminal callback may
+ * destroy the matcher and its outer workflow state. */
+gboolean gnc_gen_trans_list_bind_operation_teardown (
+    GNCImportMainMatcher *info, GncImportOperationTeardown *owner);
+
 
 /** Deletes the given object. */
 void gnc_gen_trans_list_delete (GNCImportMainMatcher *info);
+/** Delete while the caller already owns the bound normal operation section.
+ * This is for empty/internal teardown, not user cancellation. */
+void gnc_gen_trans_list_delete_with_operation (
+    GNCImportMainMatcher *info);
+/** Delete while the terminal OFX owner already holds the outer cleanup
+ * section. This acquires and releases only one nested cleanup depth, leaving
+ * the outer lease live for the remaining workflow-owned transactions. */
+void gnc_gen_trans_list_delete_with_cleanup_operation (
+    GNCImportMainMatcher *info);
+/** Release matcher metadata without touching its captured book. Only the
+ * shared teardown owner's STALE/BOOK_SHUTDOWN callback may use this. */
+void gnc_gen_trans_list_discard (GNCImportMainMatcher *info);
+
 
 /** Add a newly imported Transaction to the Transaction Importer.
  *  The Importer takes over ownership of the passed transaction.
@@ -161,6 +182,12 @@ void gnc_gen_trans_list_delete (GNCImportMainMatcher *info);
  * passed transaction.
  */
 void gnc_gen_trans_list_add_trans (GNCImportMainMatcher *gui, Transaction *trans);
+
+/** Add a transaction through a bound operation context. The caller must own
+ * the context's lease for the surrounding synchronous mutation section. On
+ * failure ownership of @a trans remains with the caller. */
+gboolean gnc_gen_trans_list_add_trans_with_operation (
+    GNCImportMainMatcher *gui, Transaction *trans);
 
 
 /** Add a newly imported Transaction to the Transaction Importer.

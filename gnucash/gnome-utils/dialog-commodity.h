@@ -36,6 +36,7 @@
 
 #include <gtk/gtk.h>
 #include "gnc-commodity.h"
+#include "gnc-session.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -81,6 +82,18 @@ void gnc_ui_select_commodity_async_full (gnc_commodity *orig_sel,
                                          GCancellable *cancellable,
                                          GncCommoditySelectionCallback callback,
                                          gpointer user_data);
+void gnc_ui_select_commodity_async_full_with_operation_context (
+    gnc_commodity *orig_sel,
+    GtkWidget *parent,
+    dialog_commodity_mode mode,
+    const char *user_message,
+    const char *cusip,
+    const char *fullname,
+    const char *mnemonic,
+    GCancellable *cancellable,
+    GncSessionOperationContext *operation_context,
+    GncCommoditySelectionCallback callback,
+    gpointer user_data);
 void gnc_ui_select_commodity_async (gnc_commodity *orig_sel,
                                     GtkWidget *parent,
                                     dialog_commodity_mode mode,
@@ -106,6 +119,18 @@ void gnc_ui_new_commodity_async_full (const char *name_space,
                                       GCancellable *cancellable,
                                       GncCommoditySelectionCallback callback,
                                       gpointer user_data);
+void gnc_ui_new_commodity_async_full_with_operation_context (
+    const char *name_space,
+    GtkWidget *parent,
+    const char *cusip,
+    const char *fullname,
+    const char *mnemonic,
+    const char *user_symbol,
+    int fraction,
+    GCancellable *cancellable,
+    GncSessionOperationContext *operation_context,
+    GncCommoditySelectionCallback callback,
+    gpointer user_data);
 void gnc_ui_new_commodity_async (const char *default_namespace,
                                  GtkWidget *parent,
                                  GCancellable *cancellable,

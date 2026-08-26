@@ -58,6 +58,7 @@
 #include "import-settings.h"
 #include "import-backend.h"
 #include "import-account-matcher.h"
+#include "import-operation-teardown.h"
 #include "import-pending-matches.h"
 #include "gnc-component-manager.h"
 #include "guid.h"
@@ -153,6 +154,8 @@ struct _main_matcher_info
     gpointer user_data;
     GNCImportMainMatcherDoneCB done_cb;
     gpointer done_user_data;
+    GncImportOperationTeardown *teardown_owner;
+    GncSessionOperationContext *operation_context; /* borrowed from owner */
     GNCImportPendingMatches *pending_matches;
     GtkColumnViewColumn     *account_column;
     GtkColumnViewColumn     *memo_column;
@@ -368,7 +371,8 @@ defer_bal_computation (GNCImportMainMatcher *info, Account* acc)
 }
 
 static void
-gnc_gen_trans_list_destroy (GNCImportMainMatcher *info)
+gnc_gen_trans_list_destroy (GNCImportMainMatcher *info,
+                            gboolean allow_book_mutation)
 {
 
     if (info == NULL)
@@ -377,7 +381,7 @@ gnc_gen_trans_list_destroy (GNCImportMainMatcher *info)
     for (auto& object : matcher_root_rows (info))
     {
         auto row = matcher_row_get (object.get ());
-        if (info->transaction_processed_cb)
+        if (allow_book_mutation && info->transaction_processed_cb)
             info->transaction_processed_cb (row->trans_info, false, info->user_data);
     }
 
@@ -392,11 +396,20 @@ gnc_gen_trans_list_destroy (GNCImportMainMatcher *info)
     else
         gnc_import_Settings_delete (info->user_settings);
 
-    g_slist_free_full (info->temp_trans_list, (GDestroyNotify) gnc_import_TransInfo_delete);
+    g_slist_free_full (info->temp_trans_list,
+                       allow_book_mutation
+                           ? (GDestroyNotify) gnc_import_TransInfo_delete
+                           : (GDestroyNotify) gnc_import_TransInfo_discard);
     info->temp_trans_list = NULL;
 
     // We've deferred balance computations on many accounts. Let's do it now that we're done.
-    update_all_balances (info);
+    if (allow_book_mutation)
+        update_all_balances (info);
+    else
+    {
+        g_slist_free (info->edited_accounts);
+        info->edited_accounts = NULL;
+    }
 
     gnc_import_PendingMatches_delete (info->pending_matches);
     g_hash_table_destroy (info->acct_id_hash);
@@ -407,26 +420,84 @@ gnc_gen_trans_list_destroy (GNCImportMainMatcher *info)
     g_clear_object (&info->selection);
     g_clear_object (&info->tree_model);
     g_clear_object (&info->rows);
+    gnc_import_operation_teardown_unref (info->teardown_owner);
 
     g_free (info);
 
-    if (!gnc_gui_refresh_suspended ())
+    if (allow_book_mutation && !gnc_gui_refresh_suspended ())
         gnc_gui_refresh_all ();
+}
+
+struct MatcherCompletion
+{
+    GNCImportMainMatcherDoneCB callback;
+    gpointer user_data;
+    gboolean accepted;
+};
+
+static MatcherCompletion
+gnc_gen_trans_list_complete (GNCImportMainMatcher *info,
+                             gboolean accepted,
+                             gboolean mutation_allowed)
+{
+    MatcherCompletion completion {info->done_cb, info->done_user_data,
+                                  accepted && mutation_allowed};
+    info->done_cb = nullptr;
+    info->done_user_data = nullptr;
+    gnc_gen_trans_list_destroy (info, mutation_allowed);
+    return completion;
+}
+
+static void
+gnc_gen_trans_list_notify (const MatcherCompletion& completion)
+{
+    if (completion.callback)
+        completion.callback (completion.accepted, completion.user_data);
+}
+
+static void
+gnc_gen_trans_list_finish_with_operation (GNCImportMainMatcher *info,
+                                          gboolean accepted,
+                                          gboolean operation_held)
+{
+    if (!info)
+        return;
+
+    auto operation_context = info->operation_context;
+    auto mutation_allowed = !operation_context;
+    auto release_operation = false;
+    if (operation_context)
+    {
+        if (!accepted && !operation_held && info->teardown_owner)
+        {
+            if (info->main_widget)
+                gtk_widget_set_sensitive (GTK_WIDGET (info->main_widget), FALSE);
+            gnc_import_operation_teardown_request (info->teardown_owner);
+            return;
+        }
+        if (operation_held)
+            mutation_allowed = gnc_session_operation_context_has_lease (
+                operation_context);
+        else if (accepted)
+            mutation_allowed = gnc_session_operation_context_begin (
+                operation_context);
+        else
+            mutation_allowed = gnc_session_operation_context_begin_cleanup (
+                operation_context);
+        release_operation = mutation_allowed;
+    }
+
+    auto completion = gnc_gen_trans_list_complete (
+        info, accepted, mutation_allowed);
+    if (release_operation)
+        gnc_session_operation_context_end (operation_context);
+    gnc_gen_trans_list_notify (completion);
 }
 
 static void
 gnc_gen_trans_list_finish (GNCImportMainMatcher *info, gboolean accepted)
 {
-    if (!info)
-        return;
-
-    auto done_cb = info->done_cb;
-    auto done_user_data = info->done_user_data;
-    info->done_cb = nullptr;
-    info->done_user_data = nullptr;
-    gnc_gen_trans_list_destroy (info);
-    if (done_cb)
-        done_cb (accepted, done_user_data);
+    gnc_gen_trans_list_finish_with_operation (info, accepted, FALSE);
 }
 
 void
@@ -434,6 +505,55 @@ gnc_gen_trans_list_delete (GNCImportMainMatcher *info)
 {
     gnc_gen_trans_list_finish (info, FALSE);
 }
+
+void
+gnc_gen_trans_list_delete_with_operation (GNCImportMainMatcher *info)
+{
+    if (!info || !info->operation_context)
+    {
+        gnc_gen_trans_list_finish (info, FALSE);
+        return;
+    }
+
+    /* Transfer one recursive section to finish_with_operation, leaving the
+     * caller's section owned by the caller. This keeps the matcher teardown
+     * synchronous without consuming the outer OFX RAII section. */
+    if (!gnc_session_operation_context_begin (info->operation_context))
+    {
+        gnc_gen_trans_list_finish (info, FALSE);
+        return;
+    }
+    gnc_gen_trans_list_finish_with_operation (info, FALSE, TRUE);
+}
+
+void
+gnc_gen_trans_list_delete_with_cleanup_operation (GNCImportMainMatcher *info)
+{
+    if (!info || !info->operation_context)
+    {
+        gnc_gen_trans_list_finish (info, FALSE);
+        return;
+    }
+
+    /* The terminal owner must retain the outer cleanup lease until every raw
+     * OFX transaction has been destroyed. The matcher consumes only this
+     * explicit recursive cleanup depth. */
+    g_assert (gnc_session_operation_context_has_lease (
+        info->operation_context));
+    g_assert (gnc_session_operation_context_begin_cleanup (
+        info->operation_context));
+    gnc_gen_trans_list_finish_with_operation (info, FALSE, TRUE);
+}
+
+void
+gnc_gen_trans_list_discard (GNCImportMainMatcher *info)
+{
+    if (!info)
+        return;
+    auto completion = gnc_gen_trans_list_complete (info, FALSE, FALSE);
+    gnc_gen_trans_list_notify (completion);
+}
+
 
 bool
 gnc_gen_trans_list_empty (GNCImportMainMatcher *info)
@@ -466,12 +586,12 @@ gnc_gen_trans_list_show_accounts_column (GNCImportMainMatcher *info)
         // now toggle the column
         if (multiple_accounts)
         {
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(info->show_account_column), true);
+            gtk_check_button_set_active (GTK_CHECK_BUTTON (info->show_account_column), true);
             matcher_set_all_expanded (info, TRUE);
         }
         else
         {
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(info->show_account_column), false);
+            gtk_check_button_set_active (GTK_CHECK_BUTTON (info->show_account_column), false);
             matcher_set_all_expanded (info, FALSE);
         }
     }
@@ -633,8 +753,8 @@ gnc_gen_trans_list_show_all (GNCImportMainMatcher *info)
     auto trans_info = static_cast<GNCImportTransInfo *>(temp_trans_list->data);
     Split *first_split = gnc_import_TransInfo_get_fsplit (trans_info);
     Account *account = xaccSplitGetAccount(first_split);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (info->append_text),
-                                 xaccAccountGetAppendText(account));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (info->append_text),
+                                 xaccAccountGetAppendText (account));
 
     gnc_gen_trans_list_create_matches (info);
     load_hash_tables (info);
@@ -667,11 +787,20 @@ on_matcher_ok_clicked (GtkButton *button, GNCImportMainMatcher *info)
         return;
     }
 
+    if (info->operation_context &&
+        !gnc_session_operation_context_begin (info->operation_context))
+    {
+        PWARN ("Refusing matcher commit after its import operation expired");
+        gnc_gen_trans_list_finish (info, FALSE);
+        return;
+    }
+
     /* Don't run any queries and/or split sorts while processing the matcher
     results. */
     gnc_suspend_gui_refresh ();
     bool first_tran = true;
-    bool append_text = gtk_toggle_button_get_active ((GtkToggleButton*) info->append_text);
+    bool append_text = gtk_check_button_get_active (
+        GTK_CHECK_BUTTON (info->append_text));
     GList *accounts_modified = NULL;
     for (const auto& object : rows)
     {
@@ -715,7 +844,8 @@ on_matcher_ok_clicked (GtkButton *button, GNCImportMainMatcher *info)
 
     /* Allow GUI refresh again upon commit completion. */
     gnc_resume_gui_refresh ();
-    gnc_gen_trans_list_finish (info, TRUE);
+    gnc_gen_trans_list_finish_with_operation (
+        info, TRUE, info->operation_context != nullptr);
 }
 
 void
@@ -1817,10 +1947,16 @@ gnc_gen_trans_init_view (GNCImportMainMatcher *info,
                          bool show_update)
 {
     info->rows = g_list_store_new (G_TYPE_OBJECT);
-    info->tree_model = gtk_tree_list_model_new (G_LIST_MODEL (info->rows), FALSE, FALSE,
+    // The GTK model constructors consume the references passed to them. Keep
+    // one independent reference to every model stored in info so that
+    // destroying the view can't leave dangling model pointers behind.
+    info->tree_model = gtk_tree_list_model_new (
+        G_LIST_MODEL (g_object_ref (info->rows)), FALSE, FALSE,
                                                 matcher_create_children, info, nullptr);
-    info->selection = gtk_multi_selection_new (G_LIST_MODEL (info->tree_model));
-    info->view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (info->selection)));
+    info->selection = gtk_multi_selection_new (
+        G_LIST_MODEL (g_object_ref (info->tree_model)));
+    info->view = GTK_COLUMN_VIEW (gtk_column_view_new (
+        GTK_SELECTION_MODEL (g_object_ref (info->selection))));
     gtk_column_view_set_reorderable (info->view, TRUE);
     gtk_column_view_set_enable_rubberband (info->view, TRUE);
 
@@ -1858,34 +1994,34 @@ gnc_gen_trans_init_view (GNCImportMainMatcher *info,
 }
 
 static void
-show_account_column_toggled_cb (GtkToggleButton *togglebutton,
+show_account_column_toggled_cb (GtkCheckButton *checkbutton,
                                 GNCImportMainMatcher *info)
 {
     gtk_column_view_column_set_visible (info->account_column,
-        gtk_toggle_button_get_active (togglebutton));
+        gtk_check_button_get_active (checkbutton));
 }
 
 static void
-show_memo_column_toggled_cb (GtkToggleButton *togglebutton,
+show_memo_column_toggled_cb (GtkCheckButton *checkbutton,
                              GNCImportMainMatcher *info)
 {
     gtk_column_view_column_set_visible (info->memo_column,
-        gtk_toggle_button_get_active (togglebutton));
+        gtk_check_button_get_active (checkbutton));
 }
 
 static void
-show_matched_info_toggled_cb (GtkToggleButton *togglebutton,
+show_matched_info_toggled_cb (GtkCheckButton *checkbutton,
                               GNCImportMainMatcher *info)
 {
-    if (gtk_toggle_button_get_active (togglebutton))
+    if (gtk_check_button_get_active (checkbutton))
     {
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(info->show_account_column), true);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (info->show_account_column), true);
         matcher_set_all_expanded (info, TRUE);
     }
     else
     {
         gtk_column_view_column_set_visible (info->account_column,
-            gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(info->show_account_column)));
+            gtk_check_button_get_active (GTK_CHECK_BUTTON (info->show_account_column)));
         matcher_set_all_expanded (info, FALSE);
     }
 }
@@ -1905,36 +2041,43 @@ gnc_gen_trans_common_setup (GNCImportMainMatcher *info,
     gnc_import_Settings_set_match_date_hardlimit (info->user_settings, match_date_hardlimit);
 
 
+    g_assert (GTK_IS_WIDGET (info->main_widget));
     GdkRGBA color;
-    gtk_widget_get_color (GTK_WIDGET (parent), &color);
+    gtk_widget_get_color (info->main_widget, &color);
     info->dark_theme = gnc_is_dark_theme (&color);
 
-    /* The resource provides a neutral GTK4 placeholder. The reusable matcher
-     * owns the actual ColumnView and can therefore use the same model in a
-     * dialog and in an assistant page. */
-    auto view_placeholder = GTK_WIDGET (gtk_builder_get_object (builder, "downloaded_view"));
-    g_assert (view_placeholder != NULL);
-    auto scrolled = GTK_SCROLLED_WINDOW (gtk_widget_get_parent (view_placeholder));
-    g_assert (scrolled != NULL);
+    /* A non-scrollable GtkScrolledWindow child is wrapped in a GtkViewport in
+     * GTK4, so deriving the scrolled window from the placeholder's parent is
+     * invalid. Address the stable builder object directly. */
+    auto scrolled = GTK_SCROLLED_WINDOW (
+        gtk_builder_get_object (builder, "scrolledwindow25"));
+    g_assert (GTK_IS_SCROLLED_WINDOW (scrolled));
 
     info->show_account_column = GTK_WIDGET(gtk_builder_get_object (builder, "show_source_account_button"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(info->show_account_column), all_from_same_account);
+    g_assert (GTK_IS_CHECK_BUTTON (info->show_account_column));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (info->show_account_column),
+                                 all_from_same_account);
     g_signal_connect (G_OBJECT(info->show_account_column), "toggled",
                       G_CALLBACK(show_account_column_toggled_cb), info);
 
-    GtkWidget *button = GTK_WIDGET(gtk_builder_get_object (builder, "show_memo_column_button"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), true);
-    g_signal_connect (G_OBJECT(button), "toggled",
+    auto button = GTK_CHECK_BUTTON (
+        gtk_builder_get_object (builder, "show_memo_column_button"));
+    g_assert (GTK_IS_CHECK_BUTTON (button));
+    gtk_check_button_set_active (button, true);
+    g_signal_connect (button, "toggled",
                       G_CALLBACK(show_memo_column_toggled_cb), info);
 
     info->show_matched_info = GTK_WIDGET(gtk_builder_get_object (builder, "show_matched_info_button"));
+    g_assert (GTK_IS_CHECK_BUTTON (info->show_matched_info));
     g_signal_connect (G_OBJECT(info->show_matched_info), "toggled",
                       G_CALLBACK(show_matched_info_toggled_cb), info);
 
     info->append_text = GTK_WIDGET(gtk_builder_get_object (builder, "append_desc_notes_button"));
+    g_assert (GTK_IS_CHECK_BUTTON (info->append_text));
 
     // Create the checkbox, but do not show it unless there are transactions
     info->reconcile_after_close = GTK_WIDGET(gtk_builder_get_object (builder, "reconcile_after_close_button"));
+    g_assert (GTK_IS_CHECK_BUTTON (info->reconcile_after_close));
 
 
     GtkWidget *heading_label = GTK_WIDGET(gtk_builder_get_object (builder, "heading_label"));
@@ -2064,6 +2207,20 @@ gnc_gen_trans_list_add_tp_cb (GNCImportMainMatcher *info,
 {
     info->user_data = user_data;
     info->transaction_processed_cb = trans_processed_cb;
+}
+
+gboolean
+gnc_gen_trans_list_bind_operation_teardown (
+    GNCImportMainMatcher *info, GncImportOperationTeardown *owner)
+{
+    g_return_val_if_fail (info && owner, FALSE);
+    auto context = gnc_import_operation_teardown_get_context (owner);
+    if (!context || info->teardown_owner ||
+        !gnc_session_operation_context_is_current (context))
+        return FALSE;
+    info->teardown_owner = gnc_import_operation_teardown_ref (owner);
+    info->operation_context = context;
+    return TRUE;
 }
 
 void
@@ -2272,7 +2429,8 @@ refresh_model_row (GNCImportMainMatcher *gui,
             g_object_unref (pixbuf);
         }
     }
-    if (row->children && gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (gui->show_matched_info)))
+    if (row->children && gtk_check_button_get_active (
+            GTK_CHECK_BUTTON (gui->show_matched_info)))
     {
         gtk_column_view_column_set_visible (gui->account_column, TRUE);
         gtk_column_view_column_set_visible (gui->memo_column, TRUE);
@@ -2292,7 +2450,8 @@ gnc_gen_trans_list_show_reconcile_after_close_button (GNCImportMainMatcher *info
                                                       bool active)
 {
     gtk_widget_set_visible (info->reconcile_after_close, reconcile_after_close);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (info->reconcile_after_close), active);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (info->reconcile_after_close),
+                                 active);
 }
 
 GtkWidget*
@@ -2335,6 +2494,18 @@ void
 gnc_gen_trans_list_add_trans (GNCImportMainMatcher *gui, Transaction *trans)
 {
     gnc_gen_trans_list_add_trans_internal (gui, trans, 0, NULL);
+}
+
+gboolean
+gnc_gen_trans_list_add_trans_with_operation (GNCImportMainMatcher *gui,
+                                              Transaction *trans)
+{
+    g_return_val_if_fail (gui && trans, FALSE);
+    if (!gui->operation_context ||
+        !gnc_session_operation_context_has_lease (gui->operation_context))
+        return FALSE;
+    gnc_gen_trans_list_add_trans_internal (gui, trans, 0, NULL);
+    return TRUE;
 }
 
 void

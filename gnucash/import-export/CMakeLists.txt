@@ -17,6 +17,7 @@ set (generic_import_SOURCES
   import-account-matcher.cpp
   import-commodity-matcher.cpp
   import-backend.cpp
+  import-operation-teardown.cpp
   import-format-dialog.cpp
   import-match-picker.cpp
   import-parse.cpp
@@ -36,6 +37,7 @@ set (generic_import_noinst_HEADERS
   import-account-matcher.h
   import-backend.h
   import-commodity-matcher.h
+  import-operation-teardown.h
   import-main-matcher.h
   import-match-picker.h
   import-pending-matches.h

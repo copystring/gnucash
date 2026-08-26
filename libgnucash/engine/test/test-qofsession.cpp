@@ -675,6 +675,103 @@ TEST (QofSessionOperationLeaseTest, book_replacement_invalidates_lease)
     qof_backend_unregister_all_providers ();
 }
 
+TEST (QofSessionOperationLeaseTest, import_context_is_exclusive_and_reentrant)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto current = qof_session_new (qof_book_new ());
+    auto foreign = qof_session_new (qof_book_new ());
+    auto current_book = qof_session_get_book (current);
+    auto foreign_book = qof_session_get_book (foreign);
+    gnc_set_current_session (current);
+
+    EXPECT_EQ (gnc_session_operation_context_new (
+        foreign_book, QOF_SESSION_OPERATION_IMPORT), nullptr);
+    auto context = gnc_session_operation_context_new (
+        current_book, QOF_SESSION_OPERATION_IMPORT);
+    ASSERT_NE (context, nullptr);
+    EXPECT_TRUE (gnc_session_operation_context_is_current (context));
+
+    ASSERT_TRUE (gnc_session_operation_context_begin (context));
+    EXPECT_TRUE (gnc_session_operation_context_has_lease (context));
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        current, QOF_SESSION_OPERATION_IMPORT));
+    EXPECT_EQ (qof_session_operation_lease_acquire_for (
+        current, QOF_SESSION_OPERATION_SAVE), nullptr);
+
+    ASSERT_TRUE (gnc_session_operation_context_begin (context));
+    gnc_session_operation_context_end (context);
+    EXPECT_TRUE (gnc_session_operation_context_has_lease (context));
+    gnc_session_operation_context_end (context);
+    EXPECT_FALSE (gnc_session_operation_context_has_lease (context));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (current));
+    EXPECT_TRUE (gnc_session_operation_context_is_current (context));
+
+    ASSERT_TRUE (gnc_session_operation_context_begin (context));
+    gnc_session_operation_context_end (context);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (current));
+
+    gnc_session_operation_context_unref (context);
+    gnc_clear_current_session ();
+    qof_session_destroy (foreign);
+}
+
+TEST (QofSessionOperationLeaseTest,
+      import_cleanup_rebases_only_same_current_book_and_is_terminal)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto current = qof_session_new (qof_book_new ());
+    auto foreign = qof_session_new (qof_book_new ());
+    auto current_book = qof_session_get_book (current);
+    gnc_set_current_session (current);
+    auto context = gnc_session_operation_context_new (
+        current_book, QOF_SESSION_OPERATION_IMPORT);
+    ASSERT_NE (context, nullptr);
+
+    auto drift = qof_session_operation_lease_acquire_for (
+        current, QOF_SESSION_OPERATION_SAVE);
+    ASSERT_NE (drift, nullptr);
+    EXPECT_FALSE (gnc_session_operation_context_begin_cleanup (context));
+    EXPECT_FALSE (gnc_session_operation_context_is_current (context));
+    EXPECT_FALSE (gnc_session_operation_context_begin (context));
+    qof_session_operation_lease_release (drift);
+    EXPECT_FALSE (gnc_session_operation_context_is_current (context));
+    EXPECT_TRUE (gnc_session_operation_context_identifies_current_book (
+        context));
+    EXPECT_FALSE (gnc_session_operation_context_begin (context));
+
+    ASSERT_TRUE (gnc_session_operation_context_begin_cleanup (context));
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        current, QOF_SESSION_OPERATION_IMPORT));
+    EXPECT_EQ (qof_session_operation_lease_acquire_for (
+        current, QOF_SESSION_OPERATION_SAVE), nullptr);
+    ASSERT_TRUE (gnc_session_operation_context_begin_cleanup (context));
+    gnc_session_operation_context_end (context);
+    EXPECT_TRUE (gnc_session_operation_context_has_lease (context));
+    gnc_session_operation_context_end (context);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (current));
+
+    EXPECT_FALSE (gnc_session_operation_context_is_current (context));
+    EXPECT_FALSE (gnc_session_operation_context_begin (context));
+    ASSERT_TRUE (gnc_session_operation_context_begin_cleanup (context));
+    gnc_session_operation_context_end (context);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (current));
+
+    gnc_set_current_session (foreign);
+    EXPECT_FALSE (gnc_session_operation_context_identifies_current_book (
+        context));
+    EXPECT_FALSE (gnc_session_operation_context_begin_cleanup (context));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (current));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (foreign));
+
+    gnc_session_operation_context_unref (context);
+    gnc_clear_current_session ();
+    qof_session_destroy (current);
+}
+
 TEST (QofSessionOperationLeaseTest, scrub_context_is_current_book_bound)
 {
     if (gnc_current_session_exist ())

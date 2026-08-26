@@ -145,7 +145,8 @@ typedef enum
     QOF_SESSION_OPERATION_SAVE_AS,
     QOF_SESSION_OPERATION_EXPORT,
     QOF_SESSION_OPERATION_CLOSE,
-    QOF_SESSION_OPERATION_SCRUB
+    QOF_SESSION_OPERATION_SCRUB,
+    QOF_SESSION_OPERATION_IMPORT
 } QofSessionOperationKind;
 
 /**
@@ -192,6 +193,10 @@ gboolean qof_session_has_active_operation_lease (const QofSession *session);
 /** Return whether @a session is owned by a valid lease of @a kind. */
 gboolean qof_session_has_active_operation_kind (
     const QofSession *session, QofSessionOperationKind kind);
+
+/** Return the generation of @a session's mutation-lease state. It changes
+ * whenever a lease is invalidated or released. */
+guint64 qof_session_get_operation_generation (const QofSession *session);
 
 QofSession * qof_session_new (QofBook* book);
 void         qof_session_destroy (QofSession *session);

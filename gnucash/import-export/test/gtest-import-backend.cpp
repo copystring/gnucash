@@ -235,6 +235,24 @@ TEST_F(ImportBackendTest, CreateTransInfo)
     gnc_import_TransInfo_delete(trans_info);
 };
 
+TEST_F(ImportBackendTest, DiscardTransInfoDoesNotInspectTransaction)
+{
+    using namespace testing;
+
+    ON_CALL(*m_trans, get_split(0))
+        .WillByDefault(Return(m_split));
+    ON_CALL(*m_trans, get_split_list())
+        .WillByDefault(Return(m_splitList));
+    ON_CALL(*m_trans, get_description())
+        .WillByDefault(Return("This is the description"));
+    EXPECT_CALL(*m_import_acc, find_account(_, StrEq("This is the description")))
+        .WillOnce(Return(m_dest_acc));
+
+    auto trans_info = gnc_import_TransInfo_new (m_trans, m_import_acc);
+    EXPECT_CALL(*m_trans, is_open()).Times(0);
+    gnc_import_TransInfo_discard (trans_info);
+}
+
 
 
 // Test fixture for tests with bayesian matching

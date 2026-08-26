@@ -338,13 +338,15 @@ gnc_import_MatchInfo_get_probability (const GNCImportMatchInfo * info)
         return 0;
 }
 
-void gnc_import_TransInfo_delete (GNCImportTransInfo *info)
+static void
+gnc_import_trans_info_free (GNCImportTransInfo *info,
+                            gboolean destroy_transaction)
 {
     if (info)
     {
         g_list_free_full (info->match_list, g_free);
         /*If the transaction exists and is still open, it must be destroyed*/
-        if (xaccTransIsOpen(info->trans))
+        if (destroy_transaction && xaccTransIsOpen(info->trans))
         {
             xaccTransDestroy(info->trans);
             xaccTransCommitEdit(info->trans);
@@ -355,6 +357,18 @@ void gnc_import_TransInfo_delete (GNCImportTransInfo *info)
 
         g_free(info);
     }
+}
+
+void
+gnc_import_TransInfo_delete (GNCImportTransInfo *info)
+{
+    gnc_import_trans_info_free (info, TRUE);
+}
+
+void
+gnc_import_TransInfo_discard (GNCImportTransInfo *info)
+{
+    gnc_import_trans_info_free (info, FALSE);
 }
 
 GdkPixbuf* gen_probability_pixbuf(gint score_original, GNCImportSettings *settings, GtkWidget * widget)

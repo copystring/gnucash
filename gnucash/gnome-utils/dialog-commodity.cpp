@@ -75,6 +75,7 @@ struct select_commodity_window
 
     GWeakRef parent;
     GCancellable *cancellable;
+    GncSessionOperationContext *operation_context;
     gulong cancellable_id;
     gulong parent_destroy_id;
     GncCommoditySelectionCallback callback;
@@ -113,6 +114,7 @@ struct commodity_window
 
     GWeakRef parent;
     GCancellable *cancellable;
+    GncSessionOperationContext *operation_context;
     gulong cancellable_id;
     gulong parent_destroy_id;
     GncCommoditySelectionCallback callback;
@@ -290,6 +292,7 @@ select_commodity_window_free (gpointer data)
         g_cancellable_disconnect (window->cancellable, window->cancellable_id);
     g_clear_object (&window->cancellable);
     g_weak_ref_clear (&window->parent);
+    gnc_session_operation_context_unref (window->operation_context);
     g_free (window->default_cusip);
     g_free (window->default_fullname);
     g_free (window->default_mnemonic);
@@ -319,6 +322,9 @@ select_commodity_window_finish (SelectCommodityWindow *window,
     if (window->completed)
         return;
 
+    if (selection && window->operation_context &&
+        !gnc_session_operation_context_is_current (window->operation_context))
+        selection = nullptr;
     window->completed = TRUE;
     auto callback = window->callback;
     auto callback_data = window->callback_data;
@@ -339,6 +345,14 @@ select_commodity_new_finished (gnc_commodity *commodity, gpointer user_data)
     {
         auto window = static_cast<SelectCommodityWindow *> (
             g_object_get_data (G_OBJECT (dialog), "gnc-select-commodity-window"));
+        if (window && window->operation_context &&
+            !gnc_session_operation_context_is_current (window->operation_context))
+        {
+            select_commodity_window_finish (window, nullptr);
+            g_object_unref (dialog);
+            select_commodity_new_request_free (request);
+            return;
+        }
         if (window && !window->completed &&
             !g_cancellable_is_cancelled (window->cancellable))
         {
@@ -364,20 +378,27 @@ gnc_ui_select_commodity_new_cb (GtkButton *button, gpointer user_data)
     auto window = static_cast<SelectCommodityWindow *> (user_data);
     if (!gtk_widget_get_sensitive (GTK_WIDGET (button)))
         return;
+    if (window->operation_context &&
+        !gnc_session_operation_context_is_current (window->operation_context))
+    {
+        select_commodity_window_finish (window, nullptr);
+        return;
+    }
 
     gtk_widget_set_sensitive (GTK_WIDGET (button), FALSE);
     auto request = g_new0 (SelectCommodityNewRequest, 1);
     auto name_space = gnc_ui_namespace_picker_ns (window->namespace_combo);
 
     g_weak_ref_init (&request->selector, window->dialog);
-    gnc_ui_new_commodity_async_full (name_space, window->dialog,
-                                     window->default_cusip,
-                                     window->default_fullname,
-                                     window->default_mnemonic,
-                                     window->default_user_symbol,
-                                     window->default_fraction,
-                                     window->cancellable,
-                                     select_commodity_new_finished, request);
+    gnc_ui_new_commodity_async_full_with_operation_context (
+        name_space, window->dialog,
+        window->default_cusip,
+        window->default_fullname,
+        window->default_mnemonic,
+        window->default_user_symbol,
+        window->default_fraction,
+        window->cancellable, window->operation_context,
+        select_commodity_new_finished, request);
     g_free (name_space);
 }
 
@@ -408,6 +429,13 @@ static void
 gnc_ui_select_commodity_changed_cb (GtkEditable *entry, gpointer user_data)
 {
     auto window = static_cast<SelectCommodityWindow *> (user_data);
+    if (window->operation_context &&
+        !gnc_session_operation_context_is_current (window->operation_context))
+    {
+        window->selection = nullptr;
+        gtk_widget_set_sensitive (window->ok_button, FALSE);
+        return;
+    }
     auto name_space = gnc_ui_namespace_picker_ns (window->namespace_combo);
     auto fullname = gtk_editable_get_text (entry);
 
@@ -423,13 +451,18 @@ static void
 gnc_ui_select_commodity_namespace_changed_cb (GtkEditable *, gpointer user_data)
 {
     auto window = static_cast<SelectCommodityWindow *> (user_data);
+    if (window->operation_context &&
+        !gnc_session_operation_context_is_current (window->operation_context))
+    {
+        return;
+    }
     auto name_space = gnc_ui_namespace_picker_ns (window->namespace_combo);
     gnc_ui_update_commodity_picker (window->commodity_combo, name_space, nullptr);
     g_free (name_space);
 }
 
-void
-gnc_ui_select_commodity_async_full (gnc_commodity *orig_sel,
+static void
+gnc_ui_select_commodity_async_full_internal (gnc_commodity *orig_sel,
                                     GtkWidget *parent,
                                     dialog_commodity_mode mode,
                                     const char *user_message,
@@ -437,9 +470,17 @@ gnc_ui_select_commodity_async_full (gnc_commodity *orig_sel,
                                     const char *fullname,
                                     const char *mnemonic,
                                     GCancellable *cancellable,
+                                    GncSessionOperationContext *operation_context,
                                     GncCommoditySelectionCallback callback,
                                     gpointer user_data)
 {
+    if (operation_context &&
+        !gnc_session_operation_context_is_current (operation_context))
+    {
+        if (callback)
+            callback (nullptr, user_data);
+        return;
+    }
     const char *initial;
     auto window = gnc_ui_select_commodity_create (orig_sel, mode);
 
@@ -451,6 +492,8 @@ gnc_ui_select_commodity_async_full (gnc_commodity *orig_sel,
     window->callback_data = user_data;
     window->cancellable = cancellable ? G_CANCELLABLE (g_object_ref (cancellable))
                                       : g_cancellable_new ();
+    window->operation_context =
+        gnc_session_operation_context_ref (operation_context);
     g_weak_ref_init (&window->parent, parent);
 
     if (g_cancellable_is_cancelled (window->cancellable))
@@ -484,6 +527,36 @@ gnc_ui_select_commodity_async_full (gnc_commodity *orig_sel,
     g_free (prompt);
     gtk_window_set_modal (GTK_WINDOW (window->dialog), TRUE);
     gtk_window_present (GTK_WINDOW (window->dialog));
+}
+
+void
+gnc_ui_select_commodity_async_full (gnc_commodity *orig_sel,
+                                    GtkWidget *parent,
+                                    dialog_commodity_mode mode,
+                                    const char *user_message,
+                                    const char *cusip,
+                                    const char *fullname,
+                                    const char *mnemonic,
+                                    GCancellable *cancellable,
+                                    GncCommoditySelectionCallback callback,
+                                    gpointer user_data)
+{
+    gnc_ui_select_commodity_async_full_internal (
+        orig_sel, parent, mode, user_message, cusip, fullname, mnemonic,
+        cancellable, nullptr, callback, user_data);
+}
+
+void
+gnc_ui_select_commodity_async_full_with_operation_context (
+    gnc_commodity *orig_sel, GtkWidget *parent, dialog_commodity_mode mode,
+    const char *user_message, const char *cusip, const char *fullname,
+    const char *mnemonic, GCancellable *cancellable,
+    GncSessionOperationContext *operation_context,
+    GncCommoditySelectionCallback callback, gpointer user_data)
+{
+    gnc_ui_select_commodity_async_full_internal (
+        orig_sel, parent, mode, user_message, cusip, fullname, mnemonic,
+        cancellable, operation_context, callback, user_data);
 }
 
 void
@@ -1026,6 +1099,7 @@ commodity_window_free (gpointer data)
         g_cancellable_disconnect (window->cancellable, window->cancellable_id);
     g_clear_object (&window->cancellable);
     g_weak_ref_clear (&window->parent);
+    gnc_session_operation_context_unref (window->operation_context);
     g_free (window);
 }
 
@@ -1063,7 +1137,16 @@ static void
 commodity_window_ok_clicked (GtkButton *, gpointer user_data)
 {
     auto window = static_cast<CommodityWindow *> (user_data);
+    auto operation_started = !window->operation_context ||
+        gnc_session_operation_context_begin (window->operation_context);
+    if (!operation_started)
+    {
+        commodity_window_finish (window, nullptr);
+        return;
+    }
     auto commodity = gnc_ui_commodity_dialog_to_object (window);
+    if (window->operation_context)
+        gnc_session_operation_context_end (window->operation_context);
     if (commodity)
         commodity_window_finish (window, commodity);
 }
@@ -1324,10 +1407,18 @@ gnc_ui_common_commodity_async (gnc_commodity *commodity,
                                const char *user_symbol,
                                int fraction,
                                GCancellable *cancellable,
+                               GncSessionOperationContext *operation_context,
                                GncCommoditySelectionCallback callback,
                                gpointer user_data)
 {
     if (cancellable && g_cancellable_is_cancelled (cancellable))
+    {
+        if (callback)
+            callback (nullptr, user_data);
+        return;
+    }
+    if (operation_context &&
+        !gnc_session_operation_context_is_current (operation_context))
     {
         if (callback)
             callback (nullptr, user_data);
@@ -1367,6 +1458,8 @@ gnc_ui_common_commodity_async (gnc_commodity *commodity,
     window->callback_data = user_data;
     window->cancellable = cancellable ? G_CANCELLABLE (g_object_ref (cancellable))
                                       : g_cancellable_new ();
+    window->operation_context =
+        gnc_session_operation_context_ref (operation_context);
     g_weak_ref_init (&window->parent, parent);
     gnc_ui_commodity_update_quote_info (window, commodity);
     gnc_ui_commodity_quote_info_cb (window->get_quote_check, window);
@@ -1398,7 +1491,20 @@ gnc_ui_new_commodity_async_full (const char *name_space,
 {
     gnc_ui_common_commodity_async (nullptr, parent, name_space, cusip, fullname,
                                    mnemonic, user_symbol, fraction, cancellable,
-                                   callback, user_data);
+                                   nullptr, callback, user_data);
+}
+
+void
+gnc_ui_new_commodity_async_full_with_operation_context (
+    const char *name_space, GtkWidget *parent, const char *cusip,
+    const char *fullname, const char *mnemonic, const char *user_symbol,
+    int fraction, GCancellable *cancellable,
+    GncSessionOperationContext *operation_context,
+    GncCommoditySelectionCallback callback, gpointer user_data)
+{
+    gnc_ui_common_commodity_async (nullptr, parent, name_space, cusip, fullname,
+                                   mnemonic, user_symbol, fraction, cancellable,
+                                   operation_context, callback, user_data);
 }
 
 void
@@ -1422,7 +1528,7 @@ gnc_ui_edit_commodity_async (gnc_commodity *commodity,
 {
     g_return_if_fail (commodity);
     gnc_ui_common_commodity_async (commodity, parent, nullptr, nullptr, nullptr,
-                                   nullptr, nullptr, 0, cancellable, callback,
+                                   nullptr, nullptr, 0, cancellable, nullptr, callback,
                                    user_data);
 }
 

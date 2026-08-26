@@ -80,6 +80,7 @@ struct QofSessionImpl
         const QofSessionOperationLease *) const noexcept;
     bool has_active_operation_lease () const noexcept;
     bool has_active_operation_kind (QofSessionOperationKind) const noexcept;
+    guint64 operation_generation () const noexcept;
     void invalidate_operation_lease () noexcept;
     void release_operation_lease (QofSessionOperationLease *) noexcept;
 
