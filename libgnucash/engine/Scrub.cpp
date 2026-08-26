@@ -354,6 +354,22 @@ gnc_scrub_context_enable_commit_deferral (GncScrubContext *context,
     return TRUE;
 }
 
+gboolean
+gnc_scrub_context_commit_deferral_enabled (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind)
+{
+    auto kind_bit = deferred_commit_kind_bit (kind);
+    if (!kind_bit || !deferred_commit_context_valid (context))
+        return FALSE;
+
+    auto queue = deferred_commit_queue (context->book, FALSE);
+    return queue && queue->session == context->session &&
+           queue->operation_id == context->operation_id &&
+           queue->operation_generation == qof_session_get_operation_generation (
+               context->session) &&
+           (queue->enabled_kinds & kind_bit);
+}
+
 guint
 gnc_scrub_deferred_commit_pending_count (
     const GncScrubContext *context, GncScrubDeferredCommitKind kind)

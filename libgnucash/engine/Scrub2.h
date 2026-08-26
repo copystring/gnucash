@@ -81,6 +81,10 @@ typedef enum
  * context but never acquires or releases its SCRUB lease; it is consequently
  * safe to use as one phase of a larger composite scrub job. Account and split
  * identity are retained only as GUIDs, never as object pointers across turns.
+ * When GNC_AUTO_SCRUB_LOTS is set, the context must also have active GAINS
+ * commit deferral. This prevents a split-assignment commit from re-entering
+ * the unbounded synchronous gains scrub; the resulting transaction GUID is
+ * retained by the book-bound deferred-commit queue for a later gains job.
  */
 GncLotAssignmentPlan *gnc_lot_assignment_plan_begin (Account *account,
                                                       GncScrubContext *context);

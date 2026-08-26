@@ -37,9 +37,36 @@
 #include "test-engine-stuff.h"
 #include "Transaction.h"
 #include "cap-gains.h"
+#include "TransactionP.hpp"
 #include "Scrub.h"
 #include "Scrub2.h"
 #include "gnc-session.h"
+
+class ScopedEnvironment
+{
+public:
+    ScopedEnvironment (const char *name, const char *value) : m_name (name),
+        m_old_value (g_strdup (g_getenv (name)))
+    {
+        if (value)
+            g_setenv (name, value, TRUE);
+        else
+            g_unsetenv (name);
+    }
+
+    ~ScopedEnvironment ()
+    {
+        if (m_old_value)
+            g_setenv (m_name, m_old_value, TRUE);
+        else
+            g_unsetenv (m_name);
+        g_free (m_old_value);
+    }
+
+private:
+    const char *m_name;
+    gchar *m_old_value;
+};
 
 static gint transaction_num = 32;
 static gint	max_iterate = 1;
@@ -92,6 +119,9 @@ struct LotAssignmentFixture
     QofBook *book;
     Account *account;
     gnc_commodity *currency;
+    Transaction *first_transaction;
+    Transaction *second_transaction;
+    Transaction *overflow_transaction;
 };
 
 static Split *
@@ -133,9 +163,12 @@ make_lot_assignment_fixture (void)
     gnc_account_append_child (root, fixture.account);
     xaccAccountCommitEdit (fixture.account);
 
-    add_lot_assignment_split (&fixture, 10, 86400);
-    add_lot_assignment_split (&fixture, 10, 172800);
-    add_lot_assignment_split (&fixture, -25, 259200);
+    fixture.first_transaction = xaccSplitGetParent (
+        add_lot_assignment_split (&fixture, 10, 86400));
+    fixture.second_transaction = xaccSplitGetParent (
+        add_lot_assignment_split (&fixture, 10, 172800));
+    fixture.overflow_transaction = xaccSplitGetParent (
+        add_lot_assignment_split (&fixture, -25, 259200));
     return fixture;
 }
 
@@ -353,6 +386,95 @@ test_incremental_lot_assignment_cancel_and_stale (void)
 }
 
 static void
+test_incremental_lot_assignment_defers_auto_gains (void)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    LotAssignmentFixture fixture {};
+    {
+        ScopedEnvironment lots_off {"GNC_AUTO_SCRUB_LOTS", nullptr};
+        fixture = make_lot_assignment_fixture ();
+    }
+    gnc_set_current_session (fixture.session);
+    auto context = gnc_scrub_context_begin (fixture.book);
+    xaccEnableDataScrubbing ();
+    do_test (context != nullptr, "start lot assignment deferral context");
+
+    {
+        ScopedEnvironment lots_on {"GNC_AUTO_SCRUB_LOTS", "1"};
+        auto blocked = gnc_lot_assignment_plan_begin (fixture.account, context);
+        do_test (blocked == nullptr,
+                 "auto-lot bounded plan requires active gains deferral");
+
+        do_test (gnc_scrub_context_enable_commit_deferral (
+                     context, GNC_SCRUB_DEFERRED_COMMIT_GAINS),
+                 "enable gains deferral for bounded lot assignment");
+        auto plan = gnc_lot_assignment_plan_begin (fixture.account, context);
+        do_test (plan != nullptr,
+                 "start auto-lot plan with active gains deferral");
+
+        for (guint step = 0; plan && step < 3; ++step)
+        {
+            gnc_lot_assignment_plan_step (plan, 1);
+            do_test (gnc_scrub_deferred_commit_pending_count (
+                         context, GNC_SCRUB_DEFERRED_COMMIT_GAINS) == step + 1,
+                     "each bounded lot assignment queues one gains transaction");
+        }
+        do_test (plan && gnc_lot_assignment_plan_get_state (plan) ==
+                 GNC_LOT_ASSIGNMENT_PLAN_RUNNING,
+                 "overflow assignment remains resumable after bounded work");
+        do_test (xaccAccountGetSplitsSize (fixture.account) == 4,
+                 "third bounded assignment splits the overflowing sale");
+
+        auto first_guid = *xaccTransGetGUID (fixture.first_transaction);
+        GncGUID guid;
+        do_test (gnc_scrub_deferred_commit_peek (
+                     context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &guid) &&
+                 guid_equal (&guid, &first_guid),
+                 "split commits queue gains work in transaction FIFO order");
+
+        xaccTransBeginEdit (fixture.second_transaction);
+        xaccTransCommitEdit (fixture.second_transaction);
+        do_test (gnc_scrub_deferred_commit_pending_count (
+                     context, GNC_SCRUB_DEFERRED_COMMIT_GAINS) == 3,
+                 "repeated second-transaction commit is deduplicated");
+
+        xaccTransBeginEdit (fixture.overflow_transaction);
+        xaccTransCommitEdit (fixture.overflow_transaction);
+        do_test (gnc_scrub_deferred_commit_pending_count (
+                     context, GNC_SCRUB_DEFERRED_COMMIT_GAINS) == 3,
+                 "repeated overflow commit is deduplicated");
+
+        gnc_lot_assignment_plan_cancel (plan);
+        gnc_lot_assignment_plan_free (plan);
+    }
+
+    gnc_scrub_context_cancel (context);
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_unref (context);
+
+    auto later_context = gnc_scrub_context_begin (fixture.book);
+    GncGUID first_head, repeated_head;
+    do_test (later_context != nullptr &&
+             gnc_scrub_deferred_commit_pending_count (
+                 later_context, GNC_SCRUB_DEFERRED_COMMIT_GAINS) == 3 &&
+             gnc_scrub_deferred_commit_peek (
+                 later_context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &first_head) &&
+             guid_equal (&first_head, xaccTransGetGUID (fixture.first_transaction)) &&
+             gnc_scrub_deferred_commit_peek (
+                 later_context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &repeated_head) &&
+             guid_equal (&repeated_head, &first_head) &&
+             gnc_scrub_deferred_commit_pending_count (
+                 later_context, GNC_SCRUB_DEFERRED_COMMIT_GAINS) == 3,
+             "cancelled plan hands an unchanged gains head to a later context");
+
+    gnc_scrub_context_end (later_context);
+    gnc_scrub_context_unref (later_context);
+    gnc_clear_current_session ();
+}
+
+static void
 run_test (void)
 {
     QofSession *sess;
@@ -409,6 +531,7 @@ main (int argc, char **argv)
     test_incremental_lot_assignment ();
     test_incremental_lot_assignment_work_budget ();
     test_incremental_lot_assignment_cancel_and_stale ();
+    test_incremental_lot_assignment_defers_auto_gains ();
 
     /* 'erase' the recurring tag line with dummy spaces. */
     fprintf(stdout, "Lots: Test series complete.\n");

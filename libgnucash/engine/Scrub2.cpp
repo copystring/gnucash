@@ -142,6 +142,13 @@ lot_assignment_plan_validate (GncLotAssignmentPlan *plan)
         lot_assignment_plan_finish (plan, GNC_LOT_ASSIGNMENT_PLAN_STALE);
         return plan->state;
     }
+    if (g_getenv ("GNC_AUTO_SCRUB_LOTS") != nullptr &&
+        !gnc_scrub_context_commit_deferral_enabled (
+            plan->context, GNC_SCRUB_DEFERRED_COMMIT_GAINS))
+    {
+        lot_assignment_plan_finish (plan, GNC_LOT_ASSIGNMENT_PLAN_STALE);
+        return plan->state;
+    }
     return GNC_LOT_ASSIGNMENT_PLAN_RUNNING;
 }
 
@@ -153,6 +160,10 @@ gnc_lot_assignment_plan_begin (Account *account, GncScrubContext *context)
 
     auto book = qof_instance_get_book (QOF_INSTANCE (account));
     if (!gnc_scrub_context_owns_book (context, book))
+        return nullptr;
+    if (g_getenv ("GNC_AUTO_SCRUB_LOTS") != nullptr &&
+        !gnc_scrub_context_commit_deferral_enabled (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS))
         return nullptr;
 
     auto plan = new GncLotAssignmentPlan {gnc_scrub_context_ref (context),

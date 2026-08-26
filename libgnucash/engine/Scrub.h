@@ -147,6 +147,11 @@ typedef enum
 gboolean gnc_scrub_context_enable_commit_deferral (
     GncScrubContext *context, GncScrubDeferredCommitKind kind);
 
+/** Return whether @a kind is actively deferred by this context. Pending work
+ * handed off from an earlier context does not make this return true. */
+gboolean gnc_scrub_context_commit_deferral_enabled (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind);
+
 /** Return the pending GUID count for one hook kind in @a context's book. */
 guint gnc_scrub_deferred_commit_pending_count (
     const GncScrubContext *context, GncScrubDeferredCommitKind kind);
