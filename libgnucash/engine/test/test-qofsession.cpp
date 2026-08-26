@@ -961,3 +961,127 @@ TEST (QofSessionOperationLeaseTest,
     gnc_clear_current_session ();
     qof_book_destroy (sync_book);
 }
+
+TEST (QofSessionOperationLeaseTest,
+      account_composite_scrub_job_runs_tree_phases_under_one_lease)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ImbalanceScrubJobBook incremental {qof_session_get_book (session), 1, 2};
+    auto sync_book = qof_book_new ();
+    ImbalanceScrubJobBook synchronous {sync_book, 1, 2};
+    gnc_set_current_session (session);
+
+    auto job = gnc_scrub_account_job_begin (incremental.account, TRUE);
+    ASSERT_NE (job, nullptr);
+    EXPECT_EQ (gnc_scrub_job_get_kind (job), GNC_SCRUB_JOB_ACCOUNT);
+    EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_ORPHANS);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 6);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 0);
+
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_ORPHANS);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 2);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 3);
+    EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_IMBALANCE);
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        session, QOF_SESSION_OPERATION_SCRUB));
+    EXPECT_EQ (qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE), nullptr);
+
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 4);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 5);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 6);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    expect_imbalance_scrubbed (incremental);
+
+    xaccAccountTreeScrubOrphans (synchronous.account, scrub_job_progress);
+    xaccAccountTreeScrubImbalance (synchronous.account, scrub_job_progress);
+    expect_imbalance_scrubbed (synchronous);
+    ASSERT_EQ (incremental.transactions.size (), synchronous.transactions.size ());
+    for (size_t i = 0; i < incremental.transactions.size (); ++i)
+        EXPECT_EQ (xaccTransCountSplits (incremental.transactions[i]),
+                   xaccTransCountSplits (synchronous.transactions[i]));
+
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+    qof_book_destroy (sync_book);
+}
+
+TEST (QofSessionOperationLeaseTest,
+      account_composite_scrub_job_excludes_descendants_when_requested)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ImbalanceScrubJobBook incremental {qof_session_get_book (session), 1, 1};
+    auto sync_book = qof_book_new ();
+    ImbalanceScrubJobBook synchronous {sync_book, 1, 1};
+    gnc_set_current_session (session);
+
+    auto job = gnc_scrub_account_job_begin (incremental.account, FALSE);
+    ASSERT_NE (job, nullptr);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 2);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_IMBALANCE);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
+    EXPECT_TRUE (xaccTransIsBalanced (incremental.transactions[0]));
+    EXPECT_FALSE (xaccTransIsBalanced (incremental.transactions[1]));
+
+    xaccAccountScrubOrphans (synchronous.account, scrub_job_progress);
+    xaccAccountScrubImbalance (synchronous.account, scrub_job_progress);
+    EXPECT_TRUE (xaccTransIsBalanced (synchronous.transactions[0]));
+    EXPECT_FALSE (xaccTransIsBalanced (synchronous.transactions[1]));
+    EXPECT_EQ (xaccTransCountSplits (incremental.transactions[0]),
+               xaccTransCountSplits (synchronous.transactions[0]));
+    EXPECT_EQ (xaccTransCountSplits (incremental.transactions[1]),
+               xaccTransCountSplits (synchronous.transactions[1]));
+
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+    qof_book_destroy (sync_book);
+}
+
+TEST (QofSessionOperationLeaseTest,
+      account_composite_scrub_job_cancel_at_phase_boundary_releases_once)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ScrubJobBook fixture {qof_session_get_book (session), 1};
+    gnc_set_current_session (session);
+
+    auto job = gnc_scrub_account_job_begin (fixture.account, FALSE);
+    ASSERT_NE (job, nullptr);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_IMBALANCE);
+    EXPECT_TRUE (qof_session_has_active_operation_kind (
+        session, QOF_SESSION_OPERATION_SCRUB));
+    EXPECT_EQ (qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE), nullptr);
+    expect_orphans_scrubbed (fixture);
+
+    gnc_scrub_job_cancel (job);
+    EXPECT_EQ (gnc_scrub_job_get_state (job), GNC_SCRUB_JOB_CANCELLED);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    auto next_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_SAVE);
+    ASSERT_NE (next_lease, nullptr);
+    qof_session_operation_lease_release (next_lease);
+    gnc_scrub_job_cancel (job);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+}

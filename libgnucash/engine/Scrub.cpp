@@ -81,6 +81,8 @@ struct GncScrubJob
     size_t cursor;
     GncScrubJobState state;
     GncScrubJobKind kind;
+    GncScrubJobPhase phase;
+    guint phase_count;
 };
 
 
@@ -251,7 +253,7 @@ gnc_scrub_job_finish (GncScrubJob *job, GncScrubJobState state)
 
 static GncScrubJob *
 gnc_scrub_job_begin (Account *account, gboolean descendants,
-                     GncScrubJobKind kind)
+                     GncScrubJobKind kind, guint phase_count)
 {
     if (!account)
         return nullptr;
@@ -261,8 +263,10 @@ gnc_scrub_job_begin (Account *account, gboolean descendants,
     if (!context)
         return nullptr;
 
+    auto phase = kind == GNC_SCRUB_JOB_IMBALANCE
+        ? GNC_SCRUB_JOB_PHASE_IMBALANCE : GNC_SCRUB_JOB_PHASE_ORPHANS;
     auto job = new GncScrubJob{context, book, {}, 0, GNC_SCRUB_JOB_RUNNING,
-                               kind};
+                               kind, phase, phase_count};
     auto transactions = get_all_transactions (account, descendants);
     job->transaction_guids.reserve (transactions.size ());
     for (auto transaction : transactions)
@@ -273,25 +277,33 @@ gnc_scrub_job_begin (Account *account, gboolean descendants,
 GncScrubJob *
 gnc_scrub_orphans_job_begin (Account *account, gboolean descendants)
 {
-    return gnc_scrub_job_begin (account, descendants, GNC_SCRUB_JOB_ORPHANS);
+    return gnc_scrub_job_begin (account, descendants, GNC_SCRUB_JOB_ORPHANS,
+                                1);
 }
 
 GncScrubJob *
 gnc_scrub_imbalance_job_begin (Account *account, gboolean descendants)
 {
     return gnc_scrub_job_begin (account, descendants,
-                                GNC_SCRUB_JOB_IMBALANCE);
+                                GNC_SCRUB_JOB_IMBALANCE, 1);
+}
+
+GncScrubJob *
+gnc_scrub_account_job_begin (Account *account, gboolean descendants)
+{
+    return gnc_scrub_job_begin (account, descendants, GNC_SCRUB_JOB_ACCOUNT,
+                                2);
 }
 
 static gboolean
 gnc_scrub_job_process_transaction (GncScrubJob *job, Transaction *transaction)
 {
-    switch (job->kind)
+    switch (job->phase)
     {
-    case GNC_SCRUB_JOB_ORPHANS:
+    case GNC_SCRUB_JOB_PHASE_ORPHANS:
         xaccTransScrubOrphansWithContext (transaction, job->context);
         return TRUE;
-    case GNC_SCRUB_JOB_IMBALANCE:
+    case GNC_SCRUB_JOB_PHASE_IMBALANCE:
     {
         auto root = gnc_book_get_root_account (job->book);
         if (!root)
@@ -308,6 +320,18 @@ gnc_scrub_job_process_transaction (GncScrubJob *job, Transaction *transaction)
     }
     }
     return FALSE;
+}
+
+static gboolean
+gnc_scrub_job_advance_phase (GncScrubJob *job)
+{
+    if (job->phase_count != 2 ||
+        job->phase != GNC_SCRUB_JOB_PHASE_ORPHANS)
+        return FALSE;
+
+    job->phase = GNC_SCRUB_JOB_PHASE_IMBALANCE;
+    job->cursor = 0;
+    return TRUE;
 }
 
 GncScrubJobState
@@ -360,7 +384,11 @@ gnc_scrub_job_step (GncScrubJob *job, guint max_transactions)
     }
 
     if (job->cursor == job->transaction_guids.size ())
+    {
+        if (gnc_scrub_job_advance_phase (job))
+            return job->state;
         gnc_scrub_job_finish (job, GNC_SCRUB_JOB_DONE);
+    }
     return job->state;
 }
 
@@ -386,16 +414,26 @@ gnc_scrub_job_get_kind (const GncScrubJob *job)
     return job ? job->kind : GNC_SCRUB_JOB_ORPHANS;
 }
 
+GncScrubJobPhase
+gnc_scrub_job_get_phase (const GncScrubJob *job)
+{
+    return job ? job->phase : GNC_SCRUB_JOB_PHASE_ORPHANS;
+}
+
 guint
 gnc_scrub_job_get_total (const GncScrubJob *job)
 {
-    return job ? static_cast<guint> (job->transaction_guids.size ()) : 0;
+    return job ? static_cast<guint> (job->transaction_guids.size () *
+                                     job->phase_count) : 0;
 }
 
 guint
 gnc_scrub_job_get_completed (const GncScrubJob *job)
 {
-    return job ? static_cast<guint> (job->cursor) : 0;
+    return job ? static_cast<guint> (job->cursor +
+                                     (job->kind == GNC_SCRUB_JOB_ACCOUNT &&
+                                      job->phase == GNC_SCRUB_JOB_PHASE_IMBALANCE
+                                      ? job->transaction_guids.size () : 0)) : 0;
 }
 
 void

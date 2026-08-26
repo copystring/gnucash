@@ -93,7 +93,16 @@ typedef enum
 {
     GNC_SCRUB_JOB_ORPHANS,
     GNC_SCRUB_JOB_IMBALANCE,
+    /** Run the orphan phase before the imbalance phase from one snapshot. */
+    GNC_SCRUB_JOB_ACCOUNT,
 } GncScrubJobKind;
+
+/** The currently executing phase of a resumable scrub job. */
+typedef enum
+{
+    GNC_SCRUB_JOB_PHASE_ORPHANS,
+    GNC_SCRUB_JOB_PHASE_IMBALANCE,
+} GncScrubJobPhase;
 
 /**
  * Acquire the current session's exclusive SCRUB lease for @a book.
@@ -137,6 +146,19 @@ GncScrubJob *gnc_scrub_imbalance_job_begin (Account *account,
                                             gboolean descendants);
 
 /**
+ * Start the core account scrub phases used by Account and Account Tree.
+ *
+ * The job snapshots the selected transactions once, then processes that same
+ * snapshot in the ORPHANS phase followed by the IMBALANCE phase without
+ * releasing its SCRUB lease between phases. get_completed()/get_total() count
+ * phase units, so a non-empty job has twice as many total units as snapshot
+ * transactions and each phase accounts for one complete snapshot pass. Lots
+ * and Business scrubs are intentionally not part of this job.
+ */
+GncScrubJob *gnc_scrub_account_job_begin (Account *account,
+                                          gboolean descendants);
+
+/**
  * Process at most @a max_transactions snapshot entries in this turn.
  * A zero limit is invalid and terminates the job as failed.
  */
@@ -148,6 +170,7 @@ void gnc_scrub_job_cancel (GncScrubJob *job);
 
 GncScrubJobState gnc_scrub_job_get_state (const GncScrubJob *job);
 GncScrubJobKind gnc_scrub_job_get_kind (const GncScrubJob *job);
+GncScrubJobPhase gnc_scrub_job_get_phase (const GncScrubJob *job);
 guint gnc_scrub_job_get_total (const GncScrubJob *job);
 guint gnc_scrub_job_get_completed (const GncScrubJob *job);
 
