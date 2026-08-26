@@ -37,7 +37,9 @@
 #include "../gnc-backend-prov.hpp"
 #include "../Account.h"
 #include "../Split.h"
+#include "../SplitP.hpp"
 #include "../Transaction.h"
+#include "../TransactionP.hpp"
 #include "../gnc-commodity.h"
 #include <vector>
 
@@ -828,4 +830,134 @@ TEST (QofSessionOperationLeaseTest, orphan_scrub_job_prevents_session_or_book_st
     gnc_scrub_job_free (job);
     gnc_clear_current_session ();
     qof_session_destroy (foreign);
+}
+
+struct ImbalanceScrubJobBook
+{
+    QofBook *book;
+    Account *root;
+    Account *account;
+    Account *descendant;
+    gnc_commodity *currency;
+    std::vector<Transaction *> transactions;
+
+    ImbalanceScrubJobBook (QofBook *target_book, guint account_count,
+                            guint descendant_count)
+        : book {target_book}
+        , root {gnc_account_create_root (book)}
+        , account {xaccMallocAccount (book)}
+        , descendant {xaccMallocAccount (book)}
+        , currency {gnc_commodity_new (book, "Imbalance Test Currency",
+                                       "CURRENCY", "IMB", "", 100)}
+    {
+        xaccAccountBeginEdit (account);
+        xaccAccountSetName (account, "Imbalance account");
+        xaccAccountSetType (account, ACCT_TYPE_BANK);
+        xaccAccountSetCommodity (account, currency);
+        gnc_account_append_child (root, account);
+        xaccAccountCommitEdit (account);
+
+        xaccAccountBeginEdit (descendant);
+        xaccAccountSetName (descendant, "Imbalance descendant");
+        xaccAccountSetType (descendant, ACCT_TYPE_BANK);
+        xaccAccountSetCommodity (descendant, currency);
+        gnc_account_append_child (account, descendant);
+        xaccAccountCommitEdit (descendant);
+
+        for (guint i = 0; i < account_count; ++i)
+            add_imbalanced_transaction (account, i + 1);
+        for (guint i = 0; i < descendant_count; ++i)
+            add_imbalanced_transaction (descendant, i + account_count + 1);
+    }
+
+    void add_imbalanced_transaction (Account *target, guint value)
+    {
+        auto transaction = xaccMallocTransaction (book);
+        auto split = xaccMallocSplit (book);
+        auto amount = gnc_numeric_create (value, 1);
+        xaccTransBeginEdit (transaction);
+        xaccTransSetCurrency (transaction, currency);
+        xaccSplitSetParent (split, transaction);
+        xaccSplitSetAccount (split, target);
+        split->value = amount;
+        split->amount = amount;
+        xaccTransCommitEdit (transaction);
+
+        /* Commit registers the transaction but also repairs its imbalance.
+         * Deliberately corrupt the committed data afterwards, as a loader can.
+         * No further CommitEdit runs before the scrub under test. */
+        GList *balance_node {nullptr};
+        for (auto node = transaction->splits; node; node = node->next)
+            if (node->data != split)
+            {
+                balance_node = node;
+                break;
+            }
+        g_assert_nonnull (balance_node);
+        auto balance_split = static_cast<Split *> (balance_node->data);
+        transaction->splits = g_list_delete_link (transaction->splits,
+                                                  balance_node);
+        balance_split->parent = nullptr;
+        xaccFreeSplit (balance_split);
+        split->value = amount;
+        split->amount = amount;
+        transactions.push_back (transaction);
+    }
+};
+
+static void
+expect_imbalance_scrubbed (const ImbalanceScrubJobBook& fixture)
+{
+    for (auto transaction : fixture.transactions)
+    {
+        EXPECT_TRUE (xaccTransIsBalanced (transaction));
+        EXPECT_TRUE (gnc_numeric_zero_p (xaccTransGetImbalanceValue (transaction)));
+        EXPECT_EQ (xaccTransCountSplits (transaction), 2);
+    }
+}
+
+TEST (QofSessionOperationLeaseTest,
+      imbalance_scrub_job_is_incremental_matches_sync_and_includes_descendants)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ImbalanceScrubJobBook incremental {qof_session_get_book (session), 1, 2};
+    auto sync_book = qof_book_new ();
+    ImbalanceScrubJobBook synchronous {sync_book, 1, 2};
+    gnc_set_current_session (session);
+
+    for (auto transaction : incremental.transactions)
+    {
+        EXPECT_FALSE (xaccTransIsBalanced (transaction));
+        EXPECT_FALSE (gnc_numeric_zero_p (xaccTransGetImbalanceValue (transaction)));
+        EXPECT_EQ (xaccTransCountSplits (transaction), 1);
+    }
+    for (auto transaction : synchronous.transactions)
+    {
+        EXPECT_FALSE (xaccTransIsBalanced (transaction));
+        EXPECT_FALSE (gnc_numeric_zero_p (xaccTransGetImbalanceValue (transaction)));
+        EXPECT_EQ (xaccTransCountSplits (transaction), 1);
+    }
+    auto job = gnc_scrub_imbalance_job_begin (incremental.account, TRUE);
+    ASSERT_NE (job, nullptr);
+    EXPECT_EQ (gnc_scrub_job_get_kind (job), GNC_SCRUB_JOB_IMBALANCE);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 3);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
+    EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
+    expect_imbalance_scrubbed (incremental);
+
+    xaccAccountTreeScrubImbalance (synchronous.account, scrub_job_progress);
+    expect_imbalance_scrubbed (synchronous);
+    ASSERT_EQ (incremental.transactions.size (), synchronous.transactions.size ());
+    for (size_t i = 0; i < incremental.transactions.size (); ++i)
+        EXPECT_EQ (xaccTransCountSplits (incremental.transactions[i]),
+                   xaccTransCountSplits (synchronous.transactions[i]));
+
+    gnc_scrub_job_free (job);
+    gnc_clear_current_session ();
+    qof_book_destroy (sync_book);
 }

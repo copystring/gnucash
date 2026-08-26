@@ -80,6 +80,7 @@ struct GncScrubJob
     std::vector<GncGUID> transaction_guids;
     size_t cursor;
     GncScrubJobState state;
+    GncScrubJobKind kind;
 };
 
 
@@ -91,6 +92,8 @@ static Account* xaccScrubUtilityGetOrMakeAccount (Account *root,
                                                   gboolean checkname);
 static void TransScrubCurrency (Transaction *trans,
                                 GncScrubContext *context);
+static void TransScrubOrphansFast (Transaction *trans, Account *root,
+                                   GncScrubContext *context);
 static void AccountScrubCommodity (Account *account);
 static void TransScrubSplits (Transaction *trans, GncScrubContext *context);
 static void SplitScrub (Split *split, GncScrubContext *context);
@@ -246,8 +249,9 @@ gnc_scrub_job_finish (GncScrubJob *job, GncScrubJobState state)
     gnc_scrub_context_end (job->context);
 }
 
-GncScrubJob *
-gnc_scrub_orphans_job_begin (Account *account, gboolean descendants)
+static GncScrubJob *
+gnc_scrub_job_begin (Account *account, gboolean descendants,
+                     GncScrubJobKind kind)
 {
     if (!account)
         return nullptr;
@@ -257,12 +261,53 @@ gnc_scrub_orphans_job_begin (Account *account, gboolean descendants)
     if (!context)
         return nullptr;
 
-    auto job = new GncScrubJob{context, book, {}, 0, GNC_SCRUB_JOB_RUNNING};
+    auto job = new GncScrubJob{context, book, {}, 0, GNC_SCRUB_JOB_RUNNING,
+                               kind};
     auto transactions = get_all_transactions (account, descendants);
     job->transaction_guids.reserve (transactions.size ());
     for (auto transaction : transactions)
         job->transaction_guids.push_back (*xaccTransGetGUID (transaction));
     return job;
+}
+
+GncScrubJob *
+gnc_scrub_orphans_job_begin (Account *account, gboolean descendants)
+{
+    return gnc_scrub_job_begin (account, descendants, GNC_SCRUB_JOB_ORPHANS);
+}
+
+GncScrubJob *
+gnc_scrub_imbalance_job_begin (Account *account, gboolean descendants)
+{
+    return gnc_scrub_job_begin (account, descendants,
+                                GNC_SCRUB_JOB_IMBALANCE);
+}
+
+static gboolean
+gnc_scrub_job_process_transaction (GncScrubJob *job, Transaction *transaction)
+{
+    switch (job->kind)
+    {
+    case GNC_SCRUB_JOB_ORPHANS:
+        xaccTransScrubOrphansWithContext (transaction, job->context);
+        return TRUE;
+    case GNC_SCRUB_JOB_IMBALANCE:
+    {
+        auto root = gnc_book_get_root_account (job->book);
+        if (!root)
+            return FALSE;
+        TransScrubOrphansFast (transaction, root, job->context);
+        if (gnc_scrub_context_is_cancelled (job->context))
+            return TRUE;
+        TransScrubCurrency (transaction, job->context);
+        if (gnc_scrub_context_is_cancelled (job->context))
+            return TRUE;
+        xaccTransScrubImbalanceWithContext (transaction, root, nullptr,
+                                            job->context);
+        return TRUE;
+    }
+    }
+    return FALSE;
 }
 
 GncScrubJobState
@@ -307,8 +352,11 @@ gnc_scrub_job_step (GncScrubJob *job, guint max_transactions)
             &job->transaction_guids[job->cursor], job->book);
         ++job->cursor;
         ++processed;
-        if (transaction)
-            xaccTransScrubOrphansWithContext (transaction, job->context);
+        if (transaction && !gnc_scrub_job_process_transaction (job, transaction))
+        {
+            gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+            return job->state;
+        }
     }
 
     if (job->cursor == job->transaction_guids.size ())
@@ -330,6 +378,12 @@ GncScrubJobState
 gnc_scrub_job_get_state (const GncScrubJob *job)
 {
     return job ? job->state : GNC_SCRUB_JOB_FAILED;
+}
+
+GncScrubJobKind
+gnc_scrub_job_get_kind (const GncScrubJob *job)
+{
+    return job ? job->kind : GNC_SCRUB_JOB_ORPHANS;
 }
 
 guint

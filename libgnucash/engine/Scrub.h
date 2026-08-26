@@ -88,6 +88,13 @@ typedef enum
     GNC_SCRUB_JOB_FAILED,
 } GncScrubJobState;
 
+/** The scrub operation executed by a GncScrubJob. */
+typedef enum
+{
+    GNC_SCRUB_JOB_ORPHANS,
+    GNC_SCRUB_JOB_IMBALANCE,
+} GncScrubJobKind;
+
 /**
  * Acquire the current session's exclusive SCRUB lease for @a book.
  *
@@ -125,6 +132,10 @@ void gnc_scrub_context_end (GncScrubContext *context);
 GncScrubJob *gnc_scrub_orphans_job_begin (Account *account,
                                           gboolean descendants);
 
+/** Start a resumable imbalance-scrub pass for @a account. */
+GncScrubJob *gnc_scrub_imbalance_job_begin (Account *account,
+                                            gboolean descendants);
+
 /**
  * Process at most @a max_transactions snapshot entries in this turn.
  * A zero limit is invalid and terminates the job as failed.
@@ -136,6 +147,7 @@ GncScrubJobState gnc_scrub_job_step (GncScrubJob *job,
 void gnc_scrub_job_cancel (GncScrubJob *job);
 
 GncScrubJobState gnc_scrub_job_get_state (const GncScrubJob *job);
+GncScrubJobKind gnc_scrub_job_get_kind (const GncScrubJob *job);
 guint gnc_scrub_job_get_total (const GncScrubJob *job);
 guint gnc_scrub_job_get_completed (const GncScrubJob *job);
 
