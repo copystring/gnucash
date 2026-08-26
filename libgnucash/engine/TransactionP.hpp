@@ -171,6 +171,20 @@ QofBackend * xaccTransactionGetBackend (Transaction *trans);
 void xaccEnableDataScrubbing(void);
 void xaccDisableDataScrubbing(void);
 
+/**
+ * Temporarily suppress automatic transaction-commit data scrubbing for one
+ * book. The returned token is nestable and must be released with
+ * xaccDataScrubSuspensionRelease(). This is independent of the global
+ * xaccDisableDataScrubbing() switch, which retains its legacy semantics.
+ *
+ * Releasing a token after its book has been destroyed is safe; callers must
+ * not otherwise use a destroyed book.
+ */
+typedef struct GncDataScrubSuspension GncDataScrubSuspension;
+GncDataScrubSuspension *xaccDataScrubSuspendForBook (QofBook *book);
+void xaccDataScrubSuspensionRelease (GncDataScrubSuspension *suspension);
+gboolean xaccDataScrubbingSuspendedForBook (const QofBook *book);
+
 void xaccTransRemoveSplit (Transaction *trans, const Split *split);
 void check_open (const Transaction *trans);
 

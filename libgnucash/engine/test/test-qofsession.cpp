@@ -190,6 +190,19 @@ struct ScopedEnvironment
     }
 };
 
+struct ScopedDataScrubbingDisabled
+{
+    ScopedDataScrubbingDisabled ()
+    {
+        xaccDisableDataScrubbing ();
+    }
+
+    ~ScopedDataScrubbingDisabled ()
+    {
+        xaccEnableDataScrubbing ();
+    }
+};
+
 struct CommitDeferralBook
 {
     QofBook *book;
@@ -1519,6 +1532,109 @@ TEST (QofSessionOperationLeaseTest,
     gnc_scrub_context_end (later_context);
     gnc_scrub_context_unref (later_context);
     gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest,
+      data_scrub_suspension_is_book_scoped_and_default_off)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    ScopedEnvironment lots {"GNC_AUTO_SCRUB_LOTS", nullptr};
+    auto session = qof_session_new (qof_book_new ());
+    auto book_a = qof_session_get_book (session);
+    auto book_b = qof_book_new ();
+    CommitDeferralBook fixture_a {book_a};
+    CommitDeferralBook fixture_b {book_b};
+    gnc_set_current_session (session);
+
+    auto before_suspension = fixture_a.commit_unbalanced (1);
+    EXPECT_TRUE (xaccTransIsBalanced (before_suspension));
+    EXPECT_EQ (xaccTransCountSplits (before_suspension), 2);
+
+    auto suspension = xaccDataScrubSuspendForBook (book_a);
+    ASSERT_NE (suspension, nullptr);
+    EXPECT_TRUE (xaccDataScrubbingSuspendedForBook (book_a));
+    EXPECT_FALSE (xaccDataScrubbingSuspendedForBook (book_b));
+
+    auto transaction_a = fixture_a.commit_unbalanced (2);
+    auto transaction_b = fixture_b.commit_unbalanced (3);
+    EXPECT_FALSE (xaccTransIsBalanced (transaction_a));
+    EXPECT_EQ (xaccTransCountSplits (transaction_a), 1);
+    EXPECT_TRUE (xaccTransIsBalanced (transaction_b));
+    EXPECT_EQ (xaccTransCountSplits (transaction_b), 2);
+
+    xaccDataScrubSuspensionRelease (suspension);
+    EXPECT_FALSE (xaccDataScrubbingSuspendedForBook (book_a));
+    auto after_release = fixture_a.commit_unbalanced (4);
+    EXPECT_TRUE (xaccTransIsBalanced (after_release));
+    EXPECT_EQ (xaccTransCountSplits (after_release), 2);
+
+    gnc_clear_current_session ();
+    qof_book_destroy (book_b);
+}
+
+TEST (QofSessionOperationLeaseTest,
+      data_scrub_suspension_is_nested_and_global_switch_remains_global)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    ScopedEnvironment lots {"GNC_AUTO_SCRUB_LOTS", nullptr};
+    auto session = qof_session_new (qof_book_new ());
+    auto book_a = qof_session_get_book (session);
+    auto book_b = qof_book_new ();
+    CommitDeferralBook fixture_a {book_a};
+    CommitDeferralBook fixture_b {book_b};
+    gnc_set_current_session (session);
+
+    auto outer = xaccDataScrubSuspendForBook (book_a);
+    auto inner = xaccDataScrubSuspendForBook (book_a);
+    ASSERT_NE (outer, nullptr);
+    ASSERT_NE (inner, nullptr);
+    auto while_both_held = fixture_a.commit_unbalanced (1);
+    EXPECT_FALSE (xaccTransIsBalanced (while_both_held));
+
+    xaccDataScrubSuspensionRelease (inner);
+    EXPECT_TRUE (xaccDataScrubbingSuspendedForBook (book_a));
+    auto while_outer_held = fixture_a.commit_unbalanced (2);
+    EXPECT_FALSE (xaccTransIsBalanced (while_outer_held));
+
+    xaccDataScrubSuspensionRelease (outer);
+    EXPECT_FALSE (xaccDataScrubbingSuspendedForBook (book_a));
+    auto after_nested_release = fixture_a.commit_unbalanced (3);
+    EXPECT_TRUE (xaccTransIsBalanced (after_nested_release));
+
+    {
+        ScopedDataScrubbingDisabled globally_disabled;
+        auto disabled_a = fixture_a.commit_unbalanced (4);
+        auto disabled_b = fixture_b.commit_unbalanced (5);
+        EXPECT_FALSE (xaccTransIsBalanced (disabled_a));
+        EXPECT_FALSE (xaccTransIsBalanced (disabled_b));
+    }
+
+    auto globally_reenabled_a = fixture_a.commit_unbalanced (6);
+    auto globally_reenabled_b = fixture_b.commit_unbalanced (7);
+    EXPECT_TRUE (xaccTransIsBalanced (globally_reenabled_a));
+    EXPECT_TRUE (xaccTransIsBalanced (globally_reenabled_b));
+
+    gnc_clear_current_session ();
+    qof_book_destroy (book_b);
+}
+
+TEST (QofSessionOperationLeaseTest,
+      data_scrub_suspension_handles_null_and_book_destroy_before_release)
+{
+    EXPECT_EQ (xaccDataScrubSuspendForBook (nullptr), nullptr);
+    EXPECT_FALSE (xaccDataScrubbingSuspendedForBook (nullptr));
+    xaccDataScrubSuspensionRelease (nullptr);
+
+    auto book = qof_book_new ();
+    auto suspension = xaccDataScrubSuspendForBook (book);
+    ASSERT_NE (suspension, nullptr);
+    EXPECT_TRUE (xaccDataScrubbingSuspendedForBook (book));
+    qof_book_destroy (book);
+    xaccDataScrubSuspensionRelease (suspension);
 }
 
 TEST (QofSessionOperationLeaseTest,

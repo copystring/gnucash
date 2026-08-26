@@ -60,6 +60,7 @@
 #include "SchedXaction.h"
 #include "gncBusiness.h"
 #include <qofinstance-p.h>
+#include "qofbook.h"
 #include "gncInvoice.h"
 #include "gncOwner.h"
 
@@ -1672,6 +1673,107 @@ do_destroy (QofInstance* inst)
 static int scrub_data = 1;
 static void TransScrubGains (Transaction *trans, Account *gain_acc);
 
+struct BookDataScrubSuspensionState
+{
+    gatomicrefcount ref_count;
+    guint token_count;
+    gboolean attached;
+};
+
+struct GncDataScrubSuspension
+{
+    BookDataScrubSuspensionState *state;
+};
+
+static constexpr char data_scrub_suspension_key[] =
+    "gnc-transaction-data-scrub-suspension";
+
+static BookDataScrubSuspensionState *
+data_scrub_suspension_state_ref (BookDataScrubSuspensionState *state)
+{
+    if (state)
+        g_atomic_ref_count_inc (&state->ref_count);
+    return state;
+}
+
+static void
+data_scrub_suspension_state_unref (BookDataScrubSuspensionState *state)
+{
+    if (state && g_atomic_ref_count_dec (&state->ref_count))
+        g_free (state);
+}
+
+static void
+data_scrub_suspension_book_finalizer (QofBook *, gpointer, gpointer data)
+{
+    auto state = static_cast<BookDataScrubSuspensionState *> (data);
+    if (!state)
+        return;
+
+    state->attached = FALSE;
+    data_scrub_suspension_state_unref (state);
+}
+
+GncDataScrubSuspension *
+xaccDataScrubSuspendForBook (QofBook *book)
+{
+    if (!book)
+        return nullptr;
+
+    auto suspension = g_new0 (GncDataScrubSuspension, 1);
+    if (!suspension)
+        return nullptr;
+
+    auto state = static_cast<BookDataScrubSuspensionState *> (
+        qof_book_get_data (book, data_scrub_suspension_key));
+    if (!state)
+    {
+        state = g_new0 (BookDataScrubSuspensionState, 1);
+        if (!state)
+        {
+            g_free (suspension);
+            return nullptr;
+        }
+
+        g_atomic_ref_count_init (&state->ref_count);
+        state->attached = TRUE;
+        qof_book_set_data_fin (book, data_scrub_suspension_key, state,
+                               data_scrub_suspension_book_finalizer);
+    }
+
+    suspension->state = data_scrub_suspension_state_ref (state);
+    ++state->token_count;
+    return suspension;
+}
+
+void
+xaccDataScrubSuspensionRelease (GncDataScrubSuspension *suspension)
+{
+    if (!suspension)
+        return;
+
+    auto state = suspension->state;
+    suspension->state = nullptr;
+    if (state)
+    {
+        g_assert (state->token_count > 0);
+        --state->token_count;
+        data_scrub_suspension_state_unref (state);
+    }
+    g_free (suspension);
+}
+
+gboolean
+xaccDataScrubbingSuspendedForBook (const QofBook *book)
+{
+    if (!book)
+        return FALSE;
+
+    auto state = static_cast<BookDataScrubSuspensionState *> (
+        qof_book_get_data (book, data_scrub_suspension_key));
+    return state && state->attached && state->token_count > 0;
+}
+
 void xaccEnableDataScrubbing(void)
 {
     scrub_data = 1;
@@ -1798,7 +1900,8 @@ xaccTransCommitEdit (Transaction *trans)
      */
     auto book = xaccTransGetBook (trans);
     if (!qof_instance_get_destroying(trans) && scrub_data &&
-            !qof_book_shutting_down(book))
+            !qof_book_shutting_down(book) &&
+            !xaccDataScrubbingSuspendedForBook (book))
     {
         /* If scrubbing gains recurses through here, don't call it again. */
         scrub_data = 0;
