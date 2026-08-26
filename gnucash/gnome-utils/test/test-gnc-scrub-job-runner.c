@@ -16,10 +16,14 @@ typedef struct
     guint progress_calls;
     guint done_calls;
     GncScrubJobState state;
+    guint completed[16];
+    guint total[16];
+    GncScrubJobKind kind[16];
+    GncScrubJobPhase phase[16];
 } Observer;
 
 static GncScrubJob *
-make_orphan_job (guint transaction_count)
+make_job (guint transaction_count, GncScrubJobKind kind)
 {
     QofSession *session = qof_session_new (qof_book_new ());
     QofBook *book = qof_session_get_book (session);
@@ -50,17 +54,31 @@ make_orphan_job (guint transaction_count)
         xaccTransCommitEdit (transaction);
     }
 
+    if (kind == GNC_SCRUB_JOB_ACCOUNT)
+        return gnc_scrub_account_job_begin (account, FALSE);
     return gnc_scrub_orphans_job_begin (account, FALSE);
+}
+
+static GncScrubJob *
+make_orphan_job (guint transaction_count)
+{
+    return make_job (transaction_count, GNC_SCRUB_JOB_ORPHANS);
 }
 
 static void
 progress_cb (GncScrubJobRunner *runner, guint completed, guint total,
-             gpointer user_data)
+             GncScrubJobKind kind, GncScrubJobPhase phase, gpointer user_data)
 {
     Observer *observer = user_data;
 
     (void)runner;
     g_assert_cmpuint (completed, <=, total);
+    g_assert_cmpuint (observer->progress_calls, <,
+                      G_N_ELEMENTS (observer->completed));
+    observer->completed[observer->progress_calls] = completed;
+    observer->total[observer->progress_calls] = total;
+    observer->kind[observer->progress_calls] = kind;
+    observer->phase[observer->progress_calls] = phase;
     observer->progress_calls++;
 }
 
@@ -98,6 +116,8 @@ test_runs_one_bounded_step_per_idle (void)
     iterate_until (&observer, 3);
     g_assert_cmpuint (observer.done_calls, ==, 1);
     g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_DONE);
+    g_assert_cmpint (observer.kind[0], ==, GNC_SCRUB_JOB_ORPHANS);
+    g_assert_cmpint (observer.phase[0], ==, GNC_SCRUB_JOB_PHASE_ORPHANS);
     g_assert_true (gnc_scrub_job_runner_is_finished (runner));
     gnc_scrub_job_runner_unref (runner);
     gnc_clear_current_session ();
@@ -119,6 +139,8 @@ test_cancellable_completes_once_between_steps (void)
     iterate_until (&observer, 2);
     g_assert_cmpuint (observer.done_calls, ==, 1);
     g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_CANCELLED);
+    g_assert_cmpint (observer.kind[1], ==, GNC_SCRUB_JOB_ORPHANS);
+    g_assert_cmpint (observer.phase[1], ==, GNC_SCRUB_JOB_PHASE_ORPHANS);
     for (guint attempt = 0; attempt < 4; ++attempt)
         g_main_context_iteration (NULL, FALSE);
     g_assert_cmpuint (observer.done_calls, ==, 1);
@@ -140,6 +162,8 @@ test_owner_destruction_completes_once (void)
     g_object_unref (owner);
     g_assert_cmpuint (observer.done_calls, ==, 1);
     g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_CANCELLED);
+    g_assert_cmpint (observer.kind[0], ==, GNC_SCRUB_JOB_ORPHANS);
+    g_assert_cmpint (observer.phase[0], ==, GNC_SCRUB_JOB_PHASE_ORPHANS);
     for (guint attempt = 0; attempt < 4; ++attempt)
         g_main_context_iteration (NULL, FALSE);
     g_assert_cmpuint (observer.done_calls, ==, 1);
@@ -159,11 +183,40 @@ test_pre_cancelled_cancellable_completes_once (void)
     iterate_until (&observer, 1);
     g_assert_cmpuint (observer.done_calls, ==, 1);
     g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_CANCELLED);
+    g_assert_cmpint (observer.kind[0], ==, GNC_SCRUB_JOB_ORPHANS);
+    g_assert_cmpint (observer.phase[0], ==, GNC_SCRUB_JOB_PHASE_ORPHANS);
     g_assert_true (gnc_scrub_job_runner_is_finished (runner));
     gnc_scrub_job_runner_unref (runner);
     g_object_unref (cancellable);
     gnc_clear_current_session ();
 }
+
+static void
+test_composite_job_reports_phase_progress (void)
+{
+    Observer observer = { 0 };
+    GncScrubJobRunner *runner = gnc_scrub_job_runner_start (
+        make_job (2, GNC_SCRUB_JOB_ACCOUNT), NULL, NULL, 1, progress_cb,
+        done_cb, &observer, NULL);
+
+    iterate_until (&observer, 4);
+    g_assert_cmpuint (observer.done_calls, ==, 1);
+    g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_DONE);
+    for (guint index = 0; index < 4; ++index)
+    {
+        g_assert_cmpuint (observer.completed[index], ==, index + 1);
+        g_assert_cmpuint (observer.total[index], ==, 4);
+        g_assert_cmpint (observer.kind[index], ==, GNC_SCRUB_JOB_ACCOUNT);
+    }
+    g_assert_cmpint (observer.phase[0], ==, GNC_SCRUB_JOB_PHASE_ORPHANS);
+    g_assert_cmpint (observer.phase[1], ==, GNC_SCRUB_JOB_PHASE_ORPHANS);
+    g_assert_cmpint (observer.phase[2], ==, GNC_SCRUB_JOB_PHASE_IMBALANCE);
+    g_assert_cmpint (observer.phase[3], ==, GNC_SCRUB_JOB_PHASE_IMBALANCE);
+    g_assert_true (gnc_scrub_job_runner_is_finished (runner));
+    gnc_scrub_job_runner_unref (runner);
+    gnc_clear_current_session ();
+}
+
 int
 main (int argc, char **argv)
 {
@@ -177,6 +230,8 @@ main (int argc, char **argv)
                      test_owner_destruction_completes_once);
     g_test_add_func ("/gnome-utils/scrub-job-runner/pre-cancelled",
                      test_pre_cancelled_cancellable_completes_once);
+    g_test_add_func ("/gnome-utils/scrub-job-runner/composite-phases",
+                     test_composite_job_reports_phase_progress);
 
     int status = g_test_run ();
     gnc_engine_shutdown ();

@@ -13,6 +13,8 @@ G_BEGIN_DECLS
 typedef struct GncScrubJobRunner GncScrubJobRunner;
 typedef void (*GncScrubJobRunnerProgressFunc) (GncScrubJobRunner *runner,
                                                 guint completed, guint total,
+                                                GncScrubJobKind kind,
+                                                GncScrubJobPhase phase,
                                                 gpointer user_data);
 typedef void (*GncScrubJobRunnerDoneFunc) (GncScrubJobRunner *runner,
                                             GncScrubJobState state,

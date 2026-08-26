@@ -111,6 +111,8 @@ runner_idle (gpointer data)
 {
     GncScrubJobRunner *runner = data;
     GncScrubJobState state;
+    GncScrubJobKind kind;
+    GncScrubJobPhase phase;
     runner->in_source_callback = TRUE;
     if (runner->finished)
     {
@@ -119,10 +121,19 @@ runner_idle (gpointer data)
     }
     if (runner->cancellable && g_cancellable_is_cancelled (runner->cancellable))
         gnc_scrub_job_cancel (runner->job);
+    kind = gnc_scrub_job_get_kind (runner->job);
+    /*
+     * A composite job advances its phase immediately after its last
+     * transaction. Capture the phase before the step so that the callback's
+     * completed value and phase describe the same bounded phase, including
+     * the terminal callback for the ORPHANS phase.
+     */
+    phase = gnc_scrub_job_get_phase (runner->job);
     state = gnc_scrub_job_step (runner->job, runner->max_transactions_per_idle);
     if (runner->progress_cb)
         runner->progress_cb (runner, gnc_scrub_job_get_completed (runner->job),
-                             gnc_scrub_job_get_total (runner->job), runner->user_data);
+                             gnc_scrub_job_get_total (runner->job), kind, phase,
+                             runner->user_data);
     runner->in_source_callback = FALSE;
     if (runner->finished)
         return G_SOURCE_REMOVE;
