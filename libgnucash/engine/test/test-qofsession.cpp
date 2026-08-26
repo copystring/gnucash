@@ -1085,3 +1085,180 @@ TEST (QofSessionOperationLeaseTest,
     gnc_scrub_job_free (job);
     gnc_clear_current_session ();
 }
+
+TEST (QofSessionOperationLeaseTest,
+      transaction_split_cursor_is_bounded_and_cancellable)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    ScrubJobBook fixture {qof_session_get_book (session), 1};
+    gnc_set_current_session (session);
+    auto context = gnc_scrub_context_begin (fixture.book);
+    ASSERT_NE (context, nullptr);
+
+    auto transaction = xaccSplitGetParent (fixture.orphan_splits.front ());
+    ASSERT_NE (transaction, nullptr);
+    auto cursor = gnc_transaction_split_cursor_begin (transaction, context);
+    ASSERT_NE (cursor, nullptr);
+
+    GncGUID guid;
+    EXPECT_EQ (gnc_transaction_split_cursor_next (cursor, &guid),
+               GNC_TRANSACTION_SPLIT_CURSOR_NEXT);
+    EXPECT_TRUE (guid_equal (&guid, qof_instance_get_guid (
+        QOF_INSTANCE (xaccTransGetSplit (transaction, 0)))));
+    EXPECT_EQ (gnc_transaction_split_cursor_next (cursor, &guid),
+               GNC_TRANSACTION_SPLIT_CURSOR_NEXT);
+    EXPECT_TRUE (guid_equal (&guid, qof_instance_get_guid (
+        QOF_INSTANCE (xaccTransGetSplit (transaction, 1)))));
+    EXPECT_EQ (gnc_transaction_split_cursor_next (cursor, &guid),
+               GNC_TRANSACTION_SPLIT_CURSOR_DONE);
+    gnc_transaction_split_cursor_free (cursor);
+
+    cursor = gnc_transaction_split_cursor_begin (transaction, context);
+    ASSERT_NE (cursor, nullptr);
+    xaccTransBeginEdit (transaction);
+    xaccTransCommitEdit (transaction);
+    EXPECT_EQ (gnc_transaction_split_cursor_next (cursor, &guid),
+               GNC_TRANSACTION_SPLIT_CURSOR_STALE);
+    gnc_transaction_split_cursor_free (cursor);
+
+    cursor = gnc_transaction_split_cursor_begin (transaction, context);
+    ASSERT_NE (cursor, nullptr);
+    gnc_scrub_context_cancel (context);
+    EXPECT_EQ (gnc_transaction_split_cursor_next (cursor, &guid),
+               GNC_TRANSACTION_SPLIT_CURSOR_CANCELLED);
+    gnc_transaction_split_cursor_free (cursor);
+    gnc_scrub_context_unref (context);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest,
+      transaction_imbalance_collector_returns_nontrading_value_imbalance)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    auto book = qof_session_get_book (session);
+    ImbalanceScrubJobBook fixture {book, 1, 0};
+    gnc_set_current_session (session);
+    auto context = gnc_scrub_context_begin (book);
+    ASSERT_NE (context, nullptr);
+    auto transaction = fixture.transactions.front ();
+    auto collector = gnc_transaction_imbalance_collector_begin (transaction, context);
+    ASSERT_NE (collector, nullptr);
+
+    auto split = xaccTransGetSplit (transaction, 0);
+    ASSERT_NE (split, nullptr);
+    EXPECT_TRUE (gnc_transaction_imbalance_collector_consume (collector, split));
+    auto imbalance = gnc_transaction_imbalance_collector_finish (collector);
+    ASSERT_NE (imbalance, nullptr);
+    ASSERT_EQ (imbalance->next, nullptr);
+    auto monetary = static_cast<gnc_monetary *> (imbalance->data);
+    ASSERT_NE (monetary, nullptr);
+    EXPECT_EQ (gnc_monetary_commodity (*monetary), fixture.currency);
+    EXPECT_TRUE (gnc_numeric_equal (gnc_monetary_value (*monetary),
+                                    xaccTransGetImbalanceValue (transaction)));
+
+    gnc_monetary_list_free (imbalance);
+    gnc_transaction_imbalance_collector_free (collector);
+
+    collector = gnc_transaction_imbalance_collector_begin (transaction, context);
+    ASSERT_NE (collector, nullptr);
+    EXPECT_TRUE (gnc_transaction_imbalance_collector_consume (collector, split));
+    xaccTransBeginEdit (transaction);
+    xaccTransCommitEdit (transaction);
+    EXPECT_FALSE (gnc_transaction_imbalance_collector_consume (collector, split));
+    EXPECT_EQ (gnc_transaction_imbalance_collector_get_count (collector), 0);
+    EXPECT_EQ (gnc_transaction_imbalance_collector_finish (collector), nullptr);
+    gnc_transaction_imbalance_collector_free (collector);
+
+    collector = gnc_transaction_imbalance_collector_begin (transaction, context);
+    ASSERT_NE (collector, nullptr);
+    gnc_scrub_context_cancel (context);
+    EXPECT_FALSE (gnc_transaction_imbalance_collector_consume (collector, split));
+    EXPECT_EQ (gnc_transaction_imbalance_collector_finish (collector), nullptr);
+    gnc_transaction_imbalance_collector_free (collector);
+    gnc_scrub_context_unref (context);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest,
+      transaction_imbalance_collector_preserves_trading_encounter_order)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    auto session = qof_session_new (qof_book_new ());
+    auto book = qof_session_get_book (session);
+    auto root = gnc_account_create_root (book);
+    auto currency_a = gnc_commodity_new (book, "Currency A", "CURRENCY", "TCA", "", 100);
+    auto currency_b = gnc_commodity_new (book, "Currency B", "CURRENCY", "TCB", "", 100);
+    auto account_a = xaccMallocAccount (book);
+    auto account_b = xaccMallocAccount (book);
+    xaccAccountSetCommodity (account_a, currency_a);
+    xaccAccountSetCommodity (account_b, currency_b);
+    gnc_account_append_child (root, account_a);
+    gnc_account_append_child (root, account_b);
+    qof_book_begin_edit (book);
+    qof_instance_set (QOF_INSTANCE (book), "trading-accts", "t", nullptr);
+    qof_book_commit_edit (book);
+
+    auto transaction = xaccMallocTransaction (book);
+    auto split_a = xaccMallocSplit (book);
+    auto split_b = xaccMallocSplit (book);
+    transaction->common_currency = currency_a;
+    split_a->parent = transaction;
+    split_a->acc = account_a;
+    split_a->amount = gnc_numeric_create (1, 1);
+    split_a->value = gnc_numeric_create (1, 1);
+    split_b->parent = transaction;
+    split_b->acc = account_b;
+    split_b->amount = gnc_numeric_create (-2, 1);
+    split_b->value = gnc_numeric_create (-1, 1);
+    transaction->splits = g_list_append (transaction->splits, split_a);
+    transaction->splits = g_list_append (transaction->splits, split_b);
+
+    gnc_set_current_session (session);
+    auto context = gnc_scrub_context_begin (book);
+    ASSERT_NE (context, nullptr);
+    auto collector = gnc_transaction_imbalance_collector_begin (transaction, context);
+    ASSERT_NE (collector, nullptr);
+    EXPECT_TRUE (gnc_transaction_imbalance_collector_consume (collector, split_a));
+    EXPECT_TRUE (gnc_transaction_imbalance_collector_consume (collector, split_b));
+
+    GncGUID commodity_guid;
+    gnc_numeric amount;
+    gnc_numeric value;
+    ASSERT_EQ (gnc_transaction_imbalance_collector_get_count (collector), 2);
+    ASSERT_TRUE (gnc_transaction_imbalance_collector_get_entry (
+        collector, 0, &commodity_guid, &amount, &value));
+    EXPECT_TRUE (guid_equal (&commodity_guid, qof_instance_get_guid (QOF_INSTANCE (currency_a))));
+    EXPECT_TRUE (gnc_numeric_equal (amount, gnc_numeric_create (1, 1)));
+    EXPECT_TRUE (gnc_numeric_equal (value, gnc_numeric_create (1, 1)));
+    ASSERT_TRUE (gnc_transaction_imbalance_collector_get_entry (
+        collector, 1, &commodity_guid, &amount, &value));
+    EXPECT_TRUE (guid_equal (&commodity_guid, qof_instance_get_guid (QOF_INSTANCE (currency_b))));
+    EXPECT_TRUE (gnc_numeric_equal (amount, gnc_numeric_create (-2, 1)));
+    EXPECT_TRUE (gnc_numeric_equal (value, gnc_numeric_create (-1, 1)));
+
+    auto imbalance = gnc_transaction_imbalance_collector_finish (collector);
+    ASSERT_NE (imbalance, nullptr);
+    auto first = static_cast<gnc_monetary *> (imbalance->data);
+    auto second = static_cast<gnc_monetary *> (imbalance->next->data);
+    ASSERT_NE (first, nullptr);
+    ASSERT_NE (second, nullptr);
+    EXPECT_EQ (gnc_monetary_commodity (*first), currency_b);
+    EXPECT_TRUE (gnc_numeric_equal (gnc_monetary_value (*first),
+                                    gnc_numeric_create (-2, 1)));
+    EXPECT_EQ (gnc_monetary_commodity (*second), currency_a);
+    EXPECT_TRUE (gnc_numeric_equal (gnc_monetary_value (*second),
+                                    gnc_numeric_create (1, 1)));
+
+    gnc_monetary_list_free (imbalance);
+    gnc_transaction_imbalance_collector_free (collector);
+    gnc_scrub_context_unref (context);
+    gnc_clear_current_session ();
+}

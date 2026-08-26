@@ -38,6 +38,8 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#include <map>
+#include <vector>
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
@@ -476,6 +478,7 @@ xaccInitTransaction (Transaction * trans, QofBook *book)
 {
     ENTER ("trans=%p", trans);
     qof_instance_init_data (&trans->inst, GNC_ID_TRANS, book);
+    trans->split_list_generation = 1;
     LEAVE (" ");
 }
 
@@ -637,6 +640,7 @@ xaccTransCloneNoKvp (const Transaction *from)
 
     qof_instance_init_data (&to->inst, GNC_ID_TRANS,
 			    qof_instance_get_book(from));
+    to->split_list_generation = 1;
 
     xaccTransBeginEdit(to);
     to->splits = g_list_copy_deep (from->splits, copy_split, to);
@@ -981,6 +985,283 @@ Returns true if the transaction should include trading account splits if
 it involves more than one commodity.
 \********************************************************************/
 
+struct GuidLess
+{
+    bool operator() (const GncGUID& left, const GncGUID& right) const
+    {
+        return guid_compare (&left, &right) < 0;
+    }
+};
+
+struct GncTransactionSplitCursor
+{
+    GncScrubContext *context;
+    QofBook *book;
+    GncGUID transaction_guid;
+    GList *next;
+    guint64 split_list_generation;
+    gboolean done;
+};
+
+struct GncTransactionImbalanceTotal
+{
+    gnc_numeric amount;
+    gnc_numeric value;
+};
+
+struct GncTransactionImbalanceCollector
+{
+    QofBook *book;
+    GncGUID transaction_guid;
+    GncScrubContext *context;
+    guint64 split_list_generation;
+    GncGUID currency_guid;
+    gboolean has_currency;
+    gboolean trading_accounts;
+    gboolean commodity_imbalance;
+    gnc_numeric value_imbalance;
+    std::map<GncGUID, GncTransactionImbalanceTotal, GuidLess> totals;
+    std::vector<GncGUID> encounter_order;
+};
+
+static gboolean
+transaction_split_cursor_context_valid (const GncTransactionSplitCursor *cursor)
+{
+    if (!cursor || !gnc_scrub_context_owns_book (cursor->context, cursor->book))
+        return FALSE;
+
+    auto transaction = xaccTransLookup (&cursor->transaction_guid, cursor->book);
+    return transaction &&
+           transaction->split_list_generation == cursor->split_list_generation;
+}
+
+GncTransactionSplitCursor *
+gnc_transaction_split_cursor_begin (Transaction *trans, GncScrubContext *context)
+{
+    if (!trans || !context)
+        return nullptr;
+
+    auto book = qof_instance_get_book (QOF_INSTANCE (trans));
+    if (!gnc_scrub_context_owns_book (context, book))
+        return nullptr;
+
+    return new GncTransactionSplitCursor {gnc_scrub_context_ref (context), book,
+                                          *xaccTransGetGUID (trans), trans->splits,
+                                          trans->split_list_generation, FALSE};
+}
+
+GncTransactionSplitCursorState
+gnc_transaction_split_cursor_next (GncTransactionSplitCursor *cursor,
+                                   GncGUID *guid)
+{
+    if (!cursor || !guid || !transaction_split_cursor_context_valid (cursor))
+        return GNC_TRANSACTION_SPLIT_CURSOR_STALE;
+    if (gnc_scrub_context_is_cancelled (cursor->context))
+        return GNC_TRANSACTION_SPLIT_CURSOR_CANCELLED;
+    if (cursor->done)
+        return GNC_TRANSACTION_SPLIT_CURSOR_DONE;
+    if (!cursor->next)
+    {
+        cursor->done = TRUE;
+        return GNC_TRANSACTION_SPLIT_CURSOR_DONE;
+    }
+
+    auto split = GNC_SPLIT (cursor->next->data);
+    cursor->next = cursor->next->next;
+    if (!split || xaccSplitGetParent (split) !=
+                      xaccTransLookup (&cursor->transaction_guid, cursor->book))
+        return GNC_TRANSACTION_SPLIT_CURSOR_STALE;
+
+    *guid = *qof_instance_get_guid (QOF_INSTANCE (split));
+    return GNC_TRANSACTION_SPLIT_CURSOR_NEXT;
+}
+
+void
+gnc_transaction_split_cursor_free (GncTransactionSplitCursor *cursor)
+{
+    if (!cursor)
+        return;
+
+    gnc_scrub_context_unref (cursor->context);
+    delete cursor;
+}
+
+static void
+transaction_imbalance_collector_add (GncTransactionImbalanceCollector *collector,
+                                     const GncGUID *guid, gnc_numeric amount,
+                                     gnc_numeric value)
+{
+    if (!collector || !guid)
+        return;
+
+    auto [iterator, inserted] = collector->totals.try_emplace (
+        *guid, GncTransactionImbalanceTotal {gnc_numeric_zero (), gnc_numeric_zero ()});
+    if (inserted)
+        collector->encounter_order.push_back (*guid);
+    auto& total = iterator->second;
+    total.amount = gnc_numeric_add (total.amount, amount, GNC_DENOM_AUTO,
+                                    GNC_HOW_DENOM_EXACT);
+    total.value = gnc_numeric_add (total.value, value, GNC_DENOM_AUTO,
+                                   GNC_HOW_DENOM_EXACT);
+}
+
+static GncTransactionImbalanceCollector *
+transaction_imbalance_collector_begin (const Transaction *trans,
+                                       GncScrubContext *context)
+{
+    if (!trans)
+        return nullptr;
+
+    auto book = qof_instance_get_book (QOF_INSTANCE (trans));
+    if (context && !gnc_scrub_context_owns_book (context, book))
+        return nullptr;
+
+    auto currency = xaccTransGetCurrency (trans);
+    return new GncTransactionImbalanceCollector {
+        book, *xaccTransGetGUID (trans), context ? gnc_scrub_context_ref (context) : nullptr,
+        trans->split_list_generation,
+        currency ? *qof_instance_get_guid (QOF_INSTANCE (currency)) : *guid_null (),
+        currency != nullptr, xaccTransUseTradingAccounts (trans), FALSE,
+        gnc_numeric_zero (), {}, {}};
+}
+
+GncTransactionImbalanceCollector *
+gnc_transaction_imbalance_collector_begin (const Transaction *trans,
+                                           GncScrubContext *context)
+{
+    if (!context)
+        return nullptr;
+    return transaction_imbalance_collector_begin (trans, context);
+}
+
+static gboolean
+transaction_imbalance_collector_valid (
+    const GncTransactionImbalanceCollector *collector)
+{
+    if (!collector)
+        return FALSE;
+    if (collector->context &&
+        (!gnc_scrub_context_owns_book (collector->context, collector->book) ||
+         gnc_scrub_context_is_cancelled (collector->context)))
+        return FALSE;
+    auto transaction = xaccTransLookup (&collector->transaction_guid, collector->book);
+    return transaction &&
+           transaction->split_list_generation == collector->split_list_generation;
+}
+
+gboolean
+gnc_transaction_imbalance_collector_consume (
+    GncTransactionImbalanceCollector *collector, const Split *split)
+{
+    if (!transaction_imbalance_collector_valid (collector) || !split ||
+        xaccSplitGetParent (split) !=
+            xaccTransLookup (&collector->transaction_guid, collector->book))
+        return FALSE;
+
+    auto account = xaccSplitGetAccount (split);
+    auto commodity = account ? xaccAccountGetCommodity (account) : nullptr;
+    if (!commodity)
+        return FALSE;
+
+    auto currency = collector->has_currency
+        ? gnc_commodity_find_commodity_by_guid (&collector->currency_guid,
+                                                collector->book)
+        : nullptr;
+    auto amount = xaccSplitGetAmount (split);
+    auto value = xaccSplitGetValue (split);
+    auto commodity_guid = qof_instance_get_guid (QOF_INSTANCE (commodity));
+
+    if (collector->trading_accounts &&
+        (collector->commodity_imbalance ||
+         !gnc_commodity_equiv (commodity, currency) ||
+         !gnc_numeric_equal (amount, value)))
+    {
+        if (!collector->commodity_imbalance)
+        {
+            if (collector->has_currency)
+                transaction_imbalance_collector_add (
+                    collector, &collector->currency_guid,
+                    collector->value_imbalance, gnc_numeric_zero ());
+            collector->commodity_imbalance = TRUE;
+        }
+        transaction_imbalance_collector_add (collector, commodity_guid, amount,
+                                              gnc_numeric_zero ());
+    }
+
+    transaction_imbalance_collector_add (collector, commodity_guid,
+                                          gnc_numeric_zero (), value);
+    collector->value_imbalance = gnc_numeric_add (
+        collector->value_imbalance, value, GNC_DENOM_AUTO, GNC_HOW_DENOM_EXACT);
+    return TRUE;
+}
+
+MonetaryList *
+gnc_transaction_imbalance_collector_finish (
+    GncTransactionImbalanceCollector *collector)
+{
+    if (!transaction_imbalance_collector_valid (collector))
+        return nullptr;
+
+    if (!collector->commodity_imbalance &&
+        !gnc_numeric_zero_p (collector->value_imbalance) &&
+        collector->has_currency)
+        transaction_imbalance_collector_add (collector, &collector->currency_guid,
+                                              collector->value_imbalance,
+                                              gnc_numeric_zero ());
+
+    MonetaryList *result = nullptr;
+    for (auto iterator = collector->encounter_order.begin ();
+         iterator != collector->encounter_order.end (); ++iterator)
+    {
+        auto entry = collector->totals.find (*iterator);
+        if (entry == collector->totals.end () ||
+            gnc_numeric_zero_p (entry->second.amount))
+            continue;
+        auto commodity = gnc_commodity_find_commodity_by_guid (&entry->first,
+                                                                collector->book);
+        if (commodity)
+            result = gnc_monetary_list_add_value (result, commodity,
+                                                  entry->second.amount);
+    }
+    return result;
+}
+
+guint
+gnc_transaction_imbalance_collector_get_count (
+    const GncTransactionImbalanceCollector *collector)
+{
+    return transaction_imbalance_collector_valid (collector)
+        ? static_cast<guint> (collector->encounter_order.size ()) : 0;
+}
+
+gboolean
+gnc_transaction_imbalance_collector_get_entry (
+    const GncTransactionImbalanceCollector *collector, guint index,
+    GncGUID *commodity_guid, gnc_numeric *amount, gnc_numeric *value)
+{
+    if (!transaction_imbalance_collector_valid (collector) ||
+        !commodity_guid || !amount || !value ||
+        index >= collector->encounter_order.size ())
+        return FALSE;
+
+    auto entry = collector->totals.find (collector->encounter_order[index]);
+    if (entry == collector->totals.end ())
+        return FALSE;
+
+    *commodity_guid = entry->first;
+    *amount = entry->second.amount;
+    *value = entry->second.value;
+    return TRUE;
+}
+
+void
+gnc_transaction_imbalance_collector_free (
+    GncTransactionImbalanceCollector *collector)
+{
+    if (collector)
+        gnc_scrub_context_unref (collector->context);
+    delete collector;
+}
 gboolean xaccTransUseTradingAccounts(const Transaction *trans)
 {
     return qof_book_use_trading_accounts(qof_instance_get_book (trans));
@@ -1018,77 +1299,29 @@ xaccTransGetImbalanceValue (const Transaction * trans)
 }
 
 MonetaryList *
-xaccTransGetImbalance (const Transaction * trans)
+xaccTransGetImbalance (const Transaction *trans)
 {
-    /* imbal_value is used if either (1) the transaction has a non currency
-       split or (2) all the splits are in the same currency.  If there are
-       no non-currency splits and not all splits are in the same currency then
-       imbal_list is used to compute the imbalance. */
-    MonetaryList *imbal_list = nullptr;
-    gnc_numeric imbal_value = gnc_numeric_zero();
-    gboolean trading_accts;
+    if (!trans)
+        return nullptr;
 
-    if (!trans) return imbal_list;
+    ENTER ("(trans=%p)", trans);
+    auto collector = transaction_imbalance_collector_begin (trans, nullptr);
+    if (!collector)
+        return nullptr;
 
-    ENTER("(trans=%p)", trans);
-
-    trading_accts = xaccTransUseTradingAccounts (trans);
-
-    /* If using trading accounts and there is at least one split that is not
-       in the transaction currency or a split that has a price or exchange
-       rate other than 1, then compute the balance in each commodity in the
-       transaction.  Otherwise (all splits are in the transaction's currency)
-       then compute the balance using the value fields.
-
-       Optimize for the common case of only one currency and a balanced
-       transaction. */
-    FOR_EACH_SPLIT(trans,
-    {
-        gnc_commodity *commodity;
-        commodity = xaccAccountGetCommodity(xaccSplitGetAccount(s));
-        if (trading_accts &&
-        (imbal_list ||
-        ! gnc_commodity_equiv(commodity, trans->common_currency) ||
-        ! gnc_numeric_equal(xaccSplitGetAmount(s), xaccSplitGetValue(s))))
+    for (auto node = trans->splits; node; node = node->next)
+        if (!gnc_transaction_imbalance_collector_consume (
+                collector, GNC_SPLIT (node->data)))
         {
-            /* Need to use (or already are using) a list of imbalances in each of
-               the currencies used in the transaction. */
-            if (! imbal_list)
-            {
-                /* All previous splits have been in the transaction's common
-                   currency, so imbal_value is in this currency. */
-                imbal_list = gnc_monetary_list_add_value(imbal_list,
-                trans->common_currency,
-                imbal_value);
-            }
-            imbal_list = gnc_monetary_list_add_value(imbal_list, commodity,
-                         xaccSplitGetAmount(s));
+            gnc_transaction_imbalance_collector_free (collector);
+            return nullptr;
         }
 
-        /* Add it to the value accumulator in case we need it. */
-        imbal_value = gnc_numeric_add(imbal_value, xaccSplitGetValue(s),
-                                      GNC_DENOM_AUTO, GNC_HOW_DENOM_EXACT);
-    } );
-
-
-    if (!imbal_list && !gnc_numeric_zero_p(imbal_value))
-    {
-        /* Not balanced and no list, create one.  If we found multiple currencies
-           and no non-currency commodity then imbal_list will already exist and
-           we won't get here. */
-        imbal_list = gnc_monetary_list_add_value(imbal_list,
-                     trans->common_currency,
-                     imbal_value);
-    }
-
-    /* Delete all the zero entries from the list, perhaps leaving an
-       empty list */
-    imbal_list = gnc_monetary_list_delete_zeros(imbal_list);
-
-    LEAVE("(trans=%p), imbal=%p", trans, imbal_list);
-    return imbal_list;
+    auto result = gnc_transaction_imbalance_collector_finish (collector);
+    gnc_transaction_imbalance_collector_free (collector);
+    LEAVE ("(trans=%p), imbal=%p", trans, result);
+    return result;
 }
-
 gboolean
 xaccTransIsBalanced (const Transaction *trans)
 {
@@ -1355,6 +1588,7 @@ void
 xaccTransBeginEdit (Transaction *trans)
 {
     if (!trans) return;
+    ++trans->split_list_generation;
     if (!qof_begin_edit(&trans->inst)) return;
 
     if (qof_book_shutting_down(qof_instance_get_book(trans))) return;

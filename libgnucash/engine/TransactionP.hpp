@@ -96,6 +96,7 @@ struct transaction_s
     gnc_commodity *common_currency;
 
     GList * splits; /* list of splits */
+    guint64 split_list_generation; /* invalidates active read-only cursors */
 
     /* marker is used to track the progress of transaction traversals.
      * 0 is never a legitimate marker value, so we can tell is we hit
