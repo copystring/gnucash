@@ -69,6 +69,13 @@ set (test_gnc_dense_cal_SOURCES
 
 gnc_add_test (test-gnc-dense-cal "${test_gnc_dense_cal_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+set (test_gnc_scrub_job_runner_SOURCES
+  test-gnc-scrub-job-runner.c
+)
+
+gnc_add_test (test-gnc-scrub-job-runner "${test_gnc_scrub_job_runner_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
 
 set_dist_list(test_gnome_utils_DIST
   CMakeLists.txt
@@ -79,4 +86,5 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_statusbar_SOURCES}
   ${test_gnc_accelerators_SOURCES}
   ${test_gnc_dense_cal_SOURCES}
+  ${test_gnc_scrub_job_runner_SOURCES}
 )
