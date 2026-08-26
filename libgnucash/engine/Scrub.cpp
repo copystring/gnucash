@@ -44,6 +44,8 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <deque>
+#include <new>
 #include <unordered_set>
 #include <vector>
 
@@ -55,6 +57,8 @@
 #include "Transaction.h"
 #include "TransactionP.hpp"
 #include "gnc-commodity.h"
+#include "guid.hpp"
+#include "qofbook.h"
 #include "qofinstance-p.h"
 #include "gnc-session.h"
 
@@ -84,6 +88,123 @@ struct GncScrubJob
     GncScrubJobPhase phase;
     guint phase_count;
 };
+
+struct GncScrubDeferredCommitWork
+{
+    std::deque<GncGUID> fifo;
+    std::unordered_set<GncGUID> queued;
+};
+
+struct GncScrubDeferredCommitQueue
+{
+    QofSession *session;
+    guint64 operation_id;
+    guint64 operation_generation;
+    guint enabled_kinds;
+    GncScrubDeferredCommitWork imbalance;
+    GncScrubDeferredCommitWork gains;
+};
+
+static constexpr char deferred_commit_queue_key[] =
+    "gnc-scrub-deferred-commit-queue";
+
+static void
+deferred_commit_queue_destroy (QofBook *, gpointer, gpointer data)
+{
+    delete static_cast<GncScrubDeferredCommitQueue *> (data);
+}
+
+static GncScrubDeferredCommitQueue *
+deferred_commit_queue (QofBook *book, gboolean create)
+{
+    if (!book)
+        return nullptr;
+
+    auto queue = static_cast<GncScrubDeferredCommitQueue *> (
+        qof_book_get_data (book, deferred_commit_queue_key));
+    if (queue || !create)
+        return queue;
+
+    queue = new (std::nothrow) GncScrubDeferredCommitQueue {};
+    if (!queue)
+        return nullptr;
+
+    qof_book_set_data_fin (book, deferred_commit_queue_key, queue,
+                           deferred_commit_queue_destroy);
+    return queue;
+}
+
+static GncScrubDeferredCommitWork *
+deferred_commit_work (GncScrubDeferredCommitQueue *queue,
+                      GncScrubDeferredCommitKind kind)
+{
+    if (!queue)
+        return nullptr;
+    switch (kind)
+    {
+    case GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE:
+        return &queue->imbalance;
+    case GNC_SCRUB_DEFERRED_COMMIT_GAINS:
+        return &queue->gains;
+    }
+    return nullptr;
+}
+
+static guint
+deferred_commit_kind_bit (GncScrubDeferredCommitKind kind)
+{
+    switch (kind)
+    {
+    case GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE:
+        return 1u << GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE;
+    case GNC_SCRUB_DEFERRED_COMMIT_GAINS:
+        return 1u << GNC_SCRUB_DEFERRED_COMMIT_GAINS;
+    }
+    return 0;
+}
+
+static gboolean
+deferred_commit_context_valid (const GncScrubContext *context)
+{
+    return context && !gnc_scrub_context_is_cancelled (context) &&
+           gnc_scrub_context_owns_book (context, context->book);
+}
+
+static void
+deferred_commit_context_deactivate (const GncScrubContext *context)
+{
+    if (!context || !context->book)
+        return;
+
+    auto queue = deferred_commit_queue (context->book, FALSE);
+    if (!queue || queue->session != context->session ||
+        queue->operation_id != context->operation_id)
+        return;
+
+    queue->session = nullptr;
+    queue->operation_id = 0;
+    queue->operation_generation = 0;
+    queue->enabled_kinds = 0;
+}
+
+static gboolean
+deferred_commit_queue_is_active (const GncScrubDeferredCommitQueue *queue,
+                                 const QofBook *book,
+                                 GncScrubDeferredCommitKind kind)
+{
+    auto kind_bit = deferred_commit_kind_bit (kind);
+    if (!queue || !kind_bit || !(queue->enabled_kinds & kind_bit) ||
+        !queue->session || !queue->operation_id ||
+        !queue->operation_generation || !book || !gnc_current_session_exist ())
+        return FALSE;
+
+    auto session = gnc_get_current_session ();
+    return session == queue->session && qof_session_get_book (session) == book &&
+           qof_session_has_active_operation_kind (
+               session, QOF_SESSION_OPERATION_SCRUB) &&
+           qof_session_get_operation_generation (session) ==
+               queue->operation_generation;
+}
 
 
 static Account* xaccScrubUtilityGetOrMakeAccount (Account *root,
@@ -163,7 +284,10 @@ void
 gnc_scrub_context_cancel (GncScrubContext *context)
 {
     if (gnc_scrub_context_is_active (context))
+    {
         g_atomic_int_set (&context->cancelled, TRUE);
+        deferred_commit_context_deactivate (context);
+    }
 }
 
 gboolean
@@ -178,6 +302,9 @@ gnc_scrub_context_end (GncScrubContext *context)
 {
     if (!context || !context->lease)
         return;
+
+    if (gnc_scrub_context_is_active (context))
+        deferred_commit_context_deactivate (context);
 
     auto lease = context->lease;
     context->lease = nullptr;
@@ -205,6 +332,94 @@ gnc_scrub_context_validate_for_book (const GncScrubContext *context,
     PWARN ("Refusing %s without its active book-bound scrub context",
            operation ? operation : "scrub");
     return FALSE;
+}
+
+gboolean
+gnc_scrub_context_enable_commit_deferral (GncScrubContext *context,
+                                           GncScrubDeferredCommitKind kind)
+{
+    auto kind_bit = deferred_commit_kind_bit (kind);
+    if (!kind_bit || !deferred_commit_context_valid (context))
+        return FALSE;
+
+    auto queue = deferred_commit_queue (context->book, TRUE);
+    if (!queue)
+        return FALSE;
+
+    queue->session = context->session;
+    queue->operation_id = context->operation_id;
+    queue->operation_generation = qof_session_get_operation_generation (
+        context->session);
+    queue->enabled_kinds |= kind_bit;
+    return TRUE;
+}
+
+guint
+gnc_scrub_deferred_commit_pending_count (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind)
+{
+    if (!deferred_commit_context_valid (context))
+        return 0;
+
+    auto work = deferred_commit_work (
+        deferred_commit_queue (context->book, FALSE), kind);
+    return work ? static_cast<guint> (work->fifo.size ()) : 0;
+}
+
+gboolean
+gnc_scrub_deferred_commit_peek (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind,
+    GncGUID *guid)
+{
+    if (!guid || !deferred_commit_context_valid (context))
+        return FALSE;
+
+    auto work = deferred_commit_work (
+        deferred_commit_queue (context->book, FALSE), kind);
+    if (!work || work->fifo.empty ())
+        return FALSE;
+
+    *guid = work->fifo.front ();
+    return TRUE;
+}
+
+gboolean
+gnc_scrub_deferred_commit_ack (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind,
+    const GncGUID *guid)
+{
+    if (!guid || !deferred_commit_context_valid (context))
+        return FALSE;
+
+    auto work = deferred_commit_work (
+        deferred_commit_queue (context->book, FALSE), kind);
+    if (!work || work->fifo.empty () ||
+        !guid_equal (&work->fifo.front (), guid))
+        return FALSE;
+
+    work->queued.erase (work->fifo.front ());
+    work->fifo.pop_front ();
+    return TRUE;
+}
+
+gboolean
+gnc_scrub_defer_commit_hook (QofBook *book, const GncGUID *guid,
+                             GncScrubDeferredCommitKind kind)
+{
+    if (!guid)
+        return FALSE;
+
+    auto queue = deferred_commit_queue (book, FALSE);
+    if (!deferred_commit_queue_is_active (queue, book, kind))
+        return FALSE;
+
+    auto work = deferred_commit_work (queue, kind);
+    if (!work)
+        return FALSE;
+
+    if (work->queued.insert (*guid).second)
+        work->fifo.push_back (*guid);
+    return TRUE;
 }
 
 gboolean

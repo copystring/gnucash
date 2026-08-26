@@ -1796,8 +1796,9 @@ xaccTransCommitEdit (Transaction *trans)
      * can cause pointers to splits and transactions to disappear out
      * from under the holder.
      */
+    auto book = xaccTransGetBook (trans);
     if (!qof_instance_get_destroying(trans) && scrub_data &&
-            !qof_book_shutting_down(xaccTransGetBook(trans)))
+            !qof_book_shutting_down(book))
     {
         /* If scrubbing gains recurses through here, don't call it again. */
         scrub_data = 0;
@@ -1805,12 +1806,20 @@ xaccTransCommitEdit (Transaction *trans)
          * Call the trans scrub routine to fix it. Indirectly, this
          * routine also performs a number of other transaction fixes too.
          */
-        xaccTransScrubImbalanceInternal (trans, nullptr, nullptr, nullptr);
+        if (!gnc_scrub_defer_commit_hook (
+                book, xaccTransGetGUID (trans),
+                GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE))
+            xaccTransScrubImbalanceInternal (trans, nullptr, nullptr, nullptr);
         /* Get the cap gains into a consistent state as well. */
 
         /* Lot Scrubbing is temporarily disabled. */
         if (g_getenv("GNC_AUTO_SCRUB_LOTS") != nullptr)
-            TransScrubGains (trans, nullptr);
+        {
+            if (!gnc_scrub_defer_commit_hook (
+                    book, xaccTransGetGUID (trans),
+                    GNC_SCRUB_DEFERRED_COMMIT_GAINS))
+                TransScrubGains (trans, nullptr);
+        }
 
         /* Allow scrubbing in transaction commit again */
         scrub_data = 1;

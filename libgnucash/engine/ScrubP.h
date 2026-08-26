@@ -22,6 +22,11 @@ gboolean gnc_scrub_context_validate_for_book (const GncScrubContext *context,
 gboolean gnc_scrub_legacy_operation_allowed (const QofBook *book,
                                               const char *operation);
 
+/* Central Transaction commit decision. TRUE means the GUID was accepted by
+ * the active book-bound deferral queue and the synchronous hook must not run. */
+gboolean gnc_scrub_defer_commit_hook (QofBook *book, const GncGUID *guid,
+                                      GncScrubDeferredCommitKind kind);
+
 /* Transaction commit calls this invariant directly; it isn't a public
  * operation entry and must not borrow a GUI context across re-entrant turns. */
 void xaccTransScrubImbalanceInternal (Transaction *trans, Account *root,

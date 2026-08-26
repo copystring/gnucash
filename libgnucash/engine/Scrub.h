@@ -130,6 +130,41 @@ gboolean gnc_scrub_context_owns_book (const GncScrubContext *context,
 /** Release the SCRUB lease exactly once without dropping context references. */
 void gnc_scrub_context_end (GncScrubContext *context);
 
+/** The automatic Transaction commit hook to defer. Kinds have independent
+ * FIFO/dedupe queues. */
+typedef enum
+{
+    GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE,
+    GNC_SCRUB_DEFERRED_COMMIT_GAINS,
+} GncScrubDeferredCommitKind;
+
+/**
+ * Enable central commit-hook deferral for one hook kind in this active,
+ * non-cancelled context. Kinds are enabled independently. Every mode is off by
+ * default and all modes are removed when the context is cancelled or ends.
+ * Pending GUID work remains attached to the book for a later valid context.
+ */
+gboolean gnc_scrub_context_enable_commit_deferral (
+    GncScrubContext *context, GncScrubDeferredCommitKind kind);
+
+/** Return the pending GUID count for one hook kind in @a context's book. */
+guint gnc_scrub_deferred_commit_pending_count (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind);
+
+/**
+ * Prepare one bounded unit without removing it. Call ack() only after the
+ * corresponding work completed; cancellation or context end before ack()
+ * leaves the GUID available to a later valid context.
+ */
+gboolean gnc_scrub_deferred_commit_peek (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind,
+    GncGUID *guid);
+
+/** Acknowledge the FIFO head returned by peek() after completing its work. */
+gboolean gnc_scrub_deferred_commit_ack (
+    const GncScrubContext *context, GncScrubDeferredCommitKind kind,
+    const GncGUID *guid);
+
 /**
  * Start a resumable orphan-scrub pass for @a account.
  *

@@ -165,6 +165,69 @@ struct ScrubJobBook
     }
 };
 
+struct ScopedEnvironment
+{
+    const char *key;
+    char *previous;
+
+    ScopedEnvironment (const char *target_key, const char *value)
+        : key {target_key}
+        , previous {g_strdup (g_getenv (target_key))}
+    {
+        if (value)
+            g_setenv (key, value, TRUE);
+        else
+            g_unsetenv (key);
+    }
+
+    ~ScopedEnvironment ()
+    {
+        if (previous)
+            g_setenv (key, previous, TRUE);
+        else
+            g_unsetenv (key);
+        g_free (previous);
+    }
+};
+
+struct CommitDeferralBook
+{
+    QofBook *book;
+    Account *root;
+    Account *account;
+    gnc_commodity *currency;
+
+    explicit CommitDeferralBook (QofBook *target_book)
+        : book {target_book}
+        , root {gnc_account_create_root (book)}
+        , account {xaccMallocAccount (book)}
+        , currency {gnc_commodity_new (book, "Commit Deferral Currency",
+                                       "CURRENCY", "CDF", "", 100)}
+    {
+        xaccAccountBeginEdit (account);
+        xaccAccountSetName (account, "Commit deferral account");
+        xaccAccountSetType (account, ACCT_TYPE_BANK);
+        xaccAccountSetCommodity (account, currency);
+        gnc_account_append_child (root, account);
+        xaccAccountCommitEdit (account);
+    }
+
+    Transaction *commit_unbalanced (guint value)
+    {
+        auto transaction = xaccMallocTransaction (book);
+        auto split = xaccMallocSplit (book);
+        auto amount = gnc_numeric_create (value, 1);
+        xaccTransBeginEdit (transaction);
+        xaccTransSetCurrency (transaction, currency);
+        xaccSplitSetParent (split, transaction);
+        xaccSplitSetAccount (split, account);
+        split->value = amount;
+        split->amount = amount;
+        xaccTransCommitEdit (transaction);
+        return transaction;
+    }
+};
+
 static void
 scrub_job_progress (const char *, double)
 {
@@ -1260,5 +1323,242 @@ TEST (QofSessionOperationLeaseTest,
     gnc_monetary_list_free (imbalance);
     gnc_transaction_imbalance_collector_free (collector);
     gnc_scrub_context_unref (context);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest,
+      commit_deferral_is_off_until_explicitly_enabled)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    ScopedEnvironment lots {"GNC_AUTO_SCRUB_LOTS", nullptr};
+    auto session = qof_session_new (qof_book_new ());
+    auto book = qof_session_get_book (session);
+    CommitDeferralBook fixture {book};
+    gnc_set_current_session (session);
+    auto context = gnc_scrub_context_begin (book);
+    ASSERT_NE (context, nullptr);
+
+    auto transaction = fixture.commit_unbalanced (1);
+    EXPECT_TRUE (xaccTransIsBalanced (transaction));
+    EXPECT_EQ (xaccTransCountSplits (transaction), 2);
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 0);
+
+    gnc_scrub_context_end (context);
+    gnc_scrub_context_unref (context);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest,
+      commit_deferral_kinds_are_enabled_independently)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    ScopedEnvironment lots_on {"GNC_AUTO_SCRUB_LOTS", "1"};
+    {
+        auto session = qof_session_new (qof_book_new ());
+        auto book = qof_session_get_book (session);
+        CommitDeferralBook fixture {book};
+        gnc_set_current_session (session);
+        auto context = gnc_scrub_context_begin (book);
+        ASSERT_NE (context, nullptr);
+        ASSERT_TRUE (gnc_scrub_context_enable_commit_deferral (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS));
+
+        auto transaction = fixture.commit_unbalanced (1);
+        EXPECT_TRUE (xaccTransIsBalanced (transaction));
+        EXPECT_EQ (xaccTransCountSplits (transaction), 2);
+        EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+        EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 1);
+
+        GncGUID guid;
+        ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &guid));
+        EXPECT_TRUE (guid_equal (&guid, xaccTransGetGUID (transaction)));
+        EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &guid));
+
+        gnc_scrub_context_end (context);
+        gnc_scrub_context_unref (context);
+        gnc_clear_current_session ();
+    }
+
+    {
+        auto session = qof_session_new (qof_book_new ());
+        auto book = qof_session_get_book (session);
+        CommitDeferralBook fixture {book};
+        gnc_set_current_session (session);
+        auto context = gnc_scrub_context_begin (book);
+        ASSERT_NE (context, nullptr);
+        ASSERT_TRUE (gnc_scrub_context_enable_commit_deferral (
+            context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE));
+
+        auto transaction = fixture.commit_unbalanced (2);
+        EXPECT_FALSE (xaccTransIsBalanced (transaction));
+        EXPECT_EQ (xaccTransCountSplits (transaction), 1);
+        EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+        EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 0);
+        EXPECT_FALSE (gnc_scrub_defer_commit_hook (
+            book, xaccTransGetGUID (transaction),
+            GNC_SCRUB_DEFERRED_COMMIT_GAINS));
+
+        GncGUID guid;
+        ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+            context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+        EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
+            context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+
+        gnc_scrub_context_end (context);
+        gnc_scrub_context_unref (context);
+        gnc_clear_current_session ();
+    }
+}
+
+TEST (QofSessionOperationLeaseTest,
+      commit_deferral_is_fifo_deduped_and_survives_context_handoff)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    ScopedEnvironment lots_off {"GNC_AUTO_SCRUB_LOTS", nullptr};
+    auto session = qof_session_new (qof_book_new ());
+    auto book = qof_session_get_book (session);
+    CommitDeferralBook fixture {book};
+    gnc_set_current_session (session);
+    auto context = gnc_scrub_context_begin (book);
+    ASSERT_NE (context, nullptr);
+    ASSERT_TRUE (gnc_scrub_context_enable_commit_deferral (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE));
+    ASSERT_TRUE (gnc_scrub_context_enable_commit_deferral (
+        context, GNC_SCRUB_DEFERRED_COMMIT_GAINS));
+
+    auto first = fixture.commit_unbalanced (1);
+    auto second = fixture.commit_unbalanced (2);
+    EXPECT_FALSE (xaccTransIsBalanced (first));
+    EXPECT_EQ (xaccTransCountSplits (first), 1);
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2);
+
+    xaccTransBeginEdit (first);
+    xaccTransCommitEdit (first);
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2);
+
+    GncGUID guid;
+    auto first_guid = *xaccTransGetGUID (first);
+    auto second_guid = *xaccTransGetGUID (second);
+    ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    EXPECT_TRUE (guid_equal (&guid, &first_guid));
+    EXPECT_FALSE (gnc_scrub_deferred_commit_ack (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &second_guid));
+    EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &first_guid));
+    ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    EXPECT_TRUE (guid_equal (&guid, &second_guid));
+
+    Transaction *third {nullptr};
+    {
+        ScopedEnvironment lots_on {"GNC_AUTO_SCRUB_LOTS", "1"};
+        third = fixture.commit_unbalanced (3);
+        EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2);
+        EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 1);
+        ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &guid));
+        EXPECT_TRUE (guid_equal (&guid, xaccTransGetGUID (third)));
+        EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &guid));
+    }
+
+    EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &second_guid));
+    auto third_guid = *xaccTransGetGUID (third);
+    ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    EXPECT_TRUE (guid_equal (&guid, &third_guid));
+
+    auto foreign_book = qof_book_new ();
+    EXPECT_FALSE (gnc_scrub_defer_commit_hook (
+        foreign_book, &third_guid, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE));
+    qof_book_destroy (foreign_book);
+
+    gnc_scrub_context_cancel (context);
+    EXPECT_FALSE (gnc_scrub_deferred_commit_peek (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+    gnc_scrub_context_end (context);
+    EXPECT_FALSE (gnc_scrub_context_enable_commit_deferral (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE));
+    gnc_scrub_context_unref (context);
+
+    auto later_context = gnc_scrub_context_begin (book);
+    ASSERT_NE (later_context, nullptr);
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+    ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+        later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    EXPECT_TRUE (guid_equal (&guid, &third_guid));
+    EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
+        later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+
+    gnc_scrub_context_end (later_context);
+    gnc_scrub_context_unref (later_context);
+    gnc_clear_current_session ();
+}
+
+TEST (QofSessionOperationLeaseTest,
+      commit_deferral_survives_lease_end_without_cancellation)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+
+    ScopedEnvironment lots {"GNC_AUTO_SCRUB_LOTS", nullptr};
+    auto session = qof_session_new (qof_book_new ());
+    auto book = qof_session_get_book (session);
+    CommitDeferralBook fixture {book};
+    gnc_set_current_session (session);
+    auto context = gnc_scrub_context_begin (book);
+    ASSERT_NE (context, nullptr);
+    ASSERT_TRUE (gnc_scrub_context_enable_commit_deferral (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE));
+
+    auto transaction = fixture.commit_unbalanced (1);
+    auto transaction_guid = *xaccTransGetGUID (transaction);
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+    gnc_scrub_context_end (context);
+
+    GncGUID guid;
+    EXPECT_FALSE (gnc_scrub_deferred_commit_peek (
+        context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    gnc_scrub_context_unref (context);
+
+    auto later_context = gnc_scrub_context_begin (book);
+    ASSERT_NE (later_context, nullptr);
+    EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
+                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+    ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
+        later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+    EXPECT_TRUE (guid_equal (&guid, &transaction_guid));
+    EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
+        later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
+
+    gnc_scrub_context_end (later_context);
+    gnc_scrub_context_unref (later_context);
     gnc_clear_current_session ();
 }
