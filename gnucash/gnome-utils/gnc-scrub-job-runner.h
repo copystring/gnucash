@@ -26,6 +26,13 @@ GncScrubJobRunner *gnc_scrub_job_runner_start (
     guint max_transactions_per_idle, GncScrubJobRunnerProgressFunc progress_cb,
     GncScrubJobRunnerDoneFunc done_cb, gpointer user_data,
     GDestroyNotify user_data_destroy);
+/* Production seam used by account-tree and reconcile callers. */
+GncScrubJobRunner *gnc_scrub_job_runner_start_lots (
+    Account *account, gboolean descendants, GObject *owner,
+    GCancellable *cancellable, guint max_transactions_per_idle,
+    GncScrubJobRunnerProgressFunc progress_cb,
+    GncScrubJobRunnerDoneFunc done_cb, gpointer user_data,
+    GDestroyNotify user_data_destroy);
 GncScrubJobRunner *gnc_scrub_job_runner_ref (GncScrubJobRunner *runner);
 void gnc_scrub_job_runner_unref (GncScrubJobRunner *runner);
 void gnc_scrub_job_runner_cancel (GncScrubJobRunner *runner);

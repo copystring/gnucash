@@ -59,6 +59,7 @@
 #include "gnc-icons.h"
 #include "gnc-plugin-account-tree.h"
 #include "gnc-prefs.h"
+#include "gnc-scrub-job-runner.h"
 #include "gnc-session.h"
 #include "gnc-split-reg.h"
 #include "gnc-state.h"
@@ -341,6 +342,17 @@ finish_scrubbing (GncPluginPageAccountTree *page, GncWindow *window,
     gnc_scrub_context_end (context);
     gnc_scrub_context_unref (context);
     gnc_resume_gui_refresh ();
+}
+
+static void
+start_lots_scrub_runner (Account *account, gboolean descendants,
+                         GObject *owner)
+{
+    auto runner = gnc_scrub_job_runner_start_lots (
+        account, descendants, owner, nullptr, 1, nullptr, nullptr, nullptr,
+        nullptr);
+    if (runner)
+        gnc_scrub_job_runner_unref (runner);
 }
 
 static const char*
@@ -2414,14 +2426,12 @@ gnc_plugin_page_account_tree_cmd_scrub (GSimpleAction *simple,
     xaccAccountScrubOrphansWithContext (account, gnc_window_show_progress, context);
     xaccAccountScrubImbalanceWithContext (account, gnc_window_show_progress, context);
 
-    // XXX: Lots/capital gains scrubbing is disabled
-    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountScrubLotsWithContext (account, context);
-
     gncScrubBusinessAccountWithContext (account, gnc_window_show_progress, context);
 
     finish_scrubbing (page, window, event_controller, scrub_kp_handler_ID,
                       context);
+    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
+        start_lots_scrub_runner (account, FALSE, G_OBJECT (window));
 }
 
 static void
@@ -2453,14 +2463,12 @@ gnc_plugin_page_account_tree_cmd_scrub_sub (GSimpleAction *simple,
     xaccAccountTreeScrubOrphansWithContext (account, gnc_window_show_progress, context);
     xaccAccountTreeScrubImbalanceWithContext (account, gnc_window_show_progress, context);
 
-    // XXX: Lots/capital gains scrubbing is disabled
-    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountTreeScrubLotsWithContext (account, context);
-
     gncScrubBusinessAccountTreeWithContext (account, gnc_window_show_progress, context);
 
     finish_scrubbing (page, window, event_controller, scrub_kp_handler_ID,
                       context);
+    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
+        start_lots_scrub_runner (account, TRUE, G_OBJECT (window));
 }
 
 static void
@@ -2490,14 +2498,12 @@ gnc_plugin_page_account_tree_cmd_scrub_all (GSimpleAction *simple,
 
     xaccAccountTreeScrubOrphansWithContext (root, gnc_window_show_progress, context);
     xaccAccountTreeScrubImbalanceWithContext (root, gnc_window_show_progress, context);
-    // XXX: Lots/capital gains scrubbing is disabled
-    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountTreeScrubLotsWithContext (root, context);
-
     gncScrubBusinessAccountTreeWithContext (root, gnc_window_show_progress, context);
 
     finish_scrubbing (page, window, event_controller, scrub_kp_handler_ID,
                       context);
+    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
+        start_lots_scrub_runner (root, TRUE, G_OBJECT (window));
 }
 
 /** @} */

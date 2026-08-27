@@ -57,6 +57,7 @@
 //#include "gnc-main-window.h"
 #include "gnc-plugin-page-register.h"
 #include "gnc-prefs.h"
+#include "gnc-scrub-job-runner.h"
 #include "gnc-ui.h"
 #include "gnc-ui-balances.h"
 #include "gnc-window.h"
@@ -1925,13 +1926,18 @@ gnc_recn_scrub_cb (GSimpleAction *simple,
     xaccAccountTreeScrubImbalanceWithContext (
         account, gnc_window_show_progress, context);
 
-    // XXX: Lots are disabled.
-    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
-        xaccAccountTreeScrubLotsWithContext (account, context);
-
     gnc_scrub_context_end (context);
     gnc_scrub_context_unref (context);
     gnc_resume_gui_refresh ();
+
+    if (g_getenv("GNC_AUTO_SCRUB_LOTS") != NULL)
+    {
+        auto runner = gnc_scrub_job_runner_start_lots (
+            account, TRUE, G_OBJECT (recnData->window), nullptr, 1,
+            nullptr, nullptr, nullptr, nullptr);
+        if (runner)
+            gnc_scrub_job_runner_unref (runner);
+    }
 }
 
 

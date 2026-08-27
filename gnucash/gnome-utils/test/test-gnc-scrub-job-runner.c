@@ -5,6 +5,7 @@
 #include "gnc-scrub-job-runner.h"
 #include "Account.h"
 #include "Split.h"
+#include "gnc-lot.h"
 #include "Transaction.h"
 #include "gnc-commodity.h"
 #include "gnc-session.h"
@@ -20,7 +21,88 @@ typedef struct
     guint total[16];
     GncScrubJobKind kind[16];
     GncScrubJobPhase phase[16];
+    guint lots_phase_calls;
+    guint gains_phase_calls;
+    guint stored_calls;
 } Observer;
+
+typedef struct
+{
+    QofSession *session;
+    QofBook *book;
+    Account *account;
+    Transaction *first_transaction;
+    gchar *old_auto_lots;
+} LotsFixture;
+
+static Split *
+add_lots_split (LotsFixture *fixture, gint64 amount, gint64 value, time64 date)
+{
+    Transaction *transaction = xaccMallocTransaction (fixture->book);
+    Split *split = xaccMallocSplit (fixture->book);
+
+    xaccTransBeginEdit (transaction);
+    xaccTransSetCurrency (transaction, xaccAccountGetCommodity (
+        gnc_account_get_root (fixture->account)));
+    xaccTransSetDatePostedSecsNormalized (transaction, date);
+    xaccSplitSetParent (split, transaction);
+    xaccSplitSetAccount (split, fixture->account);
+    xaccSplitSetAmount (split, gnc_numeric_create (amount, 1));
+    xaccSplitSetValue (split, gnc_numeric_create (value, 1));
+    xaccTransCommitEdit (transaction);
+    return split;
+}
+
+static LotsFixture
+make_lots_fixture (void)
+{
+    LotsFixture fixture = { 0 };
+    Account *root;
+    gnc_commodity *currency;
+    gnc_commodity *stock;
+
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+    fixture.old_auto_lots = g_strdup (g_getenv ("GNC_AUTO_SCRUB_LOTS"));
+    g_unsetenv ("GNC_AUTO_SCRUB_LOTS");
+    fixture.session = qof_session_new (qof_book_new ());
+    fixture.book = qof_session_get_book (fixture.session);
+    currency = gnc_commodity_new (fixture.book, "Runner lot currency",
+                                  "CURRENCY", "RLC", "", 100);
+    stock = gnc_commodity_new (fixture.book, "Runner lot stock", "NYSE",
+                               "RLS", "", 1000);
+    root = gnc_account_create_root (fixture.book);
+    xaccAccountSetCommodity (root, currency);
+    fixture.account = xaccMallocAccount (fixture.book);
+    xaccAccountBeginEdit (fixture.account);
+    xaccAccountSetName (fixture.account, "Runner lot account");
+    xaccAccountSetType (fixture.account, ACCT_TYPE_STOCK);
+    xaccAccountSetCommodity (fixture.account, stock);
+    gnc_account_append_child (root, fixture.account);
+    xaccAccountCommitEdit (fixture.account);
+
+    fixture.first_transaction = xaccSplitGetParent (
+        add_lots_split (&fixture, 10, 10, 86400));
+    add_lots_split (&fixture, 10, 10, 172800);
+    add_lots_split (&fixture, -25, -50, 259200);
+    gnc_set_current_session (fixture.session);
+    g_setenv ("GNC_AUTO_SCRUB_LOTS", "1", TRUE);
+    return fixture;
+}
+
+static void
+destroy_lots_fixture (LotsFixture *fixture)
+{
+    if (gnc_get_current_session () == fixture->session)
+        gnc_clear_current_session ();
+    else if (fixture->session)
+        qof_session_destroy (fixture->session);
+    if (fixture->old_auto_lots)
+        g_setenv ("GNC_AUTO_SCRUB_LOTS", fixture->old_auto_lots, TRUE);
+    else
+        g_unsetenv ("GNC_AUTO_SCRUB_LOTS");
+    g_free (fixture->old_auto_lots);
+}
 
 static GncScrubJob *
 make_job (guint transaction_count, GncScrubJobKind kind)
@@ -73,12 +155,18 @@ progress_cb (GncScrubJobRunner *runner, guint completed, guint total,
 
     (void)runner;
     g_assert_cmpuint (completed, <=, total);
-    g_assert_cmpuint (observer->progress_calls, <,
-                      G_N_ELEMENTS (observer->completed));
-    observer->completed[observer->progress_calls] = completed;
-    observer->total[observer->progress_calls] = total;
-    observer->kind[observer->progress_calls] = kind;
-    observer->phase[observer->progress_calls] = phase;
+    if (phase == GNC_SCRUB_JOB_PHASE_LOTS)
+        observer->lots_phase_calls++;
+    if (phase == GNC_SCRUB_JOB_PHASE_GAINS)
+        observer->gains_phase_calls++;
+    if (observer->stored_calls < G_N_ELEMENTS (observer->completed))
+    {
+        guint index = observer->stored_calls++;
+        observer->completed[index] = completed;
+        observer->total[index] = total;
+        observer->kind[index] = kind;
+        observer->phase[index] = phase;
+    }
     observer->progress_calls++;
 }
 
@@ -100,6 +188,25 @@ iterate_until (Observer *observer, guint progress_calls)
         g_main_context_iteration (NULL, FALSE);
 
     g_assert_cmpuint (observer->progress_calls, >=, progress_calls);
+}
+
+static void
+iterate_until_done (Observer *observer, guint max_iterations)
+{
+    for (guint attempt = 0;
+         attempt < max_iterations && observer->done_calls == 0; ++attempt)
+        g_main_context_iteration (NULL, FALSE);
+    g_assert_cmpuint (observer->done_calls, ==, 1);
+}
+
+static void
+iterate_until_gains (Observer *observer, guint max_iterations)
+{
+    for (guint attempt = 0;
+         attempt < max_iterations && observer->gains_phase_calls == 0; ++attempt)
+        g_main_context_iteration (NULL, FALSE);
+    g_assert_cmpuint (observer->gains_phase_calls, >, 0);
+    g_assert_cmpuint (observer->done_calls, ==, 0);
 }
 
 static void
@@ -217,6 +324,142 @@ test_composite_job_reports_phase_progress (void)
     gnc_clear_current_session ();
 }
 
+static void
+test_real_lots_runner_keeps_nested_gains_resumable (void)
+{
+    LotsFixture fixture = make_lots_fixture ();
+    Observer observer = { 0 };
+    GncScrubJobRunner *runner = gnc_scrub_job_runner_start (
+        gnc_scrub_lots_job_begin (fixture.account, FALSE), NULL, NULL, 1,
+        progress_cb, done_cb, &observer, NULL);
+
+    g_assert_nonnull (runner);
+    iterate_until_done (&observer, 8192);
+    g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_DONE);
+    g_assert_cmpuint (observer.progress_calls, >, 20);
+    g_assert_cmpuint (observer.lots_phase_calls, >, 1);
+    g_assert_cmpuint (observer.gains_phase_calls, >, 1);
+    g_assert_true (gnc_scrub_job_runner_is_finished (runner));
+    for (guint attempt = 0; attempt < 8; ++attempt)
+        g_main_context_iteration (NULL, FALSE);
+    g_assert_cmpuint (observer.done_calls, ==, 1);
+
+    GncScrubContext *verify = gnc_scrub_context_begin (fixture.book);
+    g_assert_nonnull (verify);
+    g_assert_cmpuint (gnc_scrub_deferred_commit_pending_count (
+        verify, GNC_SCRUB_DEFERRED_COMMIT_GAINS), ==, 0);
+    gnc_scrub_context_end (verify);
+    gnc_scrub_context_unref (verify);
+    gnc_scrub_job_runner_unref (runner);
+    destroy_lots_fixture (&fixture);
+}
+
+static void
+test_real_owner_destroy_preserves_fifo_head (void)
+{
+    LotsFixture fixture = make_lots_fixture ();
+    Observer observer = { 0 };
+    GObject *owner = g_object_new (G_TYPE_OBJECT, NULL);
+    GncScrubJobRunner *runner = gnc_scrub_job_runner_start (
+        gnc_scrub_lots_job_begin (fixture.account, FALSE), owner, NULL, 1,
+        progress_cb, done_cb, &observer, NULL);
+
+    g_assert_nonnull (runner);
+    iterate_until_gains (&observer, 4096);
+    g_object_unref (owner);
+    g_assert_cmpuint (observer.done_calls, ==, 1);
+    g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_CANCELLED);
+    for (guint attempt = 0; attempt < 8; ++attempt)
+        g_main_context_iteration (NULL, FALSE);
+    g_assert_cmpuint (observer.done_calls, ==, 1);
+
+    GncScrubContext *handoff = gnc_scrub_context_begin (fixture.book);
+    GncGUID head;
+    g_assert_nonnull (handoff);
+    g_assert_cmpuint (gnc_scrub_deferred_commit_pending_count (
+        handoff, GNC_SCRUB_DEFERRED_COMMIT_GAINS), >, 0);
+    g_assert_true (gnc_scrub_deferred_commit_peek (
+        handoff, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &head));
+    g_assert_true (guid_equal (&head,
+                               xaccTransGetGUID (fixture.first_transaction)));
+    gnc_scrub_context_end (handoff);
+    gnc_scrub_context_unref (handoff);
+    gnc_scrub_job_runner_unref (runner);
+    destroy_lots_fixture (&fixture);
+}
+
+static void
+test_real_external_generation_drift_preserves_fifo (void)
+{
+    LotsFixture fixture = make_lots_fixture ();
+    Observer observer = { 0 };
+    GncScrubJobRunner *runner = gnc_scrub_job_runner_start (
+        gnc_scrub_lots_job_begin (fixture.account, FALSE), NULL, NULL, 1,
+        progress_cb, done_cb, &observer, NULL);
+    Split *split;
+
+    g_assert_nonnull (runner);
+    iterate_until (&observer, 2);
+    split = xaccTransFindSplitByAccount (fixture.first_transaction,
+                                         fixture.account);
+    g_assert_nonnull (split);
+    xaccTransBeginEdit (fixture.first_transaction);
+    xaccSplitSetAmount (split, gnc_numeric_create (11, 1));
+    xaccTransCommitEdit (fixture.first_transaction);
+    iterate_until_done (&observer, 8);
+    g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_FAILED);
+
+    GncScrubContext *handoff = gnc_scrub_context_begin (fixture.book);
+    GncGUID head;
+    g_assert_nonnull (handoff);
+    g_assert_cmpuint (gnc_scrub_deferred_commit_pending_count (
+        handoff, GNC_SCRUB_DEFERRED_COMMIT_GAINS), >, 0);
+    g_assert_true (gnc_scrub_deferred_commit_peek (
+        handoff, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &head));
+    g_assert_true (guid_equal (&head,
+                               xaccTransGetGUID (fixture.first_transaction)));
+    gnc_scrub_context_end (handoff);
+    gnc_scrub_context_unref (handoff);
+    gnc_scrub_job_runner_unref (runner);
+    destroy_lots_fixture (&fixture);
+}
+
+static void
+test_real_runner_rejects_session_and_book_drift (void)
+{
+    LotsFixture fixture = make_lots_fixture ();
+    Observer observer = { 0 };
+    QofSession *foreign = qof_session_new (qof_book_new ());
+    QofBook *current_book = fixture.book;
+    QofBook *foreign_book = qof_session_get_book (foreign);
+    guint64 generation = gnc_current_session_get_generation ();
+    GncScrubJobRunner *runner = gnc_scrub_job_runner_start (
+        gnc_scrub_lots_job_begin (fixture.account, FALSE), NULL, NULL, 1,
+        progress_cb, done_cb, &observer, NULL);
+
+    g_assert_nonnull (runner);
+    g_test_expect_message ("gnc.engine", G_LOG_LEVEL_WARNING,
+                           "*Refusing to replace the current session while it is leased*");
+    gnc_set_current_session (foreign);
+    g_test_assert_expected_messages ();
+    g_assert_true (gnc_get_current_session () == fixture.session);
+    g_assert_cmpuint (gnc_current_session_get_generation (), ==, generation);
+    g_test_expect_message ("qof.session", G_LOG_LEVEL_WARNING,
+                           "*Refusing legacy swap-data while an operation lease owns session*");
+    qof_session_swap_data (fixture.session, foreign);
+    g_test_assert_expected_messages ();
+    g_assert_true (qof_session_get_book (fixture.session) == current_book);
+    g_assert_true (qof_session_get_book (foreign) == foreign_book);
+    iterate_until_done (&observer, 8192);
+    g_assert_cmpint (observer.state, ==, GNC_SCRUB_JOB_DONE);
+    g_assert_true (gnc_get_current_session () == fixture.session);
+    g_assert_cmpuint (gnc_current_session_get_generation (), ==, generation);
+    g_assert_true (qof_session_get_book (fixture.session) == current_book);
+    gnc_scrub_job_runner_unref (runner);
+    qof_session_destroy (foreign);
+    destroy_lots_fixture (&fixture);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -232,6 +475,14 @@ main (int argc, char **argv)
                      test_pre_cancelled_cancellable_completes_once);
     g_test_add_func ("/gnome-utils/scrub-job-runner/composite-phases",
                      test_composite_job_reports_phase_progress);
+    g_test_add_func ("/gnome-utils/scrub-job-runner/real-lots-nested-gains",
+                     test_real_lots_runner_keeps_nested_gains_resumable);
+    g_test_add_func ("/gnome-utils/scrub-job-runner/real-owner-fifo-handoff",
+                     test_real_owner_destroy_preserves_fifo_head);
+    g_test_add_func ("/gnome-utils/scrub-job-runner/real-generation-drift",
+                     test_real_external_generation_drift_preserves_fifo);
+    g_test_add_func ("/gnome-utils/scrub-job-runner/real-session-book-drift",
+                     test_real_runner_rejects_session_and_book_drift);
 
     int status = g_test_run ();
     gnc_engine_shutdown ();

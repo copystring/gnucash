@@ -1595,13 +1595,84 @@ typedef struct
     guint64 expected_generation;
     QofSession *new_session;
     QofBackendError last_error;
+    gulong parent_destroy_handler;
+    gboolean load_registered;
 } GncFileOpenOperation;
+
+static GList *file_open_load_operations;
+static gboolean file_open_load_shutdown_hook_registered;
 
 static void file_open_start (GncFileOpenOperation *operation);
 
 static void
+file_open_load_registry_remove (GncFileOpenOperation *operation)
+{
+    GtkWindow *parent;
+
+    if (!operation || !operation->load_registered)
+        return;
+    operation->load_registered = FALSE;
+    file_open_load_operations = g_list_remove (file_open_load_operations,
+                                               operation);
+    parent = GTK_WINDOW (g_weak_ref_get (&operation->parent));
+    if (parent && operation->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, operation->parent_destroy_handler);
+    operation->parent_destroy_handler = 0;
+    g_clear_object (&parent);
+}
+
+static void
+file_open_parent_destroyed (GtkWidget *parent, gpointer user_data)
+{
+    GncFileOpenOperation *operation = user_data;
+
+    (void)parent;
+    operation->parent_destroy_handler = 0;
+    if (operation->load_registered && operation->new_session)
+        (void)qof_session_cancel_active_load (operation->new_session);
+}
+
+static void
+file_open_ui_shutdown (gpointer hook_data, gpointer user_data)
+{
+    GList *operations = g_list_copy (file_open_load_operations);
+
+    (void)hook_data;
+    (void)user_data;
+    for (GList *node = operations; node; node = node->next)
+    {
+        GncFileOpenOperation *operation = node->data;
+        if (operation->load_registered && operation->new_session)
+            (void)qof_session_cancel_active_load (operation->new_session);
+    }
+    g_list_free (operations);
+}
+
+static void
+file_open_load_registry_add (GncFileOpenOperation *operation,
+                             GtkWindow *parent)
+{
+    g_return_if_fail (operation != NULL);
+    g_return_if_fail (!operation->load_registered);
+
+    if (!file_open_load_shutdown_hook_registered)
+    {
+        gnc_hook_add_dangler (HOOK_UI_SHUTDOWN,
+                              (GFunc)file_open_ui_shutdown, NULL, NULL);
+        file_open_load_shutdown_hook_registered = TRUE;
+    }
+    operation->load_registered = TRUE;
+    file_open_load_operations = g_list_prepend (file_open_load_operations,
+                                                operation);
+    if (parent)
+        operation->parent_destroy_handler = g_signal_connect (
+            parent, "destroy", G_CALLBACK (file_open_parent_destroyed), operation);
+}
+
+static void
 file_open_operation_free (GncFileOpenOperation *operation)
 {
+    file_open_load_registry_remove (operation);
     g_weak_ref_clear (&operation->parent);
     g_free (operation->filename);
     g_free (operation->expected_url);
@@ -1927,6 +1998,52 @@ file_open_after_loaded_error (GtkWindow *parent, gboolean uh_oh, gpointer user_d
 }
 
 static void
+file_open_load_finished (QofSession *session, QofSessionLoadAsyncStatus status,
+                         gpointer user_data)
+{
+    GncFileOpenOperation *operation = user_data;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&operation->parent));
+
+    /* The terminal callback is now the sole owner of the operation. */
+    file_open_load_registry_remove (operation);
+    gnc_window_show_progress (NULL, -1.0);
+    if (session != operation->new_session ||
+        (operation->has_parent && !parent) ||
+        !file_open_operation_is_current (operation))
+    {
+        g_clear_object (&parent);
+        file_open_operation_fail (operation);
+        return;
+    }
+
+    if (status == QOF_SESSION_LOAD_ERROR)
+    {
+        operation->last_error = qof_session_pop_error (operation->new_session);
+        if (operation->last_error == ERR_BACKEND_NO_ERR)
+            operation->last_error = ERR_BACKEND_MISC;
+        show_session_error_async (parent, operation->last_error,
+                                  operation->filename, GNC_FILE_DIALOG_OPEN,
+                                  file_open_error_finished, operation);
+        g_clear_object (&parent);
+        return;
+    }
+    if (status != QOF_SESSION_LOAD_COMPLETED)
+    {
+        g_clear_object (&parent);
+        file_open_operation_fail (operation);
+        return;
+    }
+
+    if (operation->is_readonly)
+        qof_book_mark_readonly (qof_session_get_book (operation->new_session));
+    operation->last_error = qof_session_pop_error (operation->new_session);
+    show_session_error_async (parent, operation->last_error, operation->filename,
+                              GNC_FILE_DIALOG_OPEN, file_open_after_loaded_error,
+                              operation);
+    g_clear_object (&parent);
+}
+
+static void
 file_open_start (GncFileOpenOperation *operation)
 {
     GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&operation->parent));
@@ -2006,15 +2123,27 @@ file_open_start (GncFileOpenOperation *operation)
         return;
     }
 
-    xaccLogDisable ();
     gnc_window_show_progress (_("Loading user data…"), 0.0);
     lease = qof_session_operation_lease_acquire_for (
-        operation->new_session, QOF_SESSION_OPERATION_OPEN);
-    authorized = lease && qof_session_load_with_lease (
-        operation->new_session, lease, gnc_window_show_progress);
+        operation->new_session, QOF_SESSION_OPERATION_LOAD);
+    authorized = lease && qof_session_load_async_with_lease (
+        operation->new_session, lease, gnc_window_show_progress,
+        file_open_load_finished, operation);
+    if (authorized)
+    {
+        /* The terminal callback owns the operation after the LOAD handoff. */
+        file_open_load_registry_add (operation, parent);
+        g_free (scheme);
+        g_free (hostname);
+        g_free (username);
+        g_free (password);
+        g_free (path);
+        g_free (newfile);
+        g_clear_object (&parent);
+        return;
+    }
     qof_session_operation_lease_release (lease);
     gnc_window_show_progress (NULL, -1.0);
-    xaccLogEnable ();
     if (!authorized)
     {
         operation->last_error = ERR_BACKEND_MISC;
@@ -2023,13 +2152,6 @@ file_open_start (GncFileOpenOperation *operation)
                                   operation);
         goto file_open_start_out;
     }
-    if (operation->is_readonly)
-        qof_book_mark_readonly (qof_session_get_book (operation->new_session));
-
-    operation->last_error = qof_session_pop_error (operation->new_session);
-    show_session_error_async (parent, operation->last_error, newfile,
-                              GNC_FILE_DIALOG_OPEN, file_open_after_loaded_error,
-                              operation);
 
 file_open_start_out:
     g_free (scheme);

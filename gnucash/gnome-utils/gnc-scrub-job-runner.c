@@ -204,6 +204,29 @@ gnc_scrub_job_runner_start (GncScrubJob *job, GObject *owner,
     return runner;
 }
 
+GncScrubJobRunner *
+gnc_scrub_job_runner_start_lots (
+    Account *account, gboolean descendants, GObject *owner,
+    GCancellable *cancellable, guint max_transactions_per_idle,
+    GncScrubJobRunnerProgressFunc progress_cb,
+    GncScrubJobRunnerDoneFunc done_cb, gpointer user_data,
+    GDestroyNotify user_data_destroy)
+{
+    GncScrubJob *job;
+    GncScrubJobRunner *runner;
+
+    g_return_val_if_fail (account != NULL, NULL);
+    job = gnc_scrub_lots_job_begin (account, descendants);
+    if (!job)
+        return NULL;
+    runner = gnc_scrub_job_runner_start (
+        job, owner, cancellable, max_transactions_per_idle, progress_cb,
+        done_cb, user_data, user_data_destroy);
+    if (!runner)
+        gnc_scrub_job_free (job);
+    return runner;
+}
+
 void
 gnc_scrub_job_runner_cancel (GncScrubJobRunner *runner)
 {

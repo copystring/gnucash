@@ -27,6 +27,7 @@
 #include "dialog-lot-viewer.h"
 #include "gnc-component-manager.h"
 #include "gnc-prefs.h"
+#include "gnc-scrub-job-runner.h"
 #include "gnc-ui-util.h"
 #include "gnc-window.h"
 #include "misc-gnome-utils.h"
@@ -85,7 +86,25 @@ struct _GNCLotViewer
     GtkButton *add_split_to_lot_button, *remove_split_from_lot_button;
     GtkCheckButton *only_show_open_lots_checkbutton;
     Account *account; GNCLot *selected_lot;
+    GncScrubJobRunner *scrub_runner;
+    gboolean closing;
 };
+
+gboolean
+gnc_lot_viewer_account_uses_async_scrub (const Account *account)
+{
+    return account &&
+           !xaccAccountIsAPARType (xaccAccountGetType (account));
+}
+
+void
+gnc_lot_viewer_set_scrub_controls_sensitive (
+    GtkWidget *lot_button, GtkWidget *account_button, gboolean sensitive)
+{
+    gtk_widget_set_sensitive (lot_button, sensitive);
+    gtk_widget_set_sensitive (account_button, sensitive);
+}
+
 static void gnc_lot_viewer_fill (GNCLotViewer *lv);
 static void gnc_split_viewer_fill (GNCLotViewer *lv, GListStore *store, SplitList *split_list);
 static void lv_refresh (GNCLotViewer *lv);
@@ -211,54 +230,108 @@ static void new_lot_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
 static void delete_lot_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
 { GNCLotViewer *lv = user_data; GNCLot *lot = lv->selected_lot; if (!lot || gncInvoiceGetInvoiceFromLot (lot)) return; xaccAccountRemoveLot (gnc_lot_get_account (lot), lot); gnc_lot_destroy (lot); unset_lot (lv); lv_refresh (lv); }
 
+static void
+scrub_job_done (GncScrubJobRunner *runner, GncScrubJobState state,
+                gpointer user_data)
+{
+    GNCLotViewer *lv = user_data;
+    if (!lv->closing)
+    {
+        gnc_lot_viewer_set_scrub_controls_sensitive (
+            GTK_WIDGET (lv->scrub_lot_button),
+            GTK_WIDGET (lv->scrub_account_button), TRUE);
+        if (state == GNC_SCRUB_JOB_DONE)
+            lv_refresh (lv);
+    }
+    if (lv->scrub_runner == runner)
+    {
+        lv->scrub_runner = NULL;
+        gnc_scrub_job_runner_unref (runner);
+    }
+}
+
+static void
+start_scrub_job (GNCLotViewer *lv, GncScrubJob *job)
+{
+    if (!job || lv->scrub_runner)
+    {
+        if (job)
+            gnc_scrub_job_free (job);
+        return;
+    }
+    gnc_lot_viewer_set_scrub_controls_sensitive (
+        GTK_WIDGET (lv->scrub_lot_button),
+        GTK_WIDGET (lv->scrub_account_button), FALSE);
+    lv->scrub_runner = gnc_scrub_job_runner_start (
+        job, G_OBJECT (lv->window), NULL, 1, NULL, scrub_job_done, lv, NULL);
+    if (!lv->scrub_runner)
+    {
+        gnc_scrub_job_free (job);
+        gnc_lot_viewer_set_scrub_controls_sensitive (
+            GTK_WIDGET (lv->scrub_lot_button),
+            GTK_WIDGET (lv->scrub_account_button), TRUE);
+    }
+}
+
 static void scrub_lot_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
 {
     GNCLotViewer *lv = user_data;
-    GncScrubContext *context;
-
-    if (!lv->selected_lot)
+    if (!lv->selected_lot || lv->scrub_runner)
         return;
-    context = gnc_scrub_context_begin (
-        qof_instance_get_book (QOF_INSTANCE (lv->account)));
-    if (!context)
-        return;
-
-    if (xaccAccountIsAPARType (xaccAccountGetType (lv->account)))
+    if (!gnc_lot_viewer_account_uses_async_scrub (lv->account))
+    {
+        GncScrubContext *context = gnc_scrub_context_begin (
+            qof_instance_get_book (QOF_INSTANCE (lv->account)));
+        if (!context)
+            return;
         gncScrubBusinessLotWithContext (lv->selected_lot, context);
+        gnc_scrub_context_end (context);
+        gnc_scrub_context_unref (context);
+        lv_refresh (lv);
+    }
     else
-        xaccScrubLotWithContext (lv->selected_lot, context);
-
-    gnc_scrub_context_end (context);
-    gnc_scrub_context_unref (context);
-    lv_refresh (lv);
+        start_scrub_job (lv, gnc_scrub_lot_job_begin (lv->selected_lot));
 }
 
 static void scrub_account_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data)
 {
     GNCLotViewer *lv = user_data;
-    GncScrubContext *context = gnc_scrub_context_begin (
-        qof_instance_get_book (QOF_INSTANCE (lv->account)));
-
-    if (!context)
+    if (lv->scrub_runner)
         return;
-
-    gnc_suspend_gui_refresh ();
-    if (xaccAccountIsAPARType (xaccAccountGetType (lv->account)))
+    if (!gnc_lot_viewer_account_uses_async_scrub (lv->account))
+    {
+        GncScrubContext *context = gnc_scrub_context_begin (
+            qof_instance_get_book (QOF_INSTANCE (lv->account)));
+        if (!context)
+            return;
+        gnc_suspend_gui_refresh ();
         gncScrubBusinessAccountLotsWithContext (
             lv->account, gnc_window_show_progress, context);
+        gnc_scrub_context_end (context);
+        gnc_scrub_context_unref (context);
+        gnc_resume_gui_refresh ();
+        lv_refresh (lv);
+    }
     else
-        xaccAccountScrubLotsWithContext (lv->account, context);
-    gnc_scrub_context_end (context);
-    gnc_scrub_context_unref (context);
-    gnc_resume_gui_refresh ();
-    lv_refresh (lv);
+        start_scrub_job (lv, gnc_scrub_lots_job_begin (lv->account, FALSE));
 }
 
 static void close_cb (G_GNUC_UNUSED GtkButton *button, gpointer user_data) { gnc_close_gui_component_by_data (LOT_VIEWER_CM_CLASS, user_data); }
 static gboolean close_request_cb (G_GNUC_UNUSED GtkWindow *window, gpointer user_data) { gnc_close_gui_component_by_data (LOT_VIEWER_CM_CLASS, user_data); return TRUE; }
 static gboolean escape_cb (G_GNUC_UNUSED GtkWidget *widget, G_GNUC_UNUSED GVariant *args, gpointer user_data) { gnc_close_gui_component_by_data (LOT_VIEWER_CM_CLASS, user_data); return TRUE; }
 static void window_destroy_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer user_data)
-{ GNCLotViewer *lv = user_data; gnc_unregister_gui_component_by_data (LOT_VIEWER_CM_CLASS, lv); g_clear_object (&lv->lot_selection); g_clear_object (&lv->lot_sorted); g_clear_object (&lv->lot_store); g_clear_object (&lv->split_in_lot_selection); g_clear_object (&lv->split_in_lot_sorted); g_clear_object (&lv->split_in_lot_store); g_clear_object (&lv->split_free_selection); g_clear_object (&lv->split_free_sorted); g_clear_object (&lv->split_free_store); g_free (lv); }
+{
+    GNCLotViewer *lv = user_data;
+    lv->closing = TRUE;
+    if (lv->scrub_runner)
+        gnc_scrub_job_runner_cancel (lv->scrub_runner);
+    gnc_unregister_gui_component_by_data (LOT_VIEWER_CM_CLASS, lv);
+    g_clear_object (&lv->lot_selection); g_clear_object (&lv->lot_sorted);
+    g_clear_object (&lv->lot_store); g_clear_object (&lv->split_in_lot_selection);
+    g_clear_object (&lv->split_in_lot_sorted); g_clear_object (&lv->split_in_lot_store);
+    g_clear_object (&lv->split_free_selection); g_clear_object (&lv->split_free_sorted);
+    g_clear_object (&lv->split_free_store); g_free (lv);
+}
 static void split_paned_realize_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer user_data)
 { GNCLotViewer *lv = user_data; gint width; gtk_window_get_default_size (GTK_WINDOW (lv->window), &width, NULL); gtk_paned_set_position (GTK_PANED (lv->split_hpaned), width / 2); }
 static void add_shortcuts (GNCLotViewer *lv)
