@@ -3707,6 +3707,8 @@ gnc_main_window_new (void)
                       G_CALLBACK (gnc_main_window_key_press_event), nullptr);
     gtk_widget_add_controller (GTK_WIDGET (window), key_controller);
 
+    gtk_window_present (GTK_WINDOW (window));
+
     return window;
 }
 

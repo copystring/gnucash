@@ -1760,6 +1760,7 @@ file_open_commit (GncFileOpenOperation *operation, GtkWindow *parent)
     gnc_gui_refresh_all ();
     gnc_book_opened ();
     run_post_load_scrubs (parent, qof_session_get_book (new_session));
+    gnc_main_window_show_all_windows ();
     file_open_operation_free (operation);
 }
 
