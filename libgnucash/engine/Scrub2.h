@@ -36,6 +36,7 @@
 
 typedef struct GncScrubContext GncScrubContext;
 typedef struct GncLotAssignmentPlan GncLotAssignmentPlan;
+typedef struct GncLotStatsPlan GncLotStatsPlan;
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +64,37 @@ extern "C" {
  *   implements a FIFO accounting policy.
  */
 void xaccAccountAssignLots (Account *acc);
+
+typedef enum
+{
+    GNC_LOT_STATS_RUNNING,
+    GNC_LOT_STATS_DONE,
+    GNC_LOT_STATS_CANCELLED,
+    GNC_LOT_STATS_STALE,
+    GNC_LOT_STATS_FAILED,
+} GncLotStatsPlanState;
+
+/** Incrementally collect amount/value balance, split count, earliest/latest
+ * positions, and first currency. Each step consumes at most max_work nodes. */
+GncLotStatsPlan *gnc_lot_stats_plan_begin (GNCLot *lot,
+                                           GncScrubContext *context);
+GncLotStatsPlanState gnc_lot_stats_plan_step (GncLotStatsPlan *plan,
+                                               guint max_work);
+GncLotStatsPlanState gnc_lot_stats_plan_get_state (
+    const GncLotStatsPlan *plan);
+gboolean gnc_lot_stats_plan_get_result (const GncLotStatsPlan *plan,
+                                         gnc_numeric *amount,
+                                         gnc_numeric *value,
+                                         guint *split_count,
+                                         GncGUID *earliest_split,
+                                         GncGUID *latest_split,
+                                         GncGUID *currency);
+void gnc_lot_stats_plan_free (GncLotStatsPlan *plan);
+
+/** Validate and apply exactly one already-selected subsplit merge. */
+gboolean gnc_scrub_merge_split_pair_prepared (Split *keep,
+                                               Split *remove,
+                                               gboolean strict);
 
 /** State of a bounded, context-bound account lot-assignment plan. */
 typedef enum

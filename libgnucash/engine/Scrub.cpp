@@ -53,10 +53,12 @@
 #include "AccountP.hpp"
 #include "Account.hpp"
 #include "Scrub.h"
+#include "Scrub3.h"
 #include "ScrubP.h"
 #include "Transaction.h"
 #include "TransactionP.hpp"
 #include "gnc-commodity.h"
+#include "gnc-lot.h"
 #include "guid.hpp"
 #include "qofbook.h"
 #include "qofinstance-p.h"
@@ -87,6 +89,13 @@ struct GncScrubJob
     GncScrubJobKind kind;
     GncScrubJobPhase phase;
     guint phase_count;
+    GncTransactionGainsPlan *gains_child;
+    GncGUID gains_head;
+    guint gains_completed;
+    GncAccountLotsPlan *account_lots_child;
+    GncLotScrubPlan *lot_child;
+    guint structural_completed;
+    gboolean structural_changed;
 };
 
 struct GncScrubDeferredCommitWork
@@ -526,6 +535,84 @@ gnc_scrub_account_job_begin (Account *account, gboolean descendants)
                                 2);
 }
 
+GncScrubJob *
+gnc_scrub_deferred_gains_job_begin (QofBook *book)
+{
+    if (!book)
+        return nullptr;
+    auto context = gnc_scrub_context_begin (book);
+    if (!context)
+        return nullptr;
+    if (!gnc_scrub_context_enable_commit_deferral (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS))
+    {
+        gnc_scrub_context_unref (context);
+        return nullptr;
+    }
+    return new GncScrubJob {
+        context, book, {}, 0, GNC_SCRUB_JOB_RUNNING, GNC_SCRUB_JOB_GAINS,
+        GNC_SCRUB_JOB_PHASE_GAINS, 1, nullptr, *guid_null (), 0,
+        nullptr, nullptr, 0, FALSE};
+}
+
+static GncScrubJob *
+gnc_scrub_structural_job_begin (QofBook *book, GncScrubJobKind kind)
+{
+    auto context = gnc_scrub_context_begin (book);
+    if (!context)
+        return nullptr;
+    if (!gnc_scrub_context_enable_commit_deferral (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS))
+    {
+        gnc_scrub_context_unref (context);
+        return nullptr;
+    }
+    return new GncScrubJob {
+        context, book, {}, 0, GNC_SCRUB_JOB_RUNNING, kind,
+        GNC_SCRUB_JOB_PHASE_LOTS, 1, nullptr, *guid_null (), 0,
+        nullptr, nullptr, 0, FALSE};
+}
+
+GncScrubJob *
+gnc_scrub_lots_job_begin (Account *account, gboolean descendants)
+{
+    if (!account)
+        return nullptr;
+    auto book = qof_instance_get_book (QOF_INSTANCE (account));
+    auto job = gnc_scrub_structural_job_begin (book, GNC_SCRUB_JOB_LOTS);
+    if (!job)
+        return nullptr;
+    job->account_lots_child = gnc_account_lots_plan_begin (
+        account, descendants, job->context);
+    if (!job->account_lots_child)
+    {
+        gnc_scrub_job_free (job);
+        return nullptr;
+    }
+    return job;
+}
+
+GncScrubJob *
+gnc_scrub_lot_job_begin (GNCLot *lot)
+{
+    if (!lot)
+        return nullptr;
+    auto account = gnc_lot_get_account (lot);
+    if (!account || xaccAccountIsAPARType (xaccAccountGetType (account)))
+        return nullptr;
+    auto book = qof_instance_get_book (QOF_INSTANCE (lot));
+    auto job = gnc_scrub_structural_job_begin (book, GNC_SCRUB_JOB_LOT);
+    if (!job)
+        return nullptr;
+    job->lot_child = gnc_lot_scrub_plan_begin (lot, job->context);
+    if (!job->lot_child)
+    {
+        gnc_scrub_job_free (job);
+        return nullptr;
+    }
+    return job;
+}
+
 static gboolean
 gnc_scrub_job_process_transaction (GncScrubJob *job, Transaction *transaction)
 {
@@ -549,6 +636,9 @@ gnc_scrub_job_process_transaction (GncScrubJob *job, Transaction *transaction)
                                             job->context);
         return TRUE;
     }
+    case GNC_SCRUB_JOB_PHASE_GAINS:
+    case GNC_SCRUB_JOB_PHASE_LOTS:
+        return FALSE;
     }
     return FALSE;
 }
@@ -563,6 +653,110 @@ gnc_scrub_job_advance_phase (GncScrubJob *job)
     job->phase = GNC_SCRUB_JOB_PHASE_IMBALANCE;
     job->cursor = 0;
     return TRUE;
+}
+
+static GncScrubJobState
+gnc_scrub_gains_job_step (GncScrubJob *job, guint max_work)
+{
+    if (!job->gains_child)
+    {
+        if (!gnc_scrub_deferred_commit_peek (
+                job->context, GNC_SCRUB_DEFERRED_COMMIT_GAINS,
+                &job->gains_head))
+        {
+            gnc_scrub_job_finish (job, GNC_SCRUB_JOB_DONE);
+            return job->state;
+        }
+        auto transaction = xaccTransLookup (&job->gains_head, job->book);
+        if (!transaction)
+        {
+            if (!gnc_scrub_deferred_commit_ack (
+                    job->context, GNC_SCRUB_DEFERRED_COMMIT_GAINS,
+                    &job->gains_head))
+                gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+            else
+                ++job->gains_completed;
+            return job->state;
+        }
+        job->gains_child = gnc_transaction_gains_plan_begin (
+            transaction, nullptr, job->context);
+        if (!job->gains_child)
+        {
+            gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+            return job->state;
+        }
+    }
+
+    auto child_state = gnc_transaction_gains_plan_step (job->gains_child,
+                                                         max_work);
+    if (child_state == GNC_TRANSACTION_GAINS_PLAN_RUNNING)
+        return job->state;
+    gnc_transaction_gains_plan_free (job->gains_child);
+    job->gains_child = nullptr;
+    if (child_state == GNC_TRANSACTION_GAINS_PLAN_CANCELLED)
+        gnc_scrub_job_finish (job, GNC_SCRUB_JOB_CANCELLED);
+    else if (child_state != GNC_TRANSACTION_GAINS_PLAN_DONE ||
+             !gnc_scrub_deferred_commit_ack (
+                 job->context, GNC_SCRUB_DEFERRED_COMMIT_GAINS,
+                 &job->gains_head))
+        gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+    else
+        ++job->gains_completed;
+    return job->state;
+}
+
+static GncScrubJobState
+gnc_scrub_structural_job_step (GncScrubJob *job, guint max_work)
+{
+    guint remaining = max_work;
+    while (remaining && job->state == GNC_SCRUB_JOB_RUNNING)
+    {
+        if (job->phase == GNC_SCRUB_JOB_PHASE_GAINS)
+        {
+            gnc_scrub_gains_job_step (job, 1);
+            --remaining;
+            continue;
+        }
+
+        if (job->kind == GNC_SCRUB_JOB_LOTS)
+        {
+            auto state = gnc_account_lots_plan_step (
+                job->account_lots_child, 1);
+            --remaining;
+            job->structural_completed = gnc_account_lots_plan_get_completed (
+                job->account_lots_child);
+            if (state == GNC_ACCOUNT_LOTS_PLAN_RUNNING)
+                continue;
+            gnc_account_lots_plan_free (job->account_lots_child);
+            job->account_lots_child = nullptr;
+            if (state == GNC_ACCOUNT_LOTS_PLAN_DONE)
+                job->phase = GNC_SCRUB_JOB_PHASE_GAINS;
+            else if (state == GNC_ACCOUNT_LOTS_PLAN_CANCELLED)
+                gnc_scrub_job_finish (job, GNC_SCRUB_JOB_CANCELLED);
+            else
+                gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+            continue;
+        }
+
+        auto state = gnc_lot_scrub_plan_step (job->lot_child, 1);
+        --remaining;
+        if (state == GNC_LOT_SCRUB_PLAN_RUNNING)
+            continue;
+        job->structural_changed =
+            gnc_lot_scrub_plan_get_splits_deleted (job->lot_child);
+        gnc_lot_scrub_plan_free (job->lot_child);
+        job->lot_child = nullptr;
+        if (state == GNC_LOT_SCRUB_PLAN_DONE)
+        {
+            job->structural_completed = 1;
+            job->phase = GNC_SCRUB_JOB_PHASE_GAINS;
+        }
+        else if (state == GNC_LOT_SCRUB_PLAN_CANCELLED)
+            gnc_scrub_job_finish (job, GNC_SCRUB_JOB_CANCELLED);
+        else
+            gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
+    }
+    return job->state;
 }
 
 GncScrubJobState
@@ -587,6 +781,13 @@ gnc_scrub_job_step (GncScrubJob *job, guint max_transactions)
         gnc_scrub_job_finish (job, GNC_SCRUB_JOB_FAILED);
         return job->state;
     }
+
+    if (job->kind == GNC_SCRUB_JOB_GAINS)
+        return gnc_scrub_gains_job_step (job, max_transactions);
+
+    if (job->kind == GNC_SCRUB_JOB_LOTS ||
+        job->kind == GNC_SCRUB_JOB_LOT)
+        return gnc_scrub_structural_job_step (job, max_transactions);
 
     guint processed = 0;
     while (processed < max_transactions &&
@@ -629,6 +830,12 @@ gnc_scrub_job_cancel (GncScrubJob *job)
     if (!job || job->state != GNC_SCRUB_JOB_RUNNING)
         return;
 
+    if (job->gains_child)
+        gnc_transaction_gains_plan_cancel (job->gains_child);
+    if (job->account_lots_child)
+        gnc_account_lots_plan_cancel (job->account_lots_child);
+    if (job->lot_child)
+        gnc_lot_scrub_plan_cancel (job->lot_child);
     gnc_scrub_context_cancel (job->context);
     gnc_scrub_job_finish (job, GNC_SCRUB_JOB_CANCELLED);
 }
@@ -654,6 +861,19 @@ gnc_scrub_job_get_phase (const GncScrubJob *job)
 guint
 gnc_scrub_job_get_total (const GncScrubJob *job)
 {
+    if (job && job->kind == GNC_SCRUB_JOB_GAINS)
+        return job->gains_completed + gnc_scrub_deferred_commit_pending_count (
+            job->context, GNC_SCRUB_DEFERRED_COMMIT_GAINS);
+    if (job && (job->kind == GNC_SCRUB_JOB_LOTS ||
+                job->kind == GNC_SCRUB_JOB_LOT))
+    {
+        auto structural_total = job->structural_completed;
+        if (job->phase == GNC_SCRUB_JOB_PHASE_LOTS)
+            ++structural_total;
+        return structural_total + job->gains_completed +
+               gnc_scrub_deferred_commit_pending_count (
+                   job->context, GNC_SCRUB_DEFERRED_COMMIT_GAINS);
+    }
     return job ? static_cast<guint> (job->transaction_guids.size () *
                                      job->phase_count) : 0;
 }
@@ -661,10 +881,21 @@ gnc_scrub_job_get_total (const GncScrubJob *job)
 guint
 gnc_scrub_job_get_completed (const GncScrubJob *job)
 {
+    if (job && job->kind == GNC_SCRUB_JOB_GAINS)
+        return job->gains_completed;
+    if (job && (job->kind == GNC_SCRUB_JOB_LOTS ||
+                job->kind == GNC_SCRUB_JOB_LOT))
+        return job->structural_completed + job->gains_completed;
     return job ? static_cast<guint> (job->cursor +
                                      (job->kind == GNC_SCRUB_JOB_ACCOUNT &&
                                       job->phase == GNC_SCRUB_JOB_PHASE_IMBALANCE
                                       ? job->transaction_guids.size () : 0)) : 0;
+}
+
+gboolean
+gnc_scrub_job_get_changed (const GncScrubJob *job)
+{
+    return job && job->structural_changed;
 }
 
 void
@@ -674,6 +905,9 @@ gnc_scrub_job_free (GncScrubJob *job)
         return;
 
     gnc_scrub_job_cancel (job);
+    gnc_transaction_gains_plan_free (job->gains_child);
+    gnc_account_lots_plan_free (job->account_lots_child);
+    gnc_lot_scrub_plan_free (job->lot_child);
     gnc_scrub_context_unref (job->context);
     delete job;
 }

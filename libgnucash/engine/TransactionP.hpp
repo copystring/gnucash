@@ -186,6 +186,9 @@ void xaccDataScrubSuspensionRelease (GncDataScrubSuspension *suspension);
 gboolean xaccDataScrubbingSuspendedForBook (const QofBook *book);
 
 void xaccTransRemoveSplit (Transaction *trans, const Split *split);
+/* Invalidate every bounded collector whose result depends on transaction
+ * ordering, split relationships, accounts or lots. */
+void gnc_transaction_bump_scrub_generations (Transaction *trans);
 void check_open (const Transaction *trans);
 
 /* Structure for accessing static functions for testing */

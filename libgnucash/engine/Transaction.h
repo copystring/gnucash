@@ -281,6 +281,30 @@ Split * xaccTransFindSplitByAccount(const Transaction *trans,
  */
 void xaccTransScrubGains (Transaction *trans, Account *gain_acc);
 
+typedef struct GncTransactionGainsPlan GncTransactionGainsPlan;
+typedef enum
+{
+    GNC_TRANSACTION_GAINS_PLAN_RUNNING,
+    GNC_TRANSACTION_GAINS_PLAN_DONE,
+    GNC_TRANSACTION_GAINS_PLAN_CANCELLED,
+    GNC_TRANSACTION_GAINS_PLAN_STALE,
+    GNC_TRANSACTION_GAINS_PLAN_FAILED,
+} GncTransactionGainsPlanState;
+
+/** Resumable form of transaction gains scrubbing. Date repair, ADIRTY lot
+ * repair/assignment, and VDIRTY value repair each use generation-guarded
+ * scans and nested bounded plans. Dirty flags remain set until the nested
+ * repair that owns them reaches DONE. */
+GncTransactionGainsPlan *gnc_transaction_gains_plan_begin (
+    Transaction *transaction, Account *gain_account,
+    struct GncScrubContext *context);
+GncTransactionGainsPlanState gnc_transaction_gains_plan_step (
+    GncTransactionGainsPlan *plan, guint max_work);
+GncTransactionGainsPlanState gnc_transaction_gains_plan_get_state (
+    const GncTransactionGainsPlan *plan);
+void gnc_transaction_gains_plan_cancel (GncTransactionGainsPlan *plan);
+void gnc_transaction_gains_plan_free (GncTransactionGainsPlan *plan);
+
 
 /** \warning XXX FIXME
  * gnc_book_count_transactions is a utility function,

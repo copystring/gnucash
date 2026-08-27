@@ -39,6 +39,7 @@
 #include <stdint.h>
 #include <time.h>
 #include <map>
+#include <unordered_set>
 #include <vector>
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
@@ -55,7 +56,9 @@
 #include "gnc-commodity.h"
 #include "gnc-engine.h"
 #include "gnc-lot.h"
+#include "guid.hpp"
 #include "gnc-event.h"
+#include "gnc-session.h"
 #include <gnc-date.h>
 #include "SchedXaction.h"
 #include "gncBusiness.h"
@@ -236,6 +239,21 @@ static inline void mark_trans (Transaction *trans);
 void mark_trans (Transaction *trans)
 {
     FOR_EACH_SPLIT(trans, mark_split(s));
+}
+
+void
+gnc_transaction_bump_scrub_generations (Transaction *trans)
+{
+    if (!trans) return;
+    ++trans->split_list_generation;
+    std::unordered_set<Account *> accounts;
+    std::unordered_set<GNCLot *> lots;
+    FOR_EACH_SPLIT (trans,
+        if (s->acc && accounts.insert (s->acc).second)
+            gnc_account_bump_scrub_generation (s->acc);
+        if (s->lot && lots.insert (s->lot).second)
+            gnc_lot_bump_scrub_generation (s->lot);
+    );
 }
 
 static inline void gen_event_trans (Transaction *trans);
@@ -547,6 +565,9 @@ xaccTransSortSplits (Transaction *trans)
 {
     GList *node, *new_list = nullptr;
     Split *split;
+    if (!trans) return;
+
+    gnc_transaction_bump_scrub_generations (trans);
 
     /* first debits */
     for (node = trans->splits; node; node = node->next)
@@ -1559,11 +1580,12 @@ split_set_new_value(Split* split, gnc_commodity *curr, gnc_commodity *old_curr,
 void
 xaccTransSetCurrency (Transaction *trans, gnc_commodity *curr)
 {
-    gnc_commodity *old_curr = trans->common_currency;
     if (!trans || !curr || trans->common_currency == curr) return;
+    gnc_commodity *old_curr = trans->common_currency;
     xaccTransBeginEdit(trans);
 
     trans->common_currency = curr;
+    gnc_transaction_bump_scrub_generations (trans);
     if (old_curr != nullptr && trans->splits != nullptr)
     {
         gnc_numeric rate = find_new_rate(trans, curr);
@@ -1596,7 +1618,8 @@ xaccTransBeginEdit (Transaction *trans)
 
     if (!qof_book_is_readonly(qof_instance_get_book(trans)))
     {
-        xaccOpenLog ();
+        if (!xaccTransLogSuppressedForBook (xaccTransGetBook (trans)))
+            xaccOpenLog ();
         xaccTransWriteLog (trans, 'B');
     }
 
@@ -1931,6 +1954,7 @@ xaccTransCommitEdit (Transaction *trans)
     /* Record the time of last modification */
     if (0 == trans->date_entered)
     {
+        gnc_transaction_bump_scrub_generations (trans);
         trans->date_entered = gnc_time(nullptr);
         qof_instance_set_dirty(QOF_INSTANCE(trans));
     }
@@ -1949,6 +1973,51 @@ xaccTransCommitEdit (Transaction *trans)
  * that the biggest user of the undo is the multi-user backend, which
  * also adds complexity.
  */
+struct GainsRelationshipEndpoints
+{
+    Split *gains_split;
+    Split *gains_source;
+};
+
+static Split *
+transaction_gains_relationship_endpoint (const Split *split, const char *key)
+{
+    if (!split) return nullptr;
+    auto guid = qof_instance_get_path_kvp<GncGUID*> (QOF_INSTANCE (split),
+                                                      {key});
+    if (!guid || !*guid) return nullptr;
+    return xaccSplitLookup (*guid,
+                            qof_instance_get_book (QOF_INSTANCE (split)));
+}
+
+static GainsRelationshipEndpoints
+transaction_gains_relationship_endpoints (const Split *split)
+{
+    return {transaction_gains_relationship_endpoint (split, "gains-split"),
+            transaction_gains_relationship_endpoint (split, "gains-source")};
+}
+
+static void
+transaction_invalidate_restored_gains_relationships (
+    Split *source, const GainsRelationshipEndpoints& current,
+    const GainsRelationshipEndpoints& snapshot)
+{
+    Split *endpoints[] = {source, current.gains_split, current.gains_source,
+                          snapshot.gains_split, snapshot.gains_source};
+    for (guint i = 0; i < G_N_ELEMENTS (endpoints); ++i)
+    {
+        auto endpoint = endpoints[i];
+        if (!endpoint) continue;
+        gboolean duplicate = FALSE;
+        for (guint j = 0; j < i; ++j)
+            duplicate |= endpoints[j] == endpoint;
+        if (duplicate) continue;
+        gnc_split_bump_scrub_generations (endpoint);
+        endpoint->gains = GAINS_STATUS_UNKNOWN;
+        endpoint->gains_split = nullptr;
+    }
+}
+
 void
 xaccTransRollbackEdit (Transaction *trans)
 {
@@ -1974,6 +2043,7 @@ xaccTransRollbackEdit (Transaction *trans)
     ENTER ("trans addr=%p\n", trans);
 
     check_open(trans);
+    gnc_transaction_bump_scrub_generations (trans);
 
     /* copy the original values back in. */
 
@@ -2004,7 +2074,12 @@ xaccTransRollbackEdit (Transaction *trans)
         if (i < num_preexist && onode)
         {
             Split *so = GNC_SPLIT(onode->data);
+            auto current_relationships =
+                transaction_gains_relationship_endpoints (s);
+            auto snapshot_relationships =
+                transaction_gains_relationship_endpoints (so);
 
+            gnc_split_bump_scrub_generations (s);
             xaccSplitRollbackEdit(s);
             std::swap (s->action, so->action);
             std::swap (s->memo, so->memo);
@@ -2013,8 +2088,9 @@ xaccTransRollbackEdit (Transaction *trans)
             s->amount = so->amount;
             s->value = so->value;
             s->lot = so->lot;
-            s->gains_split = so->gains_split;
             //SET_GAINS_A_VDIRTY(s);
+            transaction_invalidate_restored_gains_relationships (
+                s, current_relationships, snapshot_relationships);
             s->date_reconciled = so->date_reconciled;
             qof_instance_mark_clean(QOF_INSTANCE(s));
         }
@@ -2047,6 +2123,7 @@ xaccTransRollbackEdit (Transaction *trans)
     // orig->splits may still have duped splits so free them
     g_list_free_full (orig->splits, (GDestroyNotify)xaccFreeSplit);
     orig->splits = nullptr;
+    gnc_transaction_bump_scrub_generations (trans);
 
     /* Now that the engine copy is back to its original version,
      * get the backend to fix it in the database */
@@ -2221,9 +2298,10 @@ get_kvp_string_path (const Transaction *txn, const Path& path)
     return rv ? *rv : nullptr;
 }
 
-static inline void
+static inline gboolean
 xaccTransSetDateInternal(Transaction *trans, time64 *dadate, time64 val)
 {
+    if (*dadate == val) return FALSE;
     xaccTransBeginEdit(trans);
 
 #if 0 /* gnc_ctime is expensive so change to 1 only if you need to debug setting
@@ -2237,9 +2315,11 @@ xaccTransSetDateInternal(Transaction *trans, time64 *dadate, time64 val)
     }
 #endif
     *dadate = val;
+    gnc_transaction_bump_scrub_generations (trans);
     qof_instance_set_dirty(QOF_INSTANCE(trans));
     mark_trans(trans);
     xaccTransCommitEdit(trans);
+    return TRUE;
 
     /* Because the date has changed, we need to make sure that each of
      * the splits is properly ordered in each of their accounts. We
@@ -2260,8 +2340,8 @@ void
 xaccTransSetDatePostedSecs (Transaction *trans, time64 secs)
 {
     if (!trans) return;
-    xaccTransSetDateInternal(trans, &trans->date_posted, secs);
-    set_gains_date_dirty(trans);
+    if (xaccTransSetDateInternal(trans, &trans->date_posted, secs))
+        set_gains_date_dirty(trans);
 }
 
 void
@@ -2276,16 +2356,29 @@ void
 xaccTransSetDatePostedGDate (Transaction *trans, GDate date)
 {
     if (!trans) return;
+    auto posted = gdate_to_time64 (date);
+    auto stored = qof_instance_get_path_kvp<GDate> (
+        QOF_INSTANCE (trans), {TRANS_DATE_POSTED});
+    auto scalar_changed = trans->date_posted != posted;
+    auto kvp_changed = !stored || g_date_compare (&*stored, &date) != 0;
+    if (!scalar_changed && !kvp_changed) return;
 
     /* We additionally save this date into a kvp frame to ensure in
      * the future a date which was set as *date* (without time) can
      * clearly be distinguished from the time64. */
-    qof_instance_set_path_kvp<GDate> (QOF_INSTANCE(trans), date, {TRANS_DATE_POSTED});
-    qof_instance_set_dirty (QOF_INSTANCE(trans));
-    /* mark dirty and commit handled by SetDateInternal */
-    xaccTransSetDateInternal(trans, &trans->date_posted,
-                             gdate_to_time64(date));
-    set_gains_date_dirty (trans);
+    xaccTransBeginEdit (trans);
+    if (kvp_changed)
+        qof_instance_set_path_kvp<GDate> (
+            QOF_INSTANCE (trans), date, {TRANS_DATE_POSTED});
+    if (scalar_changed)
+    {
+        trans->date_posted = posted;
+        set_gains_date_dirty (trans);
+    }
+    gnc_transaction_bump_scrub_generations (trans);
+    qof_instance_set_dirty (QOF_INSTANCE (trans));
+    mark_trans (trans);
+    xaccTransCommitEdit (trans);
 }
 
 void
@@ -2358,6 +2451,8 @@ void
 xaccTransSetNum (Transaction *trans, const char *xnum)
 {
     if (!trans || !xnum) return;
+    if (g_strcmp0 (trans->num, xnum) == 0) return;
+    gnc_transaction_bump_scrub_generations (trans);
     xaccTransBeginEdit(trans);
 
     CACHE_REPLACE(trans->num, xnum);
@@ -2378,6 +2473,8 @@ void
 xaccTransSetDescription (Transaction *trans, const char *desc)
 {
     if (!trans || !desc) return;
+    if (g_strcmp0 (trans->description, desc) == 0) return;
+    gnc_transaction_bump_scrub_generations (trans);
     xaccTransBeginEdit(trans);
 
     CACHE_REPLACE(trans->description, desc);
@@ -2410,6 +2507,10 @@ xaccTransSetNotes (Transaction *trans, const char *notes)
 void
 xaccTransSetIsClosingTxn (Transaction *trans, gboolean is_closing)
 {
+    if (!trans) return;
+    is_closing = !!is_closing;
+    if (xaccTransGetIsClosingTxn (trans) == is_closing) return;
+    gnc_transaction_bump_scrub_generations (trans);
     xaccTransBeginEdit(trans);
     auto val = is_closing ? std::make_optional<int64_t>(1) : std::nullopt;
     qof_instance_set_path_kvp<int64_t> (QOF_INSTANCE(trans), val, {trans_is_closing_str});
@@ -3063,13 +3164,68 @@ restart:
     LEAVE("(trans=%p)", trans);
 }
 
+static void
+run_transaction_gains_fifo (Transaction *transaction, Account *gain_account)
+{
+    auto book = xaccTransGetBook (transaction);
+    auto context = gnc_scrub_context_begin (book);
+    if (!context)
+        return;
+    if (!gnc_scrub_context_enable_commit_deferral (
+            context, GNC_SCRUB_DEFERRED_COMMIT_GAINS) ||
+        !gnc_scrub_defer_commit_hook (
+            book, xaccTransGetGUID (transaction),
+            GNC_SCRUB_DEFERRED_COMMIT_GAINS))
+    {
+        gnc_scrub_context_unref (context);
+        return;
+    }
+
+    GncGUID gain_guid = *guid_null ();
+    auto have_gain = gain_account != nullptr;
+    if (have_gain)
+        gain_guid = *qof_instance_get_guid (QOF_INSTANCE (gain_account));
+
+    GncGUID head;
+    while (gnc_scrub_deferred_commit_peek (
+               context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &head))
+    {
+        auto current = xaccTransLookup (&head, book);
+        if (!current)
+        {
+            if (!gnc_scrub_deferred_commit_ack (
+                    context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &head))
+                break;
+            continue;
+        }
+        auto current_gain = have_gain
+            ? xaccAccountLookup (&gain_guid, book) : nullptr;
+        auto plan = gnc_transaction_gains_plan_begin (
+            current, current_gain, context);
+        if (!plan)
+            break;
+        auto state = GNC_TRANSACTION_GAINS_PLAN_RUNNING;
+        while (state == GNC_TRANSACTION_GAINS_PLAN_RUNNING)
+            state = gnc_transaction_gains_plan_step (plan, 1);
+        gnc_transaction_gains_plan_free (plan);
+        if (state != GNC_TRANSACTION_GAINS_PLAN_DONE ||
+            !gnc_scrub_deferred_commit_ack (
+                context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &head))
+            break;
+    }
+    gnc_scrub_context_unref (context);
+}
+
 void
 xaccTransScrubGains (Transaction *trans, Account *gain_acc)
 {
     if (!trans || !gnc_scrub_legacy_operation_allowed (
                       xaccTransGetBook (trans), "transaction gains scrub"))
         return;
-    TransScrubGains (trans, gain_acc);
+    if (!gnc_current_session_exist ())
+        TransScrubGains (trans, gain_acc);
+    else
+        run_transaction_gains_fifo (trans, gain_acc);
 }
 
 Split *
@@ -3351,3 +3507,340 @@ _utest_trans_fill_functions (void)
 
 /************************ END OF ************************************\
 \************************* FILE *************************************/
+enum class TransactionGainsPhase
+{
+    DATE_SCAN_START,
+    DATE_SCAN,
+    DATE_CLEAR_START,
+    DATE_CLEAR,
+    ADIRTY_SCAN_START,
+    ADIRTY_SCAN,
+    ADIRTY_CHILD,
+    VALUE_SCAN_START,
+    VALUE_SCAN,
+    VALUE_CHILD,
+    VERIFY_SCAN_START,
+    VERIFY_SCAN,
+};
+
+struct GncTransactionGainsPlan
+{
+    GncScrubContext *context;
+    QofBook *book;
+    GncGUID transaction_guid;
+    GncGUID gain_account_guid;
+    GncGUID dirty_split_guid;
+    GncTransactionSplitCursor *cursor;
+    GncLotScrubPlan *lot_child;
+    GncSplitAssignPlan *assign_child;
+    GncCapGainsPlan *cap_child;
+    std::unordered_set<GncGUID> value_completed;
+    TransactionGainsPhase phase;
+    GncTransactionGainsPlanState state;
+};
+
+static gboolean
+transaction_gains_valid (GncTransactionGainsPlan *plan)
+{
+    if (!plan || plan->state != GNC_TRANSACTION_GAINS_PLAN_RUNNING)
+        return FALSE;
+    if (gnc_scrub_context_is_cancelled (plan->context))
+        plan->state = GNC_TRANSACTION_GAINS_PLAN_CANCELLED;
+    else if (!gnc_scrub_context_owns_book (plan->context, plan->book) ||
+             !xaccTransLookup (&plan->transaction_guid, plan->book))
+        plan->state = GNC_TRANSACTION_GAINS_PLAN_STALE;
+    return plan->state == GNC_TRANSACTION_GAINS_PLAN_RUNNING;
+}
+
+static gboolean
+transaction_gains_start_cursor (GncTransactionGainsPlan *plan,
+                                TransactionGainsPhase phase)
+{
+    gnc_transaction_split_cursor_free (plan->cursor);
+    auto transaction = xaccTransLookup (&plan->transaction_guid, plan->book);
+    plan->cursor = gnc_transaction_split_cursor_begin (transaction, plan->context);
+    if (!plan->cursor) return FALSE;
+    plan->phase = phase;
+    return TRUE;
+}
+
+GncTransactionGainsPlan *
+gnc_transaction_gains_plan_begin (Transaction *transaction,
+                                  Account *gain_account,
+                                  GncScrubContext *context)
+{
+    if (!transaction || !context)
+        return nullptr;
+    auto book = qof_instance_get_book (QOF_INSTANCE (transaction));
+    if (!gnc_scrub_context_owns_book (context, book))
+        return nullptr;
+    GncGUID gain_guid = *guid_null ();
+    if (gain_account)
+        gain_guid = *qof_instance_get_guid (QOF_INSTANCE (gain_account));
+    return new GncTransactionGainsPlan {
+        gnc_scrub_context_ref (context), book,
+        *qof_instance_get_guid (QOF_INSTANCE (transaction)), gain_guid,
+        *guid_null (), nullptr, nullptr, nullptr, nullptr, {},
+        TransactionGainsPhase::DATE_SCAN_START,
+        GNC_TRANSACTION_GAINS_PLAN_RUNNING};
+}
+
+static gboolean
+transaction_gains_date_one (GncTransactionGainsPlan *plan)
+{
+    if (plan->phase == TransactionGainsPhase::DATE_SCAN_START)
+        return transaction_gains_start_cursor (plan,
+                                                TransactionGainsPhase::DATE_SCAN);
+    if (plan->phase == TransactionGainsPhase::DATE_CLEAR_START)
+        return transaction_gains_start_cursor (plan,
+                                                TransactionGainsPhase::DATE_CLEAR);
+    GncGUID guid;
+    auto cursor_state = gnc_transaction_split_cursor_next (plan->cursor, &guid);
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_CANCELLED)
+    {
+        plan->state = GNC_TRANSACTION_GAINS_PLAN_CANCELLED;
+        return TRUE;
+    }
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_STALE) return FALSE;
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_DONE)
+    {
+        gnc_transaction_split_cursor_free (plan->cursor);
+        plan->cursor = nullptr;
+        plan->phase = plan->phase == TransactionGainsPhase::DATE_SCAN
+            ? TransactionGainsPhase::ADIRTY_SCAN_START
+            : TransactionGainsPhase::ADIRTY_SCAN_START;
+        return TRUE;
+    }
+    auto split = xaccSplitLookup (&guid, plan->book);
+    if (!split) return FALSE;
+    xaccSplitDetermineGainStatus (split);
+    if (plan->phase == TransactionGainsPhase::DATE_CLEAR)
+    {
+        split->gains &= ~GAINS_STATUS_DATE_DIRTY;
+        return TRUE;
+    }
+    if ((split->gains & GAINS_STATUS_GAINS) && split->gains_split &&
+        ((split->gains & GAINS_STATUS_DATE_DIRTY) ||
+         (split->gains_split->gains & GAINS_STATUS_DATE_DIRTY)))
+    {
+        auto source = xaccSplitGetParent (split->gains_split);
+        auto transaction = xaccTransLookup (&plan->transaction_guid, plan->book);
+        if (!source || !transaction) return FALSE;
+        split->gains &= ~GAINS_STATUS_DATE_DIRTY;
+        split->gains_split->gains &= ~GAINS_STATUS_DATE_DIRTY;
+        gnc_transaction_split_cursor_free (plan->cursor);
+        plan->cursor = nullptr;
+        xaccTransSetDatePostedSecs (transaction, source->date_posted);
+        plan->phase = TransactionGainsPhase::DATE_CLEAR_START;
+    }
+    return TRUE;
+}
+
+static gboolean
+transaction_gains_adirty_one (GncTransactionGainsPlan *plan)
+{
+    if (plan->phase == TransactionGainsPhase::ADIRTY_SCAN_START)
+        return transaction_gains_start_cursor (plan,
+                                                TransactionGainsPhase::ADIRTY_SCAN);
+    if (plan->phase == TransactionGainsPhase::ADIRTY_CHILD)
+    {
+        gboolean done = FALSE;
+        if (plan->lot_child)
+        {
+            auto state = gnc_lot_scrub_plan_step (plan->lot_child, 1);
+            if (state == GNC_LOT_SCRUB_PLAN_RUNNING) return TRUE;
+            done = state == GNC_LOT_SCRUB_PLAN_DONE;
+            gnc_lot_scrub_plan_free (plan->lot_child);
+            plan->lot_child = nullptr;
+        }
+        else if (plan->assign_child)
+        {
+            auto state = gnc_split_assign_plan_step (plan->assign_child, 1);
+            if (state == GNC_SPLIT_ASSIGN_PLAN_RUNNING) return TRUE;
+            done = state == GNC_SPLIT_ASSIGN_PLAN_DONE;
+            gnc_split_assign_plan_free (plan->assign_child);
+            plan->assign_child = nullptr;
+        }
+        if (!done) return FALSE;
+        auto split = xaccSplitLookup (&plan->dirty_split_guid, plan->book);
+        if (split) split->gains &= ~GAINS_STATUS_ADIRTY;
+        plan->phase = TransactionGainsPhase::ADIRTY_SCAN_START;
+        return TRUE;
+    }
+
+    GncGUID guid;
+    auto cursor_state = gnc_transaction_split_cursor_next (plan->cursor, &guid);
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_CANCELLED)
+    {
+        plan->state = GNC_TRANSACTION_GAINS_PLAN_CANCELLED;
+        return TRUE;
+    }
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_STALE) return FALSE;
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_DONE)
+    {
+        gnc_transaction_split_cursor_free (plan->cursor);
+        plan->cursor = nullptr;
+        plan->phase = TransactionGainsPhase::VALUE_SCAN_START;
+        return TRUE;
+    }
+    auto split = xaccSplitLookup (&guid, plan->book);
+    if (!split) return FALSE;
+    xaccSplitDetermineGainStatus (split);
+    if (!(split->gains & GAINS_STATUS_ADIRTY)) return TRUE;
+    plan->dirty_split_guid = guid;
+    gnc_transaction_split_cursor_free (plan->cursor);
+    plan->cursor = nullptr;
+    if (xaccSplitGetLot (split))
+        plan->lot_child = gnc_lot_scrub_plan_begin (xaccSplitGetLot (split),
+                                                    plan->context);
+    else
+        plan->assign_child = gnc_split_assign_plan_begin (split, plan->context);
+    if (!plan->lot_child && !plan->assign_child)
+        return FALSE;
+    plan->phase = TransactionGainsPhase::ADIRTY_CHILD;
+    return TRUE;
+}
+
+static gboolean
+transaction_gains_value_one (GncTransactionGainsPlan *plan)
+{
+    if (plan->phase == TransactionGainsPhase::VALUE_SCAN_START)
+        return transaction_gains_start_cursor (plan,
+                                                TransactionGainsPhase::VALUE_SCAN);
+    if (plan->phase == TransactionGainsPhase::VERIFY_SCAN_START)
+        return transaction_gains_start_cursor (plan,
+                                                TransactionGainsPhase::VERIFY_SCAN);
+    if (plan->phase == TransactionGainsPhase::VERIFY_SCAN)
+    {
+        GncGUID guid;
+        auto state = gnc_transaction_split_cursor_next (plan->cursor, &guid);
+        if (state == GNC_TRANSACTION_SPLIT_CURSOR_CANCELLED)
+        {
+            plan->state = GNC_TRANSACTION_GAINS_PLAN_CANCELLED;
+            return TRUE;
+        }
+        if (state == GNC_TRANSACTION_SPLIT_CURSOR_STALE) return FALSE;
+        if (state == GNC_TRANSACTION_SPLIT_CURSOR_DONE)
+        {
+            gnc_transaction_split_cursor_free (plan->cursor);
+            plan->cursor = nullptr;
+            plan->state = GNC_TRANSACTION_GAINS_PLAN_DONE;
+            return TRUE;
+        }
+        auto split = xaccSplitLookup (&guid, plan->book);
+        if (!split) return FALSE;
+        xaccSplitDetermineGainStatus (split);
+        return !(split->gains & (GAINS_STATUS_ADIRTY |
+                                  GAINS_STATUS_VDIRTY));
+    }
+    if (plan->phase == TransactionGainsPhase::VALUE_CHILD)
+    {
+        auto state = gnc_cap_gains_plan_step (plan->cap_child, 1);
+        if (state == GNC_CAP_GAINS_PLAN_RUNNING) return TRUE;
+        gnc_cap_gains_plan_free (plan->cap_child);
+        plan->cap_child = nullptr;
+        if (state != GNC_CAP_GAINS_PLAN_DONE) return FALSE;
+        plan->value_completed.insert (plan->dirty_split_guid);
+        plan->phase = TransactionGainsPhase::VALUE_SCAN_START;
+        return TRUE;
+    }
+    GncGUID guid;
+    auto cursor_state = gnc_transaction_split_cursor_next (plan->cursor, &guid);
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_CANCELLED)
+    {
+        plan->state = GNC_TRANSACTION_GAINS_PLAN_CANCELLED;
+        return TRUE;
+    }
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_STALE) return FALSE;
+    if (cursor_state == GNC_TRANSACTION_SPLIT_CURSOR_DONE)
+    {
+        gnc_transaction_split_cursor_free (plan->cursor);
+        plan->cursor = nullptr;
+        plan->phase = TransactionGainsPhase::VERIFY_SCAN_START;
+        return TRUE;
+    }
+    if (plan->value_completed.contains (guid)) return TRUE;
+    auto split = xaccSplitLookup (&guid, plan->book);
+    if (!split) return FALSE;
+    xaccSplitDetermineGainStatus (split);
+    if (!(split->gains & GAINS_STATUS_VDIRTY) &&
+        !(split->gains_split &&
+          (split->gains_split->gains & GAINS_STATUS_VDIRTY)))
+        return TRUE;
+    plan->dirty_split_guid = guid;
+    auto gain_account = xaccAccountLookup (&plan->gain_account_guid, plan->book);
+    plan->cap_child = gnc_cap_gains_plan_begin (split, gain_account,
+                                                plan->context);
+    if (!plan->cap_child)
+    {
+        if (xaccSplitGetLot (split)) return FALSE;
+        split->gains &= ~GAINS_STATUS_VDIRTY;
+        if (split->gains_split)
+            split->gains_split->gains &= ~GAINS_STATUS_VDIRTY;
+        plan->value_completed.insert (guid);
+        return TRUE;
+    }
+    gnc_transaction_split_cursor_free (plan->cursor);
+    plan->cursor = nullptr;
+    plan->phase = TransactionGainsPhase::VALUE_CHILD;
+    return TRUE;
+}
+
+GncTransactionGainsPlanState
+gnc_transaction_gains_plan_step (GncTransactionGainsPlan *plan, guint max_work)
+{
+    if (!plan || plan->state != GNC_TRANSACTION_GAINS_PLAN_RUNNING ||
+        max_work == 0)
+        return plan ? plan->state : GNC_TRANSACTION_GAINS_PLAN_FAILED;
+    guint work = 0;
+    while (work++ < max_work &&
+           plan->state == GNC_TRANSACTION_GAINS_PLAN_RUNNING)
+    {
+        if (!transaction_gains_valid (plan)) break;
+        gboolean ok = FALSE;
+        switch (plan->phase)
+        {
+        case TransactionGainsPhase::DATE_SCAN_START:
+        case TransactionGainsPhase::DATE_SCAN:
+        case TransactionGainsPhase::DATE_CLEAR_START:
+        case TransactionGainsPhase::DATE_CLEAR:
+            ok = transaction_gains_date_one (plan); break;
+        case TransactionGainsPhase::ADIRTY_SCAN_START:
+        case TransactionGainsPhase::ADIRTY_SCAN:
+        case TransactionGainsPhase::ADIRTY_CHILD:
+            ok = transaction_gains_adirty_one (plan); break;
+        case TransactionGainsPhase::VALUE_SCAN_START:
+        case TransactionGainsPhase::VALUE_SCAN:
+        case TransactionGainsPhase::VALUE_CHILD:
+        case TransactionGainsPhase::VERIFY_SCAN_START:
+        case TransactionGainsPhase::VERIFY_SCAN:
+            ok = transaction_gains_value_one (plan); break;
+        }
+        if (!ok && plan->state == GNC_TRANSACTION_GAINS_PLAN_RUNNING)
+            plan->state = GNC_TRANSACTION_GAINS_PLAN_STALE;
+    }
+    return plan->state;
+}
+
+GncTransactionGainsPlanState
+gnc_transaction_gains_plan_get_state (const GncTransactionGainsPlan *plan)
+{
+    return plan ? plan->state : GNC_TRANSACTION_GAINS_PLAN_FAILED;
+}
+
+void gnc_transaction_gains_plan_cancel (GncTransactionGainsPlan *plan)
+{
+    if (plan && plan->state == GNC_TRANSACTION_GAINS_PLAN_RUNNING)
+        plan->state = GNC_TRANSACTION_GAINS_PLAN_CANCELLED;
+}
+
+void gnc_transaction_gains_plan_free (GncTransactionGainsPlan *plan)
+{
+    if (!plan) return;
+    gnc_transaction_split_cursor_free (plan->cursor);
+    gnc_lot_scrub_plan_free (plan->lot_child);
+    gnc_split_assign_plan_free (plan->assign_child);
+    gnc_cap_gains_plan_free (plan->cap_child);
+    gnc_scrub_context_unref (plan->context);
+    delete plan;
+}
