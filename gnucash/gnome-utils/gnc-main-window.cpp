@@ -6138,6 +6138,9 @@ gnc_ui_get_main_window (GtkWidget *widget)
         if (gtk_widget_get_mapped (GTK_WIDGET(window->data)))
             return static_cast<GtkWindow*>(window->data);
 
+    if (active_windows)
+        return static_cast<GtkWindow*>(active_windows->data);
+
     return nullptr;
 }
 
