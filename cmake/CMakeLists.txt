@@ -12,6 +12,7 @@ set_dist_list(cmake_DIST
   CMakeLists.txt
   README_CMAKE.txt
   cmake_uninstall.cmake.in
+  check-gnc-vcs-info-worktree.cmake
   configure-appdata.cmake
   configure-gnucash-desktop.cmake
   configure-manpage.cmake

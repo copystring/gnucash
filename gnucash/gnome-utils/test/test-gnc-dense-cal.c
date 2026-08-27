@@ -32,21 +32,101 @@ find_widget (GtkWidget *widget, GType type)
     return NULL;
 }
 
-static gboolean
-quit_main_loop (gpointer user_data)
+typedef struct
 {
-    g_main_loop_quit (user_data);
+    GMainLoop *loop;
+    GtkWidget *background;
+    GtkWidget *drawing_area;
+    GtkWidget *previous_child;
+    int previous_width;
+    guint poll_source;
+    guint timeout_source;
+    gboolean require_rebuild;
+    gboolean ready;
+} SceneWait;
+
+static gboolean
+scene_is_ready (const SceneWait *wait)
+{
+    if (!gtk_widget_get_first_child (wait->background) ||
+        gtk_widget_get_width (wait->drawing_area) < 1)
+        return FALSE;
+
+    return !wait->require_rebuild ||
+           (wait->previous_child == NULL &&
+            gtk_widget_get_width (wait->drawing_area) != wait->previous_width);
+}
+
+static gboolean
+poll_scene (gpointer user_data)
+{
+    SceneWait *wait = user_data;
+
+    if (!scene_is_ready (wait))
+        return G_SOURCE_CONTINUE;
+
+    wait->ready = TRUE;
+    wait->poll_source = 0;
+    if (wait->timeout_source)
+    {
+        g_source_remove (wait->timeout_source);
+        wait->timeout_source = 0;
+    }
+    g_main_loop_quit (wait->loop);
     return G_SOURCE_REMOVE;
 }
 
-static void
-settle_layout (void)
+static gboolean
+scene_wait_timed_out (gpointer user_data)
 {
-    GMainLoop *loop = g_main_loop_new (NULL, FALSE);
+    SceneWait *wait = user_data;
 
-    g_timeout_add (10, quit_main_loop, loop);
-    g_main_loop_run (loop);
-    g_main_loop_unref (loop);
+    wait->timeout_source = 0;
+    if (wait->poll_source)
+    {
+        g_source_remove (wait->poll_source);
+        wait->poll_source = 0;
+    }
+    g_main_loop_quit (wait->loop);
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean
+wait_for_scene (GtkWidget *background, GtkWidget *drawing_area,
+                GtkWidget *previous_child, int previous_width)
+{
+    SceneWait wait = {
+        .loop = g_main_loop_new (NULL, FALSE),
+        .background = background,
+        .drawing_area = drawing_area,
+        .previous_child = previous_child,
+        .previous_width = previous_width,
+        .require_rebuild = previous_child != NULL,
+    };
+
+    if (wait.previous_child)
+        g_object_add_weak_pointer (G_OBJECT (wait.previous_child),
+                                   (gpointer *)&wait.previous_child);
+
+    if (scene_is_ready (&wait))
+        wait.ready = TRUE;
+    else
+    {
+        wait.poll_source = g_timeout_add (10, poll_scene, &wait);
+        wait.timeout_source = g_timeout_add_seconds (5, scene_wait_timed_out,
+                                                     &wait);
+        g_main_loop_run (wait.loop);
+    }
+
+    if (wait.poll_source)
+        g_source_remove (wait.poll_source);
+    if (wait.timeout_source)
+        g_source_remove (wait.timeout_source);
+    if (wait.previous_child)
+        g_object_remove_weak_pointer (G_OBJECT (wait.previous_child),
+                                      (gpointer *)&wait.previous_child);
+    g_main_loop_unref (wait.loop);
+    return wait.ready;
 }
 
 static void
@@ -55,19 +135,25 @@ test_resize_rebuilds_calendar_scene (void)
     GtkWindow *window = GTK_WINDOW (gtk_window_new ());
     GtkWidget *calendar = gnc_dense_cal_new (window);
     GtkWidget *background;
+    GtkWidget *drawing_area;
+    GtkWidget *initial_child;
+    int initial_width;
 
     gtk_window_set_default_size (window, 640, 360);
     gtk_window_set_child (window, calendar);
-    gtk_window_present (window);
-    settle_layout ();
-
     background = find_widget (calendar, GTK_TYPE_FIXED);
+    drawing_area = find_widget (calendar, GTK_TYPE_DRAWING_AREA);
     g_assert_nonnull (background);
-    g_assert_nonnull (gtk_widget_get_first_child (background));
+    g_assert_nonnull (drawing_area);
 
-    gtk_window_set_default_size (window, 900, 520);
-    settle_layout ();
-    g_assert_nonnull (gtk_widget_get_first_child (background));
+    gtk_window_present (window);
+    g_assert_true (wait_for_scene (background, drawing_area, NULL, -1));
+    initial_child = gtk_widget_get_first_child (background);
+    initial_width = gtk_widget_get_width (drawing_area);
+
+    gtk_widget_set_size_request (calendar, 900, 520);
+    g_assert_true (wait_for_scene (background, drawing_area, initial_child,
+                                   initial_width));
 
     gtk_window_destroy (window);
 }

@@ -184,6 +184,17 @@ else()
   set(VCS_INFO_BASE_DIR ${CMAKE_SOURCE_DIR})
   set(GENERATE_VCS_INFO "No")
 endif()
+
+if (BUILDING_FROM_VCS AND GIT_FOUND)
+  add_test(NAME check-gnc-vcs-info-worktree
+    COMMAND ${CMAKE_COMMAND}
+      -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+      -DSHELL=${SHELL}
+      -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+      -DTEST_ROOT=${CMAKE_BINARY_DIR}/Testing/gnc-vcs-info-worktree
+      -P ${CMAKE_SOURCE_DIR}/cmake/check-gnc-vcs-info-worktree.cmake)
+endif()
+
 # As the file's path is needed by several other build rules, we already define
 # that here. The actual build rules (if needed) are in libgnucash/core-utils.
 set(VCS_INFO_FILE ${VCS_INFO_BASE_DIR}/libgnucash/core-utils/gnc-vcs-info.h CACHE STRING "path to gnc-vcs-info.h file")

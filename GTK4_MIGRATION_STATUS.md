@@ -21,7 +21,7 @@ maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
 - Der aktive AqBanking-Code verwendet GTK4-Fenster und asynchrone GnuCash-
   Fortsetzungen. Die Gwenhywfar-ABI hat weiterhin synchrone Rückgabewerte;
   die dafür nötigen Adapter sind auf diesen Fremd-ABI-Rand begrenzt und werden
-  mit dem tatsächlichen GwenGTK4-Stack end-to-end betrieben.
+  lokal gegen den tatsächlichen GwenGTK4-Stack gebaut und ausgeführt.
 - Der Quellscan findet außerhalb von Tests, Historie und dem bewusst
   inaktiven WebKit1-Altpfad keine aktiven Vorkommen von `GtkTreeView`,
   `GtkTreeModel`, `GtkTreeStore`, `GtkTreeSortable`, `GtkCellRenderer`,
@@ -42,14 +42,24 @@ maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
 - Datenbereinigungen (Orphan-, Imbalance- und Account-Scrub) laufen als
   kooperative, unterbrechbare Jobs über `gnc-scrub-job-runner` und
   `dialog-lot-viewer` ohne blockierende lokale Hauptschleifen-Pumps.
-- Alle **181 von 181 CTest-Testfällen (100 % Pass-Rate)** der gesamten Suite
-  wurden im MinGW64/MSVCRT-Build erfolgreich ausgeführt und bestanden.
+- Alle **182 von 182 CTest-Testfällen (100 % Pass-Rate)** der gesamten Suite
+  wurden nach einer frischen CMake-Konfiguration im MinGW64/MSVCRT-Build
+  erfolgreich ausgeführt und bestanden.
+- Die VCS-Kennung wird unabhängig vom aufrufenden Buildverzeichnis im
+  tatsächlichen Quell-Worktree ermittelt. Ein isolierter Regressionstest
+  sichert die saubere Commit-Kennung für externe Buildverzeichnisse ab.
+- Die Windows-Paketierung erzeugt aus der ermittelten PE-Importclosure eine
+  Inno-Laufzeitliste mit **88 DLLs**. Ein lokaler 64-Bit-Installer wurde damit
+  erfolgreich gebaut; die Importclosure ist komplett aufgelöst.
+- Der endgültig gestagte Build wurde mit `--nofile` und einem isolierten
+  Testprofil gestartet. Das GnuCash-Fenster wurde sichtbar und ließ sich
+  regulär mit Exit-Code 0 schließen; Benutzerkonfiguration und echtes Buch
+  wurden dabei nicht verwendet.
 
 ## Verbleibende Abnahmeschritte
 
-1. **Paketierung und Clean-Machine-E2E.** Der lokale Buildsupport-Branch
-   `feature/gtk4-runtime-bundle` erzeugt die Inno-Laufzeitliste aus der
-   tatsächlichen PE-Importclosure. Der Installer wird gebaut und auf
-   Vollständigkeit geprüft.
-2. **Finale Freigabe:** Nach Installer-Generierung und Validierung ist
-   der Branch bereit für Push bzw. PR.
+1. **Clean-Machine-E2E.** Den erzeugten Installer auf einem sauberen
+   Windows-System installieren und dort Datei öffnen, Speichern und reguläres
+   Beenden prüfen.
+2. **Finale Freigabe:** Nach diesem externen Installationslauf ist der Branch
+   bereit für Push bzw. PR.

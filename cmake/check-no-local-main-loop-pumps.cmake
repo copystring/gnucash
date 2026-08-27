@@ -1,4 +1,5 @@
-# Regression guard: product code must not pump the process-wide GTK/GLib context.
+# Regression guard: product code must not pump the process-wide GTK/GLib
+# context or introduce nested main loops.
 
 if (NOT DEFINED SOURCE_ROOT)
   message(FATAL_ERROR "SOURCE_ROOT is required")
@@ -11,7 +12,8 @@ set(ALLOWED_FILES
   "gnucash/import-export/aqb/gnc-gwen-gui.c"
   "gnucash/html/gnc-html-webkit1.cpp"
 )
-set(ALLOWED_PUMP_COUNTS 1 1)
+# Gwen has one progress drain and two synchronous foreign-ABI response waits.
+set(ALLOWED_PUMP_COUNTS 3 1)
 set(VIOLATIONS)
 
 foreach(DIRECTORY IN LISTS SOURCE_DIRECTORIES)
@@ -87,9 +89,12 @@ foreach(DIRECTORY IN LISTS SOURCE_DIRECTORIES)
 
         string(REGEX MATCHALL "g_main_context_iteration" GLIB_PUMPS "${CODE}")
         string(REGEX MATCHALL "gtk_main_iteration" GTK_PUMPS "${CODE}")
+        string(REGEX MATCHALL "g_main_loop_run" NESTED_LOOPS "${CODE}")
         list(LENGTH GLIB_PUMPS GLIB_PUMP_COUNT)
         list(LENGTH GTK_PUMPS GTK_PUMP_COUNT)
-        math(EXPR LINE_PUMP_COUNT "${GLIB_PUMP_COUNT} + ${GTK_PUMP_COUNT}")
+        list(LENGTH NESTED_LOOPS NESTED_LOOP_COUNT)
+        math(EXPR LINE_PUMP_COUNT
+          "${GLIB_PUMP_COUNT} + ${GTK_PUMP_COUNT} + ${NESTED_LOOP_COUNT}")
         if (LINE_PUMP_COUNT GREATER 0)
           math(EXPR ACTIVE_PUMP_COUNT "${ACTIVE_PUMP_COUNT} + ${LINE_PUMP_COUNT}")
           if (ALLOWED_INDEX EQUAL -1)
