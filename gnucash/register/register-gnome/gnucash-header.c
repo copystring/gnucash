@@ -89,6 +89,12 @@ gnc_header_draw_offscreen (GncHeader *header)
     cairo_paint (cr);
     cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
 
+    GdkRGBA bg_color;
+    gdk_rgba_parse (&bg_color, "#96B183");
+    cairo_set_source_rgba (cr, bg_color.red, bg_color.green, bg_color.blue, bg_color.alpha);
+    cairo_rectangle (cr, 0, 0, header->width, header->height);
+    cairo_fill (cr);
+
     cairo_set_source_rgba (cr, color.red, color.green, color.blue, color.alpha);
     cairo_rectangle (cr, 0.5, 0.5, header->width - 1.0, header->height - 1.0);
     cairo_set_line_width (cr, 1.0);

@@ -94,3 +94,127 @@ dialog#GnuCash * text selection {
   background-color: rgb(27,106,203);
 }
 
+/* ==================================================================== */
+/* GTK4 UI Parity: Compact Sizing & Alternating Row Colors              */
+/* ==================================================================== */
+
+/* ColumnView & ListView (Account Tree, Commodity Tree, Dialogs) */
+columnview.view,
+listview.view {
+  font-size: 13px;
+  background-color: #ffffff;
+}
+
+columnview.view row,
+listview.view row {
+  min-height: 22px;
+  padding: 1px 2px;
+  margin: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+columnview.view row:nth-child(even) {
+  background-color: #f6f8f6;
+}
+
+columnview.view row:nth-child(odd) {
+  background-color: #ffffff;
+}
+
+columnview.view row:hover {
+  background-color: #eaf2ea;
+}
+
+columnview.view row:selected,
+columnview.view row:selected:focus {
+  background-color: #3584e4;
+  color: #ffffff;
+}
+
+columnview.view cell,
+listview.view cell {
+  min-height: 20px;
+  padding: 1px 4px;
+}
+
+columnview.view cell editablelabel,
+columnview.view cell label {
+  min-height: 18px;
+  padding: 0 2px;
+  font-size: 13px;
+}
+
+columnview.view treeexpander {
+  min-height: 20px;
+  min-width: 16px;
+}
+
+columnview.view treeexpander > image {
+  min-width: 14px;
+  min-height: 14px;
+  padding: 0;
+  margin: 0 2px 0 0;
+}
+
+/* ColumnView Header */
+columnview header {
+  background-color: #f0f2f0;
+  border-bottom: 1px solid #c0c4c0;
+}
+
+columnview header button {
+  min-height: 24px;
+  padding: 2px 6px;
+  font-weight: bold;
+  font-size: 12px;
+  border-right: 1px solid #dcdfdc;
+}
+
+/* Notebook Tabs */
+notebook > header > tabs > tab {
+  min-height: 24px;
+  padding: 3px 8px;
+  margin: 0 1px;
+}
+
+notebook > header > tabs > tab label {
+  font-size: 12px;
+}
+
+notebook > header > tabs > tab button.flat {
+  min-width: 16px;
+  min-height: 16px;
+  padding: 0;
+  margin: 0 0 0 4px;
+}
+
+/* Toolbars and Action Buttons */
+.toolbar button,
+headerbar button,
+button.flat {
+  min-height: 24px;
+  padding: 2px 6px;
+  margin: 1px;
+}
+
+/* Summary Bar */
+#gnc-id-account-summary-bar {
+  padding: 2px 8px;
+  min-height: 24px;
+  background-color: #f0f2f0;
+  border-top: 1px solid #d0d2d0;
+}
+
+#gnc-id-account-summary-bar label {
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+/* Statusbar */
+.statusbar {
+  padding: 2px 6px;
+  min-height: 20px;
+  font-size: 11px;
+}
+
+

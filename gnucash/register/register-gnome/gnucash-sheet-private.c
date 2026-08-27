@@ -354,7 +354,18 @@ static void
 sheet_cell_colors (RegisterColor color_type, gboolean insensitive,
                    GdkRGBA *background, GdkRGBA *foreground)
 {
-    *background = gn_white;
+    static GdkRGBA primary_bg, secondary_bg, split_bg, cursor_bg;
+    static gboolean parsed = FALSE;
+    if (!parsed)
+    {
+        gdk_rgba_parse (&primary_bg, "#BFDEB9");
+        gdk_rgba_parse (&secondary_bg, "#F6FFDA");
+        gdk_rgba_parse (&split_bg, "#EDE7D3");
+        gdk_rgba_parse (&cursor_bg, "#FFEF98");
+        parsed = TRUE;
+    }
+
+    *background = primary_bg;
     *foreground = gn_black;
 
     if (color_type >= COLOR_NEGATIVE)
@@ -365,23 +376,32 @@ sheet_cell_colors (RegisterColor color_type, gboolean insensitive,
 
     switch (color_type)
     {
+    case COLOR_PRIMARY:
+        *background = primary_bg;
+        break;
     case COLOR_SECONDARY:
-        *background = gn_light_gray;
+        *background = secondary_bg;
         break;
     case COLOR_SPLIT:
-        *background = gn_white;
+        *background = split_bg;
         break;
     case COLOR_PRIMARY_ACTIVE:
     case COLOR_SECONDARY_ACTIVE:
     case COLOR_SPLIT_ACTIVE:
-        *background = gn_yellow;
+        *background = cursor_bg;
         break;
     default:
+        *background = primary_bg;
         break;
     }
 
     if (insensitive)
+    {
         *foreground = gn_dark_gray;
+        background->red = background->red * 0.8 + 0.2 * gn_light_gray.red;
+        background->green = background->green * 0.8 + 0.2 * gn_light_gray.green;
+        background->blue = background->blue * 0.8 + 0.2 * gn_light_gray.blue;
+    }
 }
 
 static void
