@@ -941,14 +941,18 @@ gnc_main_window_restore_default_state (GncMainWindow *window)
 
     /* The default state should be to have an Account Tree page open
      * in the window. */
-    DEBUG("no saved state file");
     if (!window)
+    {
         window = static_cast<GncMainWindow*>(g_list_nth_data(active_windows, 0));
+        if (!window)
+            window = gnc_main_window_new ();
+    }
     gtk_window_present (GTK_WINDOW (window));
     action = gnc_main_window_find_action_in_group (window,
                                                    "gnc-plugin-account-tree-actions",
                                                    "ViewAccountTreeAction");
-    g_action_activate (action, nullptr);
+    if (action)
+        g_action_activate (action, nullptr);
 }
 
 /** Save the state of a single page to a disk.  This function handles

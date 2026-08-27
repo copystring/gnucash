@@ -174,7 +174,6 @@ scm_run_gnucash (void *data, [[maybe_unused]] int argc, [[maybe_unused]] char **
     gnc_hook_add_dangler(HOOK_UI_SHUTDOWN, (GFunc)gnc_file_quit, NULL, NULL);
 
     /* Install Price Quote Sources */
-
     try
     {
         const auto checking = _("Checking Finance::Quote…");
@@ -200,7 +199,7 @@ scm_run_gnucash (void *data, [[maybe_unused]] int argc, [[maybe_unused]] char **
     {
         auto msg = _("Loading data…");
         gnc_update_splash_screen (msg, GNC_SPLASH_PERCENTAGE_UNKNOWN);
-        gnc_file_open_file(gnc_get_splash_screen(), fn, /*open_readonly*/ FALSE);
+        gnc_file_open_file(nullptr, fn, /*open_readonly*/ FALSE);
         g_free(fn);
     }
     else if (gnc_prefs_get_bool(GNC_PREFS_GROUP_NEW_USER, GNC_PREF_FIRST_STARTUP))
@@ -271,6 +270,13 @@ Gnucash::Gnucash::configure_program_options (void)
     m_opt_desc_all.add (app_options);
 }
 
+static void*
+scm_run_gnucash_guile_entry (void *data)
+{
+    scm_run_gnucash (data, 0, nullptr);
+    return nullptr;
+}
+
 int
 Gnucash::Gnucash::start ([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
 {
@@ -285,7 +291,7 @@ Gnucash::Gnucash::start ([[maybe_unused]] int argc, [[maybe_unused]] char **argv
     auto user_file_spec = t_file_spec {
         m_nofile,
         m_file_to_load ? m_file_to_load->c_str() : ""};
-    scm_boot_guile (argc, argv, scm_run_gnucash, &user_file_spec);
+    scm_with_guile (scm_run_gnucash_guile_entry, &user_file_spec);
 
     return 0;
 }
@@ -303,11 +309,17 @@ Gnucash::Gnucash::activate (void)
     m_exit_status = start (m_argc, m_argv);
     auto application = g_application_get_default ();
     if (m_exit_status == 0)
+    {
         /* Keep the application alive after its last window is closed until
          * GnuCash has completed the asynchronous save-and-shutdown path. */
-        g_application_hold (application);
+        if (application)
+            g_application_hold (application);
+    }
     else
-        g_application_quit (application);
+    {
+        if (application)
+            g_application_quit (application);
+    }
 }
 
 static void
@@ -358,23 +370,18 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
         gchar *scheme = g_uri_parse_scheme (argv[1]);
         gchar *filename = nullptr;
 
-        if (!g_path_is_absolute (argv[1]) && scheme == nullptr)
-            filename = g_canonicalize_filename
-                (argv[1], g_application_command_line_get_cwd (command_line));
+        if (!scheme)
+            filename = g_filename_to_uri (argv[1], nullptr, nullptr);
+        else
+            g_free (scheme);
 
         gnc_file_open_file (gnc_ui_get_main_window (nullptr),
-                            filename ? filename : argv[1], FALSE);
+                            filename ? filename : argv[1],
+                            /*open_readonly*/ FALSE);
         g_free (filename);
-        g_free (scheme);
     }
     else
-    {
-        g_application_command_line_printerr
-            (command_line, "%s\n",
-             _("A running GnuCash instance can only open one data file."));
-        g_strfreev (argv);
-        return 1;
-    }
+        g_printerr ("%s\n", _("A separate GnuCash instance is already running. Open files one at a time."));
 
     g_strfreev (argv);
     return 0;

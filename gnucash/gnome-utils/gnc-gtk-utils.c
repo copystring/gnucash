@@ -494,19 +494,21 @@ add_menu_shortcuts (GMenuModel *model,
 {
     for (gint index = 0; index < g_menu_model_get_n_items (model); index++)
     {
-        const gchar *accelerator = NULL;
-        const gchar *action_name = NULL;
-        const gchar *override = NULL;
+        gchar *action_name = NULL;
 
         if (g_menu_model_get_item_attribute (model, index, G_MENU_ATTRIBUTE_ACTION,
-                                              "&s", &action_name))
+                                              "s", &action_name))
         {
+            const gchar *override = NULL;
+            gchar *attr_accelerator = NULL;
+            const gchar *accelerator = NULL;
+
             if (gnc_accelerator_overrides_lookup (action_name, &override))
                 accelerator = override;
-            else
-                g_menu_model_get_item_attribute (model, index,
-                                                 GNC_MENU_ATTRIBUTE_ACCELERATOR,
-                                                 "&s", &accelerator);
+            else if (g_menu_model_get_item_attribute (model, index,
+                                                      GNC_MENU_ATTRIBUTE_ACCELERATOR,
+                                                      "s", &attr_accelerator))
+                accelerator = attr_accelerator;
 
             if (accelerator && *accelerator)
             {
@@ -522,6 +524,9 @@ add_menu_shortcuts (GMenuModel *model,
                     PWARN ("Ignoring invalid accelerator '%s' for action '%s'", accelerator,
                            action_name);
             }
+
+            g_free (attr_accelerator);
+            g_free (action_name);
         }
 
         const gchar *link_names[] = { G_MENU_LINK_SECTION, G_MENU_LINK_SUBMENU };

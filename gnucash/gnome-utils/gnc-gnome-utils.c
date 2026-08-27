@@ -171,7 +171,8 @@ gnc_add_css_file (void)
     {
         gchar *str;
         str = g_build_filename (var, "gtk-4.0.css", (char *)NULL);
-        gtk_css_provider_load_from_path (provider_user, str);
+        if (g_file_test (str, G_FILE_TEST_EXISTS))
+            gtk_css_provider_load_from_path (provider_user, str);
         g_free (str);
     }
     g_object_unref (provider_user);
