@@ -266,19 +266,23 @@ file_access_accept_clicked_cb (GtkButton *button, FileAccessWindow *faw)
         }
     }
 
+    GtkWindow *parent = gtk_window_get_transient_for (GTK_WINDOW (faw->dialog));
+    if (!parent)
+        parent = gnc_ui_get_main_window (GTK_WIDGET (faw->dialog));
+
     switch (faw->type)
     {
     case FILE_ACCESS_OPEN:
-        gnc_file_open_file (GTK_WINDOW (faw->dialog), url,
+        gnc_file_open_file (parent, url,
                             faw->readonly_checkbutton &&
                             gtk_toggle_button_get_active (
                                 GTK_TOGGLE_BUTTON (faw->readonly_checkbutton)));
         break;
     case FILE_ACCESS_SAVE_AS:
-        gnc_file_do_save_as (GTK_WINDOW (faw->dialog), url);
+        gnc_file_do_save_as (parent, url);
         break;
     case FILE_ACCESS_EXPORT:
-        gnc_file_do_export (GTK_WINDOW (faw->dialog), url);
+        gnc_file_do_export (parent, url);
         break;
     default:
         g_assert_not_reached ();
