@@ -34,6 +34,7 @@
 #endif
 
 #include "gnucash-commands.hpp"
+#include "gnucash-guile-bootstrap.h"
 
 #include <glib/gi18n.h>
 #include <dialog-new-user.h>
@@ -270,15 +271,8 @@ Gnucash::Gnucash::configure_program_options (void)
     m_opt_desc_all.add (app_options);
 }
 
-static void*
-scm_run_gnucash_guile_entry (void *data)
-{
-    scm_run_gnucash (data, 0, nullptr);
-    return nullptr;
-}
-
 int
-Gnucash::Gnucash::start ([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
+Gnucash::Gnucash::start (int argc, char **argv)
 {
     Gnucash::CoreApp::start();
 
@@ -291,7 +285,7 @@ Gnucash::Gnucash::start ([[maybe_unused]] int argc, [[maybe_unused]] char **argv
     auto user_file_spec = t_file_spec {
         m_nofile,
         m_file_to_load ? m_file_to_load->c_str() : ""};
-    scm_with_guile (scm_run_gnucash_guile_entry, &user_file_spec);
+    scm_run_gnucash (&user_file_spec, argc, argv);
 
     return 0;
 }
@@ -411,12 +405,18 @@ Gnucash::Gnucash::run (int argc, char **argv)
     return status == 0 ? m_exit_status : status;
 }
 
+static int
+run_gnucash_application (int argc, char **argv, void *user_data)
+{
+    return static_cast<Gnucash::Gnucash *> (user_data)->run (argc, argv);
+}
+
 int
-main(int argc, char ** argv)
+main (int argc, char **argv)
 {
     Gnucash::Gnucash application (PROJECT_NAME);
 #ifdef __MINGW32__
     boost::nowide::args a(argc, argv); // Fix arguments - make them UTF-8
 #endif
-    return application.run (argc, argv);
+    gnc_run_with_guile (argc, argv, run_gnucash_application, &application);
 }

@@ -74,6 +74,26 @@ gnc_add_test (test-gnc-window-application
   "${test_gnc_window_application_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_gnucash_guile_bootstrap_SOURCES
+  test-gnucash-guile-bootstrap.c
+  ${CMAKE_SOURCE_DIR}/gnucash/gnucash-guile-bootstrap.c
+)
+
+set (GUILE_APPLICATION_TEST_INCLUDE_DIRS
+  ${GNOME_UTILS_GUI_TEST_INCLUDE_DIRS}
+  ${CMAKE_SOURCE_DIR}/gnucash
+)
+
+set (GUILE_APPLICATION_TEST_LIBS
+  PkgConfig::GTK4
+  PkgConfig::GLIB2
+  ${GUILE_LDFLAGS}
+)
+
+gnc_add_test_with_guile (test-gnucash-guile-bootstrap
+  "${test_gnucash_guile_bootstrap_SOURCES}"
+  GUILE_APPLICATION_TEST_INCLUDE_DIRS GUILE_APPLICATION_TEST_LIBS)
+
 set (test_gnc_accelerators_SOURCES
   test-gnc-accelerators.c
 )
@@ -104,6 +124,7 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_register_input_SOURCES}
   ${test_gnc_statusbar_SOURCES}
   ${test_gnc_window_application_SOURCES}
+  test-gnucash-guile-bootstrap.c
   ${test_gnc_accelerators_SOURCES}
   ${test_gnc_dense_cal_SOURCES}
   ${test_gnc_scrub_job_runner_SOURCES}

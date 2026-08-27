@@ -49,6 +49,7 @@ endif()
 set(gnucash_noinst_HEADERS
     gnucash-commands.hpp
     gnucash-core-app.hpp
+    gnucash-guile-bootstrap.h
     gnucash-locale-platform.h
 )
 
@@ -87,6 +88,7 @@ set (gnucash_SOURCES
   gnucash.cpp
   gnucash-commands.cpp
   gnucash-core-app.cpp
+  gnucash-guile-bootstrap.c
   ${CMAKE_CURRENT_BINARY_DIR}/gnucash-gresources.c
   ${GNUCASH_RESOURCE_FILE}
 )
@@ -271,6 +273,7 @@ install(FILES ${ENVIRONMENT_FILE_DIR}/environment DESTINATION
 
 set_local_dist(gnucash_DIST_local CMakeLists.txt environment.in generate-gnc-script
     gnucash.cpp gnucash-commands.cpp gnucash-cli.cpp gnucash-core-app.cpp
+    gnucash-guile-bootstrap.c
     gnucash-locale-macos.mm gnucash-locale-windows.c gnucash.rc.in gnucash-valgrind.in
     ${gnucash_GRESOURCES}
     ${gnucash_noinst_HEADERS} ${gnucash_EXTRA_DIST})

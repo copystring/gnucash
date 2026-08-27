@@ -14,6 +14,11 @@ maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
   Darunter fallen Dateiauswahl, Import und Export, Druck, Register- und
   Reconcile-Abfragen sowie die gemeinsamen Bestätigungs- und
   Fensterlebenszyklen.
+- Der vollständige `GtkApplication`-Lebenszyklus einschließlich Aktivierung,
+  Callbacks und Shutdown läuft innerhalb eines einzigen
+  `scm_boot_guile`-Rahmens. Ein Kindprozess-Regressionsstest prüft Scheme-
+  Aufrufe während und nach der Anwendungsschleife sowie den fehlerfreien
+  Guile-Exit.
 - Register- und Reconcile-Fortsetzungen behalten bei asynchronen Antworten
   nur gültige, erneut prüfbare Fachreferenzen. Buch-, Fenster- und
   Transaktionswechsel führen daher nicht zu einer verspäteten Mutation des
@@ -42,7 +47,7 @@ maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
 - Datenbereinigungen (Orphan-, Imbalance- und Account-Scrub) laufen als
   kooperative, unterbrechbare Jobs über `gnc-scrub-job-runner` und
   `dialog-lot-viewer` ohne blockierende lokale Hauptschleifen-Pumps.
-- Alle **182 von 182 CTest-Testfällen (100 % Pass-Rate)** der gesamten Suite
+- Alle **183 von 183 CTest-Testfällen (100 % Pass-Rate)** der gesamten Suite
   wurden nach einer frischen CMake-Konfiguration im MinGW64/MSVCRT-Build
   erfolgreich ausgeführt und bestanden.
 - Die VCS-Kennung wird unabhängig vom aufrufenden Buildverzeichnis im
@@ -53,8 +58,9 @@ maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
   erfolgreich gebaut; die Importclosure ist komplett aufgelöst.
 - Der endgültig gestagte Build wurde mit `--nofile` und einem isolierten
   Testprofil gestartet. Das GnuCash-Fenster wurde sichtbar und ließ sich
-  regulär mit Exit-Code 0 schließen; Benutzerkonfiguration und echtes Buch
-  wurden dabei nicht verwendet.
+  regulär mit Exit-Code 0 schließen. Zusätzlich wurden `stderr` und das
+  Windows-Ereignisprotokoll auf einen Guile-Absturz geprüft;
+  Benutzerkonfiguration und echtes Buch wurden dabei nicht verwendet.
 
 ## Verbleibende Abnahmeschritte
 
