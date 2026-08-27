@@ -625,7 +625,6 @@ gnc_header_init (GncHeader *header)
 {
     GtkEventController *motion;
     GtkGesture *click;
-    GtkWidget *background;
 
     header->sheet = NULL;
     header->cursor_name = NULL;
@@ -636,11 +635,6 @@ gnc_header_init (GncHeader *header)
     header->style = NULL;
     header->surface = NULL;
     header->hadjustment_handler = 0;
-
-    background = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class (background, "gnc-class-register-header");
-    gtk_widget_set_can_target (background, FALSE);
-    gtk_overlay_set_child (GTK_OVERLAY (header), background);
 
     motion = gtk_event_controller_motion_new ();
     g_signal_connect (motion, "motion", G_CALLBACK (gnc_header_motion_cb), header);

@@ -175,11 +175,11 @@ gnc_date_picker_new (void)
     g_signal_connect (key_controller, "key-pressed",
                       G_CALLBACK (gnc_date_picker_key_pressed), date_picker);
     gtk_widget_add_controller (calendar, key_controller);
-    g_signal_connect (calendar, "day_selected",
+    g_signal_connect (calendar, "day-selected",
                       G_CALLBACK (day_selected),
                       date_picker);
 
-    g_signal_connect (calendar, "day_selected_double_click",
+    g_signal_connect (calendar, "activate",
                       G_CALLBACK (day_selected_double_click),
                       date_picker);
 
