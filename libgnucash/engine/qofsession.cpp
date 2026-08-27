@@ -80,6 +80,40 @@ struct QofSessionOperationLease
     QofSessionOperationKind kind{QOF_SESSION_OPERATION_GENERIC};
     bool active{};
 };
+
+struct QofSessionAsyncLoad
+{
+    gatomicrefcount ref_count;
+    QofSessionImpl *session{};
+    QofSessionOperationLease *lease{};
+    QofPercentageFunc percentage{};
+    QofSessionLoadAsyncCallback callback{};
+    gpointer user_data{};
+    guint source_id{};
+    bool cancelled{};
+    bool sync_dispatched{};
+    bool terminal_dispatched{};
+};
+
+static QofSessionAsyncLoad *
+qof_session_async_load_ref (QofSessionAsyncLoad *load)
+{
+    if (load)
+        g_atomic_ref_count_inc (&load->ref_count);
+    return load;
+}
+
+static void
+qof_session_async_load_unref (QofSessionAsyncLoad *load)
+{
+    if (load && g_atomic_ref_count_dec (&load->ref_count))
+        delete load;
+}
+
+static gboolean qof_session_async_load_guard (gpointer user_data);
+static void qof_session_async_load_complete (gboolean success,
+                                             gpointer user_data);
+static void qof_session_async_load_source_destroy (gpointer user_data);
 /*
  * These getters are used in tests to reach static vars from outside
  * They should be removed when no longer needed
@@ -138,6 +172,7 @@ QofSessionImpl::QofSessionImpl (QofBook* book) noexcept
     m_operation_generation {1},
     m_next_operation_id {1},
     m_operation_lease {},
+    m_async_load {},
     m_last_err {},
     m_error_message {}
 {
@@ -277,6 +312,15 @@ qof_session_destroy_with_lease (QofSession *session,
     if (!session || !session->operation_lease_is_valid (lease))
         return FALSE;
 
+    /* A deferred LOAD owns callback storage that refers to this session.
+     * Its terminal callback, not an eager destroy, closes the staging
+     * session after source teardown. */
+    if (session->has_async_load ())
+    {
+        (void)session->cancel_active_load ();
+        return FALSE;
+    }
+
     session->invalidate_operation_lease ();
     delete session;
     return TRUE;
@@ -403,6 +447,17 @@ QofSessionImpl::load_backend (std::string access_method) noexcept
     LEAVE (" ");
 }
 
+static bool
+qof_session_load_error_requires_reset (QofBackendError error) noexcept
+{
+    return error != ERR_BACKEND_NO_ERR &&
+           error != ERR_FILEIO_FILE_TOO_OLD &&
+           error != ERR_FILEIO_NO_ENCODING &&
+           error != ERR_FILEIO_FILE_UPGRADE &&
+           error != ERR_SQL_DB_TOO_OLD &&
+           error != ERR_SQL_DB_TOO_NEW;
+}
+
 void
 QofSessionImpl::load (QofPercentageFunc percentage_func) noexcept
 {
@@ -437,14 +492,13 @@ QofSessionImpl::load (QofPercentageFunc percentage_func) noexcept
     }
 
     auto err = get_error ();
-    if ((err != ERR_BACKEND_NO_ERR) &&
-        (err != ERR_FILEIO_FILE_TOO_OLD) &&
-        (err != ERR_FILEIO_NO_ENCODING) &&
-        (err != ERR_FILEIO_FILE_UPGRADE) &&
-        (err != ERR_SQL_DB_TOO_OLD) &&
-        (err != ERR_SQL_DB_TOO_NEW))
+    if (qof_session_load_error_requires_reset (err))
     {
-        // Something failed, delete and restore new ones.
+        /* A deferred load's terminal path exclusively owns staging rollback
+         * and status classification. The synchronous API retains its legacy
+         * eager reset contract. */
+        if (m_async_load)
+            return;
         destroy_backend();
         invalidate_operation_lease ();
         qof_book_destroy (m_book);
@@ -454,6 +508,201 @@ QofSessionImpl::load (QofPercentageFunc percentage_func) noexcept
     }
 
     LEAVE ("sess = %p, uri=%s", this, m_uri.c_str ());
+}
+
+bool
+QofSessionImpl::async_load_is_current (
+    const QofSessionAsyncLoad *load) const noexcept
+{
+    return load && load == m_async_load && !load->cancelled &&
+           operation_lease_is_valid (load->lease);
+}
+
+bool
+QofSessionImpl::has_async_load () const noexcept
+{
+    return m_async_load != nullptr;
+}
+
+static gboolean
+qof_session_async_load_legacy_step (gpointer user_data)
+{
+    auto load = static_cast<QofSessionAsyncLoad *> (user_data);
+    if (!load || !load->session)
+        return G_SOURCE_REMOVE;
+
+    auto session = load->session;
+    if (!session->async_load_is_current (load))
+    {
+        session->complete_async_load (load, FALSE);
+        return G_SOURCE_REMOVE;
+    }
+
+    /* Legacy backends retain their synchronous implementation, but never run
+     * it reentrantly from the caller that started the LOAD lease. */
+    load->sync_dispatched = true;
+    session->load (load->percentage);
+    auto success = session->operation_lease_is_valid (load->lease) &&
+                   !qof_session_load_error_requires_reset (
+                       session->get_error ());
+    session->complete_async_load (load, success);
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean
+qof_session_async_load_guard (gpointer user_data)
+{
+    auto load = static_cast<QofSessionAsyncLoad *> (user_data);
+    return load && load->session && load->session->async_load_is_current (load);
+}
+
+static void
+qof_session_async_load_source_destroy (gpointer user_data)
+{
+    auto load = static_cast<QofSessionAsyncLoad *> (user_data);
+    if (!load)
+        return;
+    load->source_id = 0;
+    if (!load->terminal_dispatched && load->session)
+        load->session->complete_async_load (load, FALSE);
+    qof_session_async_load_unref (load);
+}
+
+static void
+qof_session_async_load_complete (gboolean success, gpointer user_data)
+{
+    auto load = static_cast<QofSessionAsyncLoad *> (user_data);
+    if (load && load->session)
+        load->session->complete_async_load (load, success);
+}
+
+bool
+QofSessionImpl::start_async_load (QofSessionOperationLease *lease,
+                                  QofPercentageFunc percentage_func,
+                                  QofSessionLoadAsyncCallback callback,
+                                  gpointer user_data) noexcept
+{
+    if (!lease || !callback || m_async_load || !m_backend || !m_book ||
+        !qof_book_empty (m_book) || m_uri.empty () ||
+        !operation_lease_is_valid (lease) ||
+        lease->kind != QOF_SESSION_OPERATION_LOAD)
+        return false;
+
+    auto load = new (std::nothrow) QofSessionAsyncLoad;
+    if (!load)
+        return false;
+
+    g_atomic_ref_count_init (&load->ref_count);
+    load->session = this;
+    load->lease = lease;
+    load->percentage = percentage_func;
+    load->callback = callback;
+    load->user_data = user_data;
+    m_async_load = load;
+
+    clear_error ();
+    qof_book_set_backend (m_book, m_backend);
+    m_backend->set_percentage (percentage_func);
+    if (m_backend->load_async (m_book, LOAD_TYPE_INITIAL_LOAD,
+                               qof_session_async_load_guard, load,
+                               qof_session_async_load_complete, load))
+        return true;
+
+    load->source_id = g_idle_add_full (
+        G_PRIORITY_DEFAULT_IDLE, qof_session_async_load_legacy_step,
+        qof_session_async_load_ref (load), qof_session_async_load_source_destroy);
+    if (!load->source_id)
+    {
+        m_async_load = nullptr;
+        load->session = nullptr;
+        qof_session_async_load_unref (load);
+        return false;
+    }
+    return true;
+}
+
+bool
+QofSessionImpl::cancel_active_load () noexcept
+{
+    if (!m_async_load || m_async_load->lease->kind != QOF_SESSION_OPERATION_LOAD)
+        return false;
+
+    auto source_id = m_async_load->source_id;
+    /* Cancellation must still terminalise a generation-stale LOAD. */
+    m_async_load->cancelled = true;
+    if (m_backend)
+        m_backend->cancel_load_async ();
+    if (source_id)
+    {
+        /* Legacy async fallback owns its terminal callback from the source
+         * destroy notifier. The callback may mutate this session. */
+        g_source_remove (source_id);
+    }
+    return true;
+}
+
+void
+QofSessionImpl::complete_async_load (QofSessionAsyncLoad *load,
+                                     gboolean success) noexcept
+{
+    QofSessionLoadAsyncStatus status;
+    QofSessionOperationLease *lease;
+    QofSessionLoadAsyncCallback callback;
+    gpointer user_data;
+
+    if (!load || load != m_async_load || load->terminal_dispatched)
+        return;
+
+    load->terminal_dispatched = true;
+    load->source_id = 0;
+    m_async_load = nullptr;
+    if (load->cancelled)
+    {
+        /* A cancelled staging book must never escape as a usable partial
+         * result. The token is invalidated before the bound book is gone. */
+        destroy_backend ();
+        invalidate_operation_lease ();
+        qof_book_destroy (m_book);
+        m_book = qof_book_new ();
+        status = QOF_SESSION_LOAD_CANCELLED;
+    }
+    else if (!operation_lease_is_valid (load->lease))
+    {
+        /* A stale staging book has the same publication contract as an
+         * explicit cancellation: destroy it before reporting terminality. */
+        destroy_backend ();
+        qof_book_destroy (m_book);
+        m_book = qof_book_new ();
+        status = QOF_SESSION_LOAD_STALE;
+    }
+    else if (!success)
+    {
+        auto error = m_backend ? m_backend->get_error () : ERR_BACKEND_MISC;
+        if (error == ERR_BACKEND_NO_ERR)
+            error = ERR_BACKEND_MISC;
+        destroy_backend ();
+        invalidate_operation_lease ();
+        qof_book_destroy (m_book);
+        m_book = qof_book_new ();
+        if (!load->sync_dispatched)
+            push_error (error, {});
+        status = QOF_SESSION_LOAD_ERROR;
+    }
+    else
+    {
+        auto error = m_backend ? m_backend->get_error () : ERR_BACKEND_NO_ERR;
+        if (!load->sync_dispatched && error != ERR_BACKEND_NO_ERR)
+            push_error (error, {});
+        status = QOF_SESSION_LOAD_COMPLETED;
+    }
+
+    lease = load->lease;
+    callback = load->callback;
+    user_data = load->user_data;
+    load->session = nullptr;
+    qof_session_operation_lease_release (lease);
+    callback (this, status, user_data);
+    qof_session_async_load_unref (load);
 }
 
 void
@@ -856,6 +1105,22 @@ qof_session_load (QofSession *session,
     if (!legacy_operation_allowed (session, "load"))
         return;
     session->load (percentage_func);
+}
+
+gboolean
+qof_session_load_async_with_lease (
+    QofSession *session, QofSessionOperationLease *lease,
+    QofPercentageFunc percentage_func, QofSessionLoadAsyncCallback callback,
+    gpointer user_data)
+{
+    return session && session->start_async_load (lease, percentage_func,
+                                                 callback, user_data);
+}
+
+gboolean
+qof_session_cancel_active_load (QofSession *session)
+{
+    return session && session->cancel_active_load ();
 }
 
 gboolean

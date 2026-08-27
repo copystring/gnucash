@@ -367,6 +367,178 @@ TEST (QofSessionTest, load)
     qof_backend_unregister_all_providers ();
 }
 
+struct AsyncSessionLoadResult
+{
+    guint callbacks{};
+    QofSessionLoadAsyncStatus status{QOF_SESSION_LOAD_ERROR};
+};
+
+static void
+async_session_load_finished (QofSession *, QofSessionLoadAsyncStatus status,
+                             gpointer user_data)
+{
+    auto result = static_cast<AsyncSessionLoadResult *> (user_data);
+    ++result->callbacks;
+    result->status = status;
+}
+
+static QofSession *
+start_legacy_async_load (AsyncSessionLoadResult *result,
+                         QofSessionOperationLease **load_lease_out = nullptr)
+{
+    auto session = qof_session_new (qof_book_new ());
+    auto open_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_OPEN);
+    auto began = open_lease && qof_session_begin_with_lease (
+        session, open_lease, "book1", SESSION_NORMAL_OPEN);
+    qof_session_operation_lease_release (open_lease);
+    if (!began)
+    {
+        qof_session_destroy (session);
+        return nullptr;
+    }
+
+    auto load_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_LOAD);
+    if (!load_lease || !qof_session_load_async_with_lease (
+            session, load_lease, nullptr, async_session_load_finished, result))
+    {
+        qof_session_operation_lease_release (load_lease);
+        qof_session_destroy (session);
+        return nullptr;
+    }
+    if (load_lease_out)
+        *load_lease_out = load_lease;
+    return session;
+}
+
+TEST (QofSessionTest, legacy_async_load_success_is_deferred_and_exactly_once)
+{
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    AsyncSessionLoadResult result;
+    auto session = start_legacy_async_load (&result);
+    ASSERT_NE (session, nullptr);
+
+    EXPECT_EQ (result.callbacks, 0u);
+    EXPECT_FALSE (data_loaded);
+    EXPECT_TRUE (g_main_context_iteration (nullptr, FALSE));
+    EXPECT_TRUE (data_loaded);
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_COMPLETED);
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    while (g_main_context_iteration (nullptr, FALSE))
+        ;
+    EXPECT_EQ (result.callbacks, 1u);
+
+    qof_session_destroy (session);
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionTest, legacy_async_load_cancel_destroys_source_exactly_once)
+{
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    AsyncSessionLoadResult result;
+    auto session = start_legacy_async_load (&result);
+    ASSERT_NE (session, nullptr);
+
+    EXPECT_TRUE (qof_session_cancel_active_load (session));
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_CANCELLED);
+    EXPECT_FALSE (data_loaded);
+    EXPECT_TRUE (qof_book_empty (qof_session_get_book (session)));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    EXPECT_FALSE (qof_session_cancel_active_load (session));
+    while (g_main_context_iteration (nullptr, FALSE))
+        ;
+    EXPECT_EQ (result.callbacks, 1u);
+
+    qof_session_destroy (session);
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionTest, legacy_async_load_teardown_cancels_before_destroy)
+{
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    AsyncSessionLoadResult result;
+    QofSessionOperationLease *load_lease = nullptr;
+    auto session = start_legacy_async_load (&result, &load_lease);
+    ASSERT_NE (session, nullptr);
+    ASSERT_NE (load_lease, nullptr);
+
+    /* An attempted owner teardown must first remove the deferred source. The
+     * session deliberately remains alive until its caller retries destruction
+     * after the terminal callback has released the LOAD lease. */
+    EXPECT_FALSE (qof_session_destroy_with_lease (session, load_lease));
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_CANCELLED);
+    EXPECT_FALSE (data_loaded);
+    EXPECT_TRUE (qof_book_empty (qof_session_get_book (session)));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    while (g_main_context_iteration (nullptr, FALSE))
+        ;
+    EXPECT_EQ (result.callbacks, 1u);
+
+    qof_session_destroy (session);
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionTest, legacy_async_load_error_rolls_back_staging_book)
+{
+    qof_backend_register_provider (get_provider ());
+    load_error = true;
+    data_loaded = false;
+    AsyncSessionLoadResult result;
+    auto session = start_legacy_async_load (&result);
+    ASSERT_NE (session, nullptr);
+
+    EXPECT_TRUE (g_main_context_iteration (nullptr, FALSE));
+    EXPECT_TRUE (data_loaded);
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_ERROR);
+    EXPECT_TRUE (qof_book_empty (qof_session_get_book (session)));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+
+    qof_session_destroy (session);
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionTest, legacy_async_load_generation_drift_is_stale)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    auto marker = qof_session_new (qof_book_new ());
+    gnc_set_current_session (marker);
+    AsyncSessionLoadResult result;
+    auto session = start_legacy_async_load (&result);
+    ASSERT_NE (session, nullptr);
+
+    /* Detaching the unrelated current session advances the generation that
+     * the LOAD lease captured without explicitly cancelling the load. */
+    gnc_clear_current_session ();
+    EXPECT_TRUE (g_main_context_iteration (nullptr, FALSE));
+    EXPECT_FALSE (data_loaded);
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_STALE);
+    EXPECT_TRUE (qof_book_empty (qof_session_get_book (session)));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+
+    qof_session_destroy (session);
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
 TEST (QofSessionTest, save)
 {
     qof_backend_register_provider (get_provider ());

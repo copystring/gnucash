@@ -146,7 +146,8 @@ typedef enum
     QOF_SESSION_OPERATION_EXPORT,
     QOF_SESSION_OPERATION_CLOSE,
     QOF_SESSION_OPERATION_SCRUB,
-    QOF_SESSION_OPERATION_IMPORT
+    QOF_SESSION_OPERATION_IMPORT,
+    QOF_SESSION_OPERATION_LOAD
 } QofSessionOperationKind;
 
 /**
@@ -279,6 +280,43 @@ gboolean qof_session_begin_with_lease (
 typedef void (*QofPercentageFunc) (const char *message, double percent);
 void qof_session_load (QofSession *session,
                        QofPercentageFunc percentage_func);
+
+/** Terminal result of a deferred session load. */
+typedef enum
+{
+    QOF_SESSION_LOAD_COMPLETED,
+    QOF_SESSION_LOAD_CANCELLED,
+    QOF_SESSION_LOAD_STALE,
+    QOF_SESSION_LOAD_ERROR
+} QofSessionLoadAsyncStatus;
+
+typedef void (*QofSessionLoadAsyncCallback) (
+    QofSession *session, QofSessionLoadAsyncStatus status,
+    gpointer user_data);
+
+/**
+ * Start a deferred load after a successful BEGIN.
+ *
+ * @a lease must be the valid, exclusive LOAD lease for @a session. BEGIN and
+ * LOAD are deliberately separate operations: this function rejects a lease
+ * of any other kind, a session without a begun backend, and a non-empty book.
+ * On TRUE the function consumes @a lease and releases it exactly once before
+ * invoking @a callback. The caller must not release or otherwise use the
+ * token after a successful call. @a callback is deferred exactly once and may
+ * destroy the session. On FALSE ownership remains with the caller and no
+ * callback is made.
+ */
+gboolean qof_session_load_async_with_lease (
+    QofSession *session, QofSessionOperationLease *lease,
+    QofPercentageFunc percentage_func, QofSessionLoadAsyncCallback callback,
+    gpointer user_data);
+
+/**
+ * Request terminal cancellation of the active LOAD operation. The request is
+ * idempotent; its callback reports QOF_SESSION_LOAD_CANCELLED after parser
+ * cleanup. It never cancels a different operation kind.
+ */
+gboolean qof_session_cancel_active_load (QofSession *session);
 
 /** Token-aware load. A backend replacement of the bound book invalidates the
  * lease before this function returns. */

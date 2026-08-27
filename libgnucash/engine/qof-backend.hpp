@@ -166,6 +166,12 @@ typedef enum
     LOAD_TYPE_LOAD_ALL
 } QofBackendLoadType;
 
+/* The async callback is always deferred. The guard is evaluated by every
+ * resumable backend step before it mutates the bound book. */
+typedef gboolean (*QofBackendLoadAsyncGuard) (gpointer user_data);
+typedef void (*QofBackendLoadAsyncCallback) (gboolean success,
+                                             gpointer user_data);
+
 using GModuleVec = std::vector<GModule*>;
 struct QofBackend
 {
@@ -210,6 +216,18 @@ public:
  *    better to wait for the query).
  */
     virtual void load (QofBook*, QofBackendLoadType) = 0;
+/**
+ * Start a resumable initial load. A backend returning false has no async
+ * implementation; QofSession then dispatches its established synchronous
+ * load through one deferred legacy step. Implementations returning true own
+ * exactly one deferred callback and honour @a guard before each mutation.
+ */
+    virtual bool load_async (QofBook*, QofBackendLoadType,
+                             QofBackendLoadAsyncGuard, gpointer,
+                             QofBackendLoadAsyncCallback, gpointer)
+    { return false; }
+/** Request terminal cancellation of an active async load. */
+    virtual void cancel_load_async () {}
 /**
  *    Called when the engine is about to make a change to a data structure. It
  *    could provide an advisory lock on data, but no backend does this.
