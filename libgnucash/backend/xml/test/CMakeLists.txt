@@ -58,6 +58,7 @@ add_xml_test(test-load-backend  test-load-backend.cpp)
 add_xml_test(test-load-xml2 test-load-xml2.cpp
   GNC_TEST_FILES=${CMAKE_CURRENT_SOURCE_DIR}/test-files/xml2
 )
+add_dependencies(test-load-xml2 gncmod-backend-xml)
 # FIXME Why is this test not run/running ?
 #add_xml_test(test-save-in-lang test-save-in-lang.cpp
 #  GNC_TEST_FILES=${CMAKE_CURRENT_SOURCE_DIR}/test-files/xml2

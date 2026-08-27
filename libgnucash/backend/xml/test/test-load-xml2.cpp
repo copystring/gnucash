@@ -42,6 +42,7 @@
 #include <cashobjects.h>
 #include <TransLog.h>
 #include <gnc-engine.h>
+#include <gnc-session.h>
 #include <gnc-prefs.h>
 #include <gnc-uri.hpp>
 
@@ -49,6 +50,7 @@
 #include <test-engine-stuff.h>
 
 #include "../gnc-backend-xml.h"
+#include "../gnc-xml-backend.hpp"
 #include "../io-gncxml-v2.h"
 #include "test-file-stuff.h"
 #include <test-stuff.h>
@@ -120,6 +122,285 @@ test_load_file (const char* filename)
     qof_book_destroy (book);
 }
 
+struct AsyncLoadResult
+{
+    gboolean completed {FALSE};
+    QofSessionLoadAsyncStatus status {QOF_SESSION_LOAD_ERROR};
+    guint callbacks {};
+    guint idle_turns {};
+};
+
+static void
+async_load_finished (QofSession *, QofSessionLoadAsyncStatus status,
+                     gpointer user_data)
+{
+    auto result = static_cast<AsyncLoadResult *> (user_data);
+    result->status = status;
+    result->completed = TRUE;
+    ++result->callbacks;
+}
+
+static gboolean
+pump_async_load (AsyncLoadResult *result)
+{
+    /* Bounded test-only pump: product code never owns a nested main loop. */
+    for (guint turns = 0; turns < 10000 && !result->completed; ++turns)
+    {
+        g_main_context_iteration (NULL, FALSE);
+        ++result->idle_turns;
+    }
+    return result->completed;
+}
+
+static QofSession *
+start_async_load (const char *filename, AsyncLoadResult *result)
+{
+    auto session = qof_session_new (qof_book_new ());
+    auto url = GncUri { filename }.try_str (false);
+    auto begin_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_OPEN);
+    auto began = begin_lease && qof_session_begin_with_lease (
+        session, begin_lease, url ? url->c_str () : nullptr,
+        SESSION_READ_ONLY);
+    qof_session_operation_lease_release (begin_lease);
+    if (!began || qof_session_get_error (session) != ERR_BACKEND_NO_ERR)
+    {
+        qof_session_destroy (session);
+        return NULL;
+    }
+
+    auto load_lease = qof_session_operation_lease_acquire_for (
+        session, QOF_SESSION_OPERATION_LOAD);
+    auto started = load_lease && qof_session_load_async_with_lease (
+        session, load_lease, NULL, async_load_finished, result);
+    if (!started)
+    {
+        qof_session_operation_lease_release (load_lease);
+        qof_session_destroy (session);
+        return NULL;
+    }
+    return session;
+}
+
+static void
+test_load_file_async (const char *filename)
+{
+    AsyncLoadResult result;
+    remove_locks (filename);
+    auto session = start_async_load (filename, &result);
+    do_test (session != NULL, "start public XML-v2 async load");
+    if (!session)
+        return;
+    do_test (pump_async_load (&result), "bounded XML-v2 async success pump");
+    do_test (result.status == QOF_SESSION_LOAD_COMPLETED,
+             "public XML-v2 async load completed");
+    do_test (result.callbacks == 1, "XML-v2 success callback exactly once");
+    auto root = gnc_book_get_root_account (qof_session_get_book (session));
+    do_test (root != NULL, "async XML-v2 load published a root account");
+    qof_session_destroy (session);
+}
+
+static void
+test_load_file_async_cancel (const char *filename)
+{
+    AsyncLoadResult result;
+    remove_locks (filename);
+    auto session = start_async_load (filename, &result);
+    do_test (session != NULL, "start cancellable XML-v2 async load");
+    if (!session)
+        return;
+    auto staging_book = qof_session_get_book (session);
+    auto foreign_book = qof_book_new ();
+    do_test (xaccTransLogSuppressedForBook (staging_book),
+             "active XML load suppresses only its staging-book recovery log");
+    do_test (!xaccTransLogSuppressedForBook (foreign_book),
+             "active XML load does not globally suppress recovery logs");
+    do_test (qof_session_cancel_active_load (session),
+             "cancel active XML-v2 LOAD lease");
+    do_test (result.completed,
+             "source destruction terminalizes XML cancellation immediately");
+    do_test (pump_async_load (&result), "bounded XML-v2 cancel pump");
+    do_test (result.status == QOF_SESSION_LOAD_CANCELLED,
+             "cancelled XML-v2 load is terminal");
+    do_test (result.callbacks == 1, "XML-v2 cancel callback exactly once");
+    do_test (qof_book_empty (qof_session_get_book (session)),
+             "cancelled XML-v2 load leaves no partial staging book");
+    do_test (!xaccTransLogSuppressedForBook (qof_session_get_book (session)),
+             "XML cancel releases staging-book recovery-log suppression");
+    qof_book_destroy (foreign_book);
+    qof_session_destroy (session);
+}
+
+static void
+test_load_file_async_error (void)
+{
+    static const char malformed[] =
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+        "<gnc-v2 xmlns:gnc=\"http://www.gnucash.org/XML/gnc\">";
+    auto filename = g_strdup_printf ("%s/gnc-xml-async-%u.gnucash",
+                                     g_get_tmp_dir (), g_random_int ());
+    AsyncLoadResult result;
+    g_file_set_contents (filename, malformed, -1, NULL);
+    auto session = start_async_load (filename, &result);
+    do_test (session != NULL, "start malformed XML-v2 async load");
+    if (session)
+    {
+        do_test (pump_async_load (&result), "bounded XML-v2 error pump");
+        do_test (result.status == QOF_SESSION_LOAD_ERROR,
+                 "malformed XML-v2 load reports terminal error");
+        do_test (result.callbacks == 1, "XML-v2 error callback exactly once");
+        do_test (qof_book_empty (qof_session_get_book (session)),
+                 "failed XML-v2 load leaves no partial staging book");
+        qof_session_destroy (session);
+    }
+    g_remove (filename);
+    g_free (filename);
+}
+
+static gchar *
+create_many_accounts_file (gboolean compressed, guint account_count)
+{
+    auto filename = g_strdup_printf ("%s/gnc-xml-async-many-%u.gnucash",
+                                     g_get_tmp_dir (), g_random_int ());
+    auto book = qof_book_new ();
+    GncXmlBackend backend;
+    qof_book_set_backend (book, &backend);
+    auto root = gnc_account_create_root (book);
+    auto commodity = gnc_commodity_new (book, "Bounded Test Currency",
+                                         "GNC_TEST", "BTCU", "", 100);
+    gnc_commodity_table_insert (gnc_commodity_table_get_table (book), commodity);
+
+    for (guint index = 0; index < account_count; ++index)
+    {
+        auto account = xaccMallocAccount (book);
+        auto name = g_strdup_printf ("Bounded account %u", index);
+        xaccAccountBeginEdit (account);
+        xaccAccountSetName (account, name);
+        xaccAccountSetType (account, ACCT_TYPE_BANK);
+        xaccAccountSetCommodity (account, commodity);
+        gnc_account_append_child (root, account);
+        xaccAccountCommitEdit (account);
+        g_free (name);
+    }
+
+    if (!gnc_book_write_to_xml_file_v2 (book, filename, compressed))
+    {
+        g_remove (filename);
+        g_clear_pointer (&filename, g_free);
+    }
+    qof_book_set_backend (book, nullptr);
+    qof_book_destroy (book);
+    return filename;
+}
+
+static void
+remove_generated_file (gchar *filename)
+{
+    if (!filename)
+        return;
+    remove_locks (filename);
+    for (guint attempt = 0; attempt < 1000 && g_remove (filename) != 0;
+         ++attempt)
+    {
+        g_thread_yield ();
+        g_usleep (1000);
+    }
+    g_free (filename);
+}
+
+static void
+test_load_file_async_stale (const char *filename)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+    auto marker = qof_session_new (qof_book_new ());
+    gnc_set_current_session (marker);
+    AsyncLoadResult result;
+    remove_locks (filename);
+    auto session = start_async_load (filename, &result);
+    do_test (session != NULL, "start generation-guarded XML-v2 async load");
+    if (!session)
+    {
+        gnc_clear_current_session ();
+        return;
+    }
+
+    /* Advance far enough to prove that STALE rolls back parsed state instead
+     * of merely rejecting a still-empty staging book. Finalization remains
+     * far from terminal even for a small fixture because it is object-bounded. */
+    for (guint turn = 0;
+         turn < 128 && qof_book_empty (qof_session_get_book (session)) &&
+         !result.completed;
+         ++turn)
+    {
+        g_main_context_iteration (NULL, FALSE);
+        ++result.idle_turns;
+    }
+    do_test (!result.completed, "XML-v2 load remains active before STALE");
+    do_test (!qof_book_empty (qof_session_get_book (session)),
+             "XML-v2 STALE test reached a partial staging book");
+    gnc_clear_current_session ();
+    do_test (pump_async_load (&result), "bounded XML-v2 stale pump");
+    do_test (result.status == QOF_SESSION_LOAD_STALE,
+             "current-session generation drift reports STALE");
+    do_test (result.callbacks == 1, "XML-v2 STALE callback exactly once");
+    do_test (qof_book_empty (qof_session_get_book (session)),
+             "STALE XML-v2 load rolls back the partial staging book");
+    qof_session_destroy (session);
+}
+
+static void
+test_load_file_async_bounded_finalization (void)
+{
+    constexpr guint account_count = 48;
+    auto filename = create_many_accounts_file (FALSE, account_count);
+    do_test (filename != NULL, "create many-account XML-v2 fixture");
+    if (!filename)
+        return;
+
+    AsyncLoadResult result;
+    auto session = start_async_load (filename, &result);
+    do_test (session != NULL, "start many-account XML-v2 async load");
+    if (session)
+    {
+        do_test (pump_async_load (&result), "bounded many-account XML-v2 pump");
+        do_test (result.status == QOF_SESSION_LOAD_COMPLETED,
+                 "many-account XML-v2 load completed");
+        do_test (result.callbacks == 1,
+                 "many-account XML-v2 callback exactly once");
+        do_test (result.idle_turns > account_count * 4,
+                 "many objects require many bounded idle finalization steps");
+        qof_session_destroy (session);
+    }
+    remove_generated_file (filename);
+}
+
+static void
+test_load_file_async_gzip_cancel (void)
+{
+    auto filename = create_many_accounts_file (TRUE, 48);
+    do_test (filename != NULL, "create compressed XML-v2 fixture");
+    if (!filename)
+        return;
+
+    AsyncLoadResult result;
+    auto session = start_async_load (filename, &result);
+    do_test (session != NULL, "start compressed XML-v2 async load");
+    if (session)
+    {
+        do_test (qof_session_cancel_active_load (session),
+                 "cancel compressed XML-v2 load");
+        do_test (result.completed && result.callbacks == 1,
+                 "gzip pipe close terminalizes cancellation exactly once");
+        do_test (result.status == QOF_SESSION_LOAD_CANCELLED,
+                 "compressed XML-v2 load reports cancellation");
+        do_test (qof_book_empty (qof_session_get_book (session)),
+                 "compressed cancellation rolls back staging book");
+        qof_session_destroy (session);
+    }
+    remove_generated_file (filename);
+}
+
 int
 main (int argc, char** argv)
 {
@@ -138,8 +419,6 @@ main (int argc, char** argv)
         location = "test-files/xml2";
     }
 
-    xaccLogDisable ();
-
     if ((xml2_dir = g_dir_open (location, 0, NULL)) == NULL)
     {
         failure ("unable to open xml2 directory");
@@ -155,6 +434,12 @@ main (int argc, char** argv)
                 gchar* to_open = g_build_filename (location, entry, (gchar*)NULL);
                 if (!g_file_test (to_open, G_FILE_TEST_IS_DIR))
                 {
+                    if (files_tested == 0)
+                        test_load_file_async (to_open);
+                    if (files_tested == 0)
+                        test_load_file_async_cancel (to_open);
+                    if (files_tested == 0)
+                        test_load_file_async_stale (to_open);
                     test_load_file (to_open);
                     files_tested++;
                 }
@@ -164,6 +449,9 @@ main (int argc, char** argv)
     }
 
     g_dir_close (xml2_dir);
+    test_load_file_async_error ();
+    test_load_file_async_bounded_finalization ();
+    test_load_file_async_gzip_cancel ();
 
     if (files_tested == 0)
     {

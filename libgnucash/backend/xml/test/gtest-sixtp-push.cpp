@@ -200,10 +200,7 @@ TEST(SixtpPushPlan, CancelCleansActiveStackOnlyOnce)
     gpointer result = &counts;
     ASSERT_NE (plan, nullptr);
     EXPECT_EQ (sixtp_push_plan_feed (plan, "<root>", 6), SIXTP_PUSH_PLAN_ACTIVE);
-    g_test_expect_message ("gnc.backend.file.sixtp", G_LOG_LEVEL_CRITICAL,
-                           "parse failed at:");
     EXPECT_EQ (sixtp_push_plan_cancel (plan), SIXTP_PUSH_PLAN_CANCELLED);
-    g_test_assert_expected_messages ();
     EXPECT_GT (counts.fail_calls, 0u);
     auto failures = counts.fail_calls;
     EXPECT_EQ (sixtp_push_plan_cancel (plan), SIXTP_PUSH_PLAN_CANCELLED);
@@ -237,11 +234,8 @@ TEST(SixtpPushPlan, CancelFromSaxHandlerDefersTerminalization)
     ASSERT_NE (plan, nullptr);
     state.plan = plan;
 
-    g_test_expect_message ("gnc.backend.file.sixtp", G_LOG_LEVEL_CRITICAL,
-                           "parse failed at:");
     EXPECT_EQ (sixtp_push_plan_feed (plan, "<root>x</root>", 14),
                SIXTP_PUSH_PLAN_CANCELLED);
-    g_test_assert_expected_messages ();
     EXPECT_EQ (state.cancel_status, SIXTP_PUSH_PLAN_CANCELLED);
     EXPECT_EQ (state.callbacks, 1u);
     sixtp_push_plan_free (plan);
@@ -259,11 +253,8 @@ TEST(SixtpPushPlan, CancelFromTopEndHandlerDefersTerminalization)
     EXPECT_EQ (sixtp_push_plan_feed (plan, "<root/>", 7),
                SIXTP_PUSH_PLAN_ACTIVE);
 
-    g_test_expect_message ("gnc.backend.file.sixtp", G_LOG_LEVEL_CRITICAL,
-                           "parse failed at:");
     EXPECT_EQ (sixtp_push_plan_finish (plan, &result),
                SIXTP_PUSH_PLAN_CANCELLED);
-    g_test_assert_expected_messages ();
     EXPECT_EQ (result, nullptr);
     EXPECT_EQ (state.cancel_status, SIXTP_PUSH_PLAN_CANCELLED);
     EXPECT_EQ (state.callbacks, 1u);
@@ -281,11 +272,8 @@ TEST(SixtpPushPlan, FreeFromTopEndHandlerDefersDestructionUntilFinishReturns)
     EXPECT_EQ (sixtp_push_plan_feed (plan, "<root/>", 7),
                SIXTP_PUSH_PLAN_ACTIVE);
 
-    g_test_expect_message ("gnc.backend.file.sixtp", G_LOG_LEVEL_CRITICAL,
-                           "parse failed at:");
     EXPECT_EQ (sixtp_push_plan_finish (plan, nullptr),
                SIXTP_PUSH_PLAN_CANCELLED);
-    g_test_assert_expected_messages ();
     EXPECT_EQ (state.plan, nullptr);
     EXPECT_EQ (state.callbacks, 1u);
 }
@@ -298,11 +286,8 @@ TEST(SixtpPushPlan, FreeFromSaxHandlerDefersDestructionUntilFeedReturns)
     ASSERT_NE (plan, nullptr);
     state.plan = plan;
 
-    g_test_expect_message ("gnc.backend.file.sixtp", G_LOG_LEVEL_CRITICAL,
-                           "parse failed at:");
     EXPECT_EQ (sixtp_push_plan_feed (plan, "<root>x</root>", 14),
                SIXTP_PUSH_PLAN_CANCELLED);
-    g_test_assert_expected_messages ();
     EXPECT_EQ (state.plan, nullptr);
     EXPECT_EQ (state.callbacks, 1u);
 }

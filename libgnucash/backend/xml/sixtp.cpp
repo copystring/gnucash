@@ -615,8 +615,8 @@ sixtp_sax_get_entity_handler (void* user_data, const xmlChar* name)
 }
 
 
-void
-sixtp_handle_catastrophe (sixtp_sax_data* sax_data)
+static void
+sixtp_cleanup_failed_parse (sixtp_sax_data* sax_data, gboolean report_error)
 {
     /* Something has gone wrong.  To handle it, we have to traverse the
        stack, calling, at each level, the frame failure handler (the
@@ -629,8 +629,11 @@ sixtp_handle_catastrophe (sixtp_sax_data* sax_data)
     GSList* lp;
     GSList** stack = & (sax_data->stack);
 
-    g_critical ("parse failed at:");
-    sixtp_print_frame_stack (sax_data->stack, stderr);
+    if (report_error)
+    {
+        g_critical ("parse failed at:");
+        sixtp_print_frame_stack (sax_data->stack, stderr);
+    }
 
     while (*stack)
     {
@@ -684,6 +687,12 @@ sixtp_handle_catastrophe (sixtp_sax_data* sax_data)
 
         *stack = sixtp_pop_and_destroy_frame (*stack);
     }
+}
+
+void
+sixtp_handle_catastrophe (sixtp_sax_data* sax_data)
+{
+    sixtp_cleanup_failed_parse (sax_data, TRUE);
 }
 
 static gboolean
@@ -899,7 +908,10 @@ sixtp_push_plan_release_context (sixtp_push_plan* plan, gboolean catastrophe)
     {
         plan->catastrophe_ran = TRUE;
         sixtp_push_plan_callback_begin (plan);
-        sixtp_handle_catastrophe (&plan->context->data);
+        if (plan->status == SIXTP_PUSH_PLAN_CANCELLED)
+            sixtp_cleanup_failed_parse (&plan->context->data, FALSE);
+        else
+            sixtp_handle_catastrophe (&plan->context->data);
         sixtp_push_plan_callback_end (plan);
     }
     auto context = plan->context;

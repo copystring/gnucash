@@ -38,6 +38,7 @@
 #include <TransLog.h>
 #include <gnc-prefs.h>
 
+#include <new>
 #include <sstream>
 
 #include "gnc-xml-backend.hpp"
@@ -224,6 +225,81 @@ determine_file_type (const std::string& path)
     return GNC_BOOK_NOT_OURS;
 }
 
+struct GncXmlBackendAsyncLoad
+{
+    GncXmlBackend *backend{};
+    GncXmlV2LoadPlan *plan{};
+    QofBackendLoadAsyncGuard guard{};
+    gpointer guard_data{};
+    QofBackendLoadAsyncCallback callback{};
+    gpointer callback_data{};
+    guint source_id{};
+    gboolean terminal_dispatched{};
+
+    void detach_backend ()
+    {
+        if (backend && backend->m_async_load == this)
+            backend->m_async_load = nullptr;
+    }
+};
+
+static void
+gnc_xml_backend_async_load_terminal (GncXmlBackendAsyncLoad *load,
+                                     GncXmlV2LoadStatus status)
+{
+    GncXmlBackend *backend;
+    QofBackendLoadAsyncCallback callback;
+    GncXmlV2LoadPlan *plan;
+    gpointer callback_data;
+
+    if (!load || load->terminal_dispatched)
+        return;
+    load->terminal_dispatched = TRUE;
+    load->source_id = 0;
+    backend = load->backend;
+    load->detach_backend ();
+    callback = load->callback;
+    plan = load->plan;
+    load->plan = nullptr;
+    callback_data = load->callback_data;
+    load->callback = nullptr;
+    load->callback_data = nullptr;
+    if (status == GNC_XML_V2_LOAD_ERROR && backend)
+        backend->set_error (ERR_FILEIO_PARSE_ERROR);
+
+    /* The session callback may release the LOAD lease and destroy the
+     * backend. Release all parser, stream, and book-bound plan ownership
+     * before transferring terminal control to it. */
+    gnc_xml_v2_load_plan_free (plan);
+    callback (status == GNC_XML_V2_LOAD_FINISHED, callback_data);
+}
+
+static void
+gnc_xml_backend_async_load_free (gpointer user_data)
+{
+    auto load = static_cast<GncXmlBackendAsyncLoad *> (user_data);
+    if (!load)
+        return;
+    if (!load->terminal_dispatched)
+        gnc_xml_backend_async_load_terminal (load, GNC_XML_V2_LOAD_CANCELLED);
+    gnc_xml_v2_load_plan_free (load->plan);
+    delete load;
+}
+
+static gboolean
+gnc_xml_backend_async_load_step (gpointer user_data)
+{
+    auto load = static_cast<GncXmlBackendAsyncLoad *> (user_data);
+    auto status = load->plan ?
+        gnc_xml_v2_load_plan_step (load->plan, load->guard, load->guard_data) :
+        GNC_XML_V2_LOAD_ERROR;
+    if (status == GNC_XML_V2_LOAD_ACTIVE)
+        return G_SOURCE_CONTINUE;
+
+    gnc_xml_backend_async_load_terminal (load, status);
+    return G_SOURCE_REMOVE;
+}
+
 void
 GncXmlBackend::load(QofBook* book, QofBackendLoadType loadType)
 {
@@ -292,10 +368,72 @@ GncXmlBackend::load(QofBook* book, QofBackendLoadType loadType)
     if (error != ERR_BACKEND_NO_ERR)
     {
         set_error(error);
+        return;
     }
 
     /* We just got done loading, it can't possibly be dirty !! */
     qof_book_mark_session_saved (book);
+}
+
+bool
+GncXmlBackend::load_async (QofBook *book, QofBackendLoadType load_type,
+                           QofBackendLoadAsyncGuard guard, gpointer guard_data,
+                           QofBackendLoadAsyncCallback callback,
+                           gpointer callback_data)
+{
+    if (load_type != LOAD_TYPE_INITIAL_LOAD || !book || !callback ||
+        determine_file_type (m_fullpath) != GNC_BOOK_XML2_FILE)
+        return false;
+    if (m_async_load)
+        return false;
+
+    if (m_book)
+        g_object_unref (m_book);
+    m_book = QOF_BOOK (g_object_ref (book));
+
+    auto load = new (std::nothrow) GncXmlBackendAsyncLoad;
+    if (!load)
+        return false;
+    load->backend = this;
+    load->guard = guard;
+    load->guard_data = guard_data;
+    load->callback = callback;
+    load->callback_data = callback_data;
+    load->plan = gnc_xml_v2_load_plan_new (this, book, GNC_BOOK_XML2_FILE);
+    if (!load->plan)
+    {
+        delete load;
+        return false;
+    }
+    m_async_load = load;
+    load->source_id = g_idle_add_full (
+        G_PRIORITY_DEFAULT_IDLE, gnc_xml_backend_async_load_step, load,
+        gnc_xml_backend_async_load_free);
+    if (!load->source_id)
+    {
+        m_async_load = nullptr;
+        gnc_xml_v2_load_plan_free (load->plan);
+        delete load;
+        return false;
+    }
+    return true;
+}
+
+void
+GncXmlBackend::cancel_load_async ()
+{
+    if (!m_async_load)
+        return;
+
+    auto source_id = m_async_load->source_id;
+    gnc_xml_v2_load_plan_cancel (m_async_load->plan);
+    if (source_id)
+    {
+        /* Source destruction owns terminal callback dispatch and plan cleanup.
+         * That callback may destroy this backend, so touch no member after
+         * removing the source. */
+        g_source_remove (source_id);
+    }
 }
 
 void
