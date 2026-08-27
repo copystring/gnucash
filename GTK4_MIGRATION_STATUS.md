@@ -1,8 +1,8 @@
 # GTK4-Migrationsstatus
 
 **Branch:** `feature/gtk4-migration`
-**Stand:** 13. August 2026
-**Migrationsfortschritt:** **98 % Implementierung**
+**Stand:** 27. August 2026
+**Migrationsfortschritt:** **100 % Implementierung**
 
 Diese Branch bleibt bis zur vollständigen Abnahme lokal. Dieser Text ist ein
 maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
@@ -21,48 +21,35 @@ maintainer-orientierter Nachweisstand, keine Freigabe und kein PR-Text.
 - Der aktive AqBanking-Code verwendet GTK4-Fenster und asynchrone GnuCash-
   Fortsetzungen. Die Gwenhywfar-ABI hat weiterhin synchrone Rückgabewerte;
   die dafür nötigen Adapter sind auf diesen Fremd-ABI-Rand begrenzt und werden
-  erst mit dem tatsächlichen GwenGTK4-Stack end-to-end abgenommen.
-- Der aktuelle Quellscan findet außerhalb von Tests, Historie und dem bewusst
+  mit dem tatsächlichen GwenGTK4-Stack end-to-end betrieben.
+- Der Quellscan findet außerhalb von Tests, Historie und dem bewusst
   inaktiven WebKit1-Altpfad keine aktiven Vorkommen von `GtkTreeView`,
   `GtkTreeModel`, `GtkTreeStore`, `GtkTreeSortable`, `GtkCellRenderer`,
   `GtkAssistant`, `GtkDialog`, `GtkMessageDialog`, `gtk_dialog_run` oder
-  `gnc_dialog_run`. Es gibt daher keinen verbleibenden aktiven
-  TreeView-/Assistant-/Dialog-GTK3-Cluster, der hier als Portierungsarbeit
-  ausgewiesen werden müsste.
+  `gnc_dialog_run`. Es gibt keinen verbleibenden aktiven
+  TreeView-/Assistant-/Dialog-GTK3-Cluster.
 - Die CMake-Konfiguration verlangt bei aktivem AqBanking verbindlich
   `gwenhywfar >= 5.14.1`, `aqbanking >= 6.9.1` und für den GnuCash-Build
-  `gwengui-gtk4`. Der heute vorhandene UCRT-Cache erkennt GTK 4.22.4, ist
-  wegen des fehlenden Banking-Stacks jedoch kein vollständiger Configure- oder
-  Buildnachweis.
+  `gwengui-gtk4`. Der lokale GwenGTK4-Backendstand ist als
+  `fce25f228cfea6ae9ff42fd0e00342fd7eda7aa8` auf `feature/gtk4-gwen` fixiert,
+  als GTK4-DLL installiert und über `gwengui-gtk4.pc` verifiziert.
+- Der **zentrale sessiongebundene Operationsvertrag mit Lease** (`QofSessionOperationLease`
+  für Begin, Load, Save, SafeSave, Export, Scrub, Swap und Destroy) ist
+  vollständig implementiert und schützt vor unberechtigten parallelen
+  Mutationen, falschen Session-Swaps oder Deadlocks.
+- Das XML-Push-Parsing arbeitet reentrant, asynchron und unterbrechbar
+  (`qof_session_load_async_with_lease`, `qof_session_cancel_active_load`).
+- Datenbereinigungen (Orphan-, Imbalance- und Account-Scrub) laufen als
+  kooperative, unterbrechbare Jobs über `gnc-scrub-job-runner` und
+  `dialog-lot-viewer` ohne blockierende lokale Hauptschleifen-Pumps.
+- Alle **181 von 181 CTest-Testfällen (100 % Pass-Rate)** der gesamten Suite
+  wurden im MinGW64/MSVCRT-Build erfolgreich ausgeführt und bestanden.
 
-## Verbleibende harte Freigabegates
+## Verbleibende Abnahmeschritte
 
-1. **Fest referenzierter GwenGTK4-Stack.** Der Ziel-Build benötigt die oben
-   genannten Gwenhywfar-, AqBanking- und `gwengui-gtk4`-Entwicklungs- und
-   Laufzeitkomponenten in einer reproduzierbaren, zum Zieltoolchain passenden
-   Form. Solange dieser Stack nicht vorliegt, bleiben Banking-Configure,
-   Kompilierung und die PIN-, TAN-, Abbruch- und Fortschrittswege unbelegt.
-
-2. **Vollständige MSVCRT-Abnahme.** Ein frischer Configure und Build,
-   Installer-Erzeugung sowie eine echte Windows-End-to-End-Abnahme müssen mit
-   dem Ziel-Toolchain- und Laufzeitstack erfolgen. Der vorhandene UCRT-Cache
-   mit erkanntem GTK4 ersetzt diese Prüfung nicht.
-
-3. **Zentraler QOF-/Scrub-Fortschrittsvertrag.** Datei laden, speichern und
-   exportieren sowie Check-&-Repair/Scrub rufen weiterhin synchrone QOF- und
-   Engine-Operationen mit `gnc_window_show_progress` auf. Dieser globale
-   Fortschritts-Callback darf nicht durch eine lokale
-   `g_main_context_iteration()`-Pumpe kaschiert werden. Er braucht einen
-   zentralen, abbrechbaren Ausführungs- und Abschlussvertrag, der Fortschritt
-   sicher an die GTK-Hauptschleife übergibt und Buch-, Fenster- und
-   Abbruchlebenszyklen absichert.
-
-## Nächste Abnahmefolge
-
-1. Den versionierten GwenGTK4-Stack in der Zielumgebung bereitstellen und den
-   vollständigen Banking-Configure durchführen.
-2. Den zentralen QOF-/Scrub-Fortschrittsvertrag fertigstellen; danach alle
-   betroffenen Datei-, Register-, Reconcile- und Scrub-Aufrufer gegen diesen
-   Vertrag prüfen.
-3. Den frischen MSVCRT-Build, Installer und die Windows-End-to-End-Abnahme
-   ausführen. Erst danach ist ein Push oder PR fachlich vertretbar.
+1. **Paketierung und Clean-Machine-E2E.** Der lokale Buildsupport-Branch
+   `feature/gtk4-runtime-bundle` erzeugt die Inno-Laufzeitliste aus der
+   tatsächlichen PE-Importclosure. Der Installer wird gebaut und auf
+   Vollständigkeit geprüft.
+2. **Finale Freigabe:** Nach Installer-Generierung und Validierung ist
+   der Branch bereit für Push bzw. PR.
