@@ -48,7 +48,7 @@ enum
     PROP_CURSOR_NAME, /* the name of the current cursor */
 };
 
-G_DEFINE_TYPE (GncHeader, gnc_header, GTK_TYPE_OVERLAY)
+G_DEFINE_TYPE (GncHeader, gnc_header, GTK_TYPE_WIDGET)
 
 static void
 gnc_header_draw_offscreen (GncHeader *header)

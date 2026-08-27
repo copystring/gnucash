@@ -3776,8 +3776,6 @@ gnc_main_window_connect (GncMainWindow *window,
         (GNC_PLUGIN_PAGE_GET_CLASS(page)->window_changed)(page, GTK_WIDGET(window));
     g_signal_emit (window, main_window_signals[PAGE_ADDED], 0, page);
 
-    g_signal_connect(G_OBJECT(page->notebook_page), "popup-menu",
-                     G_CALLBACK(gnc_main_window_popup_menu_cb), page);
     auto context_click = gtk_gesture_click_new ();
     gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (context_click), GDK_BUTTON_SECONDARY);
     g_signal_connect (context_click, "pressed",

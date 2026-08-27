@@ -893,7 +893,7 @@ gnucash_sheet_set_adjustment (GnucashSheet *sheet,
     GtkAdjustment *replacement = adjustment;
 
     if (!replacement)
-        replacement = gtk_adjustment_new (0, 0, 0, 1, 1, 1);
+        replacement = gtk_adjustment_new (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     else
         g_object_ref (replacement);
 
@@ -2356,11 +2356,11 @@ gnucash_sheet_init (GnucashSheet *sheet)
     sheet->hscroll_policy = GTK_SCROLL_MINIMUM;
     sheet->vscroll_policy = GTK_SCROLL_MINIMUM;
 
-    adjustment = gtk_adjustment_new (0, 0, 0, 1, 1, 1);
+    adjustment = gtk_adjustment_new (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     gnucash_sheet_set_adjustment (sheet, &sheet->hadj, &sheet->hadj_handler,
                                   adjustment, "hadjustment");
     g_object_unref (adjustment);
-    adjustment = gtk_adjustment_new (0, 0, 0, 1, 1, 1);
+    adjustment = gtk_adjustment_new (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     gnucash_sheet_set_adjustment (sheet, &sheet->vadj, &sheet->vadj_handler,
                                   adjustment, "vadjustment");
     g_object_unref (adjustment);
