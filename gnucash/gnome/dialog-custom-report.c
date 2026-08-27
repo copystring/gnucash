@@ -775,8 +775,6 @@ custom_report_add_name_column (CustomReportDialog *crd)
     column = gtk_column_view_column_new (_("Report Name"), factory);
     gtk_column_view_column_set_expand (column, TRUE);
     gtk_column_view_append_column (crd->view, column);
-    g_object_unref (column);
-    g_object_unref (factory);
 }
 
 static void
@@ -795,8 +793,6 @@ custom_report_add_action_column (CustomReportDialog *crd, const gchar *title,
     g_signal_connect (factory, "unbind", G_CALLBACK (custom_report_action_unbind), factory_data);
     column = gtk_column_view_column_new (title, factory);
     gtk_column_view_append_column (crd->view, column);
-    g_object_unref (column);
-    g_object_unref (factory);
 }
 
 static void

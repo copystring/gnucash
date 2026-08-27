@@ -211,7 +211,6 @@ sx_list_append_text_column (GtkColumnView *view, const gchar *title, SxListColum
     gtk_column_view_column_set_visible (view_column, visible);
     gtk_column_view_append_column (view, view_column);
     g_object_unref (sorter);
-    g_object_unref (factory);
     return view_column;
 }
 

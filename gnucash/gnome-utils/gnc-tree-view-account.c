@@ -367,7 +367,6 @@ add_column (GncTreeViewAccount *view, const gchar *title, const gchar *name,
     g_signal_connect (column, "notify::sort-order", G_CALLBACK (column_sort_changed), data);
     gtk_column_view_append_column (view->column_view, column);
     g_object_unref (sorter);
-    g_object_unref (factory);
     return column;
 }
 
@@ -1081,7 +1080,6 @@ account_filter_dialog_create (AccountFilterDialog *fd, GncPluginPage *page)
     g_signal_connect (factory, "unbind", G_CALLBACK (type_unbind_cb), fd);
     gtk_list_view_set_factory (list_view, factory);
     gtk_list_view_set_model (list_view, selection);
-    g_object_unref (factory);
     g_object_unref (selection);
     gnc_builder_connect_signals (builder, fd);
     g_signal_connect (gtk_builder_get_object (builder, "okbutton1"), "clicked",

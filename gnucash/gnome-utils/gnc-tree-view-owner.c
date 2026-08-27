@@ -238,7 +238,6 @@ append_column (GncTreeViewOwner *view, OwnerColumn column)
     gtk_column_view_column_set_sorter (view_column, GTK_SORTER (sorter));
     gtk_column_view_append_column (view->column_view, view_column);
     g_object_unref (sorter);
-    g_object_unref (factory);
     return view_column;
 }
 

@@ -2335,7 +2335,6 @@ GncFinishColumnView::GncFinishColumnView (GtkBuilder *builder)
                                                   GTK_LIST_ITEM_FACTORY (factory));
         gtk_column_view_column_set_expand (column, column_data.expand);
         gtk_column_view_append_column (m_view, column);
-        g_object_unref (factory);
     }
 }
 

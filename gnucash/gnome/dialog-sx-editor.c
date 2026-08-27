@@ -2128,8 +2128,6 @@ _sx_engine_event_handler (QofInstance *ent, QofEventId event_type,
         g_signal_connect (factory, "bind", G_CALLBACK (sxed_account_name_bind), NULL);
         column = gtk_column_view_column_new (_("Name"), factory);
         gtk_column_view_append_column (list, column);
-        g_object_unref (column);
-        g_object_unref (factory);
 
         g_signal_connect (gtk_builder_get_object (builder, "okbutton1"), "clicked",
                           G_CALLBACK (_open_editors), data);

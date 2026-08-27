@@ -1855,8 +1855,6 @@ loan_review_add_column (LoanAssistantData *ldd, const gchar *title, guint col)
     auto column = gtk_column_view_column_new (title, GTK_LIST_ITEM_FACTORY (factory));
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_append_column (ldd->revView, column);
-    g_object_unref (column);
-    g_object_unref (factory);
 }
 static
 void

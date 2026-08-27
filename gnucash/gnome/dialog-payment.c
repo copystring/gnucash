@@ -386,7 +386,6 @@ payment_post_account_setup (PaymentWindow *pw, GtkBox *box)
     g_signal_connect (factory, "setup", G_CALLBACK (payment_post_account_item_setup_cb), NULL);
     g_signal_connect (factory, "bind", G_CALLBACK (payment_post_account_item_bind_cb), NULL);
     list = gtk_list_view_new (GTK_SELECTION_MODEL (pw->post_account_selection), factory);
-    g_object_unref (factory);
     g_signal_connect (list, "activate", G_CALLBACK (payment_post_account_activated_cb), pw);
 
     scroller = gtk_scrolled_window_new ();
@@ -681,7 +680,6 @@ payment_document_column_new (const gchar *title, guint column, gint width)
     g_signal_connect (factory, "bind", G_CALLBACK (payment_document_item_bind_cb),
                       GUINT_TO_POINTER (column));
     view_column = gtk_column_view_column_new (title, factory);
-    g_object_unref (factory);
     gtk_column_view_column_set_resizable (view_column, TRUE);
     gtk_column_view_column_set_fixed_width (view_column, width);
     sorter = gtk_custom_sorter_new (payment_document_sort_cb, GUINT_TO_POINTER (column), NULL);

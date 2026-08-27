@@ -456,7 +456,6 @@ query_view_append_column (GNCQueryView *qview, GNCSearchParamSimple *param,
                        GUINT_TO_POINTER (index));
     gtk_column_view_append_column (priv->view, info->column);
     g_ptr_array_add (priv->columns, info);
-    g_object_unref (factory);
 }
 
 static void

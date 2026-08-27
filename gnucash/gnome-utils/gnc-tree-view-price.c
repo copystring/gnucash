@@ -283,7 +283,6 @@ add_column (GncTreeViewPrice *view, const gchar *title, const gchar *id, GncTree
     g_object_set_data_full (G_OBJECT (column), "gnc-price-column", data, (GDestroyNotify)g_free);
     gtk_column_view_append_column (gnc_tree_view_get_column_view (GNC_TREE_VIEW (view)), column);
     g_object_unref (sorter);
-    g_object_unref (factory);
     return column;
 }
 static void

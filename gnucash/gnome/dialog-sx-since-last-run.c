@@ -529,7 +529,6 @@ slr_append_column (GtkColumnView *view, const gchar *title,
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_column_set_expand (column, expand);
     gtk_column_view_append_column (view, column);
-    g_object_unref (factory);
     return column;
 }
 
