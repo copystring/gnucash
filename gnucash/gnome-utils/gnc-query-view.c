@@ -15,6 +15,7 @@
 
 #include "gnc-component-manager.h"
 #include "gnc-query-view.h"
+#include "gnc-tree-view.h"
 #include "gnc-ui-util.h"
 #include "qof.h"
 #include "search-param.h"
@@ -567,8 +568,7 @@ gnc_query_view_init (GNCQueryView *qview)
     g_signal_connect (header_factory, "bind", G_CALLBACK (query_header_bind), qview);
     gtk_column_view_set_header_factory (priv->view, header_factory);
     g_object_unref (header_factory);
-    gtk_column_view_set_show_row_separators (priv->view, TRUE);
-    gtk_column_view_set_show_column_separators (priv->view, TRUE);
+    gnc_column_view_bind_grid_line_preferences (priv->view);
     gtk_column_view_set_reorderable (priv->view, TRUE);
     gtk_box_append (GTK_BOX (qview), GTK_WIDGET (priv->view));
     g_signal_connect (priv->selection, "selection-changed",
@@ -586,6 +586,8 @@ gnc_query_view_dispose (GObject *object)
     GNCQueryView *qview = GNC_QUERY_VIEW (object);
     GNCQueryViewPrivate *priv = GNC_QUERY_VIEW_GET_PRIVATE (qview);
 
+    if (priv->view)
+        gnc_column_view_unbind_grid_line_preferences (priv->view);
     if (priv->component_id > 0)
     {
         gnc_unregister_gui_component (priv->component_id);

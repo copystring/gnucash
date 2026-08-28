@@ -86,20 +86,54 @@
     <property name="css-classes">toolbar</property>
     <child>
       <object class="GtkButton" id="but1">
-        <property name="label" translatable="1">_Save</property>
+
         <property name="action-name">gnc-plugin-basic-commands-actions.FileSaveAction</property>
         <property name="tooltip-text" translatable="1">Save the current file</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-save</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-save</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Save</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but2">
-        <property name="label" translatable="1">_Close</property>
+
         <property name="action-name">mainwin.FileCloseAction</property>
         <property name="tooltip-text" translatable="1">Close the currently active page</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">window-close</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">window-close</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Close</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -109,11 +143,28 @@
     </child>
     <child>
       <object class="GtkButton" id="but2a">
-        <property name="label" translatable="1">New _Invoice…</property>
+
         <property name="action-name">gnc-plugin-business-actions.ToolbarNewInvoiceAction</property>
         <property name="tooltip-text" translatable="1">Open the New Invoice dialog</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Invoice…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -123,38 +174,106 @@
     </child>
     <child>
       <object class="GtkButton" id="but3">
-        <property name="label" translatable="1">Back</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportBackAction</property>
         <property name="tooltip-text" translatable="1">Move back one step in the history</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">go-previous</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">go-previous</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Back</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but4">
-        <property name="label" translatable="1">Forward</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportForwAction</property>
         <property name="tooltip-text" translatable="1">Move forward one step in the history</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">go-next</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">go-next</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Forward</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but5">
-        <property name="label" translatable="1">Reload</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportReloadAction</property>
         <property name="tooltip-text" translatable="1">Reload the current page</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">view-refresh</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">view-refresh</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Reload</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but6">
-        <property name="label" translatable="1">Stop</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportStopAction</property>
         <property name="tooltip-text" translatable="1">Cancel outstanding HTML requests</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">process-stop</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">process-stop</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Stop</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -164,56 +283,158 @@
     </child>
     <child>
       <object class="GtkButton" id="but7">
-        <property name="label" translatable="1">_Report Options</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportOptionsAction</property>
         <property name="tooltip-text" translatable="1">Edit report options</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-properties</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-properties</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Report Options</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but8">
-        <property name="label" translatable="1">Save _Report Configuration</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportSaveAction</property>
         <property name="tooltip-text" translatable="1">Update the current report&apos;s saved configuration</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-save</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-save</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Save _Report Configuration</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but9">
-        <property name="label" translatable="1">Save Report Configuration As…</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportSaveAsAction</property>
         <property name="tooltip-text" translatable="1">Add the current report&apos;s configuration to the &apos;Reports-&gt;Saved Report Configurations&apos; menu</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-save-as</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-save-as</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Save Report Configuration As…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but10">
-        <property name="label" translatable="1">Export _Report</property>
+
         <property name="action-name">GncPluginPageReportActions.ReportExportAction</property>
         <property name="tooltip-text" translatable="1">Export HTML-formatted report to file</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">go-next</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">go-next</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Export _Report</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but11">
-        <property name="label" translatable="1">_Print Report…</property>
+
         <property name="action-name">GncPluginPageReportActions.FilePrintAction</property>
         <property name="tooltip-text" translatable="1">Print the current report</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-print</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-print</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Print Report…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but12">
-        <property name="label" translatable="1">Export as P_DF…</property>
+
         <property name="action-name">GncPluginPageReportActions.FilePrintPDFAction</property>
         <property name="tooltip-text" translatable="1">Export the current report as a PDF document</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-gnome-pdf</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-gnome-pdf</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Export as P_DF…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>

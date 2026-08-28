@@ -354,6 +354,7 @@ gnc_embedded_window_new (const gchar *action_group_name,
     gtk_widget_set_visible (GTK_WIDGET(window->menubar), TRUE);
 
     window->toolbar = (GtkWidget *)gtk_builder_get_object (builder, "embeddedwin-toolbar");
+    gnc_plugin_prepare_toolbar (window->toolbar);
     gtk_box_append (GTK_BOX(window->menu_dock), GTK_WIDGET(window->toolbar));
     gtk_widget_set_visible (GTK_WIDGET(window->toolbar), TRUE);
 

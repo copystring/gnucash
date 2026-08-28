@@ -146,20 +146,54 @@
     <property name="css-classes">toolbar</property>
     <child>
       <object class="GtkButton" id="but1">
-        <property name="label" translatable="1">Duplicate</property>
+
         <property name="action-name">GncPluginPageRegisterActions.DuplicateTransactionAction</property>
         <property name="tooltip-text" translatable="1">Make a copy of the current transaction</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">edit-copy</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">edit-copy</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Duplicate</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but2">
-        <property name="label" translatable="1">Delete</property>
+
         <property name="action-name">GncPluginPageRegisterActions.DeleteTransactionAction</property>
         <property name="tooltip-text" translatable="1">Delete the current transaction</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">edit-delete</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">edit-delete</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Delete</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -169,29 +203,80 @@
     </child>
     <child>
       <object class="GtkButton" id="but3">
-        <property name="label" translatable="1">Enter</property>
+
         <property name="action-name">GncPluginPageRegisterActions.RecordTransactionAction</property>
         <property name="tooltip-text" translatable="1">Record the current transaction</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">list-add</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">list-add</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Enter</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but4">
-        <property name="label" translatable="1">Cancel</property>
+
         <property name="action-name">GncPluginPageRegisterActions.CancelTransactionAction</property>
         <property name="tooltip-text" translatable="1">Cancel the current transaction</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">process-stop</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">process-stop</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Cancel</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but5">
-        <property name="label" translatable="1">Blank</property>
+
         <property name="action-name">GncPluginPageRegisterActions.BlankTransactionAction</property>
         <property name="tooltip-text" translatable="1">Move to the blank transaction at the bottom of the register</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">go-jump</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">go-jump</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Blank</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>

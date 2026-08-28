@@ -221,6 +221,59 @@ gnc_plugin_get_name (GncPlugin *plugin)
  ************************************************************/
 
 
+void
+gnc_plugin_prepare_toolbar (GtkWidget *toolbar)
+{
+    GtkWidget *tool_item;
+
+    g_return_if_fail (GTK_IS_WIDGET (toolbar));
+
+    for (tool_item = gtk_widget_get_first_child (toolbar);
+         tool_item != NULL;
+         tool_item = gtk_widget_get_next_sibling (tool_item))
+    {
+        GtkWidget *content;
+        GtkWidget *image;
+        GtkWidget *text;
+
+        if (!GTK_IS_BUTTON (tool_item))
+            continue;
+
+        content = gtk_button_get_child (GTK_BUTTON (tool_item));
+        if (!GTK_IS_BOX (content))
+        {
+            g_warning ("Toolbar button has no explicit GtkBox content");
+            continue;
+        }
+
+        image = gtk_widget_get_first_child (content);
+        if (!image)
+        {
+            g_warning ("Toolbar button content has no GtkImage");
+            continue;
+        }
+        text = gtk_widget_get_next_sibling (image);
+
+        if (!GTK_IS_IMAGE (image) || !GTK_IS_LABEL (text) ||
+            gtk_widget_get_next_sibling (text) != NULL)
+        {
+            g_warning ("Toolbar button content must be GtkImage followed by GtkLabel");
+            continue;
+        }
+
+        if (gtk_orientable_get_orientation (GTK_ORIENTABLE (content)) !=
+                GTK_ORIENTATION_VERTICAL ||
+            gtk_image_get_pixel_size (GTK_IMAGE (image)) != 24)
+            g_warning ("Toolbar button content has the wrong layout or icon size");
+
+        gtk_accessible_update_property (GTK_ACCESSIBLE (tool_item),
+                                        GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                        gtk_label_get_text (GTK_LABEL (text)),
+                                        -1);
+    }
+}
+
+
 /** Add "short" labels to existing actions.  The "short" label is the
  *  string used on toolbar buttons when the action is visible.
  *
@@ -252,8 +305,8 @@ gnc_plugin_init_short_names (GtkWidget *toolbar,
             {
                 if (GTK_IS_LABEL(child))
                 {
-                    gtk_label_set_text (GTK_LABEL(child), _(toolbar_labels[i].short_label));
-                    gtk_button_set_use_underline (GTK_BUTTON(tool_item), TRUE);
+                    gtk_label_set_label (GTK_LABEL(child), _(toolbar_labels[i].short_label));
+                    gtk_label_set_use_underline (GTK_LABEL(child), TRUE);
                 }
             }
         }
@@ -287,7 +340,7 @@ gnc_plugin_add_menu_tooltip_callbacks (GtkWidget  *menubar,
 {
     g_return_if_fail (GTK_IS_WIDGET (menubar));
     g_return_if_fail (G_IS_MENU_MODEL (menubar_model));
-    g_return_if_fail (GTK_IS_STATUSBAR (statusbar));
+    g_return_if_fail (gnc_statusbar_is (statusbar));
 
     gnc_menubar_setup_tooltip_to_statusbar_callbacks (menubar, menubar_model, statusbar);
 }
@@ -309,7 +362,7 @@ void
 gnc_plugin_add_toolbar_tooltip_callbacks (GtkWidget *toolbar, GtkWidget *statusbar)
 {
     g_return_if_fail (GTK_IS_WIDGET(toolbar));
-    g_return_if_fail (GTK_IS_STATUSBAR(statusbar));
+    g_return_if_fail (gnc_statusbar_is (statusbar));
 
     setup_toolbar_tooltip_callbacks (toolbar, statusbar);
 }

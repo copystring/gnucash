@@ -242,20 +242,54 @@
     <property name="css-classes">toolbar</property>
     <child>
       <object class="GtkButton" id="but1c">
-        <property name="label" translatable="1">_Save</property>
+
         <property name="action-name">gnc-plugin-basic-commands-actions.FileSaveAction</property>
         <property name="tooltip-text" translatable="1">Save the current file</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-save</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-save</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Save</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but2c">
-        <property name="label" translatable="1">_Close</property>
+
         <property name="action-name">mainwin.FileCloseAction</property>
         <property name="tooltip-text" translatable="1">Close the currently active page</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">window-close</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">window-close</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Close</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -265,11 +299,28 @@
     </child>
     <child>
       <object class="GtkButton" id="but2ca">
-        <property name="label" translatable="1">New _Invoice…</property>
+
         <property name="action-name">gnc-plugin-business-actions.ToolbarNewInvoiceAction</property>
         <property name="tooltip-text" translatable="1">Open the New Invoice dialog</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Invoice…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -279,20 +330,54 @@
     </child>
     <child>
       <object class="GtkButton" id="but3c">
-        <property name="label" translatable="1">_New Customer…</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTNewCustomerAction</property>
         <property name="tooltip-text" translatable="1">Create a new customer</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_New Customer…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but4c">
-        <property name="label" translatable="1">E_dit Customer</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTEditCustomerAction</property>
         <property name="tooltip-text" translatable="1">Edit the selected customer</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-edit</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-edit</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">E_dit Customer</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -302,29 +387,80 @@
     </child>
     <child>
       <object class="GtkButton" id="but5c">
-        <property name="label" translatable="1">New _Invoice…</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTNewInvoiceAction</property>
         <property name="tooltip-text" translatable="1">Create a new invoice</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-pay</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-pay</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Invoice…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but6c">
-        <property name="label" translatable="1">Customer Listing</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTCustomerListingReportAction</property>
         <property name="tooltip-text" translatable="1">Show customer aging overview for all customers</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-print-preview</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-print-preview</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Customer Listing</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but7c">
-        <property name="label" translatable="1">Process Payment</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTProcessPaymentAction</property>
         <property name="tooltip-text" translatable="1">Process Payment</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-pay</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-pay</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Process Payment</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>
@@ -332,20 +468,54 @@
     <property name="css-classes">toolbar</property>
     <child>
       <object class="GtkButton" id="but1v">
-        <property name="label" translatable="1">_Save</property>
+
         <property name="action-name">gnc-plugin-basic-commands-actions.FileSaveAction</property>
         <property name="tooltip-text" translatable="1">Save the current file</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-save</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-save</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Save</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but2v">
-        <property name="label" translatable="1">_Close</property>
+
         <property name="action-name">mainwin.FileCloseAction</property>
         <property name="tooltip-text" translatable="1">Close the currently active page</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">window-close</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">window-close</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Close</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -355,11 +525,28 @@
     </child>
     <child>
       <object class="GtkButton" id="but2va">
-        <property name="label" translatable="1">New _Invoice…</property>
+
         <property name="action-name">gnc-plugin-business-actions.ToolbarNewInvoiceAction</property>
         <property name="tooltip-text" translatable="1">Open the New Invoice dialog</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Invoice…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -369,20 +556,54 @@
     </child>
     <child>
       <object class="GtkButton" id="but3v">
-        <property name="label" translatable="1">_New Vendor…</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTNewVendorAction</property>
         <property name="tooltip-text" translatable="1">Create a new vendor</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_New Vendor…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but4v">
-        <property name="label" translatable="1">E_dit Vendor</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTEditVendorAction</property>
         <property name="tooltip-text" translatable="1">Edit the selected vendor</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-edit</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-edit</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">E_dit Vendor</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -392,29 +613,80 @@
     </child>
     <child>
       <object class="GtkButton" id="but5v">
-        <property name="label" translatable="1">New _Bill…</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTNewBillAction</property>
         <property name="tooltip-text" translatable="1">Create a new bill</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-pay</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-pay</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Bill…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but6v">
-        <property name="label" translatable="1">Vendor Listing</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTVendorListingReportAction</property>
         <property name="tooltip-text" translatable="1">Show vendor aging overview for all vendors</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-print-preview</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-print-preview</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Vendor Listing</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but7v">
-        <property name="label" translatable="1">Process Payment</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTProcessPaymentAction</property>
         <property name="tooltip-text" translatable="1">Process Payment</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-pay</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-pay</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Process Payment</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>
@@ -422,20 +694,54 @@
     <property name="css-classes">toolbar</property>
     <child>
       <object class="GtkButton" id="but1e">
-        <property name="label" translatable="1">_Save</property>
+
         <property name="action-name">gnc-plugin-basic-commands-actions.FileSaveAction</property>
         <property name="tooltip-text" translatable="1">Save the current file</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-save</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-save</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Save</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but2e">
-        <property name="label" translatable="1">_Close</property>
+
         <property name="action-name">mainwin.FileCloseAction</property>
         <property name="tooltip-text" translatable="1">Close the currently active page</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">window-close</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">window-close</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Close</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -445,11 +751,28 @@
     </child>
     <child>
       <object class="GtkButton" id="but2ea">
-        <property name="label" translatable="1">New _Invoice…</property>
+
         <property name="action-name">gnc-plugin-business-actions.ToolbarNewInvoiceAction</property>
         <property name="tooltip-text" translatable="1">Open the New Invoice dialog</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Invoice…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -459,20 +782,54 @@
     </child>
     <child>
       <object class="GtkButton" id="but3e">
-        <property name="label" translatable="1">_New Employee…</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTNewEmployeeAction</property>
         <property name="tooltip-text" translatable="1">Create a new employee</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_New Employee…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but4e">
-        <property name="label" translatable="1">E_dit Employee</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTEditEmployeeAction</property>
         <property name="tooltip-text" translatable="1">Edit the selected employee</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-edit</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-edit</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">E_dit Employee</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -482,20 +839,54 @@
     </child>
     <child>
       <object class="GtkButton" id="but5e">
-        <property name="label" translatable="1">New _Voucher…</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTNewVoucherAction</property>
         <property name="tooltip-text" translatable="1">Create a new voucher</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-pay</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-pay</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Voucher…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but6e">
-        <property name="label" translatable="1">Process Payment</property>
+
         <property name="action-name">GncPluginPageOwnerTreeActions.OTProcessPaymentAction</property>
         <property name="tooltip-text" translatable="1">Process Payment</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-pay</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-pay</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Process Payment</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>

@@ -3,6 +3,7 @@
 #include <gtk/gtk.h>
 
 #include "gnc-gtk-utils.h"
+#include "gnc-plugin.h"
 
 static const gchar *
 statusbar_text (GtkWidget *statusbar)
@@ -43,12 +44,33 @@ test_message_stack (void)
     g_object_unref (statusbar);
 }
 
+static void
+test_plugin_tooltip_callbacks_accept_gnc_statusbar (void)
+{
+    GtkWidget *statusbar = gnc_statusbar_new ();
+    GtkWidget *toolbar = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    GtkWidget *button = gtk_button_new_with_label ("Action");
+
+    g_object_ref_sink (statusbar);
+    g_object_ref_sink (toolbar);
+    gtk_actionable_set_action_name (GTK_ACTIONABLE (button), "win.test");
+    gtk_widget_set_tooltip_text (button, "Tooltip");
+    gtk_box_append (GTK_BOX (toolbar), button);
+
+    gnc_plugin_add_toolbar_tooltip_callbacks (toolbar, statusbar);
+
+    g_object_unref (toolbar);
+    g_object_unref (statusbar);
+}
+
 int
 main (int argc, char **argv)
 {
     g_test_init (&argc, &argv, NULL);
     gtk_init ();
     g_test_add_func ("/gnome-utils/statusbar/message-stack", test_message_stack);
+    g_test_add_func ("/gnome-utils/statusbar/plugin-tooltip-callbacks",
+                     test_plugin_tooltip_callbacks_accept_gnc_statusbar);
 
     return g_test_run ();
 }

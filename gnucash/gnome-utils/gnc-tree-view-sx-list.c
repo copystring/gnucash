@@ -7,12 +7,8 @@
 #include <gtk/gtk.h>
 
 #include "gnc-tree-view-sx-list.h"
+#include "gnc-tree-view.h"
 #include "gnc-sx-list-tree-model-adapter.h"
-#include "gnc-prefs.h"
-
-#define GNC_PREFS_GROUP_GENERAL "general"
-#define GNC_PREF_GRID_LINES_HORIZONTAL "grid-lines-horizontal"
-#define GNC_PREF_GRID_LINES_VERTICAL "grid-lines-vertical"
 
 typedef enum
 {
@@ -227,10 +223,7 @@ gnc_sx_list_view_new (GncSxInstanceModel *sx_instances)
     view = GTK_COLUMN_VIEW (gtk_column_view_new (NULL));
     gtk_widget_set_name (GTK_WIDGET (view), "gnc-id-sx-list");
     gtk_column_view_set_reorderable (view, TRUE);
-    gtk_column_view_set_show_row_separators
-        (view, gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_HORIZONTAL));
-    gtk_column_view_set_show_column_separators
-        (view, gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_VERTICAL));
+    gnc_column_view_bind_grid_line_preferences (view);
 
     data = g_new0 (GncSxListViewData, 1);
     data->adapter = gnc_sx_list_tree_model_adapter_new (sx_instances);

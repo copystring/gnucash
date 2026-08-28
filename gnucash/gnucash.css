@@ -95,126 +95,104 @@ dialog#GnuCash * text selection {
 }
 
 /* ==================================================================== */
-/* GTK4 UI Parity: Compact Sizing & Alternating Row Colors              */
+/* GTK4 UI Parity: compact sizing in the main application window        */
 /* ==================================================================== */
 
-/* ColumnView & ListView (Account Tree, Commodity Tree, Dialogs) */
-columnview.view,
-listview.view {
-  font-size: 13px;
-  background-color: #ffffff;
-}
+/*
+ * Keep the GTK3-like density local to the main application window. Do not
+ * set fonts or colours here: those are inherited from the active GTK theme so
+ * that dark themes, accessibility settings, and display scaling stay intact.
+ */
 
-columnview.view row,
-listview.view row {
+/* Main-window ColumnView & ListView */
+#gnc-id-main-window columnview.view row,
+#gnc-id-main-window listview.view row {
   min-height: 22px;
   padding: 1px 2px;
   margin: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
-columnview.view row:nth-child(even) {
-  background-color: #f6f8f6;
-}
-
-columnview.view row:nth-child(odd) {
-  background-color: #ffffff;
-}
-
-columnview.view row:hover {
-  background-color: #eaf2ea;
-}
-
-columnview.view row:selected,
-columnview.view row:selected:focus {
-  background-color: #3584e4;
-  color: #ffffff;
-}
-
-columnview.view cell,
-listview.view cell {
+#gnc-id-main-window columnview.view cell,
+#gnc-id-main-window listview.view cell {
   min-height: 20px;
   padding: 1px 4px;
 }
 
-columnview.view cell editablelabel,
-columnview.view cell label {
+#gnc-id-main-window columnview.view cell editablelabel,
+#gnc-id-main-window columnview.view cell label {
   min-height: 18px;
   padding: 0 2px;
-  font-size: 13px;
 }
 
-columnview.view treeexpander {
+#gnc-id-main-window columnview.view treeexpander {
   min-height: 20px;
   min-width: 16px;
 }
 
-columnview.view treeexpander > image {
+#gnc-id-main-window columnview.view treeexpander > image {
   min-width: 14px;
   min-height: 14px;
   padding: 0;
   margin: 0 2px 0 0;
 }
 
-/* ColumnView Header */
-columnview header {
-  background-color: #f0f2f0;
-  border-bottom: 1px solid #c0c4c0;
-}
-
-columnview header button {
+/* Main-window ColumnView header */
+#gnc-id-main-window columnview header button {
   min-height: 24px;
   padding: 2px 6px;
   font-weight: bold;
-  font-size: 12px;
-  border-right: 1px solid #dcdfdc;
+  border-right: 1px solid alpha(currentColor, 0.1);
 }
 
-/* Notebook Tabs */
-notebook > header > tabs > tab {
+/* GtkColumnView has no headers-visible property. Account selectors that do
+ * not permit sorting retain the GTK3 headerless presentation through this
+ * semantic class instead. */
+columnview.gnc-account-no-headers header,
+columnview.gnc-account-no-headers header button {
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border-width: 0;
+  font-size: 0;
+  color: transparent;
+}
+
+/* Main-window notebook tabs */
+#gnc-id-main-window notebook > header > tabs > tab {
   min-height: 24px;
   padding: 3px 8px;
   margin: 0 1px;
 }
 
-notebook > header > tabs > tab label {
-  font-size: 12px;
-}
-
-notebook > header > tabs > tab button.flat {
+#gnc-id-main-window notebook > header > tabs > tab button.flat {
   min-width: 16px;
   min-height: 16px;
   padding: 0;
   margin: 0 0 0 4px;
 }
 
-/* Toolbars and Action Buttons */
-.toolbar button,
-headerbar button,
-button.flat {
+/* Main-window toolbar buttons */
+#gnc-id-main-window .toolbar button {
   min-height: 24px;
   padding: 2px 6px;
   margin: 1px;
 }
 
-/* Summary Bar */
-#gnc-id-account-summary-bar {
+/* Main-window summary bar */
+#gnc-id-main-window #gnc-id-account-summary-bar {
   padding: 2px 8px;
   min-height: 24px;
-  background-color: #f0f2f0;
-  border-top: 1px solid #d0d2d0;
 }
 
-#gnc-id-account-summary-bar label {
+#gnc-id-main-window #gnc-id-account-summary-bar label {
   padding: 0 4px;
-  font-size: 12px;
 }
 
-/* Statusbar */
-.statusbar {
+/* Main-window statusbar */
+#gnc-id-main-window .statusbar {
   padding: 2px 6px;
   min-height: 20px;
-  font-size: 11px;
 }
 
 

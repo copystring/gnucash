@@ -5,6 +5,7 @@
 #include <glib/gi18n.h>
 
 #include "gnc-tree-view-account.h"
+#include "gnc-tree-view.h"
 #include "gnc-tree-model-account-types.h"
 #include "Account.h"
 #include "dialog-utils.h"
@@ -499,6 +500,8 @@ view_dispose (GObject *object)
     GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT (object);
     if (view->restore_source)
         g_source_remove (view->restore_source);
+    if (view->column_view)
+        gnc_column_view_unbind_grid_line_preferences (view->column_view);
     if (view->selection_filter_destroy)
         view->selection_filter_destroy (view->selection_filter_data);
     g_clear_pointer (&view->selected, g_hash_table_destroy);
@@ -540,8 +543,7 @@ new_with_model (Account *root, gboolean show_root)
     view->selection = GTK_SELECTION_MODEL (gtk_single_selection_new (
         G_LIST_MODEL (view->rows)));
     view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (view->selection));
-    gtk_column_view_set_show_row_separators (view->column_view, TRUE);
-    gtk_column_view_set_show_column_separators (view->column_view, TRUE);
+    gnc_column_view_bind_grid_line_preferences (view->column_view);
     gtk_column_view_set_reorderable (view->column_view, TRUE);
     gtk_widget_set_hexpand (GTK_WIDGET (view->column_view), TRUE);
     gtk_widget_set_vexpand (GTK_WIDGET (view->column_view), TRUE);

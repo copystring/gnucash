@@ -1,5 +1,10 @@
 #include <config.h>
 #include "gnc-tree-view.h"
+#include "gnc-prefs.h"
+
+#define GNC_PREFS_GROUP_GENERAL "general"
+#define GNC_PREF_GRID_LINES_HORIZONTAL "grid-lines-horizontal"
+#define GNC_PREF_GRID_LINES_VERTICAL "grid-lines-vertical"
 typedef struct
 {
     GtkColumnView *column_view;
@@ -12,6 +17,79 @@ enum
 };
 static GParamSpec *properties[N_PROPERTIES];
 G_DEFINE_TYPE_WITH_PRIVATE (GncTreeView, gnc_tree_view, GTK_TYPE_BOX)
+
+static void
+update_grid_lines (gpointer prefs, gchar *pref_name, gpointer user_data)
+{
+    GtkColumnView *view = GTK_COLUMN_VIEW (user_data);
+
+    gtk_column_view_set_show_row_separators
+        (view, gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
+                                   GNC_PREF_GRID_LINES_HORIZONTAL));
+    gtk_column_view_set_show_column_separators
+        (view, gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
+                                   GNC_PREF_GRID_LINES_VERTICAL));
+    (void)prefs;
+    (void)pref_name;
+}
+
+static void
+remove_grid_line_preferences (GtkColumnView *view)
+{
+    /* This helper is also used from a weak-notify callback. At that point the
+     * pointer is only an identity key for the preferences backend and must not
+     * be validated or dereferenced. */
+    gnc_prefs_remove_cb_by_func (GNC_PREFS_GROUP_GENERAL,
+                                 GNC_PREF_GRID_LINES_HORIZONTAL,
+                                 update_grid_lines, view);
+    gnc_prefs_remove_cb_by_func (GNC_PREFS_GROUP_GENERAL,
+                                 GNC_PREF_GRID_LINES_VERTICAL,
+                                 update_grid_lines, view);
+}
+
+static GQuark
+grid_line_preferences_quark (void)
+{
+    return g_quark_from_static_string ("gnc-column-view-grid-line-preferences");
+}
+
+static void
+grid_line_preferences_destroyed (gpointer user_data, GObject *where_the_object_was)
+{
+    /* A weak-notify pointer is only valid as the callback user-data key. */
+    remove_grid_line_preferences ((GtkColumnView *)where_the_object_was);
+    (void)user_data;
+}
+
+void
+gnc_column_view_unbind_grid_line_preferences (GtkColumnView *view)
+{
+    g_return_if_fail (GTK_IS_COLUMN_VIEW (view));
+
+    remove_grid_line_preferences (view);
+}
+
+void
+gnc_column_view_bind_grid_line_preferences (GtkColumnView *view)
+{
+    g_return_if_fail (GTK_IS_COLUMN_VIEW (view));
+
+    /* Make repeated construction/setup safe and apply the current setting now. */
+    gnc_column_view_unbind_grid_line_preferences (view);
+    update_grid_lines (NULL, NULL, view);
+    gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL,
+                           GNC_PREF_GRID_LINES_HORIZONTAL,
+                           update_grid_lines, view);
+    gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL,
+                           GNC_PREF_GRID_LINES_VERTICAL,
+                           update_grid_lines, view);
+    if (!g_object_get_qdata (G_OBJECT (view), grid_line_preferences_quark ()))
+    {
+        g_object_set_qdata (G_OBJECT (view), grid_line_preferences_quark (),
+                            GINT_TO_POINTER (TRUE));
+        g_object_weak_ref (G_OBJECT (view), grid_line_preferences_destroyed, NULL);
+    }
+}
 
 static void
 get_property (GObject *object, guint id, GValue *value, GParamSpec *pspec)
@@ -32,8 +110,11 @@ static void
 dispose (GObject *object)
 {
     GncTreeViewPrivate *p = gnc_tree_view_get_instance_private (GNC_TREE_VIEW (object));
+    if (p->column_view)
+        gnc_column_view_unbind_grid_line_preferences (p->column_view);
     g_clear_pointer (&p->state_section, g_free);
-    g_clear_object (&p->column_view);
+    /* gtk_box_append() owns this child; the GtkBox dispose path unparents it. */
+    p->column_view = NULL;
     G_OBJECT_CLASS (gnc_tree_view_parent_class)->dispose (object);
 }
 static void
@@ -53,8 +134,7 @@ gnc_tree_view_init (GncTreeView *view)
     GncTreeViewPrivate *p = gnc_tree_view_get_instance_private (view);
     gtk_orientable_set_orientation (GTK_ORIENTABLE (view), GTK_ORIENTATION_VERTICAL);
     p->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (NULL));
-    gtk_column_view_set_show_row_separators (p->column_view, TRUE);
-    gtk_column_view_set_show_column_separators (p->column_view, TRUE);
+    gnc_column_view_bind_grid_line_preferences (p->column_view);
     gtk_column_view_set_reorderable (p->column_view, TRUE);
     gtk_widget_set_hexpand (GTK_WIDGET (p->column_view), TRUE);
     gtk_widget_set_vexpand (GTK_WIDGET (p->column_view), TRUE);

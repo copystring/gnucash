@@ -4478,6 +4478,7 @@ gnc_main_window_update_toolbar (GncMainWindow *window, GncPluginPage *page,
         if (!priv->toolbar)
             priv->toolbar = (GtkWidget *)gtk_builder_get_object (builder, "mainwin-toolbar");
 
+        gnc_plugin_prepare_toolbar (priv->toolbar);
         gtk_box_append (GTK_BOX(priv->menu_dock), priv->toolbar);
         g_free (toolbar_name);
     }
@@ -4865,6 +4866,7 @@ gnc_main_window_setup_window (GncMainWindow *window)
     gtk_widget_set_visible (GTK_WIDGET(priv->menubar), TRUE);
 
     priv->toolbar = (GtkWidget *)gtk_builder_get_object (builder, "mainwin-toolbar");
+    gnc_plugin_prepare_toolbar (priv->toolbar);
     gtk_box_append (GTK_BOX(priv->menu_dock), GTK_WIDGET(priv->toolbar));
     gtk_widget_set_visible (GTK_WIDGET(priv->toolbar), TRUE);
 

@@ -3,6 +3,7 @@ set(GNOME_UTILS_GUI_TEST_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common
   ${CMAKE_SOURCE_DIR}/gnucash/gnome-utils
   ${CMAKE_SOURCE_DIR}/libgnucash/engine
+  ${CMAKE_SOURCE_DIR}/libgnucash/core-utils
   ${GUILE_INCLUDE_DIRS}
 )
 set(GNOME_UTILS_GUI_TEST_LIBS
@@ -52,6 +53,13 @@ set (test_gnc_account_type_list_SOURCES
 gnc_add_test (test-gnc-account-type-list "${test_gnc_account_type_list_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_gnc_tree_view_SOURCES
+  test-gnc-tree-view.c
+)
+
+gnc_add_test (test-gnc-tree-view "${test_gnc_tree_view_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
 set (test_gnc_register_input_SOURCES
   test-gnc-register-input.c
 )
@@ -65,6 +73,14 @@ set (test_gnc_statusbar_SOURCES
 
 gnc_add_test (test-gnc-statusbar "${test_gnc_statusbar_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
+set (test_gnc_toolbar_SOURCES
+  test-gnc-toolbar.c
+)
+
+gnc_add_test (test-gnc-toolbar "${test_gnc_toolbar_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  GNC_UI_SOURCE_DIR=${CMAKE_SOURCE_DIR}/gnucash/ui)
 
 set (test_gnc_window_application_SOURCES
   test-gnc-window-application.c
@@ -121,8 +137,10 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_file_dialog_SOURCES}
   ${test_gnc_file_load_cancel_SOURCES}
   ${test_gnc_account_type_list_SOURCES}
+  ${test_gnc_tree_view_SOURCES}
   ${test_gnc_register_input_SOURCES}
   ${test_gnc_statusbar_SOURCES}
+  ${test_gnc_toolbar_SOURCES}
   ${test_gnc_window_application_SOURCES}
   test-gnucash-guile-bootstrap.c
   ${test_gnc_accelerators_SOURCES}

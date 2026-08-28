@@ -78,20 +78,54 @@
     <property name="css-classes">toolbar</property>
     <child>
       <object class="GtkButton" id="but1">
-        <property name="label" translatable="1">_Save</property>
+
         <property name="action-name">gnc-plugin-basic-commands-actions.FileSaveAction</property>
         <property name="tooltip-text" translatable="1">Save the current file</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">document-save</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">document-save</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Save</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but2">
-        <property name="label" translatable="1">_Close</property>
+
         <property name="action-name">mainwin.FileCloseAction</property>
         <property name="tooltip-text" translatable="1">Close the currently active page</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">window-close</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">window-close</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Close</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -101,11 +135,28 @@
     </child>
     <child>
       <object class="GtkButton" id="but2a">
-        <property name="label" translatable="1">New _Invoice…</property>
+
         <property name="action-name">gnc-plugin-business-actions.ToolbarNewInvoiceAction</property>
         <property name="tooltip-text" translatable="1">Open the New Invoice dialog</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-invoice-new</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-invoice-new</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">New _Invoice…</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -115,20 +166,54 @@
     </child>
     <child>
       <object class="GtkButton" id="but3">
-        <property name="label" translatable="1">_New</property>
+
         <property name="action-name">GncPluginPageSxListActions.SxListNewAction</property>
         <property name="tooltip-text" translatable="1">Create a new scheduled transaction</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-open</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-open</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_New</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but4">
-        <property name="label" translatable="1">_Edit</property>
+
         <property name="action-name">GncPluginPageSxListActions.SxListEditAction</property>
         <property name="tooltip-text" translatable="1">Edit the selected scheduled transaction</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-edit</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-edit</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Edit</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
@@ -138,20 +223,54 @@
     </child>
     <child>
       <object class="GtkButton" id="but5">
-        <property name="label" translatable="1">_Delete</property>
+
         <property name="action-name">GncPluginPageSxListActions.SxListDeleteAction</property>
         <property name="tooltip-text" translatable="1">Delete the selected scheduled transaction</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">gnc-account-delete</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">gnc-account-delete</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Delete</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
       <object class="GtkButton" id="but6">
-        <property name="label" translatable="1">_Run</property>
+
         <property name="action-name">GncPluginPageSxListActions.SxListRunAction</property>
         <property name="tooltip-text" translatable="1">Run the selected scheduled transaction. If no transactions are scheduled to be entered, the next occurrence is used</property>
-        <property name="use-underline">1</property>
-        <property name="icon-name">system-run</property>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">system-run</property>
+                <property name="pixel-size">24</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">_Run</property>
+                <property name="use-underline">1</property>
+                <property name="halign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
   </object>

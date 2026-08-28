@@ -6,6 +6,7 @@
 
 #include "gnc-tree-model-owner.h"
 #include "gnc-tree-view-owner.h"
+#include "gnc-tree-view.h"
 #include "dialog-utils.h"
 #include "gncAddress.h"
 #include "gncCustomer.h"
@@ -247,6 +248,8 @@ gnc_tree_view_owner_dispose (GObject *object)
     GncTreeViewOwner *view = GNC_TREE_VIEW_OWNER (object);
     if (view->filter_destroy)
         view->filter_destroy (view->filter_data);
+    if (view->column_view)
+        gnc_column_view_unbind_grid_line_preferences (view->column_view);
     view->filter_destroy = NULL;
     view->filter_fn = NULL;
     g_clear_object (&view->selection);
@@ -275,8 +278,7 @@ gnc_tree_view_owner_new (GncOwnerType owner_type)
     GncTreeViewOwner *view = g_object_new (GNC_TYPE_TREE_VIEW_OWNER, NULL);
 
     view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (NULL));
-    gtk_column_view_set_show_column_separators (view->column_view, TRUE);
-    gtk_column_view_set_show_row_separators (view->column_view, TRUE);
+    gnc_column_view_bind_grid_line_preferences (view->column_view);
     gtk_widget_set_hexpand (GTK_WIDGET (view->column_view), TRUE);
     gtk_widget_set_vexpand (GTK_WIDGET (view->column_view), TRUE);
     gtk_box_append (GTK_BOX (view), GTK_WIDGET (view->column_view));
