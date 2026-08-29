@@ -172,10 +172,11 @@ columnview.gnc-account-no-headers header button {
   margin: 0 0 0 4px;
 }
 
-/* Main-window toolbar buttons */
-#gnc-id-main-window .toolbar button {
+/* GnuCash toolbar buttons */
+.toolbar button {
+  min-width: 32px;
   min-height: 24px;
-  padding: 2px 6px;
+  padding: 5px 16px;
   margin: 1px;
 }
 
