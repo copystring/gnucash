@@ -245,6 +245,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area6">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="cancelbutton1">
                 <property name="focusable">1</property>
@@ -411,7 +413,7 @@
                         </property>
                         <child type="label">
                           <object class="GtkLabel" id="BudgetFrameLabel">
-                            <property name="visible">0</property>
+                            <property name="visible">1</property>
                           </object>
                         </child>
                         <layout>
@@ -460,6 +462,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area5">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="cancelbutton2">
                 <property name="focusable">1</property>

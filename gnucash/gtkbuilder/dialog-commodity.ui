@@ -358,7 +358,7 @@
                     </child>
                     <child>
                       <object class="GtkLabel" id="label824">
-                        <property name="halign">center</property>
+                        <property name="halign">start</property>
                         <property name="justify">center</property>
                         <property name="label" translatable="yes">Warning: Finance::Quote not installed properly.</property>
                       </object>
@@ -392,6 +392,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area6">
+            <property name="hexpand">1</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="help_button">
                 <property name="focusable">1</property>
@@ -500,6 +502,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area4">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="ss_new_button">
                 <property name="focusable">1</property>

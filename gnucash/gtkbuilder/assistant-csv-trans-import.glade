@@ -522,7 +522,7 @@ Choices are displayed with a Hyphen (-) separator, but will also match Dot (.) a
                                         <child>
                                           <object class="GtkSpinButton" id="start_row">
                                             <property name="focusable">1</property>
-                                            <property name="halign">center</property>
+                                            <property name="halign">start</property>
                                             <property name="adjustment">start_row_adj</property>
                                             <property name="numeric">1</property>
                                             <signal name="value-changed" handler="csv_tximp_preview_srow_cb" swapped="no" />
@@ -539,7 +539,7 @@ Choices are displayed with a Hyphen (-) separator, but will also match Dot (.) a
                                         <child>
                                           <object class="GtkSpinButton" id="end_row">
                                             <property name="focusable">1</property>
-                                            <property name="halign">center</property>
+                                            <property name="halign">start</property>
                                             <property name="adjustment">end_row_adj</property>
                                             <property name="numeric">1</property>
                                             <signal name="value-changed" handler="csv_tximp_preview_erow_cb" swapped="no" />

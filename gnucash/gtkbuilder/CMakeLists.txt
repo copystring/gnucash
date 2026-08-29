@@ -68,6 +68,15 @@ foreach (gtkbuilder_file ${gtkbuilder_SOURCES})
     configure_file (${gtkbuilder_file} ${DATADIR_BUILD}/gnucash/gtkbuilder/${gtkbuilder_file} COPYONLY)
 endforeach()
 
+find_program(GTK4_BUILDER_TOOL NAMES gtk4-builder-tool REQUIRED)
+add_test(NAME test-gtkbuilder-layout-parity
+         COMMAND ${CMAKE_COMMAND}
+                 -DGTK4_BUILDER_TOOL=${GTK4_BUILDER_TOOL}
+                 -DGTKBUILDER_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                 -DGNC_SOURCE_DIR=${CMAKE_SOURCE_DIR}/gnucash
+                 -DAQB_ASSISTANT=${CMAKE_SOURCE_DIR}/gnucash/import-export/aqb/assistant-ab-initial.glade
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/test-layout-parity.cmake)
+
 install (FILES ${gtkbuilder_SOURCES} DESTINATION share/gnucash/gtkbuilder)
 
-set_dist_list(gtkbuilder_DIST CMakeLists.txt ${gtkbuilder_SOURCES})
+set_dist_list(gtkbuilder_DIST CMakeLists.txt test-layout-parity.cmake ${gtkbuilder_SOURCES})

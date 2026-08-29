@@ -579,20 +579,20 @@
                             <property name="valign">center</property>
                             <child>
                               <object class="GtkLabel" id="label847759">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="justify">right</property>
                                 <property name="label" translatable="yes">First on the</property>
                               </object>
                             </child>
                             <child>
                               <object class="GtkDropDown" id="semimonthly_first">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="model">liststore1</property>
                               </object>
                             </child>
                             <child>
                               <object class="GtkLabel" id="label847751">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="justify">right</property>
                                 <property name="label" translatable="yes">except on weekends</property>
                               </object>
@@ -611,20 +611,20 @@
                             <property name="valign">center</property>
                             <child>
                               <object class="GtkLabel" id="label847760">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="justify">right</property>
                                 <property name="label" translatable="yes">then on the</property>
                               </object>
                             </child>
                             <child>
                               <object class="GtkDropDown" id="semimonthly_second">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="model">liststore6</property>
                               </object>
                             </child>
                             <child>
                               <object class="GtkLabel" id="label847752">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="justify">right</property>
                                 <property name="label" translatable="yes">except on weekends</property>
                               </object>
@@ -702,27 +702,27 @@
                             <property name="valign">center</property>
                             <child>
                               <object class="GtkLabel" id="label847756">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="justify">right</property>
                                 <property name="label" translatable="yes">On the</property>
                               </object>
                             </child>
                             <child>
                               <object class="GtkDropDown" id="monthly_day">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="model">liststore4</property>
                               </object>
                             </child>
                             <child>
                               <object class="GtkLabel" id="label847750">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="justify">right</property>
                                 <property name="label" translatable="yes">except on weekends</property>
                               </object>
                             </child>
                             <child>
                               <object class="GtkDropDown" id="monthly_weekend">
-                                <property name="halign">center</property>
+                                <property name="halign">start</property>
                                 <property name="model">liststore3</property>
                               </object>
                             </child>

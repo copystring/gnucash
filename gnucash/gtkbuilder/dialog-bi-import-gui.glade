@@ -236,18 +236,20 @@
           <object class="GtkBox" id="dialog-action_area3">
             <property name="orientation">horizontal</property>
             <property name="spacing">6</property>
-            <property name="halign">end</property>
+            <property name="hexpand">1</property>
             <property name="margin-start">12</property>
             <property name="margin-end">12</property>
             <property name="margin-top">8</property>
             <property name="margin-bottom">12</property>
-        <child>
-          <object class="GtkButton" id="helpbutton">
-            <property name="label" translatable="1">_Help</property>
-            <property name="focusable">1</property>
-            <property name="use-underline">1</property>
-            <signal name="clicked" handler="gnc_bi_import_gui_help_cb" swapped="no" />
-          </object>
+            <child>
+              <object class="GtkButton" id="helpbutton">
+                <property name="hexpand">1</property>
+                <property name="halign">start</property>
+                <property name="label" translatable="1">_Help</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="gnc_bi_import_gui_help_cb" swapped="no" />
+              </object>
 
         </child>
         <child>

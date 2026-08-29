@@ -130,6 +130,8 @@ if account should not be shown, this will be temporarily overridden.</property>
             <property name="orientation">vertical</property>
             <child>
               <object class="GtkBox" id="buttonbox">
+                <property name="halign">end</property>
+                <property name="spacing">6</property>
                 <property name="valign">center</property>
                 <child>
                   <object class="GtkCheckButton" id="check_button">

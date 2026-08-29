@@ -181,6 +181,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area18">
+            <property name="hexpand">1</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="pd_help_button">
                 <property name="focusable">1</property>
@@ -308,7 +310,7 @@
                 <layout>
                   <property name="column">0</property>
                   <property name="column-span">2</property>
-                  <property name="row">6</property>
+                  <property name="row">7</property>
                 </layout>
               </object>
             </child>
@@ -329,7 +331,7 @@
                 <layout>
                   <property name="column">0</property>
                   <property name="column-span">2</property>
-                  <property name="row">4</property>
+                  <property name="row">5</property>
                 </layout>
               </object>
             </child>
@@ -341,7 +343,7 @@
                 <layout>
                   <property name="column">0</property>
                   <property name="column-span">2</property>
-                  <property name="row">3</property>
+                  <property name="row">4</property>
                 </layout>
               </object>
             </child>
@@ -352,7 +354,7 @@
                 <property name="use-underline">1</property>
                 <layout>
                   <property name="column">0</property>
-                  <property name="row">2</property>
+                  <property name="row">3</property>
                 </layout>
               </object>
             </child>
@@ -362,7 +364,7 @@
                 <property name="spacing">6</property>
                 <layout>
                   <property name="column">1</property>
-                  <property name="row">2</property>
+                  <property name="row">3</property>
                 </layout>
               </object>
             </child>
@@ -374,7 +376,7 @@
                 <layout>
                   <property name="column">0</property>
                   <property name="column-span">2</property>
-                  <property name="row">5</property>
+                  <property name="row">6</property>
                 </layout>
               </object>
             </child>
@@ -472,6 +474,8 @@ These prices were added so that there's always a "nearest in time" price for eve
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area2">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="cancel_button">
                 <property name="focusable">1</property>

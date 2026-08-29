@@ -36,6 +36,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area24">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="okbutton1">
                 <property name="focusable">1</property>
@@ -171,7 +173,7 @@
                                 <child>
                                   <object class="GtkCheckButton" id="end_on_date_button">
                                     <property name="group">never_end_button</property>
-                                    <property name="halign">center</property>
+                                    <property name="halign">start</property>
                                     <property name="label" translatable="yes">End Date</property>
                                     <property name="use-underline">1</property>
                                   </object>
@@ -184,7 +186,7 @@
                                 <child>
                                   <object class="GtkCheckButton" id="n_occurrences_button">
                                     <property name="group">never_end_button</property>
-                                    <property name="halign">center</property>
+                                    <property name="halign">start</property>
                                     <property name="label" translatable="yes">Number of Occurrences</property>
                                     <property name="use-underline">1</property>
                                   </object>
@@ -240,6 +242,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area23">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="ok_button1">
                 <property name="focusable">1</property>
@@ -578,7 +582,7 @@
                                 </child>
                                 <child>
                                   <object class="GtkLabel" id="label847810">
-                                    <property name="halign">center</property>
+                                    <property name="halign">start</property>
                                     <property name="justify">center</property>
                                     <property name="label" translatable="yes">days</property>
                                   </object>
@@ -618,7 +622,7 @@
                                 </child>
                                 <child>
                                   <object class="GtkLabel" id="label847808">
-                                    <property name="halign">center</property>
+                                    <property name="halign">start</property>
                                     <property name="justify">center</property>
                                     <property name="label" translatable="yes">days</property>
                                   </object>
@@ -858,6 +862,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area17">
+            <property name="hexpand">1</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="help_button">
                 <property name="focusable">1</property>
@@ -927,7 +933,7 @@
                 <child>
                   <object class="GtkCheckButton" id="review_txn_toggle">
                     <property name="focusable">1</property>
-                    <property name="halign">center</property>
+                    <property name="halign">start</property>
                     <property name="label" translatable="yes">_Review created transactions</property>
                     <property name="use-underline">1</property>
                   </object>
@@ -938,6 +944,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area25">
+            <property name="hexpand">1</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="helpbutton2">
                 <property name="focusable">1</property>

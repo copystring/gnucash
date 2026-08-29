@@ -34,6 +34,8 @@
     </child>
         <child>
       <object class="GtkBox" id="dialog-action_area13">
+        <property name="halign">end</property>
+        <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancelbutton1">

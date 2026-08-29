@@ -938,10 +938,12 @@ to print an address on the check.</property>
           <object class="GtkBox" id="dialog-action_area6">
             <property name="orientation">horizontal</property>
             <property name="spacing">6</property>
-            <property name="halign">end</property>
+            <property name="hexpand">1</property>
             <property name="margin-top">8</property>
             <child>
               <object class="GtkButton" id="helpbutton">
+                <property name="hexpand">1</property>
+                <property name="halign">start</property>
                 <property name="label" translatable="1">_Help</property>
                 <property name="focusable">1</property>
                 <property name="use-underline">1</property>

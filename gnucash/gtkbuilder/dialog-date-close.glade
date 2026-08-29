@@ -213,7 +213,7 @@
               <object class="GtkBox" id="hbox2">
                 <property name="vexpand">1</property>
                 <property name="halign">center</property>
-                <property name="valign">center</property>
+                <property name="valign">start</property>
 <child>
                   <object class="GtkLabel" id="label">
                     <property name="label">label</property>

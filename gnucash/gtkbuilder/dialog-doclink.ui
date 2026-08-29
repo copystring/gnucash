@@ -318,6 +318,8 @@ Double click on the entry in the Available column to modify the document link.</
         </child>
         <child>
           <object class="GtkBox" id="buttonbox">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <property name="can-focus">False</property>
             <property name="valign">center</property>
             <child>

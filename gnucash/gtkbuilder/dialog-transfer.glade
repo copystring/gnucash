@@ -477,13 +477,15 @@
         </child>
         <child>
           <object class="GtkBox" id="hbbox">
-        <property name="visible">True</property>
-        <child>
-          <object class="GtkButton" id="cancel_button">
-            <property name="label" translatable="1">_Cancel</property>
-            <property name="focusable">1</property>
-<property name="use-underline">1</property>
-          </object>
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <property name="visible">True</property>
+            <child>
+              <object class="GtkButton" id="cancel_button">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="focusable">1</property>
+                <property name="use-underline">1</property>
+              </object>
 
         </child>
         <child>

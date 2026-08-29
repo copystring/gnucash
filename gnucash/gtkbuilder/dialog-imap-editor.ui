@@ -141,6 +141,8 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area1">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="remove_button">
                 <property name="focusable">1</property>

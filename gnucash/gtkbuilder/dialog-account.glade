@@ -510,6 +510,8 @@
     </child>
 <child>
       <object class="GtkBox" id="dialog-action_area100">
+        <property name="halign">end</property>
+        <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancelbutton">
@@ -673,6 +675,8 @@
     </child>
 <child>
       <object class="GtkBox" id="dialog-action_area200">
+        <property name="halign">end</property>
+        <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancelbutton1">
@@ -1364,9 +1368,13 @@ Clear the entry to have no warning.</property>
     </child>
 <child>
       <object class="GtkBox" id="dialog-action_area300">
+        <property name="hexpand">1</property>
+        <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="help_button">
+            <property name="hexpand">1</property>
+            <property name="halign">start</property>
             <property name="label" translatable="1">_Help</property>
             <property name="focusable">1</property>
 <property name="use-underline">1</property>
@@ -1562,6 +1570,8 @@ Clear the entry to have no warning.</property>
     </child>
 <child>
       <object class="GtkBox" id="dialog-action_area400">
+        <property name="halign">end</property>
+        <property name="spacing">6</property>
         <property name="visible">True</property>
         <child>
           <object class="GtkButton" id="cancelbutton2">

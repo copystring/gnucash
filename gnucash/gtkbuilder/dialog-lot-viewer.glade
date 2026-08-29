@@ -3,19 +3,19 @@
   <requires lib="gtk" version="4.0"/>
   <object class="GtkWindow" id="lot_viewer_dialog">
     <property name="title" translatable="1">Lot Viewer</property>
-    <property name="default-width">900</property>
-    <property name="default-height">600</property>
+    <property name="default-width">600</property>
+    <property name="default-height">400</property>
     <property name="child">
       <object class="GtkBox" id="lot_viewer_root">
         <property name="orientation">vertical</property>
         <child>
           <object class="GtkPaned" id="lot_vpaned">
             <property name="orientation">vertical</property>
-            <property name="position">270</property>
+            <property name="position">200</property>
             <property name="vexpand">1</property>
             <property name="start-child">
               <object class="GtkPaned" id="lot_hpaned">
-                <property name="position">360</property>
+                <property name="position">200</property>
                 <property name="start-child">
                   <object class="GtkGrid" id="lot_detail_grid">
                     <property name="margin-top">6</property>
@@ -103,7 +103,7 @@
             </property>
             <property name="end-child">
               <object class="GtkPaned" id="split_hpaned">
-                <property name="position">450</property>
+                <property name="position">200</property>
                 <property name="start-child">
                   <object class="GtkGrid" id="free_split_grid">
                     <property name="margin-top">6</property>

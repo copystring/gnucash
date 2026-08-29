@@ -3095,7 +3095,7 @@ many months before the current month</property>
         <child>
           <object class="GtkBox" id="preferences_action_area">
             <property name="visible">True</property>
-            <property name="halign">end</property>
+            <property name="hexpand">1</property>
             <property name="spacing">6</property>
             <property name="margin-top">6</property>
             <property name="margin-bottom">6</property>
@@ -3103,6 +3103,8 @@ many months before the current month</property>
             <property name="margin-end">6</property>
             <child>
               <object class="GtkButton" id="helpbutton2">
+                <property name="hexpand">1</property>
+                <property name="halign">start</property>
                 <property name="label" translatable="1">_Help</property>
                 <property name="focusable">1</property>
                 <property name="receives-default">1</property>

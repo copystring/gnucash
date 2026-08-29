@@ -691,7 +691,7 @@ If 0, all previous days included</property>
                         <property name="label" translatable="1">Sa_ve Sort Order</property>
                         <property name="focusable">1</property>
                         <property name="tooltip-text" translatable="1">Save the sort order for this register.</property>
-                        <property name="halign">center</property>
+                        <property name="halign">start</property>
                         <property name="use-underline">1</property>
                         <signal name="toggled" handler="gnc_ppr_sort_order_save_cb" swapped="no" />
                       </object>

@@ -191,10 +191,12 @@
         <child>
           <object class="GtkBox" id="job_actions">
             <property name="orientation">horizontal</property>
-            <property name="halign">end</property>
+            <property name="hexpand">1</property>
             <property name="spacing">6</property>
         <child>
           <object class="GtkButton" id="helpbutton">
+            <property name="hexpand">1</property>
+            <property name="halign">start</property>
             <property name="label" translatable="1">_Help</property>
             <property name="focusable">1</property>
 <property name="receives-default">1</property>

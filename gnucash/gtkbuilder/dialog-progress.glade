@@ -81,6 +81,7 @@
             <property name="orientation">vertical</property>
             <child>
               <object class="GtkBox" id="hbuttonbox1">
+                <property name="halign">end</property>
                 <property name="visible">True</property>
 <property name="spacing">6</property>
 <child>

@@ -686,7 +686,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
                     <property name="label" translatable="1">Previous Option</property>
                     <property name="focusable">1</property>
                     <property name="receives-default">1</property>
-                    <property name="halign">center</property>
+                    <property name="halign">start</property>
                   </object>
                 </child>
                 <child>
@@ -694,7 +694,7 @@ If you make a mistake or want to make changes later, you can edit the created Sc
                     <property name="label" translatable="1">Next Option</property>
                     <property name="focusable">1</property>
                     <property name="receives-default">1</property>
-                    <property name="halign">center</property>
+                    <property name="halign">start</property>
                   </object>
                 </child>
               </object>

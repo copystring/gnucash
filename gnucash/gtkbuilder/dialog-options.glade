@@ -43,9 +43,13 @@
             <property name="orientation">vertical</property>
             <child>
               <object class="GtkBox" id="buttonbox">
+                <property name="hexpand">1</property>
+                <property name="spacing">6</property>
                 <property name="visible">True</property>
                 <child>
                   <object class="GtkButton" id="helpbutton">
+                    <property name="hexpand">1</property>
+                    <property name="halign">start</property>
                     <property name="label" translatable="1">_Help</property>
                     <property name="name">help_button</property>
                     <property name="focusable">1</property>

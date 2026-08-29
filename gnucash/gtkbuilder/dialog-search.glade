@@ -203,13 +203,15 @@
         </child>
         <child>
           <object class="GtkBox" id="dialog-action_area3">
-          <property name="orientation">horizontal</property>
-          <property name="spacing">6</property>
-          <property name="halign">end</property>
-          <property name="margin-top">8</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="hexpand">1</property>
+            <property name="margin-top">8</property>
             <property name="visible">True</property>
             <child>
               <object class="GtkButton" id="help_button">
+                <property name="hexpand">1</property>
+                <property name="halign">start</property>
                 <property name="label" translatable="1">_Help</property>
                 <property name="focusable">1</property>
     <property name="receives-default">1</property>

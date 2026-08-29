@@ -231,6 +231,7 @@
           <object class="GtkBox" id="dialog-action_area14">
             <property name="orientation">horizontal</property>
             <property name="spacing">6</property>
+            <property name="halign">end</property>
             <child>
               <object class="GtkCheckButton" id="hide_reconciled_check1">
                 <property name="label" translatable="1" comments="Dialog Select matching transactions">Show Reconciled</property>
@@ -836,9 +837,11 @@
           <object class="GtkBox" id="dialog-action_area10">
             <property name="orientation">horizontal</property>
             <property name="spacing">6</property>
-            <property name="halign">end</property>
+            <property name="hexpand">1</property>
             <child>
               <object class="GtkButton" id="matcher__help">
+                <property name="hexpand">1</property>
+                <property name="halign">start</property>
                 <property name="label" translatable="1">_Help</property>
                 <property name="focusable">1</property>
                 <property name="receives-default">1</property>

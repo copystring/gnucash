@@ -136,8 +136,10 @@ You will have the opportunity to load as many files as you wish, so don't worry 
                         </child>
                         <child>
                           <object class="GtkBox" id="load_progress_hbuttonbox1">
+                            <property name="halign">end</property>
                             <property name="valign">center</property>
                             <property name="visible">True</property>
+                            <property name="spacing">6</property>
                             <child>
                               <object class="GtkButton" id="load_progress_start">
                                 <property name="label" translatable="1">_Start</property>
@@ -737,8 +739,10 @@ If you don't see your exchange listed, or none of the available choices are appr
                         </child>
                         <child>
                           <object class="GtkBox" id="convert_progress_hbuttonbox1">
+                            <property name="halign">end</property>
                             <property name="valign">center</property>
                             <property name="visible">True</property>
+                            <property name="spacing">6</property>
                             <child>
                               <object class="GtkButton" id="convert_progress_start">
                                 <property name="label" translatable="1">_Start Import</property>

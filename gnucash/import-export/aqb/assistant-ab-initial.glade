@@ -3,7 +3,7 @@
   <requires lib="gtk" version="4.0"/>
   <object class="GtkWindow" id="aqbanking_init_assistant">
     <property name="title" translatable="yes">AqBanking Initial Assistant</property>
-    <property name="default-width">600</property>
+    <property name="default-width">500</property>
     <property name="default-height">500</property>
     <child>
       <object class="GtkBox" id="assistant_root">

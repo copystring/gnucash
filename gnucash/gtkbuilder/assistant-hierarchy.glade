@@ -4,8 +4,8 @@
   <object class="GtkWindow" id="hierarchy_assistant">
     <property name="title" translatable="1">New Account Hierarchy Setup</property>
     <property name="modal">1</property>
-    <property name="default-width">880</property>
-    <property name="default-height">620</property>
+    <property name="default-width">400</property>
+    <property name="default-height">550</property>
     <property name="child">
       <object class="GtkBox">
         <property name="orientation">vertical</property>

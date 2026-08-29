@@ -296,7 +296,7 @@
                                 <property name="spacing">6</property>
                                 <child>
                                   <object class="GtkLabel" id="label34">
-                                    <property name="halign">center</property>
+                                    <property name="halign">end</property>
                                     <property name="label" translatable="1">Language</property>
                                     <property name="justify">right</property>
                                   </object>
@@ -498,10 +498,12 @@
     <child>
       <object class="GtkBox" id="employee_actions">
         <property name="orientation">horizontal</property>
-        <property name="halign">end</property>
+        <property name="hexpand">1</property>
         <property name="spacing">6</property>
         <child>
           <object class="GtkButton" id="helpbutton">
+            <property name="hexpand">1</property>
+            <property name="halign">start</property>
             <property name="label" translatable="1">_Help</property>
             <property name="focusable">1</property>
 <property name="receives-default">1</property>

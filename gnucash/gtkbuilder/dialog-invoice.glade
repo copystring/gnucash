@@ -12,7 +12,7 @@
         <property name="orientation">vertical</property>
         <child>
           <object class="GtkBox" id="hbox1">
-            <property name="valign">center</property>
+            <property name="valign">start</property>
             <property name="vexpand">0</property>
             <property name="spacing">3</property>
             <child>
@@ -329,7 +329,7 @@
         </child>
         <child>
           <object class="GtkFrame" id="page_proj_frame">
-            <property name="valign">center</property>
+            <property name="valign">start</property>
             <property name="child">
               <object class="GtkBox" id="hbox8">
 <property name="spacing">6</property>
@@ -372,7 +372,7 @@
         </child>
         <child>
           <object class="GtkFrame" id="to_charge_frame">
-            <property name="valign">center</property>
+            <property name="valign">start</property>
             <property name="child">
               <object class="GtkBox" id="hbox9">
 <property name="spacing">6</property>
@@ -823,10 +823,12 @@
         <child>
           <object class="GtkBox" id="dialog-action_area2">
             <property name="visible">True</property>
-            <property name="halign">end</property>
+            <property name="hexpand">1</property>
             <property name="spacing">6</property>
             <child>
               <object class="GtkButton" id="helpbutton">
+                <property name="hexpand">1</property>
+                <property name="halign">start</property>
                 <property name="label" translatable="1">_Help</property>
                 <property name="focusable">1</property>
                 <property name="use-underline">1</property>
@@ -900,7 +902,7 @@ Are you sure you want to unpost it?</property>
                       <object class="GtkCheckButton" id="yes_tt_reset">
                         <property name="label" translatable="1">Yes, reset the Tax Tables</property>
                         <property name="focusable">1</property>
-                        <property name="halign">center</property>
+                        <property name="halign">start</property>
                         <property name="use-underline">1</property>
                       </object>
                     </child>
@@ -908,7 +910,7 @@ Are you sure you want to unpost it?</property>
                       <object class="GtkCheckButton" id="no_tt_reset">
                         <property name="label" translatable="1">No, keep them as they are</property>
                         <property name="focusable">1</property>
-                        <property name="halign">center</property>
+                        <property name="halign">start</property>
                         <property name="use-underline">1</property>
                         <property name="active">1</property>
                         <property name="group">yes_tt_reset</property>
