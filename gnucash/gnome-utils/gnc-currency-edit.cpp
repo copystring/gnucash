@@ -58,6 +58,7 @@
 #include "gnc-commodity.h"
 #include "gnc-ui-util.h"
 #include "gnc-engine.h"
+#include "gnc-gtk-utils.h"
 
 /** The debugging module used by this file. */
 
@@ -249,7 +250,7 @@ gnc_currency_edit_init (GNCCurrencyEdit *gce)
 
     gce->model = gtk_string_list_new (nullptr);
     gce->entry = GTK_ENTRY (gtk_entry_new ());
-    gce->drop_down = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (gce->model), nullptr));
+    gce->drop_down = gnc_gtk_drop_down_new (G_LIST_MODEL (gce->model), nullptr);
 
     gtk_widget_set_hexpand (GTK_WIDGET (gce->entry), TRUE);
     gtk_box_append (GTK_BOX (gce), GTK_WIDGET (gce->entry));

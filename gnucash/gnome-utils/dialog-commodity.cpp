@@ -239,7 +239,7 @@ gnc_ui_commodity_picker_setup (GtkWidget *picker)
     auto data = g_new0 (CommodityPicker, 1);
     data->entry = GTK_ENTRY (gtk_entry_new ());
     data->model = gtk_string_list_new (nullptr);
-    data->drop_down = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (g_object_ref (data->model)), nullptr));
+    data->drop_down = gnc_gtk_drop_down_new (G_LIST_MODEL (g_object_ref (data->model)), nullptr);
 
     gtk_widget_set_hexpand (GTK_WIDGET (data->entry), TRUE);
     gtk_widget_set_hexpand (GTK_WIDGET (data->drop_down), FALSE);
@@ -1000,7 +1000,7 @@ gnc_ui_source_menu_create(QuoteSourceType type)
         }
     }
 
-    drop_down = gtk_drop_down_new (G_LIST_MODEL (store), nullptr);
+    drop_down = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (store), nullptr));
     auto menu = g_new0 (SourceMenu, 1);
     menu->selected = initial;
     g_object_set_data_full (G_OBJECT (drop_down), SOURCE_MENU_DATA, menu, g_free);
@@ -1075,7 +1075,7 @@ gnc_ui_quote_tz_menu_create(void)
     for (itemstr = &known_timezones[0]; *itemstr; itemstr++)
         gtk_string_list_append (store, *itemstr);
 
-    drop_down = gtk_drop_down_new (G_LIST_MODEL (store), nullptr);
+    drop_down = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (store), nullptr));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (drop_down), 0);
     return drop_down;
 }

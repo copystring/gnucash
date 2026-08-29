@@ -11,6 +11,7 @@
 #include <glib/gi18n.h>
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "import-parse.h"
 
 #define MAX_CHOICES 6
@@ -115,7 +116,7 @@ gnc_import_choose_fmt_async (GtkWindow *parent, const char *msg,
     g_return_if_fail (picker->dialog && message && menu_box && ok_button);
 
     gtk_label_set_text (message, msg);
-    picker->dropdown = GTK_DROP_DOWN (gtk_drop_down_new_from_strings (labels));
+    picker->dropdown = gnc_gtk_drop_down_new_from_strings (labels);
     gtk_box_append (menu_box, GTK_WIDGET (picker->dropdown));
     if (parent)
         gtk_window_set_transient_for (GTK_WINDOW (picker->dialog), parent);

@@ -958,7 +958,7 @@ gxi_update_default_enc_combo (GncXmlImportData *data)
             selected = position;
     }
 
-    dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (model), NULL));
+    dropdown = gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL);
     if (selected != GTK_INVALID_LIST_POSITION)
         gtk_drop_down_set_selected (dropdown, selected);
     g_signal_connect (dropdown, "notify::selected",
@@ -1052,7 +1052,7 @@ gxi_update_string_box (GncXmlImportData *data)
         if (selected == GTK_INVALID_LIST_POSITION)
             data->n_unassigned++;
 
-        dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (model), NULL));
+        dropdown = gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL);
         if (selected != GTK_INVALID_LIST_POSITION)
             gtk_drop_down_set_selected (dropdown, selected);
         g_object_set_data_full (G_OBJECT (dropdown), "gnc-xml-encoding-choices",

@@ -36,6 +36,7 @@
 #include "business-gnome-utils.h"
 #include "search-owner.h"
 #include "search-core-utils.h"
+#include "gnc-gtk-utils.h"
 
 #define d(x)
 
@@ -45,7 +46,7 @@ static GtkDropDown *
 owner_search_dropdown_new (void)
 {
     GtkStringList *model = gtk_string_list_new (NULL);
-    GtkDropDown *dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (model), NULL));
+    GtkDropDown *dropdown = gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL);
     return dropdown;
 }
 

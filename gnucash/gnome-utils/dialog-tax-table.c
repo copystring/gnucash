@@ -1327,7 +1327,7 @@ gnc_ui_tax_table_new_from_name_async (GtkWindow *parent, QofBook *book,
     gtk_widget_set_halign (label, GTK_ALIGN_END);
     gtk_grid_attach (GTK_GRID (grid), label, 0, 1, 1, 1);
     types = gtk_string_list_new ((const char * const[]){ _("Value"), _("Percent"), NULL });
-    request->type_dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (types), NULL));
+    request->type_dropdown = gnc_gtk_drop_down_new (G_LIST_MODEL (types), NULL);
     gtk_drop_down_set_selected (request->type_dropdown, 1);
     gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (request->type_dropdown), 1, 1, 1, 1);
     gtk_label_set_mnemonic_widget (GTK_LABEL (label), GTK_WIDGET (request->type_dropdown));

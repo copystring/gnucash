@@ -64,6 +64,21 @@ void gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
 void gnc_widget_set_all_margins (GtkWidget *widget, gint margin);
 
 /**
+ * Reserve enough horizontal space for the widest text displayed by a
+ * GtkDropDown. The reservation follows the current theme, font and scale;
+ * it is refreshed when the drop-down's model, expression or selection
+ * changes.
+ */
+void gnc_gtk_drop_down_normalize_width (GtkDropDown *drop_down);
+
+/** Construct a GtkDropDown that keeps its width normalized. */
+GtkDropDown *gnc_gtk_drop_down_new (GListModel *model,
+                                    GtkExpression *expression);
+
+/** Construct a string GtkDropDown that keeps its width normalized. */
+GtkDropDown *gnc_gtk_drop_down_new_from_strings (const char * const *strings);
+
+/**
  * Bind a newly created top-level window to the running GtkApplication.
  *
  * A transient parent does not replace the application association: GTK needs

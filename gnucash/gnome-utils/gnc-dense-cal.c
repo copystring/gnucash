@@ -296,7 +296,7 @@ gnc_dense_cal_init (GncDenseCal *dcal)
                                    _("3 months"), _("2 months"), _("1 month"), NULL };
         GtkStringList *model = gtk_string_list_new (options);
 
-        dcal->view_options = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (model), NULL));
+        dcal->view_options = gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL);
         gtk_drop_down_set_selected (dcal->view_options, 0);
         g_signal_connect (dcal->view_options, "notify::selected",
                           G_CALLBACK (_gdc_view_option_changed), dcal);

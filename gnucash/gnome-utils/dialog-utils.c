@@ -34,6 +34,7 @@
 #endif
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-commodity.h"
 #include "gnc-date.h"
 #include "gnc-path.h"
@@ -745,6 +746,16 @@ gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char
 
     g_free (without_signals);
     g_free (fname);
+
+    if (result)
+    {
+        GSList *objects = gtk_builder_get_objects (builder);
+
+        for (GSList *node = objects; node; node = node->next)
+            if (GTK_IS_DROP_DOWN (node->data))
+                gnc_gtk_drop_down_normalize_width (GTK_DROP_DOWN (node->data));
+        g_slist_free (objects);
+    }
 
     return result;
 }

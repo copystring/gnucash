@@ -514,8 +514,8 @@ gnc_ui_file_access (GtkWindow *parent, int type)
         faw->starting_dir = gnc_get_default_directory(settings_section);
 
     uri_type_container = GTK_WIDGET(gtk_builder_get_object (builder, "vb_uri_type_container" ));
-    faw->cb_uri_type = GTK_DROP_DOWN (gtk_drop_down_new (
-        G_LIST_MODEL (gtk_string_list_new (NULL)), NULL));
+    faw->cb_uri_type = gnc_gtk_drop_down_new (
+        G_LIST_MODEL (gtk_string_list_new (NULL)), NULL);
     gnc_box_append_full (GTK_BOX(uri_type_container), GTK_WIDGET (faw->cb_uri_type),
                          TRUE, FALSE, 0);
     g_signal_connect (faw->cb_uri_type, "notify::selected",

@@ -7,6 +7,7 @@
 #include <gtk/gtk.h>
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "dialog-sx-since-last-run.h"
 #include "gnc-sx-instance-model.h"
 #include "gnc-prefs.h"
@@ -414,7 +415,7 @@ slr_state_setup (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer 
 {
     const char *states[] = { _("Ignored"), _("Postponed"), _("To-Create"), _("Reminder"), NULL };
     GtkStringList *model = gtk_string_list_new (states);
-    GtkWidget *dropdown = gtk_drop_down_new (G_LIST_MODEL (model), NULL);
+    GtkWidget *dropdown = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL));
     g_signal_connect (dropdown, "notify::selected", G_CALLBACK (slr_state_changed), item);
     gtk_list_item_set_child (item, dropdown);
 }

@@ -30,6 +30,7 @@
 #include "gnc-ui-util.h"
 #include "gnc-engine.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 
 /** The debugging module used by this file. */
 __attribute__((unused)) static QofLogModule log_module = GNC_MOD_GUI;
@@ -547,8 +548,8 @@ gnc_report_combo_new (GSList *report_list)
     grc->model = g_list_store_new (gnc_report_combo_item_get_type ());
     expression = gtk_property_expression_new (gnc_report_combo_item_get_type (),
                                               NULL, "name");
-    grc->drop_down = GTK_DROP_DOWN (gtk_drop_down_new (
-        G_LIST_MODEL (g_object_ref (grc->model)), expression));
+    grc->drop_down = gnc_gtk_drop_down_new (
+        G_LIST_MODEL (g_object_ref (grc->model)), expression);
     gtk_widget_set_hexpand (GTK_WIDGET (grc->drop_down), TRUE);
     gtk_box_append (GTK_BOX (grc), GTK_WIDGET (grc->drop_down));
     grc->warning_image = gtk_image_new_from_icon_name ("dialog-warning");

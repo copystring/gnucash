@@ -641,7 +641,7 @@ create_children (GNCDateEdit *gde)
     gnc_box_append_full (GTK_BOX (gde), gde->time_entry, TRUE, TRUE, 0);
 
     time_model = gtk_string_list_new (NULL);
-    gde->time_combo = gtk_drop_down_new (G_LIST_MODEL (time_model), NULL);
+    gde->time_combo = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (time_model), NULL));
 
     g_signal_connect (gde->time_combo, "notify::selected",
                       G_CALLBACK (set_time), gde);

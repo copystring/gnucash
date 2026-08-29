@@ -28,6 +28,7 @@
 #include <gtk/gtk.h>
 
 #include "search-core-utils.h"
+#include "gnc-gtk-utils.h"
 
 #define SEARCH_VALUE_DATA "gnc-search-value"
 
@@ -58,7 +59,7 @@ gnc_search_drop_down_new (void)
 {
     GtkStringList *model = gtk_string_list_new (NULL);
     GtkDropDown *drop_down = GTK_DROP_DOWN (
-        gtk_drop_down_new (G_LIST_MODEL (model), NULL));
+        gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL));
 
     return GTK_WIDGET (drop_down);
 }

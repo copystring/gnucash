@@ -28,6 +28,7 @@
 #include <glib/gi18n.h>
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-component-manager.h"
 #include "gnc-ui.h"
 #include "gnc-gui-query.h"
@@ -1657,7 +1658,7 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
 
     box = GTK_WIDGET (gtk_builder_get_object (builder, "owner_type_box"));
     owner_types = gtk_string_list_new ((const char *[]) { _("Customer"), _("Vendor"), _("Employee"), NULL });
-    pw->owner_type_combo = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (owner_types), NULL));
+    pw->owner_type_combo = gnc_gtk_drop_down_new (G_LIST_MODEL (owner_types), NULL);
     gtk_box_append (GTK_BOX (box), GTK_WIDGET (pw->owner_type_combo));
     pw->owner_box = GTK_WIDGET (gtk_builder_get_object (builder, "owner_box"));
 

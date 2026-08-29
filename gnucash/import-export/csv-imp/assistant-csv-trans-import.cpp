@@ -44,6 +44,7 @@
 #include "gnc-ui-util.h"
 #include "gnc-file.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 
 #include "gnc-component-manager.h"
 
@@ -600,7 +601,7 @@ CsvImpTransAssist::CsvImpTransAssist ()
         // GtkDropDown provides the saved presets while GtkEntry keeps custom names editable.
         auto settings_store = g_list_store_new (GTK_TYPE_STRING_OBJECT);
         auto settings_expression = gtk_property_expression_new (GTK_TYPE_STRING_OBJECT, nullptr, "string");
-        settings_dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (settings_store), settings_expression));
+        settings_dropdown = gnc_gtk_drop_down_new (G_LIST_MODEL (settings_store), settings_expression);
         settings_entry = GTK_ENTRY (gtk_entry_new ());
         gtk_widget_set_hexpand (GTK_WIDGET (settings_entry), true);
         combo_hbox = GTK_WIDGET(gtk_builder_get_object (builder, "combo_hbox"));
@@ -684,7 +685,7 @@ CsvImpTransAssist::CsvImpTransAssist ()
         for (auto& date_fmt : GncDate::c_formats)
             date_formats.emplace_back (_(date_fmt.m_fmt.c_str()));
         date_formats.emplace_back (nullptr);
-        date_format_dropdown = GTK_DROP_DOWN (gtk_drop_down_new_from_strings (date_formats.data()));
+        date_format_dropdown = gnc_gtk_drop_down_new_from_strings (date_formats.data());
         gtk_drop_down_set_selected (date_format_dropdown, 0);
         g_signal_connect (date_format_dropdown, "notify::selected",
                          G_CALLBACK(csv_tximp_preview_date_fmt_sel_cb), this);
@@ -699,7 +700,7 @@ CsvImpTransAssist::CsvImpTransAssist ()
         for (int i = 0; i < num_currency_formats; i++)
             currency_formats.emplace_back (_(currency_format_user[i]));
         currency_formats.emplace_back (nullptr);
-        currency_format_dropdown = GTK_DROP_DOWN (gtk_drop_down_new_from_strings (currency_formats.data()));
+        currency_format_dropdown = gnc_gtk_drop_down_new_from_strings (currency_formats.data());
         /* Default will the locale */
         gtk_drop_down_set_selected (currency_format_dropdown, 0);
         g_signal_connect (currency_format_dropdown, "notify::selected",
@@ -1503,7 +1504,7 @@ csv_tximp_preview_column_selector_new (uint32_t column, GncTransPropType selecte
         position++;
     }
     auto expression = gtk_property_expression_new (GTK_TYPE_STRING_OBJECT, nullptr, "string");
-    auto dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (store), expression));
+    auto dropdown = gnc_gtk_drop_down_new (G_LIST_MODEL (store), expression);
     g_object_set_data (G_OBJECT (dropdown), "col-num", GUINT_TO_POINTER (column));
     gtk_drop_down_set_selected (dropdown, selected_position);
     g_signal_connect (dropdown, "notify::selected", G_CALLBACK (csv_tximp_preview_col_type_changed_cb), assist);

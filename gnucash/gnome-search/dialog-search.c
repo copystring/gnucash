@@ -29,6 +29,7 @@
 #include <glib/gi18n.h>
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-component-manager.h"
 #include "gnc-ui-util.h"
 #include "gnc-ui.h"
@@ -847,7 +848,7 @@ get_comb_box_widget (GNCSearchWindow *sw, struct _crit_data *data)
         index++;
     }
 
-    drop_down = gtk_drop_down_new (G_LIST_MODEL (model), NULL);
+    drop_down = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (drop_down), current);
     g_signal_connect (drop_down, "notify::selected",
                       G_CALLBACK (combo_box_changed), data);
@@ -1191,7 +1192,7 @@ gnc_search_dialog_init_widgets (GNCSearchWindow *sw, const gchar *title)
         };
         GtkStringList *grouping_model = gtk_string_list_new (grouping_labels);
 
-        sw->grouping_combo = gtk_drop_down_new (G_LIST_MODEL (grouping_model), NULL);
+        sw->grouping_combo = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (grouping_model), NULL));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (sw->grouping_combo),
                                     sw->grouping);
         g_signal_connect (sw->grouping_combo, "notify::selected",

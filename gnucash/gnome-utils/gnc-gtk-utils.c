@@ -98,6 +98,328 @@ gnc_widget_set_all_margins (GtkWidget *widget, gint margin)
     gtk_widget_set_margin_bottom (widget, margin);
 }
 
+#define GNC_DROP_DOWN_WIDTH_DATA "gnc-drop-down-width-data"
+
+typedef struct
+{
+    GListModel *model;
+    gulong model_items_changed_id;
+    GtkSettings *settings;
+    gulong settings_theme_changed_id;
+    gulong settings_dark_theme_changed_id;
+    gulong settings_font_changed_id;
+    gint original_min_width;
+    gint original_min_height;
+    gint requested_min_width;
+    gint requested_min_height;
+    gboolean width_content_changed;
+} GncDropDownWidthData;
+
+static void
+drop_down_width_data_free (GncDropDownWidthData *data)
+{
+    if (!data)
+        return;
+
+    if (data->model && data->model_items_changed_id)
+        g_signal_handler_disconnect (data->model, data->model_items_changed_id);
+    if (data->settings && data->settings_theme_changed_id)
+        g_signal_handler_disconnect (data->settings, data->settings_theme_changed_id);
+    if (data->settings && data->settings_dark_theme_changed_id)
+        g_signal_handler_disconnect (data->settings, data->settings_dark_theme_changed_id);
+    if (data->settings && data->settings_font_changed_id)
+        g_signal_handler_disconnect (data->settings, data->settings_font_changed_id);
+    g_clear_object (&data->model);
+    g_clear_object (&data->settings);
+    g_free (data);
+}
+
+static GncDropDownWidthData *
+drop_down_width_data (GtkDropDown *drop_down)
+{
+    return g_object_get_data (G_OBJECT (drop_down), GNC_DROP_DOWN_WIDTH_DATA);
+}
+
+static gboolean
+drop_down_item_text (GtkDropDown *drop_down, GObject *item, GValue *value)
+{
+    GtkExpression *expression = gtk_drop_down_get_expression (drop_down);
+
+    if (expression)
+    {
+        if (!gtk_expression_evaluate (expression, item, value) ||
+            !G_VALUE_HOLDS_STRING (value))
+        {
+            if (G_IS_VALUE (value))
+                g_value_unset (value);
+            return FALSE;
+        }
+        if (!g_value_get_string (value))
+        {
+            g_value_unset (value);
+            return FALSE;
+        }
+        return TRUE;
+    }
+
+    if (!GTK_IS_STRING_OBJECT (item))
+        return FALSE;
+
+    g_value_init (value, G_TYPE_STRING);
+    g_value_set_string (value, gtk_string_object_get_string (GTK_STRING_OBJECT (item)));
+    return TRUE;
+}
+
+static gint
+drop_down_text_width (PangoLayout *layout, const gchar *text)
+{
+    gint width = 0;
+
+    pango_layout_set_text (layout, text, -1);
+    pango_layout_get_pixel_size (layout, &width, NULL);
+    return width;
+}
+
+static void
+drop_down_width_items_changed (GListModel *model, guint position,
+                               guint removed, guint added,
+                               GtkDropDown *drop_down)
+{
+    GncDropDownWidthData *data = drop_down_width_data (drop_down);
+
+    if (data)
+        data->width_content_changed = TRUE;
+    gnc_gtk_drop_down_normalize_width (drop_down);
+    (void)model;
+    (void)position;
+    (void)removed;
+    (void)added;
+}
+
+static void
+drop_down_width_content_changed (GtkDropDown *drop_down, GParamSpec *pspec,
+                                 gpointer user_data)
+{
+    GncDropDownWidthData *data = drop_down_width_data (drop_down);
+
+    if (data)
+        data->width_content_changed = TRUE;
+    gnc_gtk_drop_down_normalize_width (drop_down);
+    (void)pspec;
+    (void)user_data;
+}
+
+static void
+drop_down_width_selection_changed (GtkDropDown *drop_down, GParamSpec *pspec,
+                                   gpointer user_data)
+{
+    gnc_gtk_drop_down_normalize_width (drop_down);
+    (void)pspec;
+    (void)user_data;
+}
+
+static void
+drop_down_width_theme_changed (GtkSettings *settings, GParamSpec *pspec,
+                               GtkDropDown *drop_down)
+{
+    GncDropDownWidthData *data = drop_down_width_data (drop_down);
+
+    if (data)
+        data->width_content_changed = TRUE;
+    gnc_gtk_drop_down_normalize_width (drop_down);
+    (void)settings;
+    (void)pspec;
+}
+
+static void
+drop_down_width_connect_model (GtkDropDown *drop_down,
+                                GncDropDownWidthData *data)
+{
+    GListModel *model = gtk_drop_down_get_model (drop_down);
+
+    if (data->model == model)
+        return;
+
+    if (data->model && data->model_items_changed_id)
+        g_signal_handler_disconnect (data->model, data->model_items_changed_id);
+    data->model_items_changed_id = 0;
+    g_set_object (&data->model, model);
+    if (data->model)
+        data->model_items_changed_id = g_signal_connect
+            (data->model, "items-changed", G_CALLBACK (drop_down_width_items_changed),
+             drop_down);
+}
+
+static void
+drop_down_width_restore_original_request (GtkDropDown *drop_down,
+                                          GncDropDownWidthData *data)
+{
+    data->requested_min_width = data->original_min_width;
+    data->requested_min_height = data->original_min_height;
+    gtk_widget_set_size_request (GTK_WIDGET (drop_down),
+                                 data->requested_min_width,
+                                 data->requested_min_height);
+}
+
+void
+gnc_gtk_drop_down_normalize_width (GtkDropDown *drop_down)
+{
+    GncDropDownWidthData *data;
+    GListModel *model;
+    PangoLayout *layout;
+    GObject *selected_item;
+    gint selected_width;
+    gint widest_width = 0;
+    gint current_min_width;
+    gint current_min_height;
+    gint minimum;
+    gint natural;
+    gint chrome;
+    gboolean have_widest_text = FALSE;
+
+    g_return_if_fail (GTK_IS_DROP_DOWN (drop_down));
+
+    data = drop_down_width_data (drop_down);
+    if (!data)
+    {
+        data = g_new0 (GncDropDownWidthData, 1);
+        gtk_widget_get_size_request (GTK_WIDGET (drop_down),
+                                     &data->original_min_width,
+                                     &data->original_min_height);
+        data->requested_min_width = data->original_min_width;
+        data->requested_min_height = data->original_min_height;
+        g_object_set_data_full (G_OBJECT (drop_down), GNC_DROP_DOWN_WIDTH_DATA,
+                                data, (GDestroyNotify)drop_down_width_data_free);
+        g_signal_connect (drop_down, "notify::model",
+                          G_CALLBACK (drop_down_width_content_changed), NULL);
+        g_signal_connect (drop_down, "notify::expression",
+                          G_CALLBACK (drop_down_width_content_changed), NULL);
+        g_signal_connect (drop_down, "notify::selected",
+                          G_CALLBACK (drop_down_width_selection_changed), NULL);
+        g_signal_connect (drop_down, "notify::scale-factor",
+                          G_CALLBACK (drop_down_width_content_changed), NULL);
+        g_set_object (&data->settings, gtk_settings_get_for_display
+                      (gtk_widget_get_display (GTK_WIDGET (drop_down))));
+        if (data->settings)
+        {
+            GObjectClass *settings_class = G_OBJECT_GET_CLASS (data->settings);
+
+            if (g_object_class_find_property (settings_class, "gtk-theme-name"))
+                data->settings_theme_changed_id = g_signal_connect
+                    (data->settings, "notify::gtk-theme-name",
+                     G_CALLBACK (drop_down_width_theme_changed), drop_down);
+            if (g_object_class_find_property
+                (settings_class, "gtk-application-prefer-dark-theme"))
+                data->settings_dark_theme_changed_id = g_signal_connect
+                    (data->settings, "notify::gtk-application-prefer-dark-theme",
+                     G_CALLBACK (drop_down_width_theme_changed), drop_down);
+            if (g_object_class_find_property (settings_class, "gtk-font-name"))
+                data->settings_font_changed_id = g_signal_connect
+                    (data->settings, "notify::gtk-font-name",
+                     G_CALLBACK (drop_down_width_theme_changed), drop_down);
+        }
+    }
+
+    gtk_widget_get_size_request (GTK_WIDGET (drop_down), &current_min_width,
+                                 &current_min_height);
+    if (current_min_width != data->requested_min_width)
+    {
+        data->original_min_width = current_min_width;
+        data->width_content_changed = TRUE;
+    }
+    if (current_min_height != data->requested_min_height)
+    {
+        data->original_min_height = current_min_height;
+        data->width_content_changed = TRUE;
+    }
+    drop_down_width_connect_model (drop_down, data);
+    model = data->model;
+    if (!model || !g_list_model_get_n_items (model))
+    {
+        drop_down_width_restore_original_request (drop_down, data);
+        return;
+    }
+
+    selected_item = gtk_drop_down_get_selected_item (drop_down);
+    if (!selected_item)
+    {
+        drop_down_width_restore_original_request (drop_down, data);
+        return;
+    }
+
+    layout = gtk_widget_create_pango_layout (GTK_WIDGET (drop_down), NULL);
+    if (!layout)
+        return;
+
+    {
+        GValue value = G_VALUE_INIT;
+
+        if (!drop_down_item_text (drop_down, selected_item, &value))
+        {
+            g_object_unref (layout);
+            drop_down_width_restore_original_request (drop_down, data);
+            return;
+        }
+        selected_width = drop_down_text_width (layout, g_value_get_string (&value));
+        g_value_unset (&value);
+    }
+
+    for (guint position = 0; position < g_list_model_get_n_items (model); position++)
+    {
+        GObject *item = g_list_model_get_item (model, position);
+        GValue value = G_VALUE_INIT;
+
+        if (item && drop_down_item_text (drop_down, item, &value))
+        {
+            widest_width = MAX (widest_width,
+                                drop_down_text_width (layout, g_value_get_string (&value)));
+            have_widest_text = TRUE;
+        }
+        if (G_IS_VALUE (&value))
+            g_value_unset (&value);
+        g_clear_object (&item);
+    }
+    g_object_unref (layout);
+
+    if (!have_widest_text)
+    {
+        drop_down_width_restore_original_request (drop_down, data);
+        return;
+    }
+
+    gtk_widget_set_size_request (GTK_WIDGET (drop_down), -1, -1);
+    gtk_widget_measure (GTK_WIDGET (drop_down), GTK_ORIENTATION_HORIZONTAL, -1,
+                        &minimum, &natural, NULL, NULL);
+    chrome = MAX (0, natural - selected_width);
+    data->requested_min_width = MAX (data->original_min_width,
+                                     widest_width + chrome);
+    if (!data->width_content_changed)
+        data->requested_min_width = MAX (data->requested_min_width,
+                                         current_min_width);
+    data->requested_min_height = data->original_min_height;
+    gtk_widget_set_size_request (GTK_WIDGET (drop_down), data->requested_min_width,
+                                 data->requested_min_height);
+    data->width_content_changed = FALSE;
+}
+
+GtkDropDown *
+gnc_gtk_drop_down_new (GListModel *model, GtkExpression *expression)
+{
+    GtkDropDown *drop_down = GTK_DROP_DOWN (gtk_drop_down_new (model, expression));
+
+    gnc_gtk_drop_down_normalize_width (drop_down);
+    return drop_down;
+}
+
+GtkDropDown *
+gnc_gtk_drop_down_new_from_strings (const char * const *strings)
+{
+    GtkDropDown *drop_down = GTK_DROP_DOWN (gtk_drop_down_new_from_strings (strings));
+
+    gnc_gtk_drop_down_normalize_width (drop_down);
+    return drop_down;
+}
+
 void
 gnc_window_bind_to_application (GtkWindow *window)
 {

@@ -42,6 +42,7 @@
 #include "gnc-tree-model-budget.h" // for GncBudgetListItem
 #include "misc-gnome-utils.h" // for xxxgtk_textview_set_text
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 
 /*Something somewhere in windows.h defines ABSOLUTE to something and
  *that contaminates using it in RelativeDateType.  Undef it.
@@ -398,8 +399,8 @@ option_dropdown_selection_changed_cb (GObject *object, GParamSpec *pspec,
 static GtkWidget *
 create_multichoice_widget (GncOption& option)
 {
-    return gtk_drop_down_new (G_LIST_MODEL (create_permissible_values_model (option)),
-                              nullptr);
+    return GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (create_permissible_values_model (option)),
+                                               nullptr));
 }
 
 class GncGtkMultichoiceUIItem : public GncOptionGtkUIItem
@@ -527,8 +528,8 @@ private:
 
 RelativeDateEntry::RelativeDateEntry(GncOption& option)
 {
-    m_entry = gtk_drop_down_new (G_LIST_MODEL (create_permissible_values_model (option)),
-                                 nullptr);
+    m_entry = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (create_permissible_values_model (option)),
+                                                  nullptr));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (m_entry), 0);
     m_handler_id = g_signal_connect (m_entry, "notify::selected",
                                      G_CALLBACK (option_dropdown_selection_changed_cb),
@@ -2347,7 +2348,7 @@ create_budget_widget (GncOption& option)
     auto expression = gtk_property_expression_new (GNC_TYPE_BUDGET_LIST_ITEM,
                                                    nullptr, "name");
 
-    return gtk_drop_down_new (model, expression);
+    return GTK_WIDGET (gnc_gtk_drop_down_new (model, expression));
 }
 
 static void

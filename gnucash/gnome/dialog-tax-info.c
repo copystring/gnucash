@@ -35,6 +35,7 @@
 #include "Account.h"
 #include "gnc-ui-util.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-locale-tax.h"
 #include "gnc-prefs.h"
 #include "gnc-tree-view-account.h"
@@ -1194,7 +1195,7 @@ identity_edit_clicked_cb (GtkButton *button, gpointer user_data)
     g_ptr_array_add (entries, NULL);
     types = gtk_string_list_new ((const char * const *)entries->pdata);
     g_ptr_array_free (entries, TRUE);
-    edit->type_dropdown = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (types), NULL));
+    edit->type_dropdown = gnc_gtk_drop_down_new (G_LIST_MODEL (types), NULL);
     gtk_drop_down_set_selected (edit->type_dropdown, current_item);
     gtk_grid_attach (GTK_GRID (grid), GTK_WIDGET (edit->type_dropdown), 1, 1, 1, 1);
     gtk_label_set_mnemonic_widget (GTK_LABEL (label), GTK_WIDGET (edit->type_dropdown));

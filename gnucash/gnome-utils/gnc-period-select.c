@@ -38,6 +38,7 @@
 #include "gnc-period-select.h"
 #include "gnc-prefs.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 
 enum
 {
@@ -655,8 +656,8 @@ gnc_period_select_new (gboolean starting_labels)
         gtk_string_list_append (period->selector_model, label);
     }
 
-    period->selector = GTK_DROP_DOWN (gtk_drop_down_new (
-        G_LIST_MODEL (g_object_ref (period->selector_model)), NULL));
+    period->selector = gnc_gtk_drop_down_new (
+        G_LIST_MODEL (g_object_ref (period->selector_model)), NULL);
     gtk_drop_down_set_selected (period->selector, GTK_INVALID_LIST_POSITION);
 
     /* Add the internal widgets to the box. */
