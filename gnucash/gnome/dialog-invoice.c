@@ -271,7 +271,7 @@ typedef struct
     QofBook *book;
     GncGUID invoice_guid;
     GtkWindow *dialog;
-    GtkToggleButton *reset_tax_tables;
+    GtkCheckButton *reset_tax_tables;
     gboolean reset_tax_tables_selected;
     gboolean completed;
 } InvoiceUnpostRequest;
@@ -353,7 +353,7 @@ invoice_unpost_accept_clicked_cb (GtkButton *button,
                                   InvoiceUnpostRequest *request)
 {
     (void)button;
-    request->reset_tax_tables_selected = gtk_toggle_button_get_active (
+    request->reset_tax_tables_selected = gtk_check_button_get_active (
         request->reset_tax_tables);
     invoice_unpost_complete (request, TRUE);
 }
@@ -418,7 +418,7 @@ invoice_unpost_request (InvoiceWindow *iw)
     }
 
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "unpost_message_dialog"));
-    request->reset_tax_tables = GTK_TOGGLE_BUTTON (
+    request->reset_tax_tables = GTK_CHECK_BUTTON (
         gtk_builder_get_object (builder, "yes_tt_reset"));
     ok_button = GTK_WIDGET (gtk_builder_get_object (builder, "okbutton1"));
     cancel_button = GTK_WIDGET (gtk_builder_get_object (builder, "cancelbutton1"));
@@ -527,8 +527,8 @@ static void gnc_ui_to_invoice (InvoiceWindow *iw, GncInvoice *invoice)
     gncInvoiceBeginEdit (invoice);
 
     if (iw->active_check)
-        gncInvoiceSetActive (invoice, gtk_toggle_button_get_active
-                             (GTK_TOGGLE_BUTTON (iw->active_check)));
+        gncInvoiceSetActive (invoice, gtk_check_button_get_active
+                             (GTK_CHECK_BUTTON (iw->active_check)));
 
     text_buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW(iw->notes_text));
     gtk_text_buffer_get_bounds (text_buffer, &start, &end);
@@ -2316,7 +2316,7 @@ gnc_invoice_window_active_toggled_cb (GtkWidget *widget, gpointer data)
     if (!invoice) return;
 
     gncInvoiceSetActive (invoice,
-                         gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)));
+                         gtk_check_button_get_active (GTK_CHECK_BUTTON (widget)));
 }
 
 static void
@@ -2907,7 +2907,7 @@ gnc_invoice_update_window (InvoiceWindow *iw, GtkWidget *widget)
         gtk_text_buffer_set_text (text_buffer, string, -1);
 
         if (iw->active_check)
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (iw->active_check),
+            gtk_check_button_set_active (GTK_CHECK_BUTTON (iw->active_check),
                                           gncInvoiceGetActive (invoice));
 
         time = gncInvoiceGetDateOpened (invoice);
@@ -3183,7 +3183,7 @@ gnc_invoice_type_toggled_cb (GtkWidget *widget, gpointer data)
     InvoiceWindow *iw = data;
 
     if (!iw) return;
-    iw->is_credit_note = !gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget));
+    iw->is_credit_note = !gtk_check_button_get_active (GTK_CHECK_BUTTON (widget));
 }
 
 void
@@ -3866,7 +3866,7 @@ gnc_builder_add_from_file (builder, "dialog-invoice.glade", "new_invoice_dialog"
     {
         GtkWidget *cn_radio = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_creditnote_type"));
 
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(cn_radio), gncInvoiceGetIsCreditNote (invoice));
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(cn_radio), gncInvoiceGetIsCreditNote (invoice));
     }
 
     iw->id_entry = GTK_WIDGET (gtk_builder_get_object (builder, "dialog_id_entry"));

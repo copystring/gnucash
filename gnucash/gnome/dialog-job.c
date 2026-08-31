@@ -113,7 +113,7 @@ static void gnc_ui_to_job (JobWindow *jw, GncJob *job)
     gncJobSetReference (job, gnc_entry_get_text (GTK_ENTRY (jw->desc_entry)));
     gncJobSetRate (job, gnc_amount_edit_get_amount
                         (GNC_AMOUNT_EDIT (jw->rate_entry)));
-    gncJobSetActive (job, gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON
+    gncJobSetActive (job, gtk_check_button_get_active (GTK_CHECK_BUTTON
                      (jw->active_check)));
     {
         GncOwner * old = gncJobGetOwner (job);
@@ -423,7 +423,7 @@ gnc_job_new_window (GtkWindow *parent, QofBook *bookp, GncOwner *owner, GncJob *
         gnc_entry_set_text (GTK_ENTRY (jw->desc_entry), gncJobGetReference (job));
         gnc_amount_edit_set_amount (GNC_AMOUNT_EDIT (jw->rate_entry),
                                       gncJobGetRate (job));
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (jw->active_check),
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (jw->active_check),
                                       gncJobGetActive (job));
 
         jw->component_id = gnc_register_gui_component (DIALOG_EDIT_JOB_CM_CLASS,

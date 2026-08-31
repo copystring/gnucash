@@ -252,6 +252,7 @@ private:
     GOCharmapSel    *encselector;                   /**< The widget for selecting the encoding */
     GtkWidget       *separator_table;               /**< Container for the separator checkboxes */
     GtkCheckButton  *sep_button[SEP_NUM_OF_TYPES];  /**< Checkbuttons for common separators */
+    GtkCheckButton  *escape_cbutton;                /**< The checkbutton for escape processing */
     GtkWidget       *fw_instructions_hbox;          /**< Container for fixed-width instructions */
     GtkCheckButton  *custom_cbutton;                /**< The checkbutton for a custom separator */
     GtkEntry        *custom_entry;                  /**< The entry for custom separators */
@@ -308,11 +309,11 @@ void csv_tximp_preview_settings_text_inserted_cb (GtkEditable *entry, gchar *new
 void csv_tximp_preview_settings_text_changed_cb (GtkEntry *entry, CsvImpTransAssist *info);
 void csv_tximp_preview_srow_cb (GtkSpinButton *spin, CsvImpTransAssist *info);
 void csv_tximp_preview_erow_cb (GtkSpinButton *spin, CsvImpTransAssist *info);
-void csv_tximp_preview_skiprows_cb (GtkToggleButton *checkbox, CsvImpTransAssist *info);
-void csv_tximp_preview_skiperrors_cb (GtkToggleButton *checkbox, CsvImpTransAssist *info);
-void csv_tximp_preview_multisplit_cb (GtkToggleButton *checkbox, CsvImpTransAssist *info);
+void csv_tximp_preview_skiprows_cb (GtkCheckButton *checkbox, CsvImpTransAssist *info);
+void csv_tximp_preview_skiperrors_cb (GtkCheckButton *checkbox, CsvImpTransAssist *info);
+void csv_tximp_preview_multisplit_cb (GtkCheckButton *checkbox, CsvImpTransAssist *info);
 void csv_tximp_preview_sep_button_cb (GtkWidget* widget, CsvImpTransAssist* info);
-void csv_tximp_preview_sep_fixed_sel_cb (GtkToggleButton* csv_button, CsvImpTransAssist* info);
+void csv_tximp_preview_sep_fixed_sel_cb (GtkCheckButton* csv_button, CsvImpTransAssist* info);
 void csv_tximp_preview_acct_sel_cb (GtkWidget* widget, CsvImpTransAssist* info);
 void csv_tximp_preview_enc_sel_cb (GOCharmapSel* selector, const char* encoding,
                               CsvImpTransAssist* info);
@@ -400,19 +401,19 @@ void csv_tximp_preview_erow_cb (GtkSpinButton *spin, CsvImpTransAssist *info)
     info->preview_update_skipped_rows();
 }
 
-void csv_tximp_preview_skiprows_cb (GtkToggleButton *checkbox, CsvImpTransAssist *info)
+void csv_tximp_preview_skiprows_cb (GtkCheckButton *checkbox, CsvImpTransAssist *info)
 {
     info->preview_update_skipped_rows();
 }
 
-void csv_tximp_preview_skiperrors_cb (GtkToggleButton *checkbox, CsvImpTransAssist *info)
+void csv_tximp_preview_skiperrors_cb (GtkCheckButton *checkbox, CsvImpTransAssist *info)
 {
     info->preview_update_skipped_rows();
 }
 
-void csv_tximp_preview_multisplit_cb (GtkToggleButton *checkbox, CsvImpTransAssist *info)
+void csv_tximp_preview_multisplit_cb (GtkCheckButton *checkbox, CsvImpTransAssist *info)
 {
-    info->preview_multi_split (gtk_toggle_button_get_active (checkbox));
+    info->preview_multi_split (gtk_check_button_get_active (checkbox));
 }
 
 void csv_tximp_preview_sep_button_cb (GtkWidget* widget, CsvImpTransAssist* info)
@@ -420,7 +421,7 @@ void csv_tximp_preview_sep_button_cb (GtkWidget* widget, CsvImpTransAssist* info
     info->preview_update_separators(widget);
 }
 
-void csv_tximp_preview_sep_fixed_sel_cb (GtkToggleButton* csv_button, CsvImpTransAssist* info)
+void csv_tximp_preview_sep_fixed_sel_cb (GtkCheckButton* csv_button, CsvImpTransAssist* info)
 {
     info->preview_update_file_format();
 }
@@ -644,16 +645,21 @@ CsvImpTransAssist::CsvImpTransAssist ()
             };
         for (int i = 0; i < SEP_NUM_OF_TYPES; i++)
             sep_button[i]
-                = (GtkCheckButton*)GTK_WIDGET(gtk_builder_get_object (builder, sep_button_names[i]));
+                = GTK_CHECK_BUTTON(gtk_builder_get_object (builder, sep_button_names[i]));
 
         /* Load and connect the custom separator checkbutton in the same way
          * as the other separator buttons. */
         custom_cbutton
-            = (GtkCheckButton*)GTK_WIDGET(gtk_builder_get_object (builder, "custom_cbutton"));
+            = GTK_CHECK_BUTTON(gtk_builder_get_object (builder, "custom_cbutton"));
 
         /* Load the entry for the custom separator entry. Connect it to the
          * sep_button_clicked event handler as well. */
-        custom_entry = (GtkEntry*)GTK_WIDGET(gtk_builder_get_object (builder, "custom_entry"));
+        custom_entry = GTK_ENTRY(gtk_builder_get_object (builder, "custom_entry"));
+
+        /* Load and connect the escape checkbutton in the same way
+         * as the other separator buttons. */
+        escape_cbutton
+            = GTK_CHECK_BUTTON(gtk_builder_get_object (builder, "escape_cbutton"));
 
         /* Add account selection widget */
         acct_selector = gnc_account_sel_new();
@@ -1129,8 +1135,8 @@ void CsvImpTransAssist::preview_update_skipped_rows ()
     /* Update skip rows in the parser */
     tx_imp->update_skipped_lines (gtk_spin_button_get_value_as_int (start_row_spin),
         gtk_spin_button_get_value_as_int (end_row_spin),
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(skip_alt_rows_button)),
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(skip_errors_button)));
+        gtk_check_button_get_active (GTK_CHECK_BUTTON(skip_alt_rows_button)),
+        gtk_check_button_get_active (GTK_CHECK_BUTTON(skip_errors_button)));
 
     /* And adjust maximum number of lines that can be skipped at each end accordingly */
     auto adj = gtk_spin_button_get_adjustment (end_row_spin);
@@ -1153,8 +1159,8 @@ void CsvImpTransAssist::preview_multi_split (bool multi)
 
 /** Event handler for separator changes. This function is called
  * whenever one of the widgets for configuring the separators (the
- * separator checkbuttons or the custom separator entry) is
- * changed.
+ * separator checkbuttons, the escape checkbutton or the custom
+ * separator entry) is changed.
  * @param widget The widget that was changed
  */
 void CsvImpTransAssist::preview_update_separators (GtkWidget* widget)
@@ -1171,12 +1177,12 @@ void CsvImpTransAssist::preview_update_separators (GtkWidget* widget)
     const auto stock_sep_chars = std::string (" \t,:;-");
     for (int i = 0; i < SEP_NUM_OF_TYPES; i++)
     {
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(sep_button[i])))
+        if (gtk_check_button_get_active (sep_button[i]))
             checked_separators += stock_sep_chars[i];
     }
 
     /* Add the custom separator if the user checked its button. */
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(custom_cbutton)))
+    if (gtk_check_button_get_active (custom_cbutton))
     {
         auto custom_sep = gnc_entry_get_text (custom_entry);
         if (custom_sep[0] != '\0') /* Don't add a blank separator (bad things will happen!). */
@@ -1185,6 +1191,7 @@ void CsvImpTransAssist::preview_update_separators (GtkWidget* widget)
 
     /* Set the parse options using the checked_separators list. */
     tx_imp->separators (checked_separators);
+    tx_imp->enable_escape (gtk_check_button_get_active (escape_cbutton));
 
     /* Parse the data using the new options. We don't want to reguess
      * the column types because we want to leave the user's
@@ -1209,8 +1216,8 @@ void CsvImpTransAssist::preview_update_separators (GtkWidget* widget)
             gnc_entry_set_text (GTK_ENTRY(widget), "");
         /* If the user checked a checkbutton, toggle that checkbutton back. */
         else
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(widget),
-                                         !gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(widget)));
+            gtk_check_button_set_active (GTK_CHECK_BUTTON(widget),
+                                         !gtk_check_button_get_active (GTK_CHECK_BUTTON(widget)));
         return;
     }
 }
@@ -1224,7 +1231,7 @@ void CsvImpTransAssist::preview_update_file_format ()
     /* Set the parsing type correctly. */
     try
     {
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(csv_button)))
+        if (gtk_check_button_get_active (GTK_CHECK_BUTTON(csv_button)))
         {
             tx_imp->file_format (GncImpFileFormat::CSV);
             gtk_widget_set_visible (separator_table, true);
@@ -1588,18 +1595,18 @@ CsvImpTransAssist::preview_refresh ()
     gtk_spin_button_set_value (end_row_spin, skip_end_lines);
 
     // Set Alternate rows
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(skip_alt_rows_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(skip_alt_rows_button),
             skip_alt_lines);
 
     // Set multi-split indicator
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(multi_split_cbutton),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(multi_split_cbutton),
             tx_imp->multi_split());
     gtk_widget_set_sensitive (acct_selector, !tx_imp->multi_split());
 
     // Set Import Format
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(csv_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(csv_button),
             (tx_imp->file_format() == GncImpFileFormat::CSV));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(fixed_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(fixed_button),
             (tx_imp->file_format() != GncImpFileFormat::CSV));
 
     // Set Date & Currency Format and Character encoding
@@ -1614,11 +1621,12 @@ CsvImpTransAssist::preview_refresh ()
     if (tx_imp->file_format() == GncImpFileFormat::CSV)
     {
         auto separators = tx_imp->separators();
+        auto enable_escape = tx_imp->enable_escape();
         const auto stock_sep_chars = std::string (" \t,:;-");
         for (int i = 0; i < SEP_NUM_OF_TYPES; i++)
         {
             g_signal_handlers_block_by_func (sep_button[i], (gpointer) csv_tximp_preview_sep_button_cb, this);
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(sep_button[i]),
+            gtk_check_button_set_active (sep_button[i],
                 separators.find (stock_sep_chars[i]) != std::string::npos);
             g_signal_handlers_unblock_by_func (sep_button[i], (gpointer) csv_tximp_preview_sep_button_cb, this);
         }
@@ -1633,9 +1641,13 @@ CsvImpTransAssist::preview_refresh ()
         }
         g_signal_handlers_block_by_func (custom_cbutton, (gpointer) csv_tximp_preview_sep_button_cb, this);
         g_signal_handlers_block_by_func (custom_entry, (gpointer) csv_tximp_preview_sep_button_cb, this);
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(custom_cbutton),
+        gtk_check_button_set_active (custom_cbutton,
                                       !separators.empty());
         gnc_entry_set_text (GTK_ENTRY(custom_entry), separators.c_str());
+        g_signal_handlers_block_by_func (escape_cbutton, (gpointer) csv_tximp_preview_sep_button_cb, this);
+        gtk_check_button_set_active (escape_cbutton,
+                                      enable_escape);
+        g_signal_handlers_unblock_by_func (escape_cbutton, (gpointer) csv_tximp_preview_sep_button_cb, this);
         g_signal_handlers_unblock_by_func (custom_cbutton, (gpointer) csv_tximp_preview_sep_button_cb, this);
         g_signal_handlers_unblock_by_func (custom_entry, (gpointer) csv_tximp_preview_sep_button_cb, this);
         try
@@ -1933,7 +1945,8 @@ CsvImpTransAssist::assist_preview_page_prepare ()
         {
             /* Parsing failed ... */
             gnc_error_dialog (GTK_WINDOW (csv_imp_asst), "%s", _(e.what()));
-            go_back = true;
+            /* Stay in this step so user can override */
+            go_back = false;
         }
     }
 

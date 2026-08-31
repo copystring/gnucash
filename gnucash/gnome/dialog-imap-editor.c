@@ -642,9 +642,9 @@ static void
 collapse_button_cb (GtkButton *button, ImapDialog *dialog)
 { gtk_editable_set_text (GTK_EDITABLE (dialog->filter_text_entry), ""); g_free (dialog->filter_text); dialog->filter_text = g_strdup (""); imap_apply_filter (dialog, FALSE); (void)button; }
 static void
-list_type_selected_cb (GtkToggleButton *button, ImapDialog *dialog)
+list_type_selected_cb (GtkCheckButton *button, ImapDialog *dialog)
 {
-    GncListType type = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (dialog->radio_bayes)) ? BAYES : gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (dialog->radio_nbayes)) ? NBAYES : ONLINE;
+    GncListType type = gtk_check_button_get_active (GTK_CHECK_BUTTON (dialog->radio_bayes)) ? BAYES : gtk_check_button_get_active (GTK_CHECK_BUTTON (dialog->radio_nbayes)) ? NBAYES : ONLINE;
     if (type == dialog->type)
         return;
     dialog->type = type;

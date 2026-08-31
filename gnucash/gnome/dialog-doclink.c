@@ -370,7 +370,7 @@ get_uri_dialog_fcb_clicked_cb (GtkButton *fcb, DoclinkUpdate *dlu)
     g_object_unref (request);
 }
 static void
-get_uri_dialog_uri_type_selected_cb (GtkToggleButton *button, gpointer user_data)
+get_uri_dialog_uri_type_selected_cb (GtkCheckButton *button, gpointer user_data)
 {
     DoclinkUpdate *dlu = user_data;
     GtkRoot *top = gtk_widget_get_root (GTK_WIDGET(button)); //button_file

@@ -198,9 +198,9 @@ gncs_validate (GNCSearchCoreType *fe)
 }
 
 static void
-toggle_changed (GtkToggleButton *button, GNCSearchString *fe)
+toggle_changed (GtkCheckButton *button, GNCSearchString *fe)
 {
-    fe->ign_case = !gtk_toggle_button_get_active (button);
+    fe->ign_case = !gtk_check_button_get_active (button);
 }
 
 static void

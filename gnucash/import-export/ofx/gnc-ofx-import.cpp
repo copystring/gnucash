@@ -1293,9 +1293,9 @@ gnc_ofx_match_done (GtkWidget *widget, gpointer user_data)
 // This callback is triggered when the user checks or unchecks the reconcile after match
 // check box in the matching dialog.
 static void
-reconcile_when_close_toggled_cb (GtkToggleButton *togglebutton, ofx_info* info)
+reconcile_when_close_toggled_cb (GtkCheckButton *togglebutton, ofx_info* info)
 {
-    info->run_reconcile = gtk_toggle_button_get_active (togglebutton);
+    info->run_reconcile = gtk_check_button_get_active (togglebutton);
 }
 
 static std::string

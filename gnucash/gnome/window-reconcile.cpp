@@ -817,6 +817,7 @@ actions on this account. Please double-check this is the date you intended."));
     /* update the amount edit with the amount */
     gnc_amount_edit_set_amount (GNC_AMOUNT_EDIT (data->end_value),
                                 new_balance);
+    data->original_value = new_balance;
 }
 
 
@@ -824,7 +825,7 @@ void
 gnc_start_recn_children_changed (GtkWidget *widget, startRecnWindowData *data)
 {
     data->include_children =
-        gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+        gtk_check_button_get_active(GTK_CHECK_BUTTON(widget));
 
     /* Force an update of the ending balance */
     recn_date_changed_cb (data->date_value, data);
@@ -1234,7 +1235,7 @@ start_recn_dialog_open (GtkWidget *parent, Account *account,
 
     include_children_button = GTK_WIDGET (gtk_builder_get_object (
         builder, "subaccount_check"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (include_children_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (include_children_button),
                                   data->include_children);
     gtk_widget_set_sensitive (include_children_button, enable_subaccount);
 

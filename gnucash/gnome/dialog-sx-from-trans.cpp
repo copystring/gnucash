@@ -80,9 +80,9 @@ typedef struct
     GtkEntry *name;
     GtkDropDown *freq_combo;
 
-    GtkToggleButton *ne_but;
-    GtkToggleButton *ed_but;
-    GtkToggleButton *oc_but;
+    GtkCheckButton *ne_but;
+    GtkCheckButton *ed_but;
+    GtkCheckButton *oc_but;
     GtkEntry *n_occurences;
 
     Transaction *trans;
@@ -171,13 +171,13 @@ sxftd_get_end_info(SXFromTransInfo *sxfti)
     g_date_clear( &(retval.end_date), 1 );
     retval.n_occurrences = 0;
 
-    if (gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(sxfti->ne_but)))
+    if (gtk_check_button_get_active( GTK_CHECK_BUTTON(sxfti->ne_but)))
     {
         retval.type = NEVER_END;
         return retval;
     }
 
-    if (gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(sxfti->ed_but)))
+    if (gtk_check_button_get_active( GTK_CHECK_BUTTON(sxfti->ed_but)))
     {
         time64 end_tt;
         retval.type = END_ON_DATE;
@@ -187,7 +187,7 @@ sxftd_get_end_info(SXFromTransInfo *sxfti)
         return retval;
     }
 
-    if (gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(sxfti->oc_but) ))
+    if (gtk_check_button_get_active( GTK_CHECK_BUTTON(sxfti->oc_but) ))
     {
         guint n_occs;
 
@@ -354,9 +354,9 @@ sxftd_init( SXFromTransInfo *sxfti )
 
     /* Setup Widgets */
     {
-        sxfti->ne_but = GTK_TOGGLE_BUTTON(gtk_builder_get_object(sxfti->builder, "never_end_button"));
-        sxfti->ed_but = GTK_TOGGLE_BUTTON(gtk_builder_get_object(sxfti->builder, "end_on_date_button"));
-        sxfti->oc_but = GTK_TOGGLE_BUTTON(gtk_builder_get_object(sxfti->builder, "n_occurrences_button"));
+        sxfti->ne_but = GTK_CHECK_BUTTON(gtk_builder_get_object(sxfti->builder, "never_end_button"));
+        sxfti->ed_but = GTK_CHECK_BUTTON(gtk_builder_get_object(sxfti->builder, "end_on_date_button"));
+        sxfti->oc_but = GTK_CHECK_BUTTON(gtk_builder_get_object(sxfti->builder, "n_occurrences_button"));
         sxfti->n_occurences = GTK_ENTRY(gtk_builder_get_object(sxfti->builder, "n_occurrences_entry"));
     }
 

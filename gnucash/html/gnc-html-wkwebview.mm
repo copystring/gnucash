@@ -69,7 +69,7 @@ constexpr char default_zoom_pref[] = "default-zoom";
 
 static void impl_wkwebview_show_url (GncHtml *html, URLType type,
                                      const gchar *location, const gchar *label,
-                                     gboolean new_window_hint);
+                                     gboolean new_window);
 static void impl_wkwebview_show_data (GncHtml *html, const gchar *data, int datalen);
 static void impl_wkwebview_reload (GncHtml *html, gboolean force_rebuild);
 static void impl_wkwebview_copy_to_clipboard (GncHtml *html);
@@ -628,14 +628,12 @@ impl_wkwebview_show_data (GncHtml *html, const gchar *data, int datalen)
 
 static void
 impl_wkwebview_show_url (GncHtml *html, URLType type, const gchar *location,
-                         const gchar *label, gboolean new_window_hint)
+                         const gchar *label, gboolean new_window)
 {
     auto self = GNC_HTML_WKWEBVIEW (html);
     auto priv = priv_for (self);
     g_return_if_fail (location != nullptr);
-    const auto new_window = new_window_hint ||
-        (priv->base.urltype_cb && !priv->base.urltype_cb (type));
-    if (!new_window)
+    if (priv->base.urltype_cb && priv->base.urltype_cb (type))
         impl_wkwebview_cancel (html);
 
     auto handler = gnc_html_url_handlers
@@ -665,13 +663,14 @@ impl_wkwebview_show_url (GncHtml *html, URLType type, const gchar *location,
             priv->base.base_type = result.base_type;
             priv->base.base_location = extract_base_name (result.base_type, new_location);
             stream_loaded = load_to_stream (self, result.url_type, new_location, new_label);
+            if (stream_loaded && priv->base.load_cb)
+                priv->base.load_cb (html, result.url_type, new_location, new_label,
+                                    priv->base.load_cb_data);
         }
         g_free (result.location);
         g_free (result.label);
         g_free (result.base_location);
         g_free (result.error_message);
-        if (stream_loaded && priv->base.load_cb)
-            priv->base.load_cb (html, type, location, label, priv->base.load_cb_data);
         return;
     }
 

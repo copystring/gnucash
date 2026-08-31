@@ -857,7 +857,7 @@ gnc_perm_button_cb (GtkButton *perm, gpointer user_data)
 {
     gboolean perm_active;
 
-    perm_active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(perm));
+    perm_active = gtk_check_button_get_active(GTK_CHECK_BUTTON(perm));
     gtk_widget_set_sensitive(user_data, !perm_active);
 }
 
@@ -931,11 +931,11 @@ gnc_warning_dialog_save_response (GncWarningDialogRequest *request,
     GtkWidget *temp = g_weak_ref_get (&request->temp);
 
     if (response != GTK_RESPONSE_CANCEL && perm &&
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (perm)))
+        gtk_check_button_get_active (GTK_CHECK_BUTTON (perm)))
         gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_PERM, request->pref_name,
                            response);
     else if (response != GTK_RESPONSE_CANCEL && temp &&
-             gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (temp)))
+             gtk_check_button_get_active (GTK_CHECK_BUTTON (temp)))
         gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_TEMP, request->pref_name,
                            response);
     g_clear_object (&perm);

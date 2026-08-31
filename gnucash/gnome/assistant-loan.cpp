@@ -385,10 +385,10 @@ void loan_info_page_valid_cb (GtkWidget *, gpointer);
 static gboolean loan_info_page_complete (GtkWindow *, gpointer);
 static void loan_info_page_save (GtkWindow *, gpointer);
 static void loan_opt_prep (GtkWindow *, gpointer);
-static void loan_opt_toggled_cb (GtkToggleButton *, gpointer);
-static void loan_opt_consistency_cb (GtkToggleButton *, gpointer);
-static void loan_opt_escrow_toggle_cb (GtkToggleButton *, gpointer);
-static void loan_opt_escrow_toggled_cb (GtkToggleButton *, gpointer);
+static void loan_opt_toggled_cb (GtkCheckButton *, gpointer);
+static void loan_opt_consistency_cb (GtkCheckButton *, gpointer);
+static void loan_opt_escrow_toggle_cb (GtkCheckButton *, gpointer);
+static void loan_opt_escrow_toggled_cb (GtkCheckButton *, gpointer);
 void loan_opt_page_valid_cb (GtkWidget *, gpointer);
 static gboolean loan_opt_page_complete (GtkWindow *, gpointer);
 static void loan_rep_prep (GtkWindow *, gpointer);
@@ -397,10 +397,10 @@ static gboolean loan_rep_page_complete (GtkWindow *, gpointer);
 static void loan_rep_page_save (GtkWindow *, gpointer);
 static void loan_pay_prep (GtkWindow *, gpointer);
 static void loan_pay_use_esc_setup (LoanAssistantData *, gboolean);
-static void loan_pay_use_esc_toggle_cb (GtkToggleButton *, gpointer);
+static void loan_pay_use_esc_toggle_cb (GtkCheckButton *, gpointer);
 static void loan_pay_spec_src_setup (LoanAssistantData *, gboolean);
-static void loan_pay_spec_src_toggle_cb (GtkToggleButton *, gpointer);
-static void loan_pay_freq_toggle_cb (GtkToggleButton *, gpointer);
+static void loan_pay_spec_src_toggle_cb (GtkCheckButton *, gpointer);
+static void loan_pay_freq_toggle_cb (GtkCheckButton *, gpointer);
 static void loan_pay_page_valid_cb (GtkWidget *, gpointer);
 static gboolean loan_pay_complete (GtkWindow *, gpointer);
 static gboolean loan_pay_all_opt_valid (GtkWindow *, gpointer);
@@ -1200,15 +1200,15 @@ loan_opt_prep( GtkWindow *window, gpointer user_data )
 
     if ( ldd->ld.escrowAcct )
     {
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(ldd->optEscrowCb), TRUE );
+        gtk_check_button_set_active( GTK_CHECK_BUTTON(ldd->optEscrowCb), TRUE );
         gnc_account_sel_set_account( ldd->optEscrowGAS, ldd->ld.escrowAcct, FALSE );
     }
     for ( i = 0; i < ldd->ld.repayOptCount; i++ )
     {
         rouid = ldd->repayOptsUI[i];
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(rouid->optCb),
+        gtk_check_button_set_active( GTK_CHECK_BUTTON(rouid->optCb),
                                       rouid->optData->enabled );
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(rouid->escrowCb),
+        gtk_check_button_set_active( GTK_CHECK_BUTTON(rouid->escrowCb),
                                       rouid->optData->throughEscrowP
                                       && rouid->optData->enabled
                                       && ldd->ld.escrowAcct );
@@ -1221,49 +1221,49 @@ loan_opt_prep( GtkWindow *window, gpointer user_data )
 
 static
 void
-loan_opt_toggled_cb( GtkToggleButton *tb, gpointer user_data )
+loan_opt_toggled_cb( GtkCheckButton *tb, gpointer user_data )
 {
     RepayOptUIData *rouid;
 
     rouid = (RepayOptUIData*)user_data;
-    rouid->optData->enabled = gtk_toggle_button_get_active(tb);
+    rouid->optData->enabled = gtk_check_button_get_active(tb);
 }
 
 
 static
 void
-loan_opt_consistency_cb( GtkToggleButton *tb, gpointer user_data )
+loan_opt_consistency_cb( GtkCheckButton *tb, gpointer user_data )
 {
-    GtkToggleButton *escrowCb;
+    GtkCheckButton *escrowCb;
     RepayOptUIData *rouid;
 
     rouid = (RepayOptUIData*)user_data;
-    escrowCb = GTK_TOGGLE_BUTTON(rouid->escrowCb);
+    escrowCb = GTK_CHECK_BUTTON(rouid->escrowCb);
     /* make sure the escrow option is only selected if we're active. */
-    gtk_toggle_button_set_active( escrowCb,
-                                  gtk_toggle_button_get_active(
-                                      GTK_TOGGLE_BUTTON(
+    gtk_check_button_set_active( escrowCb,
+                                  gtk_check_button_get_active(
+                                      GTK_CHECK_BUTTON(
                                           rouid->ldd->optEscrowCb) )
                                   && rouid->optData->throughEscrowP
-                                  && gtk_toggle_button_get_active(tb) );
+                                  && gtk_check_button_get_active(tb) );
     /* make sure the escrow option is only sensitive if we're active, and
      * the escrow account is enabled  */
     gtk_widget_set_sensitive( GTK_WIDGET(escrowCb),
-                              gtk_toggle_button_get_active(tb)
-                              && gtk_toggle_button_get_active(
-                                  GTK_TOGGLE_BUTTON(rouid->ldd->optEscrowCb)) );
+                              gtk_check_button_get_active(tb)
+                              && gtk_check_button_get_active(
+                                  GTK_CHECK_BUTTON(rouid->ldd->optEscrowCb)) );
 }
 
 
 static
 void
-loan_opt_escrow_toggle_cb( GtkToggleButton *tb, gpointer user_data )
+loan_opt_escrow_toggle_cb( GtkCheckButton *tb, gpointer user_data )
 {
     int i;
     gboolean newState;
     RepayOptUIData *rouid;
     LoanAssistantData *ldd = static_cast<LoanAssistantData*> (user_data);
-    newState = gtk_toggle_button_get_active(tb);
+    newState = gtk_check_button_get_active(tb);
     gtk_widget_set_sensitive( GTK_WIDGET(ldd->optEscrowHBox), newState );
     /* Check for Valid Account if enabled */
     if (newState)
@@ -1291,15 +1291,15 @@ loan_opt_escrow_toggle_cb( GtkToggleButton *tb, gpointer user_data )
         g_signal_handlers_block_by_func( rouid->escrowCb,
                                          (gpointer) loan_opt_escrow_toggled_cb,
                                          rouid );
-        gtk_toggle_button_set_active(
-            GTK_TOGGLE_BUTTON(rouid->escrowCb),
+        gtk_check_button_set_active(
+            GTK_CHECK_BUTTON(rouid->escrowCb),
             ( newState
-              && gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(rouid->optCb) )
+              && gtk_check_button_get_active( GTK_CHECK_BUTTON(rouid->optCb) )
               && rouid->optData->throughEscrowP ) );
         gtk_widget_set_sensitive(
             GTK_WIDGET(rouid->escrowCb),
             newState
-            && gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(rouid->optCb) ) );
+            && gtk_check_button_get_active( GTK_CHECK_BUTTON(rouid->optCb) ) );
         g_signal_handlers_unblock_by_func( rouid->escrowCb,
                                            (gpointer) loan_opt_escrow_toggled_cb,
                                            rouid );
@@ -1317,12 +1317,12 @@ loan_opt_escrow_toggle_cb( GtkToggleButton *tb, gpointer user_data )
 
 static
 void
-loan_opt_escrow_toggled_cb( GtkToggleButton *tb, gpointer user_data )
+loan_opt_escrow_toggled_cb( GtkCheckButton *tb, gpointer user_data )
 {
     RepayOptUIData *rouid;
 
     rouid = (RepayOptUIData*)user_data;
-    rouid->optData->throughEscrowP = gtk_toggle_button_get_active( tb );
+    rouid->optData->throughEscrowP = gtk_check_button_get_active( tb );
 }
 
 
@@ -1339,7 +1339,7 @@ loan_opt_page_complete( GtkWindow *window, gpointer user_data )
 {
     LoanAssistantData *ldd = static_cast<LoanAssistantData*> (user_data);
 
-    if ( gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(ldd->optEscrowCb) ) )
+    if ( gtk_check_button_get_active( GTK_CHECK_BUTTON(ldd->optEscrowCb) ) )
     {
         ldd->ld.escrowAcct =
             gnc_account_sel_get_account( ldd->optEscrowGAS );
@@ -1520,7 +1520,7 @@ loan_pay_prep( GtkWindow *window, gpointer user_data )
             loan_pay_use_esc_setup( ldd,
                                     (ldd->ld.escrowAcct != NULL)
                                     && rod->throughEscrowP );
-            gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(ldd->payUseEscrow),
+            gtk_check_button_set_active( GTK_CHECK_BUTTON(ldd->payUseEscrow),
                                           (rod->throughEscrowP
                                            && ldd->ld.escrowAcct != NULL) );
 
@@ -1534,7 +1534,7 @@ loan_pay_prep( GtkWindow *window, gpointer user_data )
                                              (gpointer) loan_pay_spec_src_toggle_cb,
                                              ldd );
             loan_pay_spec_src_setup( ldd, rod->specSrcAcctP );
-            gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(ldd->paySpecSrcAcct),
+            gtk_check_button_set_active( GTK_CHECK_BUTTON(ldd->paySpecSrcAcct),
                                           rod->specSrcAcctP );
 
             g_signal_handlers_unblock_by_func( ldd->paySpecSrcAcct,
@@ -1551,8 +1551,8 @@ loan_pay_prep( GtkWindow *window, gpointer user_data )
 
         g_signal_handlers_block_by_func(ldd->payTxnFreqUniqRb,
                                         (gpointer) loan_pay_freq_toggle_cb, ldd );
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(ldd->payTxnFreqPartRb), !rod->FreqUniq );
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(ldd->payTxnFreqUniqRb), rod->FreqUniq );
+        gtk_check_button_set_active( GTK_CHECK_BUTTON(ldd->payTxnFreqPartRb), !rod->FreqUniq );
+        gtk_check_button_set_active( GTK_CHECK_BUTTON(ldd->payTxnFreqUniqRb), rod->FreqUniq );
         g_signal_handlers_unblock_by_func(ldd->payTxnFreqUniqRb,
                                           (gpointer) loan_pay_freq_toggle_cb, ldd );
 
@@ -1607,12 +1607,12 @@ loan_pay_use_esc_setup( LoanAssistantData *ldd, gboolean newState )
 
 static
 void
-loan_pay_use_esc_toggle_cb( GtkToggleButton *tb, gpointer user_data )
+loan_pay_use_esc_toggle_cb( GtkCheckButton *tb, gpointer user_data )
 {
     gboolean newState;
     LoanAssistantData *ldd = static_cast<LoanAssistantData*> (user_data);
 
-    newState = gtk_toggle_button_get_active( tb );
+    newState = gtk_check_button_get_active( tb );
     loan_pay_use_esc_setup( ldd, newState );
 }
 
@@ -1645,19 +1645,19 @@ loan_pay_spec_src_setup( LoanAssistantData *ldd, gboolean newState )
 
 static
 void
-loan_pay_spec_src_toggle_cb( GtkToggleButton *tb, gpointer user_data )
+loan_pay_spec_src_toggle_cb( GtkCheckButton *tb, gpointer user_data )
 {
     gboolean newState;
     LoanAssistantData *ldd = static_cast<LoanAssistantData*> (user_data);
 
-    newState = gtk_toggle_button_get_active( tb );
+    newState = gtk_check_button_get_active( tb );
     loan_pay_spec_src_setup( ldd, newState );
 }
 
 
 static
 void
-loan_pay_freq_toggle_cb( GtkToggleButton *tb, gpointer user_data )
+loan_pay_freq_toggle_cb( GtkCheckButton *tb, gpointer user_data )
 {
     LoanAssistantData *ldd = static_cast<LoanAssistantData*> (user_data);
     RepayOptData *rod;
@@ -1667,7 +1667,7 @@ loan_pay_freq_toggle_cb( GtkToggleButton *tb, gpointer user_data )
 
     rod = ldd->ld.repayOpts[ldd->currentIdx];
 
-    rod->FreqUniq = gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(ldd->payTxnFreqUniqRb) );
+    rod->FreqUniq = gtk_check_button_get_active( GTK_CHECK_BUTTON(ldd->payTxnFreqUniqRb) );
     gtk_widget_set_sensitive( GTK_WIDGET(ldd->payFreqHBox), rod->FreqUniq );
 
     if ( rod->FreqUniq )
@@ -1796,8 +1796,8 @@ loan_pay_complete( GtkWindow *window, gpointer user_data )
     rod->amount = (float)strtod (gtk_editable_get_text (GTK_EDITABLE (ldd->payAmtEntry)), NULL);
 
     rod->specSrcAcctP =
-        gtk_toggle_button_get_active(
-            GTK_TOGGLE_BUTTON(ldd->paySpecSrcAcct) );
+        gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(ldd->paySpecSrcAcct) );
 
     /* Test for Valid From Account */
     if ( rod->specSrcAcctP )
@@ -2217,7 +2217,7 @@ loan_rev_update_view (LoanAssistantData *ldd, GDate *start, GDate *end)
         if (g_date_compare (&old->date, start) < 0 || g_date_compare (&old->date, end) > 0)
             continue;
         auto row = loan_review_row_new (ldd->ld.revNumPmts + 1);
-        gchar buffer[50];
+        gchar buffer[64];
         qof_print_gdate (buffer, MAX_DATE_LENGTH, &old->date);
         loan_review_row_set (row, LOAN_COL_DATE, buffer);
         for (int i = 0; i < ldd->ld.revNumPmts; ++i)
@@ -2227,7 +2227,7 @@ loan_rev_update_view (LoanAssistantData *ldd, GDate *start, GDate *end)
             else
             {
                 auto printed = xaccSPrintAmount (buffer, old->numCells[i], pai);
-                g_assert (printed < 50);
+                g_assert (printed < 64);
                 loan_review_row_set (row, i + 1, buffer);
             }
         }
@@ -2319,7 +2319,19 @@ std::string to_str_with_prec (const gdouble val)
     free(buf);
     return result;
 #else
-    auto loc = std::locale(gnc_get_locale(), new cust_prec_punct<prec>(""));
+    auto app_loc{gnc_get_locale()};
+    if (std::use_facet<std::moneypunct<wchar_t>>(app_loc).curr_symbol().empty())
+    {
+    /* put_money in this locale will probably return an empty
+     * string. Use floating point manipulators instead.
+     */
+        std::stringstream valstr;
+        valstr << std::fixed << std::showpoint << std::setprecision(prec)
+	       << val;
+        return valstr.str();
+    }
+
+    auto loc = std::locale(app_loc, new cust_prec_punct<prec>(""));
     std::wstringstream valstr;
     valstr.imbue(loc);
     valstr << std::put_money(val * pow(10, prec));

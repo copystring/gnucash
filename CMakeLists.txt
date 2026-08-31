@@ -137,20 +137,12 @@ set(SYSCONFDIR_BUILD ${CMAKE_BINARY_DIR}/etc)
 set(LIBEXECDIR_BUILD ${CMAKE_BINARY_DIR}/libexec)
 set(BINDIR_BUILD     ${CMAKE_BINARY_DIR}/bin)
 
-# We need to distinguish between MinGW.org and MinGW-w64:
-if (MINGW AND CMAKE_SIZEOF_VOID_P EQUAL 8)
-  set(MINGW64 ON)
-endif()
-
 # Find a proper bash executable
 
 set(GNC_SHELL $ENV{GNC_SHELL})
 if (GNC_SHELL) # Replacing this with if ($ENV{GNC_SHELL}) doesn't work.
   # Allow shell override by setting the GNC_SHELL environment variable
   set(SHELL ${GNC_SHELL})
-elseif (MINGW AND NOT MINGW64)
-  # Old mingw's bash is on on the path, so hard-code it for now
-  set(SHELL ${CMAKE_PREFIX_PATH}/mingw/msys/1.0/bin/bash.exe)
 else()
   find_package(UnixCommands)
   if (BASH)
@@ -206,23 +198,6 @@ set(VCS_INFO_FILE ${VCS_INFO_BASE_DIR}/libgnucash/core-utils/gnc-vcs-info.h CACH
 
 
 if (WIN32)
-  # Help Windows find the various dependencies. We assume here that the standard advice for building
-  # GnuCash has been followed and that these dependencies live underneath something like C:/GCDEV, which
-  # should be provided as CMAKE_PREFIX_PATH on the CMake command line:
-  #      cmake -D CMAKE_PREFIX_PATH=c/gcdev -G "MSYS Makefiles" path/to/gnucash/sources
-  #
-  set(CMAKE_C_IMPLICIT_LINK_LIBRARIES "")
-  set(CMAKE_FRAMEWORK_PATH_TMP ${CMAKE_PREFIX_PATH})
-  set(DEV_SUBDIRS aqbanking gnome guile gwenhywfar libgsf libofx libsoup libxslt webkit)
-  foreach(subdir ${DEV_SUBDIRS})
-    list(APPEND CMAKE_FRAMEWORK_PATH_TMP ${CMAKE_PREFIX_PATH}/${subdir})
-  endforeach()
-  # Setting CMAKE_FRAMEWORK_PATH, which is intended for OS X, is a terrible hack here. But I don't
-  # want to mess with CMAKE_PREFIX_PATH.
-  set(CMAKE_FRAMEWORK_PATH "${CMAKE_FRAMEWORK_PATH_TMP}")
-  #set(PKG_CONFIG_EXECUTABLE ${CMAKE_PREFIX_PATH}/gnome/bin/pkg-config.exe)
-  set(SWIG_EXECUTABLE swig)
-  #set(SWIG_EXECUTABLE ${CMAKE_PREFIX_PATH}/swig/swig.exe)
   find_path(REGEX_INCLUDE_PATH regex.h)
   find_path(REGEX_LIB_PATH libregex.dll.a)
   set(REGEX_LDFLAGS "-L${REGEX_LIB_PATH} -lregex")
@@ -266,6 +241,7 @@ if (WITH_GNUCASH)
   if (WIN32)
     find_path (WEBVIEW2_INCLUDE_DIR NAMES WebView2.h
       HINTS ${CMAKE_PREFIX_PATH} PATH_SUFFIXES include REQUIRED)
+    set (WEBVIEW2_INCLUDE_DIRS ${WEBVIEW2_INCLUDE_DIR})
     # The loader is loaded explicitly so that the packaged runtime can be
     # selected at startup. MinGW's WebView2 package intentionally ships only
     # this DLL, not an import library.
@@ -931,7 +907,7 @@ check_include_files (wctype.h HAVE_WCTYPE_H)
 
 test_big_endian(IS_BIGENDIAN)
 if (IS_BIGENDIAN)
-  add_compile_definition (WORDS_BIGENDIAN)
+  add_compile_definitions (WORDS_BIGENDIAN)
 endif()
 
 if (NOT DISABLE_NLS)
@@ -1028,6 +1004,15 @@ configure_file (${CMAKE_CURRENT_SOURCE_DIR}/common/config.h.cmake.in ${CONFIG_H}
 # The doxygen developer documentation
 find_program(DOXYGEN doxygen)
 if (NOT ${DOXYGEN} STREQUAL "DOXYGEN-NOTFOUND")
+  if (BUILDING_FROM_VCS)
+    execute_process(
+      COMMAND ${SHELL} "${CMAKE_SOURCE_DIR}/util/gnc-vcs-info" -r "${CMAKE_SOURCE_DIR}"
+      OUTPUT_VARIABLE VERSION
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+  else()
+    set(VERSION ${PROJECT_VERSION})
+  endif()
   configure_file(doxygen.cfg.in doxygen.cfg)
   add_custom_target(doc ${DOXYGEN} doxygen.cfg)
 endif()

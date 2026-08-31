@@ -91,7 +91,7 @@ rw_dialog_box_has_active_warning (GtkWidget *box, gboolean *has_warnings)
             continue;
 
         *has_warnings = TRUE;
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (child)))
+        if (gtk_check_button_get_active (GTK_CHECK_BUTTON (child)))
             active = TRUE;
     }
     return active;
@@ -142,7 +142,7 @@ gnc_reset_warnings_apply_one (GtkWidget *widget, gpointer user_data)
     const gchar *prefs_group;
 
     if (!GTK_IS_TOGGLE_BUTTON (widget) ||
-        !gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)))
+        !gtk_check_button_get_active (GTK_CHECK_BUTTON (widget)))
         return;
 
     pref = gtk_widget_get_name (widget);
@@ -171,7 +171,7 @@ gnc_reset_warnings_set_one (GtkWidget *widget, gpointer user_data)
     gboolean selected = GPOINTER_TO_INT (user_data);
 
     if (GTK_IS_TOGGLE_BUTTON (widget))
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (widget), selected);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (widget), selected);
 }
 
 static void
@@ -243,7 +243,7 @@ gnc_reset_warnings_close_request_cb (GtkWindow *window, gpointer user_data)
 /*    Warning list         */
 /***************************/
 static void
-gnc_reset_warnings_toggled_cb (GtkToggleButton *button, gpointer user_data)
+gnc_reset_warnings_toggled_cb (GtkCheckButton *button, gpointer user_data)
 {
     gnc_reset_warnings_update_widgets (user_data);
     (void)button;

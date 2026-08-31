@@ -599,11 +599,11 @@ load_category_list (TaxInfoDialog *ti_dialog)
 static void
 clear_gui (TaxInfoDialog *ti_dialog)
 {
-    gtk_toggle_button_set_active
-        (GTK_TOGGLE_BUTTON (ti_dialog->tax_related_button), FALSE);
+    gtk_check_button_set_active
+        (GTK_CHECK_BUTTON (ti_dialog->tax_related_button), FALSE);
     gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (ti_dialog->txf_selection));
-    gtk_toggle_button_set_active
-        (GTK_TOGGLE_BUTTON (ti_dialog->current_account_button), TRUE);
+    gtk_check_button_set_active
+        (GTK_CHECK_BUTTON (ti_dialog->current_account_button), TRUE);
     gtk_spin_button_set_value
         (GTK_SPIN_BUTTON (ti_dialog->copy_spin_button), 1);
 }
@@ -657,8 +657,8 @@ account_to_gui (TaxInfoDialog *ti_dialog, Account *account)
         return;
     }
     tax_related = xaccAccountGetTaxRelated (account);
-    gtk_toggle_button_set_active
-        (GTK_TOGGLE_BUTTON (ti_dialog->tax_related_button), tax_related);
+    gtk_check_button_set_active
+        (GTK_CHECK_BUTTON (ti_dialog->tax_related_button), tax_related);
     infos = tax_infos (ti_dialog);
     str = xaccAccountGetTaxUSCode (account);
     info = txf_infos_find_code (infos, str);
@@ -672,7 +672,7 @@ account_to_gui (TaxInfoDialog *ti_dialog, Account *account)
                                GTK_LIST_SCROLL_FOCUS, NULL);
 
     str = xaccAccountGetTaxUSPayerNameSource (account);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON
+    gtk_check_button_set_active (GTK_CHECK_BUTTON
         (g_strcmp0 (str, "parent") == 0 ? ti_dialog->parent_account_button :
                                            ti_dialog->current_account_button), TRUE);
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (ti_dialog->copy_spin_button),
@@ -689,16 +689,16 @@ gui_to_accounts (TaxInfoDialog *ti_dialog)
     TXFInfo *info;
     gint64 copy_number;
 
-    tax_related = gtk_toggle_button_get_active
-        (GTK_TOGGLE_BUTTON (ti_dialog->tax_related_button));
+    tax_related = gtk_check_button_get_active
+        (GTK_CHECK_BUTTON (ti_dialog->tax_related_button));
     info = txf_selected_info (ti_dialog);
     if (!info)
         return;
     code = tax_related ? info->code : NULL;
     if (tax_related && info->payer_name_source)
     {
-        gboolean current = gtk_toggle_button_get_active
-            (GTK_TOGGLE_BUTTON (ti_dialog->current_account_button));
+        gboolean current = gtk_check_button_get_active
+            (GTK_CHECK_BUTTON (ti_dialog->current_account_button));
         pns = current ? "current" : "parent";
     }
     else
@@ -894,14 +894,14 @@ gnc_tax_info_set_acct (TaxInfoDialog *ti_dialog, Account *account)
     ti_dialog->account_type = xaccAccountTypeGetFundamental (xaccAccountGetType (account));
 
     if (ti_dialog->account_type == ACCT_TYPE_INCOME)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(ti_dialog->income_radio), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(ti_dialog->income_radio), TRUE);
     else if (ti_dialog->account_type == ACCT_TYPE_EXPENSE)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(ti_dialog->expense_radio), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(ti_dialog->expense_radio), TRUE);
     else if (ti_dialog->account_type == ACCT_TYPE_ASSET)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(ti_dialog->asset_radio), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(ti_dialog->asset_radio), TRUE);
     else if ((ti_dialog->account_type == ACCT_TYPE_LIABILITY) ||
              (ti_dialog->account_type == ACCT_TYPE_EQUITY))
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(ti_dialog->liab_eq_radio), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(ti_dialog->liab_eq_radio), TRUE);
     else
         return;
 
@@ -915,7 +915,7 @@ gnc_tax_info_acct_type_cb (GtkWidget *w, gpointer data)
     TaxInfoDialog *ti_dialog = data;
     const gchar *button_name;
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (w)))
     {
         button_name = gtk_buildable_get_buildable_id(GTK_BUILDABLE(w));
         if (g_strcmp0 (button_name, "income_radio") == 0)
@@ -1008,13 +1008,13 @@ txf_code_select_row_cb (GtkSelectionModel *selection, guint position,
     {
         gboolean current = g_strcmp0 ("current", txf_info->payer_name_source) == 0;
         gtk_widget_set_sensitive (vbox, TRUE);
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON
+        gtk_check_button_set_active (GTK_CHECK_BUTTON
             (current ? ti_dialog->current_account_button : ti_dialog->parent_account_button), TRUE);
     }
     else
     {
         gtk_widget_set_sensitive (vbox, FALSE);
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ti_dialog->current_account_button), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (ti_dialog->current_account_button), TRUE);
     }
     gtk_widget_set_sensitive (ti_dialog->copy_vbox, txf_info->copy);
     gnc_tax_info_set_changed (ti_dialog, TRUE);
@@ -1084,7 +1084,7 @@ identity_edit_apply (TaxIdentityEdit *edit)
                 ti_dialog->expense_txf_infos = load_txf_info (EXPENSE, ti_dialog);
                 ti_dialog->asset_txf_infos = load_txf_info (ASSET, ti_dialog);
                 ti_dialog->liab_eq_txf_infos = load_txf_info (LIAB_EQ, ti_dialog);
-                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ti_dialog->expense_radio), TRUE);
+                gtk_check_button_set_active (GTK_CHECK_BUTTON (ti_dialog->expense_radio), TRUE);
                 tax_info_show_acct_type_accounts (ti_dialog);
                 gnc_tree_view_account_refilter (GNC_TREE_VIEW_ACCOUNT (ti_dialog->account_treeview));
                 gnc_tax_info_update_accounts (ti_dialog);
@@ -1223,7 +1223,7 @@ identity_edit_clicked_cb (GtkButton *button, gpointer user_data)
     gtk_window_present (edit->window);
 }
 static void
-tax_related_toggled_cb (GtkToggleButton *togglebutton,
+tax_related_toggled_cb (GtkCheckButton *togglebutton,
                         gpointer user_data)
 {
     TaxInfoDialog *ti_dialog = user_data;
@@ -1231,7 +1231,7 @@ tax_related_toggled_cb (GtkToggleButton *togglebutton,
     GtkWidget *hbox;
     gboolean on;
 
-    on = gtk_toggle_button_get_active (togglebutton);
+    on = gtk_check_button_get_active (togglebutton);
 
     vbox = ti_dialog->txf_vbox;
     hbox = ti_dialog->pns_vbox;
@@ -1248,7 +1248,7 @@ tax_related_toggled_cb (GtkToggleButton *togglebutton,
 }
 
 static void
-current_account_toggled_cb (GtkToggleButton *togglebutton,
+current_account_toggled_cb (GtkCheckButton *togglebutton,
                             gpointer user_data)
 {
     TaxInfoDialog *ti_dialog = user_data;
@@ -1429,7 +1429,7 @@ GtkSelectionModel *account_selection;
         liab_eq_radio = GTK_WIDGET(gtk_builder_get_object (builder, "liab_eq_radio"));
         ti_dialog->liab_eq_radio = liab_eq_radio;
         ti_dialog->account_type = ACCT_TYPE_EXPENSE;
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(expense_radio), TRUE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(expense_radio), TRUE);
 
         g_signal_connect (G_OBJECT (income_radio), "toggled",
                           G_CALLBACK  (gnc_tax_info_acct_type_cb),

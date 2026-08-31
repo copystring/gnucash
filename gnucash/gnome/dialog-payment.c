@@ -540,12 +540,12 @@ update_cleanup:
     /* Disable "Print Check" widget if amount is zero but save current
        state to restore when the widget is re-enabled */
     if (gtk_widget_is_sensitive (pw->print_check))
-        pw->print_check_state = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(pw->print_check));
+        pw->print_check_state = gtk_check_button_get_active (GTK_CHECK_BUTTON(pw->print_check));
     if (!enable_xfer_acct)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(pw->print_check), FALSE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(pw->print_check), FALSE);
     gtk_widget_set_sensitive (pw->print_check, enable_xfer_acct);
     if (gtk_widget_is_sensitive (pw->print_check))
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(pw->print_check), pw->print_check_state);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(pw->print_check), pw->print_check_state);
 
     /* Check if there are issues preventing a successful payment */
     gtk_label_set_text (GTK_LABEL(pw->conflict_message), conflict_msg);
@@ -1355,7 +1355,7 @@ payment_apply_request_finish (PaymentApplyRequest *request)
 
     gnc_payment_dialog_remember_account (pw, pw->xfer_acct);
     if (gtk_widget_is_sensitive (pw->print_check) &&
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (pw->print_check)))
+        gtk_check_button_get_active (GTK_CHECK_BUTTON (pw->print_check)))
     {
         Split *split = xaccTransFindSplitByAccount (pw->tx_info->txn, pw->xfer_acct);
         GList *splits = g_list_append (NULL, split);

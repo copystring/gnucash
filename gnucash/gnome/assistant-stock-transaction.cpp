@@ -2099,8 +2099,8 @@ PageFees::PageFees(GtkBuilder *builder, Account* account)
 bool
 PageFees::get_capitalize_fees()
 {
-    return gtk_toggle_button_get_active(
-        GTK_TOGGLE_BUTTON(m_capitalize));
+    return gtk_check_button_get_active(
+        GTK_CHECK_BUTTON(m_capitalize));
 }
 
 const char *
@@ -2112,8 +2112,8 @@ PageFees::get_memo()
 void
 PageFees::set_capitalize_fees(bool state)
 {
-    gtk_toggle_button_set_active(
-        GTK_TOGGLE_BUTTON(m_capitalize), state);
+    gtk_check_button_set_active(
+        GTK_CHECK_BUTTON(m_capitalize), state);
 }
 
 void

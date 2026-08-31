@@ -149,7 +149,7 @@ dup_trans_dialog_result (DupTransDialog *dialog)
         result->num = g_strdup (gnc_entry_get_text (GTK_ENTRY (dialog->num_edit)));
     if (gtk_widget_get_visible (dialog->tnum_edit))
         result->tnum = g_strdup (gnc_entry_get_text (GTK_ENTRY (dialog->tnum_edit)));
-    if (dialog->doclink && gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (dialog->link_edit)))
+    if (dialog->doclink && gtk_check_button_get_active (GTK_CHECK_BUTTON (dialog->link_edit)))
         result->doclink = g_strdup (dialog->doclink);
     return result;
 }

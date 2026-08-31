@@ -86,10 +86,13 @@ struct GncHtmlWebView2Private
     ComPtr<ICoreWebView2Controller> controller;
     ComPtr<ICoreWebView2CompositionController> composition_controller;
     ComPtr<ICoreWebView2> web_view;
+    ComPtr<ICoreWebView2_11> web_view11;
     EventRegistrationToken navigation_starting = {};
     EventRegistrationToken new_window_requested = {};
+    EventRegistrationToken context_menu_requested = {};
     bool navigation_handler_installed = false;
     bool new_window_handler_installed = false;
+    bool context_menu_handler_installed = false;
 };
 
 namespace
@@ -105,7 +108,7 @@ using CreateEnvironmentWithOptionsFn = HRESULT (STDAPICALLTYPE *)(
 
 static void impl_webview2_show_url (GncHtml *self, URLType type,
                                     const gchar *location, const gchar *label,
-                                    gboolean new_window_hint);
+                                    gboolean new_window);
 static void impl_webview2_show_data (GncHtml *self, const gchar *data, int datalen);
 static void impl_webview2_reload (GncHtml *self, gboolean force_rebuild);
 static void impl_webview2_copy_to_clipboard (GncHtml *self);
@@ -385,6 +388,22 @@ public:
                                       ICoreWebView2NewWindowRequestedEventArgs *args) override;
 };
 
+class ContextMenuRequestedHandler final
+    : public CallbackBase<ICoreWebView2ContextMenuRequestedEventHandler>
+{
+public:
+    using CallbackBase::CallbackBase;
+
+    HRESULT STDMETHODCALLTYPE QueryInterface (REFIID requested, void **object) override
+    {
+        return query_interface (requested, object,
+                                IID_ICoreWebView2ContextMenuRequestedEventHandler);
+    }
+
+    HRESULT STDMETHODCALLTYPE Invoke (ICoreWebView2 *sender,
+                                      ICoreWebView2ContextMenuRequestedEventArgs *args) override;
+};
+
 static bool
 same_document (const gchar *first, const gchar *second)
 {
@@ -642,6 +661,18 @@ CompositionCompletedHandler::Invoke (HRESULT error,
         priv->new_window_handler_installed = true;
     new_window_handler->Release ();
 
+    if (SUCCEEDED (priv->web_view->QueryInterface (
+            IID_ICoreWebView2_11,
+            reinterpret_cast<void **> (priv->web_view11.GetAddressOf ()))))
+    {
+        auto context_menu_handler = new ContextMenuRequestedHandler (owner.get (),
+                                                                     priv->loader);
+        if (SUCCEEDED (priv->web_view11->add_ContextMenuRequested (
+                context_menu_handler, &priv->context_menu_requested)))
+            priv->context_menu_handler_installed = true;
+        context_menu_handler->Release ();
+    }
+
     impl_webview2_default_zoom_changed (nullptr, nullptr, owner.get ());
     webview2_update_bounds (owner.get ());
     webview2_navigate_report (owner.get ());
@@ -678,6 +709,7 @@ NewWindowRequestedHandler::Invoke (ICoreWebView2 *,
     auto owner = self ();
     if (!args)
         return S_OK;
+    args->put_Handled (TRUE);
 
     LPWSTR wide_uri = nullptr;
     if (SUCCEEDED (args->get_Uri (&wide_uri)))
@@ -688,7 +720,77 @@ NewWindowRequestedHandler::Invoke (ICoreWebView2 *,
             route_internal_url (owner.get (), uri, TRUE);
         g_free (uri);
     }
-    args->put_Handled (TRUE);
+    return S_OK;
+}
+
+HRESULT
+ContextMenuRequestedHandler::Invoke (ICoreWebView2 *,
+                                     ICoreWebView2ContextMenuRequestedEventArgs *args)
+{
+    auto owner = self ();
+    if (!owner || !args)
+        return S_OK;
+
+    ComPtr<ICoreWebView2ContextMenuTarget> target;
+    if (FAILED (args->get_ContextMenuTarget (target.GetAddressOf ())) || !target)
+        return S_OK;
+
+    BOOL has_link = FALSE;
+    LPWSTR wide_uri = nullptr;
+    if (FAILED (target->get_HasLinkUri (&has_link)) || !has_link ||
+        FAILED (target->get_LinkUri (&wide_uri)) || !wide_uri)
+        return S_OK;
+
+    auto uri = to_utf8 (wide_uri);
+    CoTaskMemFree (wide_uri);
+    if (!uri)
+        return S_OK;
+
+    gchar *location = nullptr;
+    gchar *label = nullptr;
+    const auto type = gnc_html_parse_url (GNC_HTML (owner.get ()), uri,
+                                          &location, &label);
+    g_free (location);
+    g_free (label);
+    g_free (uri);
+    if (g_strcmp0 (type, URL_TYPE_REPORT))
+        return S_OK;
+
+    ComPtr<ICoreWebView2ContextMenuItemCollection> items;
+    if (FAILED (args->get_MenuItems (items.GetAddressOf ())) || !items)
+        return S_OK;
+
+    UINT32 count = 0;
+    items->get_Count (&count);
+    for (UINT32 index = 0; index < count;)
+    {
+        ComPtr<ICoreWebView2ContextMenuItem> item;
+        if (FAILED (items->GetValueAtIndex (index, item.GetAddressOf ())) || !item)
+        {
+            ++index;
+            continue;
+        }
+
+        bool removed = false;
+        LPWSTR wide_name = nullptr;
+        if (SUCCEEDED (item->get_Name (&wide_name)) && wide_name)
+        {
+            auto name = to_utf8 (wide_name);
+            CoTaskMemFree (wide_name);
+            if (!g_strcmp0 (name, "openLinkInNewWindow") ||
+                !g_strcmp0 (name, "openLinkInNewTab"))
+            {
+                if (SUCCEEDED (items->RemoveValueAtIndex (index)))
+                {
+                    --count;
+                    removed = true;
+                }
+            }
+            g_free (name);
+        }
+        if (!removed)
+            ++index;
+    }
     return S_OK;
 }
 
@@ -1014,12 +1116,16 @@ gnc_html_webview2_dispose (GObject *object)
             (void)priv->web_view->remove_NavigationStarting (priv->navigation_starting);
         if (priv->new_window_handler_installed)
             (void)priv->web_view->remove_NewWindowRequested (priv->new_window_requested);
+        if (priv->context_menu_handler_installed && priv->web_view11)
+            (void)priv->web_view11->remove_ContextMenuRequested (
+                priv->context_menu_requested);
     }
     if (priv->controller)
         (void)priv->controller->Close ();
     priv->web_view.Reset ();
     priv->controller.Reset ();
     priv->composition_controller.Reset ();
+    priv->web_view11.Reset ();
     priv->environment.Reset ();
     priv->composition_root.Reset ();
     priv->composition_target.Reset ();
@@ -1172,14 +1278,12 @@ impl_webview2_show_data (GncHtml *html, const gchar *data, int datalen)
 
 static void
 impl_webview2_show_url (GncHtml *html, URLType type, const gchar *location,
-                        const gchar *label, gboolean new_window_hint)
+                        const gchar *label, gboolean new_window)
 {
     auto self = GNC_HTML_WEBVIEW2 (html);
     auto priv = priv_for (self);
     g_return_if_fail (location != nullptr);
-    const auto new_window = new_window_hint ||
-        (priv->base.urltype_cb && !priv->base.urltype_cb (type));
-    if (!new_window)
+    if (priv->base.urltype_cb && priv->base.urltype_cb (type))
         impl_webview2_cancel (html);
 
     auto handler = gnc_html_url_handlers
@@ -1209,13 +1313,14 @@ impl_webview2_show_url (GncHtml *html, URLType type, const gchar *location,
             priv->base.base_type = result.base_type;
             priv->base.base_location = extract_base_name (result.base_type, new_location);
             stream_loaded = load_to_stream (self, result.url_type, new_location, new_label);
+            if (stream_loaded && priv->base.load_cb)
+                priv->base.load_cb (html, result.url_type, new_location, new_label,
+                                    priv->base.load_cb_data);
         }
         g_free (result.location);
         g_free (result.label);
         g_free (result.base_location);
         g_free (result.error_message);
-        if (stream_loaded && priv->base.load_cb)
-            priv->base.load_cb (html, type, location, label, priv->base.load_cb_data);
         return;
     }
 

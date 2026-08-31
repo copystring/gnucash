@@ -359,7 +359,7 @@ gnc_search_dialog_display_results (GNCSearchWindow *sw)
     /* set 'new search' if fewer than max_count items is returned. */
     max_count = gnc_prefs_get_float(GNC_PREFS_GROUP_SEARCH_GENERAL, GNC_PREF_NEW_SEARCH_LIMIT);
     if (gnc_query_view_get_num_entries(GNC_QUERY_VIEW(sw->result_view)) < max_count)
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (sw->new_rb), TRUE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON (sw->new_rb), TRUE);
 
     /* If there are results then select the first, and grab focus */
     if (gnc_query_view_get_num_entries (GNC_QUERY_VIEW(sw->result_view)) > 0)
@@ -378,9 +378,9 @@ match_combo_changed (GtkDropDown *drop_down, GParamSpec *pspec,
 }
 
 static void
-search_type_cb (GtkToggleButton *button, GNCSearchWindow *sw)
+search_type_cb (GtkCheckButton *button, GNCSearchWindow *sw)
 {
-    if (!gtk_toggle_button_get_active (button))
+    if (!gtk_check_button_get_active (button))
         return;
 
     if (GTK_WIDGET (button) == sw->new_rb)
@@ -394,11 +394,11 @@ search_type_cb (GtkToggleButton *button, GNCSearchWindow *sw)
 }
 
 static void
-search_active_only_cb (GtkToggleButton *button, GNCSearchWindow *sw)
+search_active_only_cb (GtkCheckButton *button, GNCSearchWindow *sw)
 {
 
     gnc_prefs_set_bool(sw->prefs_group, GNC_PREF_ACTIVE_ONLY,
-                       gtk_toggle_button_get_active (button));
+                       gtk_check_button_get_active (button));
 }
 
 static QofQuery *
@@ -513,7 +513,7 @@ search_update_query (GNCSearchWindow *sw)
         break;
     }
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (sw->active_only_check)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (sw->active_only_check)))
     {
         qof_query_add_boolean_match (new_q, active_params, TRUE, QOF_QUERY_AND);
         active_params = NULL;
@@ -554,8 +554,8 @@ gnc_search_dialog_reset_widgets (GNCSearchWindow *sw)
 
     if (sw->q)
     {
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (sw->new_rb), FALSE);
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (sw->narrow_rb), TRUE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON (sw->new_rb), FALSE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON (sw->narrow_rb), TRUE);
     }
 
     if (sw->crit_list)
@@ -1222,7 +1222,7 @@ gnc_search_dialog_init_widgets (GNCSearchWindow *sw, const gchar *title)
 
     active = gnc_prefs_get_bool(sw->prefs_group, GNC_PREF_ACTIVE_ONLY);
     sw->active_only_check = GTK_WIDGET(gtk_builder_get_object (builder, "active_only_check"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (sw->active_only_check), active);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (sw->active_only_check), active);
     g_signal_connect (sw->active_only_check, "toggled",
                       G_CALLBACK (search_active_only_cb), sw);
 

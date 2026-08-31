@@ -384,16 +384,16 @@ gnc_plugin_page_owner_tree_filter_owners (GncOwner *owner, gpointer user_data)
 }
 
 void
-gppot_filter_show_inactive_toggled_cb (GtkToggleButton *button, OwnerFilterDialog *fd)
+gppot_filter_show_inactive_toggled_cb (GtkCheckButton *button, OwnerFilterDialog *fd)
 {
-    fd->show_inactive = !gtk_toggle_button_get_active (button);
+    fd->show_inactive = !gtk_check_button_get_active (button);
     gnc_tree_view_owner_refilter (fd->tree_view);
 }
 
 void
-gppot_filter_show_zero_toggled_cb (GtkToggleButton *button, OwnerFilterDialog *fd)
+gppot_filter_show_zero_toggled_cb (GtkCheckButton *button, OwnerFilterDialog *fd)
 {
-    fd->show_zero_total = gtk_toggle_button_get_active (button);
+    fd->show_zero_total = gtk_check_button_get_active (button);
     gnc_tree_view_owner_refilter (fd->tree_view);
 }
 
@@ -446,9 +446,9 @@ owner_filter_dialog_create (OwnerFilterDialog *fd, GncPluginPage *page)
     fd->original_show_inactive = fd->show_inactive;
     fd->original_show_zero_total = fd->show_zero_total;
     button = GTK_WIDGET (gtk_builder_get_object (builder, "show_inactive"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (button), !fd->show_inactive);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (button), !fd->show_inactive);
     button = GTK_WIDGET (gtk_builder_get_object (builder, "show_zero"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (button), fd->show_zero_total);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (button), fd->show_zero_total);
     gnc_builder_connect_signals (builder, fd);
     g_signal_connect (fd->dialog, "destroy", G_CALLBACK (owner_filter_dialog_destroy_cb), fd);
     g_object_unref (builder);

@@ -14,7 +14,6 @@ set(BACKEND_DBI_TEST_LIBS
   gnc-engine
   gnc-test-engine
   test-core
-  ${Boost_REGEX_LIBRARY}
   ${LIBDBI_LIBRARY}
   $<$<BOOL:${WIN32}>:${WINSOCK_LIB}>
   $<$<BOOL:${WIN32}>:${WS2_LIB}>
@@ -49,7 +48,7 @@ if (WITH_SQL)
     file(MAKE_DIRECTORY ${temp_dir})
   endif()
 
-  if (MINGW64)
+  if (MINGW)
     string(REGEX REPLACE "\\\\" "/" temp_dir ${temp_dir})
   endif()
 

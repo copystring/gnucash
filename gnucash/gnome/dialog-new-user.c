@@ -108,17 +108,17 @@ gnc_ui_new_user_ok_cb (GtkWidget * widget, gpointer data)
     g_return_if_fail (new_user != NULL);
     new_user->ok_pressed = TRUE;
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (new_user->new_accounts_button)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (new_user->new_accounts_button)))
     {
         gnc_ui_hierarchy_assistant_with_callback (TRUE, after_hierarchy_assistant);
     }
     else if ((qifImportAssistantFcn != NULL)
-             && gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (new_user->import_qif_button)))
+             && gtk_check_button_get_active (GTK_CHECK_BUTTON (new_user->import_qif_button)))
     {
         qifImportAssistantFcn ();
         gncp_new_user_finish ();
     }
-    else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (new_user->tutorial_button)))
+    else if (gtk_check_button_get_active (GTK_CHECK_BUTTON (new_user->tutorial_button)))
     {
         gnc_gnome_help (GTK_WINDOW (new_user->window), DF_GUIDE, NULL);
     }

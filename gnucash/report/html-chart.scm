@@ -351,19 +351,10 @@
 (define JS-Number-to-String "
 // The following snippet from MDN
 // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/toLocaleString
-var toLocaleStringSupportsOptions = (typeof Intl == 'object' && Intl && typeof Intl.NumberFormat == 'function');
 
 // format a number e.g. 2.5 into monetary e.g. \"$2.50\" or other style formsty
 function numformat(amount) {
-  if (toLocaleStringSupportsOptions) {
-      return amount.toLocaleString(undefined, {style:formsty, currency:curriso});
-  } else if (formsty == 'percent') {
-      return (100 * amount).toLocaleString() + '%';
-  } else if (formsty == 'currency') {
-      return currsym + amount.toLocaleString();
-  } else {
-      return amount.toLocaleString();
-  }
+   return amount.toLocaleString(undefined, {style:formsty, currency:curriso});
 }
 ")
 
@@ -374,7 +365,7 @@ function tooltipLabel(tooltipItem,data) {
   var label = data.datasets[tooltipItem.datasetIndex].data[tooltipItem.index];
   switch (typeof(label)) {
     case 'number':
-      return datasetLabel + ': ' + numformat(label);
+      return '  ' + datasetLabel + ' :   ' + numformat(label);
     default:
       return '';
   }
@@ -471,6 +462,7 @@ document.getElementById(chartid).onclick = function(evt) {
     (push (format #f "<canvas id=~s></canvas>\n" id))
     (push "</div>\n")
     (push (format #f "<script id='script-~a'>\n" id))
+    (push "(function () {\n")
     (push (format #f "var curriso = ~s;\n" (gnc:html-chart-currency-iso chart)))
     (push (format #f "var currsym = ~s;\n" (gnc:html-chart-currency-symbol chart)))
     (push (format #f "var formsty = ~s;\n" (gnc:html-chart-format-style chart)))
@@ -493,6 +485,7 @@ document.getElementById(chartid).onclick = function(evt) {
     (push JS-setup)
 
     (push "var myChart = new Chart(chartid, chartjsoptions);\n")
+    (push "})();\n")
     (push "</script>")
 
     retval))

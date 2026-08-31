@@ -46,7 +46,7 @@
 
 /* Callbacks */
 
-void gnc_totd_dialog_startup_toggled_cb (GtkToggleButton *button, gpointer user_data);
+void gnc_totd_dialog_startup_toggled_cb (GtkCheckButton *button, gpointer user_data);
 
 /* The Tips */
 static gchar **tip_list;
@@ -181,12 +181,12 @@ gnc_totd_dialog_close_clicked_cb (GtkButton *button,
     (void)button;
 }
 void
-gnc_totd_dialog_startup_toggled_cb (GtkToggleButton *button,
+gnc_totd_dialog_startup_toggled_cb (GtkCheckButton *button,
                                     gpointer user_data)
 {
     gboolean active;
 
-    active = gtk_toggle_button_get_active(button);
+    active = gtk_check_button_get_active(button);
     gnc_prefs_set_bool(GNC_PREFS_GROUP, GNC_PREF_SHOW_TIPS, active);
 }
 
@@ -394,7 +394,7 @@ gnc_totd_dialog (GtkWindow *parent, gboolean startup)
     button = GTK_WIDGET(gtk_builder_get_object (builder, "show_checkbutton"));
     totd_dialog->showcheck_button = button;
 
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON (button), show_tips);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON (button), show_tips);
 
     textview = GTK_TEXT_VIEW(gtk_builder_get_object (builder, "tip_textview"));
     totd_dialog->textview = textview;

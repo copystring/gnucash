@@ -164,18 +164,18 @@ public:
         GncOptionGtkUIItem{widget, GncOptionUIType::BOOLEAN} {}
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
-        auto widget{GTK_TOGGLE_BUTTON(get_widget())};
-        gtk_toggle_button_set_active(widget, option.get_value<bool>());
+        auto widget{GTK_CHECK_BUTTON(get_widget())};
+        gtk_check_button_set_active(widget, option.get_value<bool>());
     }
     void set_option_from_ui_item(GncOption& option) noexcept override
     {
-        auto widget{GTK_TOGGLE_BUTTON(get_widget())};
-        option.set_value(static_cast<bool>(gtk_toggle_button_get_active(widget)));
+        auto widget{GTK_CHECK_BUTTON(get_widget())};
+        option.set_value(static_cast<bool>(gtk_check_button_get_active(widget)));
     }
     SCM get_widget_scm_value(const GncOption& option) const override
     {
-        auto widget{GTK_TOGGLE_BUTTON(get_widget())};
-        return gtk_toggle_button_get_active(widget) ?
+        auto widget{GTK_CHECK_BUTTON(get_widget())};
+        return gtk_check_button_get_active(widget) ?
                SCM_BOOL_T : SCM_BOOL_F;
     }
 };
@@ -634,9 +634,9 @@ BothDateEntry::set_entry_from_option(GncOption& option)
         m_abs_entry->set_entry_from_option(option);
     else
         m_rel_entry->set_entry_from_option(option);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(m_rel_button),
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(m_rel_button),
                                  !m_use_absolute);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(m_abs_button),
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(m_abs_button),
                                  m_use_absolute);
 
     toggle_relative(m_use_absolute);
@@ -1288,7 +1288,7 @@ show_hidden_toggled_cb (GtkWidget *widget, gpointer data)
     auto root = GTK_WIDGET (data);
     auto context = account_list_get_context (root);
 
-    context->show_hidden = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget));
+    context->show_hidden = gtk_check_button_get_active (GTK_CHECK_BUTTON (widget));
     account_list_rebuild (root);
     gnc_option_changed_widget_cb (widget, context->option);
 }
@@ -1446,7 +1446,7 @@ create_account_widget (GncOption& option, char *name)
     button = gtk_check_button_new_with_label (_("Show Hidden Accounts"));
     gtk_widget_set_tooltip_text (
         button, _("Show accounts that have been marked hidden."));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (button), TRUE);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (button), TRUE);
     gtk_box_append (GTK_BOX (button_box), button);
     g_signal_connect (button, "toggled", G_CALLBACK (show_hidden_toggled_cb), root);
 
@@ -2238,8 +2238,8 @@ PlotSize::PlotSize(GncOption& option) :
     gtk_box_append (GTK_BOX(m_widget), GTK_WIDGET(m_percent_button));
     gtk_box_append (GTK_BOX(m_widget), GTK_WIDGET(m_range_spinner));
 
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(m_pixel_button), FALSE);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(m_percent_button), TRUE);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(m_pixel_button), FALSE);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(m_percent_button), TRUE);
 
     m_pixel_handler = g_signal_connect(m_pixel_button, "toggled", G_CALLBACK(plot_size_set_pixels), this);
     m_percent_handler = g_signal_connect(m_percent_button, "toggled", G_CALLBACK(plot_size_set_percent), this);
@@ -2278,9 +2278,9 @@ PlotSize::set_entry_from_option(GncOption& option)
     }
 
     if (value > 100.0)
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(m_pixel_button), TRUE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(m_pixel_button), TRUE);
     else
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(m_percent_button), TRUE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(m_percent_button), TRUE);
 
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(m_range_spinner), value);
 }

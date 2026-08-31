@@ -148,9 +148,9 @@ gncs_validate (GNCSearchCoreType *fe)
 }
 
 static void
-toggle_changed (GtkToggleButton *button, GNCSearchReconciled *fe)
+toggle_changed (GtkCheckButton *button, GNCSearchReconciled *fe)
 {
-    gboolean is_on = gtk_toggle_button_get_active (button);
+    gboolean is_on = gtk_check_button_get_active (button);
     cleared_match_t value =
         (cleared_match_t) ((uintptr_t)g_object_get_data (G_OBJECT (button), "button-value") & 0xffffffff); // Binary mask to silence void-pointer-to-enum-cast warning.
 
@@ -181,7 +181,7 @@ make_toggle (GNCSearchReconciled *fi, char *label, cleared_match_t option)
     GtkWidget *toggle;
 
     toggle = gtk_check_button_new_with_label (label);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (toggle), (fi->value & option));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (toggle), (fi->value & option));
     g_object_set_data (G_OBJECT (toggle), "button-value", (gpointer) option);
     g_signal_connect (G_OBJECT (toggle), "toggled", G_CALLBACK (toggle_changed), fi);
 

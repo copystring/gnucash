@@ -57,7 +57,7 @@
 
 #define GNC_PREFS_GROUP_SEARCH "dialogs.business.customer-search"
 
-void gnc_customer_taxtable_check_cb (GtkToggleButton *togglebutton,
+void gnc_customer_taxtable_check_cb (GtkCheckButton *togglebutton,
                                      gpointer user_data);
 
 void gnc_customer_window_ok_cb (GtkWidget *widget, gpointer data);
@@ -191,12 +191,12 @@ struct _customer_window
 };
 
 void
-gnc_customer_taxtable_check_cb (GtkToggleButton *togglebutton,
+gnc_customer_taxtable_check_cb (GtkCheckButton *togglebutton,
                                 gpointer user_data)
 {
     CustomerWindow *cw = user_data;
 
-    if (gtk_toggle_button_get_active (togglebutton))
+    if (gtk_check_button_get_active (togglebutton))
         gtk_widget_set_sensitive (cw->taxtable_menu, TRUE);
     else
         gtk_widget_set_sensitive (cw->taxtable_menu, FALSE);
@@ -248,8 +248,8 @@ static void gnc_ui_to_customer (CustomerWindow *cw, GncCustomer *cust)
     gncAddressSetFax (shipaddr, gnc_entry_get_text (GTK_ENTRY (cw->shipfax_entry)));
     gncAddressSetEmail (shipaddr, gnc_entry_get_text (GTK_ENTRY (cw->shipemail_entry)));
 
-    gncCustomerSetActive (cust, gtk_toggle_button_get_active
-                          (GTK_TOGGLE_BUTTON (cw->active_check)));
+    gncCustomerSetActive (cust, gtk_check_button_get_active
+                          (GTK_CHECK_BUTTON (cw->active_check)));
     gncCustomerSetTaxIncluded (cust, cw->taxincluded);
 
     text_buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW(cw->notes_text));
@@ -268,7 +268,7 @@ static void gnc_ui_to_customer (CustomerWindow *cw, GncCustomer *cust)
                           (GNC_AMOUNT_EDIT (cw->credit_amount)));
 
     gncCustomerSetTaxTableOverride
-    (cust, gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (cw->taxtable_check)));
+    (cust, gtk_check_button_get_active (GTK_CHECK_BUTTON (cw->taxtable_check)));
     gncCustomerSetTaxTable (cust, cw->taxtable);
 
     gncCustomerCommitEdit (cust);
@@ -678,7 +678,7 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
         gnc_entry_set_text (GTK_ENTRY (cw->shipemail_entry), gncAddressGetEmail (shipaddr));
 
         /* Set toggle buttons */
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (cw->active_check),
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (cw->active_check),
                                       gncCustomerGetActive (cust));
 
         string = gncCustomerGetNotes (cust);
@@ -717,9 +717,9 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
 
     cw->taxtable = gncCustomerGetTaxTable (cust);
     gnc_taxtables_dropdown (GTK_DROP_DOWN(cw->taxtable_menu), bookp, TRUE, cw->taxtable);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (cw->taxtable_check),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (cw->taxtable_check),
                                   gncCustomerGetTaxTableOverride (cust));
-    gnc_customer_taxtable_check_cb (GTK_TOGGLE_BUTTON (cw->taxtable_check), cw);
+    gnc_customer_taxtable_check_cb (GTK_CHECK_BUTTON (cw->taxtable_check), cw);
 
     /* Set up the addr line quickfill */
     cw->addr2_quickfill = gnc_get_shared_address_addr2_quickfill(cw->book, ADDR_QUICKFILL);

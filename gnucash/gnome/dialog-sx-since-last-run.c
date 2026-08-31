@@ -81,7 +81,7 @@ struct _GncSxSinceLastRunDialog
     GtkTreeListModel *tree_model;
     GtkSingleSelection *selection;
     GtkColumnView *instance_view;
-    GtkToggleButton *review_created_txns_toggle;
+    GtkCheckButton *review_created_txns_toggle;
     GList *created_txns;
     GtkColumnViewColumn *transaction_column;
 };
@@ -594,7 +594,7 @@ slr_ok_clicked (GtkButton *button, gpointer user_data)
     gnc_gui_refresh_all ();
     if (errors)
         gnc_ui_sx_creation_error_dialog (&errors);
-    if (gtk_toggle_button_get_active (dialog->review_created_txns_toggle) && dialog->created_txns)
+    if (gtk_check_button_get_active (dialog->review_created_txns_toggle) && dialog->created_txns)
         show_created_transactions (dialog, dialog->created_txns);
     slr_finish (dialog);
 }
@@ -638,9 +638,9 @@ since_last_run_dialog (GtkWindow *parent, GncSxInstanceModel *instances, GList *
     gtk_window_set_transient_for (GTK_WINDOW (dialog->dialog), parent);
     gtk_widget_set_name (dialog->dialog, "gnc-id-sx-since-last-run");
     gtk_widget_add_css_class (dialog->dialog, "gnc-class-sx");
-    dialog->review_created_txns_toggle = GTK_TOGGLE_BUTTON
+    dialog->review_created_txns_toggle = GTK_CHECK_BUTTON
         (gtk_builder_get_object (builder, "review_txn_toggle"));
-    gtk_toggle_button_set_active (dialog->review_created_txns_toggle,
+    gtk_check_button_set_active (dialog->review_created_txns_toggle,
         gnc_prefs_get_bool (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SET_REVIEW));
     dialog->created_txns = auto_created_txns;
     button = GTK_WIDGET (gtk_builder_get_object (builder, "helpbutton2"));

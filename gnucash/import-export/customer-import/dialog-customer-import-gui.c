@@ -475,7 +475,7 @@ void gnc_customer_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer dat
 void gnc_customer_import_gui_option1_cb (GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?(?<id>[^;]*);(?<company>[^;]*);(?<name>[^;]*);(?<addr1>[^;]*);(?<addr2>[^;]*);(?<addr3>[^;]*);(?<addr4>[^;]*);(?<phone>[^;]*);(?<fax>[^;]*);(?<email>[^;]*);(?<notes>[^;]*);(?<shipname>[^;]*);(?<shipaddr1>[^;]*);(?<shipaddr2>[^;]*);(?<shipaddr3>[^;]*);(?<shipaddr4>[^;]*);(?<shipphone>[^;]*);(?<shipfax>[^;]*);(?<shipemail>[^;]*)$");
     gnc_customer_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -484,7 +484,7 @@ void gnc_customer_import_gui_option1_cb (GtkWidget *widget, gpointer data)
 void gnc_customer_import_gui_option2_cb (GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?(?<id>[^,]*),(?<company>[^,]*),(?<name>[^,]*),(?<addr1>[^,]*),(?<addr2>[^,]*),(?<addr3>[^,]*),(?<addr4>[^,]*),(?<phone>[^,]*),(?<fax>[^,]*),(?<email>[^,]*),(?<notes>[^,]*),(?<shipname>[^,]*),(?<shipaddr1>[^,]*),(?<shipaddr2>[^,]*),(?<shipaddr3>[^,]*),(?<shipaddr4>[^,]*),(?<shipphone>[^,]*),(?<shipfax>[^,]*),(?<shipemail>[^,]*)$");
     gnc_customer_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -493,7 +493,7 @@ void gnc_customer_import_gui_option2_cb (GtkWidget *widget, gpointer data)
 void gnc_customer_import_gui_option3_cb (GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?((?<id>[^\";]*)|\"(?<id>[^\"]*)\");((?<company>[^\";]*)|\"(?<company>[^\"]*)\");((?<name>[^\";]*)|\"(?<name>[^\"]*)\");((?<addr1>[^\";]*)|\"(?<addr1>[^\"]*)\");((?<addr2>[^\";]*)|\"(?<addr2>[^\"]*)\");((?<addr3>[^\";]*)|\"(?<addr3>[^\"]*)\");((?<addr4>[^\";]*)|\"(?<addr4>[^\"]*)\");((?<phone>[^\";]*)|\"(?<phone>[^\"]*)\");((?<fax>[^\";]*)|\"(?<fax>[^\"]*)\");((?<email>[^\";]*)|\"(?<email>[^\"]*)\");((?<notes>[^\";]*)|\"(?<notes>[^\"]*)\");((?<shipname>[^\";]*)|\"(?<shipname>[^\"]*)\");((?<shipaddr1>[^\";]*)|\"(?<shipaddr1>[^\"]*)\");((?<shipaddr2>[^\";]*)|\"(?<shipaddr2>[^\"]*)\");((?<shipaddr3>[^\";]*)|\"(?<shipaddr3>[^\"]*)\");((?<shipaddr4>[^\";]*)|\"(?<shipaddr4>[^\"]*)\");((?<shipphone>[^\";]*)|\"(?<shipphone>[^\"]*)\");((?<shipfax>[^\";]*)|\"(?<shipfax>[^\"]*)\");((?<shipemail>[^;]*)|\"(?<shipemail>[^\"]*)\")$");
     gnc_customer_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -502,7 +502,7 @@ void gnc_customer_import_gui_option3_cb (GtkWidget *widget, gpointer data)
 void gnc_customer_import_gui_option4_cb (GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?((?<id>[^\",]*)|\"(?<id>[^\"]*)\"),((?<company>[^\",]*)|\"(?<company>[^\"]*)\"),((?<name>[^\",]*)|\"(?<name>[^\"]*)\"),((?<addr1>[^\",]*)|\"(?<addr1>[^\"]*)\"),((?<addr2>[^\",]*)|\"(?<addr2>[^\"]*)\"),((?<addr3>[^\",]*)|\"(?<addr3>[^\"]*)\"),((?<addr4>[^\",]*)|\"(?<addr4>[^\"]*)\"),((?<phone>[^\",]*)|\"(?<phone>[^\"]*)\"),((?<fax>[^\",]*)|\"(?<fax>[^\"]*)\"),((?<email>[^\",]*)|\"(?<email>[^\"]*)\"),((?<notes>[^\",]*)|\"(?<notes>[^\"]*)\"),((?<shipname>[^\",]*)|\"(?<shipname>[^\"]*)\"),((?<shipaddr1>[^\",]*)|\"(?<shipaddr1>[^\"]*)\"),((?<shipaddr2>[^\",]*)|\"(?<shipaddr2>[^\"]*)\"),((?<shipaddr3>[^\",]*)|\"(?<shipaddr3>[^\"]*)\"),((?<shipaddr4>[^\",]*)|\"(?<shipaddr4>[^\"]*)\"),((?<shipphone>[^\",]*)|\"(?<shipphone>[^\"]*)\"),((?<shipfax>[^\",]*)|\"(?<shipfax>[^\"]*)\"),((?<shipemail>[^\",]*)|\"(?<shipemail>[^\"]*)\")$");
     gnc_customer_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -512,7 +512,7 @@ void gnc_customer_import_gui_option5_cb (GtkWidget *widget, gpointer data)
     CustomerImportGui *gui = data;
     CustomerImportRegexRequest *request;
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON (widget)))
         return;
 
     request = customer_import_regex_request_new (gui);
@@ -533,7 +533,7 @@ void gnc_customer_import_gui_type_cb (GtkWidget *widget, gpointer data)
 {
     CustomerImportGui *gui = data;
     const gchar *name;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     name = gtk_buildable_get_buildable_id(GTK_BUILDABLE(widget));
     if (name)

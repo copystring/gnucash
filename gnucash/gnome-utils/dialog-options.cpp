@@ -729,7 +729,7 @@ gnc_options_dialog_set_new_book_option_values (GncOptionDB *odb)
         auto option{odb->find_option(OPTION_SECTION_ACCOUNTS,
                                     OPTION_NAME_NUM_FIELD_SOURCE)};
         auto num_source_button{option_get_gtk_widget(option)};
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (num_source_button),
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (num_source_button),
                                       num_split_action);
     }
 }

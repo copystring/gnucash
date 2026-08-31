@@ -899,7 +899,7 @@ gnc_ui_commodity_quote_info_cb (GtkWidget *w, gpointer data)
     gint i;
 
     ENTER(" ");
-    get_quote = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (w));
+    get_quote = gtk_check_button_get_active (GTK_CHECK_BUTTON (w));
 
     text = gtk_editable_get_text (GTK_EDITABLE (
         gnc_ui_commodity_picker_get_entry (cw->namespace_combo)));
@@ -913,7 +913,7 @@ gnc_ui_commodity_quote_info_cb (GtkWidget *w, gpointer data)
         if (!cw->source_button[i])
             continue;
         active =
-            gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(cw->source_button[i]));
+            gtk_check_button_get_active(GTK_CHECK_BUTTON(cw->source_button[i]));
         gtk_widget_set_sensitive(cw->source_button[i], get_quote && allow_src);
         gtk_widget_set_sensitive(cw->source_menu[i], get_quote && allow_src && active);
     }
@@ -1375,12 +1375,12 @@ gnc_ui_commodity_update_quote_info(CommodityWindow *win,
         source = gnc_commodity_get_default_quote_source (commodity);
     quote_tz = gnc_commodity_get_quote_tz (commodity);
 
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (win->get_quote_check),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (win->get_quote_check),
                                   has_quote_src);
     if (!gnc_commodity_is_iso(commodity))
     {
         type = gnc_quote_source_get_type(source);
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->source_button[type]), TRUE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(win->source_button[type]), TRUE);
         source_menu_select (win->source_menu[type], gnc_quote_source_get_index (source));
     }
 
@@ -1576,7 +1576,7 @@ gnc_ui_commodity_dialog_to_object (CommodityWindow *window)
             return nullptr;
         }
 
-        auto quote_set = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (window->get_quote_check));
+        auto quote_set = gtk_check_button_get_active (GTK_CHECK_BUTTON (window->get_quote_check));
         gnc_commodity_begin_edit (edit_commodity);
         gnc_commodity_user_set_quote_flag (edit_commodity, quote_set);
         if (quote_set)
@@ -1642,12 +1642,12 @@ gnc_ui_commodity_dialog_to_object (CommodityWindow *window)
     }
 
     gnc_commodity_user_set_quote_flag (commodity,
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (window->get_quote_check)));
+        gtk_check_button_get_active (GTK_CHECK_BUTTON (window->get_quote_check)));
     QuoteSourceType type;
     for (type = SOURCE_SINGLE; type < SOURCE_MAX;
          type = static_cast<QuoteSourceType> (type + 1))
     {
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (window->source_button[type])))
+        if (gtk_check_button_get_active (GTK_CHECK_BUTTON (window->source_button[type])))
             break;
     }
     auto selection = gtk_drop_down_get_selected (GTK_DROP_DOWN (window->source_menu[type]));

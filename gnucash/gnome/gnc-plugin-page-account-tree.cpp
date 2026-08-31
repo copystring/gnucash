@@ -149,8 +149,8 @@ static void gnc_plugin_page_account_tree_selection_changed_cb (GtkSelectionModel
 static void accounting_period_changed_cb(gpointer prefs, gchar *pref, gpointer user_data);
 
 extern "C" {
-void gppat_populate_trans_mas_list(GtkToggleButton *sa_mrb, GtkWidget *dialog);
-void gppat_set_insensitive_iff_rb_active(GtkWidget *widget, GtkToggleButton *b);
+void gppat_populate_trans_mas_list(GtkCheckButton *sa_mrb, GtkWidget *dialog);
+void gppat_set_insensitive_iff_rb_active(GtkWidget *widget, GtkCheckButton *b);
 }
 
 /* Command callbacks */
@@ -1378,14 +1378,14 @@ gppat_populate_gas_list(GtkWidget *dialog,
 }
 
 void
-gppat_populate_trans_mas_list(GtkToggleButton *sa_mrb,
+gppat_populate_trans_mas_list(GtkCheckButton *sa_mrb,
                               GtkWidget *dialog)
 {
     g_return_if_fail(GTK_IS_WINDOW(dialog));
 
     /* Cannot move transactions to subaccounts if they are to be deleted. */
     auto trans_mas = GTK_WIDGET(g_object_get_data(G_OBJECT(dialog), DELETE_DIALOG_TRANS_MAS));
-    gppat_populate_gas_list(dialog, GNC_ACCOUNT_SEL(trans_mas), !gtk_toggle_button_get_active(sa_mrb));
+    gppat_populate_gas_list(dialog, GNC_ACCOUNT_SEL(trans_mas), !gtk_check_button_get_active(sa_mrb));
 }
 
 /* Note that the emitting object (the toggle button) and the signal data
@@ -1394,14 +1394,14 @@ gppat_populate_trans_mas_list(GtkToggleButton *sa_mrb,
  * gtkbuilder xml file.
  */
 void
-gppat_set_insensitive_iff_rb_active(GtkWidget *widget, GtkToggleButton *b)
+gppat_set_insensitive_iff_rb_active(GtkWidget *widget, GtkCheckButton *b)
 {
     GtkRoot *dialog = gtk_widget_get_root (widget);
     auto subaccount_trans = GTK_WIDGET(g_object_get_data(G_OBJECT(dialog), DELETE_DIALOG_SA_TRANS));
     auto sa_mas = GTK_WIDGET(g_object_get_data(G_OBJECT(dialog), DELETE_DIALOG_SA_MAS));
     auto have_splits = g_object_get_data(G_OBJECT(dialog), DELETE_DIALOG_SA_SPLITS) != nullptr;
 
-    gtk_widget_set_sensitive(widget, !gtk_toggle_button_get_active(b));
+    gtk_widget_set_sensitive(widget, !gtk_check_button_get_active(b));
 
     // If we have subaccount splits & delete subaccounts, enable subaccount_trans
     if ((have_splits) && !gtk_widget_is_sensitive(sa_mas))

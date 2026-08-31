@@ -263,7 +263,7 @@ get_account_info (FindAccountDialog *facc_dialog, gboolean use_saved_filter)
     gboolean radio_root;
 
     /* Get the state of the root radio button */
-    radio_root = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(facc_dialog->radio_root));
+    radio_root = gtk_check_button_get_active (GTK_CHECK_BUTTON(facc_dialog->radio_root));
 
      /* Get list of Accounts */
     if ((facc_dialog->account == NULL) || (radio_root == TRUE))
@@ -300,7 +300,7 @@ get_account_info (FindAccountDialog *facc_dialog, gboolean use_saved_filter)
 }
 
 static void
-list_type_selected_cb (GtkToggleButton* button, FindAccountDialog *facc_dialog)
+list_type_selected_cb (GtkCheckButton* button, FindAccountDialog *facc_dialog)
 {
     get_account_info (facc_dialog, FALSE);
 }
@@ -573,7 +573,7 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, facc_d
         g_free (sub_full_name);
         g_free (sub_label);
 
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(facc_dialog->radio_subroot), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(facc_dialog->radio_subroot), TRUE);
     }
     else
         gtk_widget_set_visible (GTK_WIDGET(facc_dialog->radio_frame), FALSE);

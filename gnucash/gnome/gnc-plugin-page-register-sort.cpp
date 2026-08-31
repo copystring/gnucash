@@ -78,15 +78,15 @@ extern "C"
 // These functions are the dialog callbacks. They're connected to their
 // signals in gnc-plugin-page-register.glade so they mustn't be name-mangled.
 void
-gnc_ppr_sort_button_cb (GtkToggleButton* button,
+gnc_ppr_sort_button_cb (GtkCheckButton* button,
                         RegisterSortDialog *rsd);
 
 void
-gnc_ppr_sort_order_save_cb (GtkToggleButton* button,
+gnc_ppr_sort_order_save_cb (GtkCheckButton* button,
                             RegisterSortDialog *rsd);
 
 void
-gnc_ppr_sort_order_reverse_cb (GtkToggleButton* button,
+gnc_ppr_sort_order_reverse_cb (GtkCheckButton* button,
                                RegisterSortDialog *rsd);
 }
 
@@ -428,7 +428,7 @@ ppr_sort_dialog_add_shortcuts (GtkWindow *dialog, RegisterSortDialog *rsd)
  *  @param rsd A pointer to the sort dialog structure.
  */
 void
-gnc_ppr_sort_button_cb (GtkToggleButton* button,
+gnc_ppr_sort_button_cb (GtkCheckButton* button,
                         RegisterSortDialog *rsd)
 {
     g_return_if_fail (GTK_IS_TOGGLE_BUTTON(button));
@@ -438,7 +438,7 @@ gnc_ppr_sort_button_cb (GtkToggleButton* button,
 
     ENTER("button %s(%p), page %p", name, button, rsd->plugin_page);
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(button)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON(button)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;
@@ -459,7 +459,7 @@ gnc_ppr_sort_button_cb (GtkToggleButton* button,
  *  @param rsd A pointer to the sort dialog structure.
  */
 void
-gnc_ppr_sort_order_save_cb (GtkToggleButton* button,
+gnc_ppr_sort_order_save_cb (GtkCheckButton* button,
                             RegisterSortDialog *rsd)
 {
     g_return_if_fail (GTK_IS_CHECK_BUTTON(button));
@@ -470,7 +470,7 @@ gnc_ppr_sort_order_save_cb (GtkToggleButton* button,
     /* Compute the new save sort order */
     auto sd = gnc_plugin_page_register_get_sort_data (rsd->plugin_page);
 
-    if (gtk_toggle_button_get_active (button))
+    if (gtk_check_button_get_active (button))
         sd->save_order = true;
     else
         sd->save_order = false;
@@ -485,7 +485,7 @@ gnc_ppr_sort_order_save_cb (GtkToggleButton* button,
  *  @param rsd A pointer to the sort dialog structure.
  */
 void
-gnc_ppr_sort_order_reverse_cb (GtkToggleButton* button,
+gnc_ppr_sort_order_reverse_cb (GtkCheckButton* button,
                                RegisterSortDialog *rsd)
 {
     g_return_if_fail (GTK_IS_CHECK_BUTTON(button));
@@ -497,7 +497,7 @@ gnc_ppr_sort_order_reverse_cb (GtkToggleButton* button,
     auto sd = gnc_plugin_page_register_get_sort_data (rsd->plugin_page);
     auto gsr = gnc_plugin_page_register_get_gsr (rsd->plugin_page);
 
-    sd->reverse_order = gtk_toggle_button_get_active (button);
+    sd->reverse_order = gtk_check_button_get_active (button);
     gnc_split_reg_set_sort_reversed (gsr, sd->reverse_order, refresh);
     LEAVE (" ");
 }
@@ -537,12 +537,12 @@ gnc_ppr_sort_dialog_create (RegisterSortDialog *rsd, SortData *sd)
     auto name = SortTypeasString (sort);
     auto button = GTK_WIDGET(gtk_builder_get_object (builder, name));
     DEBUG("current sort %d, button %s(%p)", sort, name, button);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), TRUE);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(button), TRUE);
     rsd->original_sort_type = sort;
 
     button = GTK_WIDGET(gtk_builder_get_object (builder, "sort_save"));
     if (sd->save_order)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(button), TRUE);
 
     rsd->original_save_order = sd->save_order;
 
@@ -552,7 +552,7 @@ gnc_ppr_sort_dialog_create (RegisterSortDialog *rsd, SortData *sd)
     /* Set the button for the current reverse_order order */
     button = GTK_WIDGET(gtk_builder_get_object (builder, "sort_reverse"));
     if (sd->reverse_order)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(button), TRUE);
     rsd->original_reverse_order = sd->reverse_order;
 
     rsd->num_radio = GTK_WIDGET(gtk_builder_get_object (builder, "BY_NUM"));

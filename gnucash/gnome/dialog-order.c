@@ -151,8 +151,8 @@ static void gnc_ui_to_order (OrderWindow *ow, GncOrder *order)
     gncOrderSetDateOpened (order, tt);
 
     if (ow->active_check)
-        gncOrderSetActive (order, gtk_toggle_button_get_active
-                           (GTK_TOGGLE_BUTTON (ow->active_check)));
+        gncOrderSetActive (order, gtk_check_button_get_active
+                           (GTK_CHECK_BUTTON (ow->active_check)));
 
     gnc_owner_get_owner (ow->owner_choice, &(ow->owner));
     gncOrderSetOwner (order, &(ow->owner));
@@ -729,7 +729,7 @@ gnc_order_update_window (OrderWindow *ow)
             gnc_date_edit_set_time (GNC_DATE_EDIT (ow->closed_date), tt);
         }
 
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ow->active_check),
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (ow->active_check),
                                       gncOrderGetActive (order));
 
     }

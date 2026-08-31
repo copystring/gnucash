@@ -392,8 +392,8 @@ typedef struct
     GWeakRef parent;
     gulong parent_destroy_handler;
     GtkWindow *dialog;
-    GtkToggleButton *use_old_path_head;
-    GtkToggleButton *use_new_path_head;
+    GtkCheckButton *use_old_path_head;
+    GtkCheckButton *use_new_path_head;
     char *old_path_head_uri;
     char *new_path_head_uri;
     gboolean completed;
@@ -441,8 +441,8 @@ doclink_path_head_complete (DoclinkPathHeadRequest *request, gboolean accepted)
     request->completed = TRUE;
     if (accepted)
     {
-        use_old = gtk_toggle_button_get_active (request->use_old_path_head);
-        use_new = gtk_toggle_button_get_active (request->use_new_path_head);
+        use_old = gtk_check_button_get_active (request->use_old_path_head);
+        use_new = gtk_check_button_get_active (request->use_new_path_head);
     }
 
     doclink_path_head_destroy_dialog (request);
@@ -532,9 +532,9 @@ gnc_doclink_pref_path_head_changed (GtkWindow *parent,
                                                           "existing_path_head"));
     new_head_label = GTK_WIDGET (gtk_builder_get_object (builder,
                                                           "new_path_head"));
-    request->use_old_path_head = GTK_TOGGLE_BUTTON (gtk_builder_get_object (
+    request->use_old_path_head = GTK_CHECK_BUTTON (gtk_builder_get_object (
         builder, "use_old_path_head"));
-    request->use_new_path_head = GTK_TOGGLE_BUTTON (gtk_builder_get_object (
+    request->use_new_path_head = GTK_CHECK_BUTTON (gtk_builder_get_object (
         builder, "use_new_path_head"));
     if (!dialog || !ok_button || !old_head_label || !new_head_label ||
         !request->use_old_path_head || !request->use_new_path_head)

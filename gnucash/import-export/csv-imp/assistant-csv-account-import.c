@@ -389,7 +389,7 @@ void csv_import_sep_cb (GtkWidget *radio, gpointer user_data)
     const gchar *name;
     const gchar *sep = NULL;
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (radio)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON (radio)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;

@@ -1,7 +1,7 @@
 
 
 function(gnc_add_test_runtime_path _TARGET)
-  if (MINGW64)
+  if (MINGW)
     set(_runtime_path ${CMAKE_BINARY_DIR}/bin)
     if (GUILE_EXECUTABLE)
       get_filename_component(_guile_runtime_path
@@ -60,7 +60,7 @@ function(get_guile_env)
   endif()
   set(_guile_load_compiled_path "${guile_load_compiled_paths}")
 
-  if (MINGW64 AND ${GUILE_EFFECTIVE_VERSION} VERSION_LESS 2.2)
+  if (MINGW AND ${GUILE_EFFECTIVE_VERSION} VERSION_LESS 2.2)
     set(new_path "")
     foreach(load_item ${_guile_load_path})
       make_unix_path(load_item)
@@ -76,7 +76,7 @@ function(get_guile_env)
     set(_guile_load_compiled_path ${new_path})
   endif()
 
-  if (NOT MINGW64 OR ${GUILE_EFFECTIVE_VERSION} VERSION_LESS 2.2)
+  if (NOT MINGW OR ${GUILE_EFFECTIVE_VERSION} VERSION_LESS 2.2)
     make_unix_path_list(_guile_load_path)
     make_unix_path_list(_guile_load_compiled_path)
   else()

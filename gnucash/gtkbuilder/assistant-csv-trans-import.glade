@@ -334,6 +334,22 @@ There are two reserved names which can never be deleted:
                                         </layout>
                                       </object>
                                     </child>
+                                    <child>
+                                      <object class="GtkCheckButton" id="escape_cbutton">
+                                        <property name="label" translatable="1">Enable escape character (\)</property>
+                                        <property name="focusable">1</property>
+                                        <property name="receives-default">0</property>
+                                        <property name="tooltip-text" translatable="1">If enabled, the escape character, backslash (&#92;) is processed specially: backslash-quote (&#92;&quot;) becomes a single quote (&quot;); backslash-backslash (&#92;&#92;) becomes a single backslash (&#92;); backslash-n (&#92;n) becomes a newline character; a backslash followed by any other character is treated literally: both the backslash and the following character become part of the data field.</property>
+                                        <property name="halign">start</property>
+                                        <property name="active">1</property>
+                                        <signal name="toggled" handler="csv_tximp_preview_sep_button_cb" swapped="no" />
+                                        <layout>
+                                          <property name="column">0</property>
+                                          <property name="row">3</property>
+                                          <property name="column-span">3</property>
+                                        </layout>
+                                      </object>
+                                    </child>
                                   </object>
                                 </child>
                                 <child>

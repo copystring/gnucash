@@ -92,7 +92,7 @@
 static QofLogModule log_module = GNC_MOD_PREFS;
 
 void gnc_account_separator_pref_changed_cb (GtkEntry *entry, GtkWidget *dialog);
-void gnc_save_on_close_expires_cb (GtkToggleButton *button, GtkWidget *dialog);
+void gnc_save_on_close_expires_cb (GtkCheckButton *button, GtkWidget *dialog);
 static void gnc_preferences_help_clicked_cb (GtkButton *button,
                                               gpointer user_data);
 static void gnc_preferences_close_clicked_cb (GtkButton *button,
@@ -330,11 +330,11 @@ gnc_preferences_select_account_page (GtkWindow *dialog)
  * @param dialog the prefs dialog.
  */
 void
-gnc_save_on_close_expires_cb (GtkToggleButton *button, GtkWidget *dialog)
+gnc_save_on_close_expires_cb (GtkCheckButton *button, GtkWidget *dialog)
 {
     GtkWidget *spinner = g_object_get_data (G_OBJECT(dialog),
                                             "save_on_close_wait_time");
-    gtk_widget_set_sensitive (spinner, gtk_toggle_button_get_active (button));
+    gtk_widget_set_sensitive (spinner, gtk_check_button_get_active (button));
 }
 
 /** This function compares two add-ins to see if they specify the same
@@ -1662,7 +1662,7 @@ gnc_preferences_dialog_create (GtkWindow *parent)
     gtk_label_set_label (GTK_LABEL(label), currency_name);
 
     button = GTK_WIDGET(gtk_builder_get_object (builder, "pref/general/save-on-close-expires"));
-    gnc_save_on_close_expires_cb (GTK_TOGGLE_BUTTON(button), dialog);
+    gnc_save_on_close_expires_cb (GTK_CHECK_BUTTON(button), dialog);
 
     g_object_unref (G_OBJECT(builder));
 

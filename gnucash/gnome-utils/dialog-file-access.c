@@ -275,8 +275,8 @@ file_access_accept_clicked_cb (GtkButton *button, FileAccessWindow *faw)
     case FILE_ACCESS_OPEN:
         gnc_file_open_file (parent, url,
                             faw->readonly_checkbutton &&
-                            gtk_toggle_button_get_active (
-                                GTK_TOGGLE_BUTTON (faw->readonly_checkbutton)));
+                            gtk_check_button_get_active (
+                                GTK_CHECK_BUTTON (faw->readonly_checkbutton)));
         break;
     case FILE_ACCESS_SAVE_AS:
         gnc_file_do_save_as (parent, url);

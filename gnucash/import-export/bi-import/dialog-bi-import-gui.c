@@ -516,7 +516,7 @@ void gnc_bi_import_gui_filenameChanged_cb (GtkWidget *widget, gpointer data)
 void gnc_bi_import_gui_option1_cb (GtkWidget *widget, gpointer data)
 {
     BillImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?(?<id>[^;]*);(?<date_opened>[^;]*);(?<owner_id>[^;]*);(?<billing_id>[^;]*);(?<notes>[^;]*);(?<date>[^;]*);(?<desc>[^;]*);(?<action>[^;]*);(?<account>[^;]*);(?<quantity>[^;]*);(?<price>[^;]*);(?<disc_type>[^;]*);(?<disc_how>[^;]*);(?<discount>[^;]*);(?<taxable>[^;]*);(?<taxincluded>[^;]*);(?<tax_table>[^;]*);(?<date_posted>[^;]*);(?<due_date>[^;]*);(?<account_posted>[^;]*);(?<memo_posted>[^;]*);(?<accu_splits>[^;]*)$");
     gnc_bi_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -526,7 +526,7 @@ void gnc_bi_import_gui_option1_cb (GtkWidget *widget, gpointer data)
 void gnc_bi_import_gui_option2_cb (GtkWidget *widget, gpointer data)
 {
     BillImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?(?<id>[^,]*),(?<date_opened>[^,]*),(?<owner_id>[^,]*),(?<billing_id>[^,]*),(?<notes>[^,]*),(?<date>[^,]*),(?<desc>[^,]*),(?<action>[^,]*),(?<account>[^,]*),(?<quantity>[^,]*),(?<price>[^,]*),(?<disc_type>[^,]*),(?<disc_how>[^,]*),(?<discount>[^,]*),(?<taxable>[^,]*),(?<taxincluded>[^,]*),(?<tax_table>[^,]*),(?<date_posted>[^,]*),(?<due_date>[^,]*),(?<account_posted>[^,]*),(?<memo_posted>[^,]*),(?<accu_splits>[^,]*)$");
     gnc_bi_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -536,7 +536,7 @@ void gnc_bi_import_gui_option2_cb (GtkWidget *widget, gpointer data)
 void gnc_bi_import_gui_option3_cb (GtkWidget *widget, gpointer data)
 {
     BillImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?((?<id>[^\";]*)|\"(?<id>[^\"]*)\");((?<date_opened>[^\";]*)|\"(?<date_opened>[^\"]*)\");((?<owner_id>[^\";]*)|\"(?<owner_id>[^\"]*)\");((?<billing_id>[^\";]*)|\"(?<billing_id>[^\"]*)\");((?<notes>[^\";]*)|\"(?<notes>([^\"]|\"\")*)\");((?<date>[^\";]*)|\"(?<date>[^\"]*)\");((?<desc>[^\";]*)|\"(?<desc>([^\"]|\"\")*)\");((?<action>[^\";]*)|\"(?<action>[^\"]*)\");((?<account>[^\";]*)|\"(?<account>[^\"]*)\");((?<quantity>[^\";]*)|\"(?<quantity>[^\"]*)\");((?<price>[^\";]*)|\"(?<price>[^\"]*)\");((?<disc_type>[^\";]*)|\"(?<disc_type>[^\"]*)\");((?<disc_how>[^\";]*)|\"(?<disc_how>[^\"]*)\");((?<discount>[^\";]*)|\"(?<discount>[^\"]*)\");((?<taxable>[^\";]*)|\"(?<taxable>[^\"]*)\");((?<taxincluded>[^\";]*)|\"(?<taxincluded>[^\"]*)\");((?<tax_table>[^\";]*)|\"(?<tax_table>[^\"]*)\");((?<date_posted>[^\";]*)|\"(?<date_posted>[^\"]*)\");((?<due_date>[^\";]*)|\"(?<due_date>[^\"]*)\");((?<account_posted>[^\";]*)|\"(?<account_posted>[^\"]*)\");((?<memo_posted>[^\";]*)|\"(?<memo_posted>[^\"]*)\");((?<accu_splits>[^\";]*)|\"(?<accu_splits>[^\"]*)\")$");
     gnc_bi_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -546,7 +546,7 @@ void gnc_bi_import_gui_option3_cb (GtkWidget *widget, gpointer data)
 void gnc_bi_import_gui_option4_cb (GtkWidget *widget, gpointer data)
 {
     BillImportGui *gui = data;
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     g_string_assign (gui->regexp, "^(\\x{FEFF})?((?<id>[^\",]*)|\"(?<id>[^\"]*)\"),((?<date_opened>[^\",]*)|\"(?<date_opened>[^\"]*)\"),((?<owner_id>[^\",]*)|\"(?<owner_id>[^\"]*)\"),((?<billing_id>[^\",]*)|\"(?<billing_id>[^\"]*)\"),((?<notes>[^\",]*)|\"(?<notes>([^\"]|\"\")*)\"),((?<date>[^\",]*)|\"(?<date>[^\"]*)\"),((?<desc>[^\",]*)|\"(?<desc>([^\"]|\"\")*)\"),((?<action>[^\",]*)|\"(?<action>[^\"]*)\"),((?<account>[^\",]*)|\"(?<account>[^\"]*)\"),((?<quantity>[^\",]*)|\"(?<quantity>[^\"]*)\"),((?<price>[^\",]*)|\"(?<price>[^\"]*)\"),((?<disc_type>[^\",]*)|\"(?<disc_type>[^\"]*)\"),((?<disc_how>[^\",]*)|\"(?<disc_how>[^\"]*)\"),((?<discount>[^\",]*)|\"(?<discount>[^\"]*)\"),((?<taxable>[^\",]*)|\"(?<taxable>[^\"]*)\"),((?<taxincluded>[^\",]*)|\"(?<taxincluded>[^\"]*)\"),((?<tax_table>[^\",]*)|\"(?<tax_table>[^\"]*)\"),((?<date_posted>[^\",]*)|\"(?<date_posted>[^\"]*)\"),((?<due_date>[^\",]*)|\"(?<due_date>[^\"]*)\"),((?<account_posted>[^\",]*)|\"(?<account_posted>[^\"]*)\"),((?<memo_posted>[^\",]*)|\"(?<memo_posted>[^\"]*)\"),((?<accu_splits>[^\",]*)|\"(?<accu_splits>[^\"]*)\")$");
     gnc_bi_import_gui_filenameChanged_cb (gui->entryFilename, gui);
@@ -558,7 +558,7 @@ void gnc_bi_import_gui_option5_cb (GtkWidget *widget, gpointer data)
     BillImportGui *gui = data;
     BiImportRegexRequest *request;
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON (widget)))
         return;
 
     request = bi_import_regex_request_new (gui);
@@ -574,7 +574,7 @@ void gnc_bi_import_gui_open_mode_cb (GtkWidget *widget, gpointer data)
     BillImportGui *gui = data;
     const gchar *name = NULL;
     name = gtk_buildable_get_buildable_id(GTK_BUILDABLE(widget));
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     if  (g_ascii_strcasecmp(name, "radiobuttonOpenAll") == 0)gui->open_mode = "ALL";
     else if (g_ascii_strcasecmp(name, "radiobuttonOpenNotPosted") == 0)gui->open_mode = "NOT_POSTED";
@@ -590,7 +590,7 @@ void gnc_import_gui_type_cb (GtkWidget *widget, gpointer data)
     BillImportGui *gui = data;
     const gchar *name = NULL;
     name = gtk_buildable_get_buildable_id(GTK_BUILDABLE(widget));
-    if (!gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON(widget) ))
+    if (!gtk_check_button_get_active( GTK_CHECK_BUTTON(widget) ))
         return;
     if  (g_ascii_strcasecmp(name, "radiobuttonInvoice") == 0)gui->type = "INVOICE";
     else if (g_ascii_strcasecmp(name, "radiobuttonBill") == 0)gui->type = "BILL";

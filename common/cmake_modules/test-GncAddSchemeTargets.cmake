@@ -1,7 +1,7 @@
 # Verify that Guile install directories stay below CMAKE_INSTALL_PREFIX.
 
-if(TEST_MINGW64)
-  set(MINGW64 TRUE)
+if(TEST_MINGW)
+  set(MINGW TRUE)
 endif()
 include("${TEST_MODULE}")
 

@@ -581,7 +581,7 @@ price_old_remove_check_fq_cb (GtkWidget *widget, gpointer user_data)
 
     price_old_remove_change_source_flag (
         request, PRICE_REMOVE_SOURCE_FQ,
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)));
+        gtk_check_button_get_active (GTK_CHECK_BUTTON (widget)));
 }
 
 static void
@@ -591,7 +591,7 @@ price_old_remove_check_user_cb (GtkWidget *widget, gpointer user_data)
 
     price_old_remove_change_source_flag (
         request, PRICE_REMOVE_SOURCE_USER,
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)));
+        gtk_check_button_get_active (GTK_CHECK_BUTTON (widget)));
 }
 
 static void
@@ -601,7 +601,7 @@ price_old_remove_check_app_cb (GtkWidget *widget, gpointer user_data)
 
     price_old_remove_change_source_flag (
         request, PRICE_REMOVE_SOURCE_APP,
-        gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)));
+        gtk_check_button_get_active (GTK_CHECK_BUTTON (widget)));
 }
 
 static void
@@ -656,18 +656,18 @@ price_old_remove_namespace_changed_cb (GtkEditable *, gpointer user_data)
 static PriceRemoveKeepOptions
 price_old_remove_get_keep_option (const PriceOldRemoveRequest *request)
 {
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (request->keep_none)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (request->keep_none)))
         return PRICE_REMOVE_KEEP_NONE;
-    if (gtk_toggle_button_get_active (
-            GTK_TOGGLE_BUTTON (request->keep_last_month)))
+    if (gtk_check_button_get_active (
+            GTK_CHECK_BUTTON (request->keep_last_month)))
         return PRICE_REMOVE_KEEP_LAST_MONTHLY;
-    if (gtk_toggle_button_get_active (
-            GTK_TOGGLE_BUTTON (request->keep_last_quarter)))
+    if (gtk_check_button_get_active (
+            GTK_CHECK_BUTTON (request->keep_last_quarter)))
         return PRICE_REMOVE_KEEP_LAST_QUARTERLY;
-    if (gtk_toggle_button_get_active (
-            GTK_TOGGLE_BUTTON (request->keep_last_period)))
+    if (gtk_check_button_get_active (
+            GTK_CHECK_BUTTON (request->keep_last_period)))
         return PRICE_REMOVE_KEEP_LAST_PERIOD;
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (request->keep_scaled)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (request->keep_scaled)))
         return PRICE_REMOVE_KEEP_SCALED;
 
     return PRICE_REMOVE_KEEP_LAST_WEEKLY;

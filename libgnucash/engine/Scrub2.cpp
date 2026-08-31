@@ -425,6 +425,9 @@ xaccAccountAssignLots (Account *acc)
         /* If already in lot, then no-op */
         if (split->lot) continue;
 
+        /* Skip stock splits */
+        if (xaccSplitIsStockSplit(split)) continue;
+
         /* Skip voided transactions */
         if (gnc_numeric_zero_p (split->amount) &&
                 xaccTransGetVoidStatus(split->parent)) continue;
@@ -467,25 +470,33 @@ xaccLotFill (GNCLot *lot)
     /* If balance already zero, we have nothing to do. */
     if (gnc_lot_is_closed (lot))
     {
-	LEAVE ("Lot Closed (lot=%s, acc=%s)", gnc_lot_get_title(lot),
-	       xaccAccountGetName(acc));
-	return;
+        LEAVE ("Lot Closed (lot=%s, acc=%s)", gnc_lot_get_title(lot),
+               xaccAccountGetName(acc));
+        return;
     }
     split = pcy->PolicyGetSplit (pcy, lot);
     if (!split)
     {
-	LEAVE ("No Split (lot=%s, acc=%s)", gnc_lot_get_title(lot),
-	       xaccAccountGetName(acc));
-	return;   /* Handle the common case */
+        LEAVE ("No Split (lot=%s, acc=%s)", gnc_lot_get_title(lot),
+               xaccAccountGetName(acc));
+        return;   /* Handle the common case */
+    }
+
+    /* Reject stock split transactions */
+    if (xaccSplitIsStockSplit(split))
+    {
+        LEAVE ("Stock split transaction (lot=%s, acc=%s)",
+           gnc_lot_get_title(lot), xaccAccountGetName(acc));
+        return;
     }
 
     /* Reject voided transactions */
     if (gnc_numeric_zero_p(split->amount) &&
             xaccTransGetVoidStatus(split->parent))
     {
-	LEAVE ("Voided transaction (lot=%s, acc=%s)",
-	       gnc_lot_get_title(lot), xaccAccountGetName(acc));
-	return;
+        LEAVE ("Voided transaction (lot=%s, acc=%s)",
+               gnc_lot_get_title(lot), xaccAccountGetName(acc));
+        return;
     }
 
     xaccAccountBeginEdit (acc);
@@ -541,8 +552,8 @@ xaccLotScrubDoubleBalance (GNCLot *lot)
     /* We double-check only closed lots */
     if (FALSE == gnc_lot_is_closed (lot))
     {
-	LEAVE ("lot=%s is closed", gnc_lot_get_title(lot));
-	return;
+        LEAVE ("lot=%s is closed", gnc_lot_get_title(lot));
+        return;
     }
 
     for (snode = gnc_lot_get_split_list(lot); snode; snode = snode->next)

@@ -127,19 +127,19 @@ void
 gnc_ppr_filter_status_clear_all_cb (GtkButton* button,
                                     RegisterFilterDialog* rfd);
 void
-gnc_ppr_filter_status_one_cb (GtkToggleButton* button,
+gnc_ppr_filter_status_one_cb (GtkCheckButton* button,
                               RegisterFilterDialog* rfd);
 void
-gnc_ppr_filter_save_cb (GtkToggleButton* button,
+gnc_ppr_filter_save_cb (GtkCheckButton* button,
                         RegisterFilterDialog* rfd);
 void
 gnc_ppr_filter_days_changed_cb (GtkSpinButton* button,
                                 RegisterFilterDialog* rfd);
 void
-gnc_ppr_filter_start_toggle_cb (GtkToggleButton* button,
+gnc_ppr_filter_start_toggle_cb (GtkCheckButton* button,
                                 RegisterFilterDialog* rfd);
 void
-gnc_ppr_filter_end_toggle_cb (GtkToggleButton* button,
+gnc_ppr_filter_end_toggle_cb (GtkCheckButton* button,
                               RegisterFilterDialog* rfd);
 void
 gnc_ppr_filter_start_end_days_changed_cb (GtkSpinButton* button,
@@ -781,7 +781,7 @@ gnc_ppr_filter_update_register (GncPluginPage* plugin_page)
  *  @param rfd A pointer to the filter dialog structure.
  */
 void
-gnc_ppr_filter_status_one_cb (GtkToggleButton* button,
+gnc_ppr_filter_status_one_cb (GtkCheckButton* button,
                               RegisterFilterDialog* rfd)
 {
     g_return_if_fail (GTK_IS_CHECK_BUTTON(button));
@@ -805,7 +805,7 @@ gnc_ppr_filter_status_one_cb (GtkToggleButton* button,
     }
 
     /* Compute the new match status */
-    if (gtk_toggle_button_get_active (button))
+    if (gtk_check_button_get_active (button))
         fd->cleared_match = (cleared_match_t)(fd->cleared_match | value);
     else
         fd->cleared_match = (cleared_match_t)(fd->cleared_match & ~value);
@@ -841,21 +841,21 @@ set_checkbutton_with_blocking (GtkWidget *widget1, GtkWidget *widget2,
                                RegisterFilterDialog *rfd,
                                gboolean active)
 {
-    PINFO("Block GtkToggleButton %p for setting active %s",
+    PINFO("Block GtkCheckButton %p for setting active %s",
            widget1, active ? "TRUE" : "FALSE");
     g_signal_handlers_block_by_func (widget1,
                                      (gpointer)function, rfd);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(widget1), active);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(widget1), active);
     g_signal_handlers_unblock_by_func (widget1,
                                        (gpointer)function, rfd);
 
     if (widget2)
     {
-        PINFO("Block GtkToggleButton %p for setting active %s",
+        PINFO("Block GtkCheckButton %p for setting active %s",
                widget2, active ? "TRUE" : "FALSE");
         g_signal_handlers_block_by_func (widget2,
                                          (gpointer)function, rfd);
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(widget2), active);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(widget2), active);
         g_signal_handlers_unblock_by_func (widget2,
                                            (gpointer)function, rfd);
     }
@@ -942,7 +942,7 @@ get_filter_times (RegisterFilterDialog* rfd)
 
     auto fd = gnc_plugin_page_register_get_filter_data (rfd->plugin_page);
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(rfd->start_date_check)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON(rfd->start_date_check)))
     {
         time_val = gnc_date_edit_get_date (GNC_DATE_EDIT(rfd->start_date));
         time_val = gnc_time64_get_day_start (time_val);
@@ -950,7 +950,7 @@ get_filter_times (RegisterFilterDialog* rfd)
         fd->start_ap = GNC_ACCOUNTING_PERIOD_INVALID;
         print_info_time64_date ("Start date is", fd->start_time);
     }
-    else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(rfd->start_relative_check)))
+    else if (gtk_check_button_get_active (GTK_CHECK_BUTTON(rfd->start_relative_check)))
     {
         auto *sdate = gnc_period_select_get_date (GNC_PERIOD_SELECT(rfd->start_relative));
         fd->start_time = gnc_time64_get_day_start_gdate (sdate);
@@ -958,7 +958,7 @@ get_filter_times (RegisterFilterDialog* rfd)
         print_info_time64_date ("Start date relative is", fd->start_time);
         g_date_free (sdate);
     }
-    else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(rfd->start_days_check)))
+    else if (gtk_check_button_get_active (GTK_CHECK_BUTTON(rfd->start_days_check)))
     {
         fd->start_days = gtk_spin_button_get_value (GTK_SPIN_BUTTON(rfd->start_days));
         fd->start_time = get_time_for_days_ago (fd->start_days, true);
@@ -968,7 +968,7 @@ get_filter_times (RegisterFilterDialog* rfd)
     else
         fd->start_time = 0;
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(rfd->end_date_check)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON(rfd->end_date_check)))
     {
         time_val = gnc_date_edit_get_date (GNC_DATE_EDIT(rfd->end_date));
         time_val = gnc_time64_get_day_end (time_val);
@@ -976,7 +976,7 @@ get_filter_times (RegisterFilterDialog* rfd)
         fd->end_ap = GNC_ACCOUNTING_PERIOD_INVALID;
         print_info_time64_date ("End date is", fd->end_time);
     }
-    else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(rfd->end_relative_check)))
+    else if (gtk_check_button_get_active (GTK_CHECK_BUTTON(rfd->end_relative_check)))
     {
         auto *edate = gnc_period_select_get_date (GNC_PERIOD_SELECT(rfd->end_relative));
         fd->end_time = gnc_time64_get_day_end_gdate (edate);
@@ -984,7 +984,7 @@ get_filter_times (RegisterFilterDialog* rfd)
         print_info_time64_date ("End date relative is", fd->end_time);
         g_date_free (edate);
     }
-    else if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(rfd->end_days_check)))
+    else if (gtk_check_button_get_active (GTK_CHECK_BUTTON(rfd->end_days_check)))
     {
         fd->end_days = gtk_spin_button_get_value (GTK_SPIN_BUTTON(rfd->end_days));
         fd->end_time = get_time_for_days_ago (fd->end_days, false);
@@ -1017,7 +1017,7 @@ gnc_ppr_filter_select_range_cb (GtkCheckButton* button,
     auto fd = gnc_plugin_page_register_get_filter_data (rfd->plugin_page);
 
     auto name = gtk_buildable_get_buildable_id (GTK_BUILDABLE(button));
-    gboolean active = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(button));
+    gboolean active = gtk_check_button_get_active (GTK_CHECK_BUTTON(button));
 
     if (active && g_strcmp0 (name, "filter_show_range") == 0)
     {
@@ -1110,7 +1110,7 @@ gnc_ppr_filter_start_cb (GtkWidget* radio,
     ENTER("(radio %s(%p), page %p)",
            gtk_buildable_get_buildable_id (GTK_BUILDABLE(radio)), radio, rfd->plugin_page);
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(radio)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON(radio)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;
@@ -1153,7 +1153,7 @@ gnc_ppr_filter_end_cb (GtkWidget* radio,
     ENTER("(radio %s(%p), page %p)",
           gtk_buildable_get_buildable_id (GTK_BUILDABLE(radio)), radio, rfd->plugin_page);
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(radio)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON(radio)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;
@@ -1223,12 +1223,12 @@ gnc_ppr_filter_start_end_days_changed_cb (GtkSpinButton* button,
  *  relative or start date is changed. It activates the associated
  *  widget and deactivates the other.
  *
- *  @param button A pointer to a GtkToggleButton widget.
+ *  @param button A pointer to a GtkCheckButton widget.
  *
  *  @param rfd A pointer to the filter dialog structure.
  */
 void
-gnc_ppr_filter_start_toggle_cb (GtkToggleButton* button,
+gnc_ppr_filter_start_toggle_cb (GtkCheckButton* button,
                                 RegisterFilterDialog* rfd)
 {
     g_return_if_fail (GTK_IS_CHECK_BUTTON(button));
@@ -1238,7 +1238,7 @@ gnc_ppr_filter_start_toggle_cb (GtkToggleButton* button,
 
     auto name = gtk_buildable_get_buildable_id (GTK_BUILDABLE(button));
 
-    gboolean active = gtk_toggle_button_get_active (button);
+    gboolean active = gtk_check_button_get_active (button);
 
     gtk_widget_set_sensitive (rfd->start_earliest, !active);
 
@@ -1279,12 +1279,12 @@ gnc_ppr_filter_start_toggle_cb (GtkToggleButton* button,
  *  relative or end date is changed. It activates the associated
  *  widget and deactivates the other.
  *
- *  @param button A pointer to a GtkToggleButton widget.
+ *  @param button A pointer to a GtkCheckButton widget.
  *
  *  @param rfd A pointer to the filter dialog structure.
  */
 void
-gnc_ppr_filter_end_toggle_cb (GtkToggleButton* button,
+gnc_ppr_filter_end_toggle_cb (GtkCheckButton* button,
                               RegisterFilterDialog* rfd)
 {
     g_return_if_fail (GTK_IS_CHECK_BUTTON(button));
@@ -1294,7 +1294,7 @@ gnc_ppr_filter_end_toggle_cb (GtkToggleButton* button,
 
     auto name = gtk_buildable_get_buildable_id (GTK_BUILDABLE(button));
 
-    gboolean active = gtk_toggle_button_get_active (button);
+    gboolean active = gtk_check_button_get_active (button);
 
     gtk_widget_set_sensitive (rfd->end_latest, !active);
 
@@ -1339,7 +1339,7 @@ gnc_ppr_filter_end_toggle_cb (GtkToggleButton* button,
  *  @param rfd A pointer to the filter dialog structure.
  */
 void
-gnc_ppr_filter_save_cb (GtkToggleButton* button,
+gnc_ppr_filter_save_cb (GtkCheckButton* button,
                         RegisterFilterDialog* rfd)
 {
     g_return_if_fail (GTK_IS_CHECK_BUTTON(button));
@@ -1350,7 +1350,7 @@ gnc_ppr_filter_save_cb (GtkToggleButton* button,
     auto fd = gnc_plugin_page_register_get_filter_data (rfd->plugin_page);
 
     /* Compute the new save filter status */
-    if (gtk_toggle_button_get_active (button))
+    if (gtk_check_button_get_active (button))
         fd->save_filter = true;
     else
         fd->save_filter = false;
@@ -1592,13 +1592,13 @@ ppr_filter_dialog_create (RegisterFilterDialog* rfd, FilterData *fd, Query *quer
                                                          action.action_name.c_str()));
         bool value = fd->cleared_match & action.value;
         action.widget = toggle;
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(toggle), bool_to_gboolean (value));
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(toggle), bool_to_gboolean (value));
     }
     rfd->original_cleared_match = fd->cleared_match;
 
     auto button = GTK_WIDGET(gtk_builder_get_object (builder, "filter_save"));
     if (fd->save_filter)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(button), TRUE);
 
     rfd->original_save_filter = fd->save_filter;
 
@@ -1611,7 +1611,7 @@ ppr_filter_dialog_create (RegisterFilterDialog* rfd, FilterData *fd, Query *quer
 
     if (fd->days > 0) // using number of days
     {
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(button), TRUE);
         gtk_widget_set_sensitive (GTK_WIDGET(rfd->num_days), TRUE);
         gtk_spin_button_set_value (GTK_SPIN_BUTTON(rfd->num_days), fd->days);
         rfd->original_days = fd->days;
@@ -1637,7 +1637,7 @@ ppr_filter_dialog_create (RegisterFilterDialog* rfd, FilterData *fd, Query *quer
     fd->end_time = end_time;
 
     button = GTK_WIDGET(gtk_builder_get_object (builder, "filter_show_range"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), start_time || end_time);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(button), start_time || end_time);
     auto table = GTK_WIDGET(gtk_builder_get_object (builder, "select_range_table"));
     rfd->table = table;
     gtk_widget_set_sensitive (GTK_WIDGET(table), start_time || end_time);
@@ -1665,12 +1665,12 @@ ppr_filter_dialog_create (RegisterFilterDialog* rfd, FilterData *fd, Query *quer
             {
                 set_sensitive_start_widget (rfd, rfd->start_relative, TRUE);
                 gnc_period_select_set_active (GNC_PERIOD_SELECT(rfd->start_relative), fd->start_ap);
-                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(rfd->start_relative_check), TRUE);
+                gtk_check_button_set_active (GTK_CHECK_BUTTON(rfd->start_relative_check), TRUE);
             }
             else if (fd->start_days != 0)
             {
                 set_sensitive_start_widget (rfd, rfd->start_days, TRUE);
-                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(rfd->start_days_check), TRUE);
+                gtk_check_button_set_active (GTK_CHECK_BUTTON(rfd->start_days_check), TRUE);
                 gtk_spin_button_set_value (GTK_SPIN_BUTTON(rfd->start_days), fd->start_days);
                 rfd->original_start_days = fd->start_days;
 
@@ -1678,7 +1678,7 @@ ppr_filter_dialog_create (RegisterFilterDialog* rfd, FilterData *fd, Query *quer
             else
             {
                 set_sensitive_start_widget (rfd, rfd->start_date, TRUE);
-                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(rfd->start_date_check), TRUE);
+                gtk_check_button_set_active (GTK_CHECK_BUTTON(rfd->start_date_check), TRUE);
             }
             time_val = start_time;
         }
@@ -1715,19 +1715,19 @@ ppr_filter_dialog_create (RegisterFilterDialog* rfd, FilterData *fd, Query *quer
             {
                 set_sensitive_end_widget (rfd, rfd->end_relative, TRUE);
                 gnc_period_select_set_active (GNC_PERIOD_SELECT(rfd->end_relative), fd->end_ap);
-                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(rfd->end_relative_check), TRUE);
+                gtk_check_button_set_active (GTK_CHECK_BUTTON(rfd->end_relative_check), TRUE);
             }
             else if (fd->end_days != 0)
             {
                 set_sensitive_end_widget (rfd, rfd->end_days, TRUE);
-                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(rfd->end_days_check), TRUE);
+                gtk_check_button_set_active (GTK_CHECK_BUTTON(rfd->end_days_check), TRUE);
                 gtk_spin_button_set_value (GTK_SPIN_BUTTON(rfd->end_days), fd->end_days);
                 rfd->original_end_days = fd->end_days;
             }
             else
             {
                 set_sensitive_end_widget (rfd, rfd->end_date, TRUE);
-                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(rfd->end_date_check), TRUE);
+                gtk_check_button_set_active (GTK_CHECK_BUTTON(rfd->end_date_check), TRUE);
             }
             time_val = end_time;
         }

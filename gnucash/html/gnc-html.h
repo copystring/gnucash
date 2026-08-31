@@ -87,6 +87,14 @@ typedef struct
 typedef gboolean (* GncHTMLObjectCB)(GncHtml* html, gpointer eb,
                                      gpointer data);
 typedef gboolean (* GncHTMLStreamCB)(const gchar* location, gchar** data, int* datalen);
+/** Function pointer type for loading a URL-like object into a web page.
+ *
+ * @param location: URL or other indicator to the resource. On multi-column reports this may be the index of the suberport.
+ * @param label: The label to use for the notebook tab containing the item.
+ * @param new_window: Open the tab in a new GncMainWindow if true
+ * @param result: A GNCURLResult*
+ * @returns true if the handler succeeded.
+ */
 typedef gboolean (* GncHTMLUrlCB)(const gchar* location, const gchar* label,
                                   gboolean new_window, GNCURLResult* result);
 
@@ -122,9 +130,10 @@ gboolean gnc_html_urltype_is_internal (URLType type) NOEXCEPT;
  *
  * @return %TRUE if @url was a handled GnuCash action; %FALSE if it is not an
  *         allowed internal URL.
+ * @param new_window Open the target in a new GncMainWindow if %TRUE.
  */
 gboolean gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
-                                       gboolean new_window_hint) NOEXCEPT;
+                                       gboolean new_window) NOEXCEPT;
 
 /**
  * Initializes the html subsystem
@@ -158,7 +167,7 @@ struct _GncHtmlClass
                       URLType type,
                       const gchar* location,
                       const gchar* label,
-                      gboolean new_window_hint );
+                      gboolean new_window );
     void (*show_data)( GncHtml* html, const gchar* data, int datalen );
     void (*reload)( GncHtml* html, gboolean force_rebuild );
     void (*copy_to_clipboard)( GncHtml* html );
@@ -205,7 +214,7 @@ void gnc_html_destroy( GncHtml* html ) NOEXCEPT;
  * @param html GncHtml object
  */
 void gnc_html_show_url( GncHtml* html, URLType type, const gchar* location,
-                        const gchar* label, gboolean new_window_hint ) NOEXCEPT;
+                        const gchar* label, gboolean new_window ) NOEXCEPT;
 
 /**
  * Displays an HTML string in a GncHtml object.

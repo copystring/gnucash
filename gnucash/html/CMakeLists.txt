@@ -24,6 +24,7 @@ set (html_SOURCES
 )
 
 set (html_BACKEND_HEADERS
+  gnc-html-webkit-p.hpp
   gnc-html-webkit2.hpp
   gnc-html-webview2.hpp
   gnc-html-wkwebview.hpp
@@ -110,7 +111,7 @@ target_include_directories (gnc-html
 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 PRIVATE
-    ${WEBVIEW2_INCLUDE_DIR}
+    ${WEBVIEW2_INCLUDE_DIRS}
 )
 
 if (APPLE)

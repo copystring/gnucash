@@ -61,7 +61,7 @@ void gnc_employee_window_cancel_cb (GtkWidget *widget, gpointer data);
 void gnc_employee_window_help_cb (GtkWidget *widget, gpointer data);
 void gnc_employee_window_destroy_cb (GtkWidget *widget, gpointer data);
 void gnc_employee_name_changed_cb (GtkWidget *widget, gpointer data);
-void gnc_employee_ccard_acct_toggled_cb (GtkToggleButton *button, gpointer data);
+void gnc_employee_ccard_acct_toggled_cb (GtkCheckButton *button, gpointer data);
 
 static void gnc_employee_window_request_close (EmployeeWindow *ew);
 
@@ -145,8 +145,8 @@ static void gnc_ui_to_employee (EmployeeWindow *ew, GncEmployee *employee)
     gncAddressSetPhone (addr, gnc_entry_get_text (GTK_ENTRY (ew->phone_entry)));
     gncAddressSetFax (addr, gnc_entry_get_text (GTK_ENTRY (ew->fax_entry)));
     gncAddressSetEmail (addr, gnc_entry_get_text (GTK_ENTRY (ew->email_entry)));
-    gncEmployeeSetActive (employee, gtk_toggle_button_get_active
-                          (GTK_TOGGLE_BUTTON (ew->active_check)));
+    gncEmployeeSetActive (employee, gtk_check_button_get_active
+                          (GTK_CHECK_BUTTON (ew->active_check)));
     gncEmployeeSetLanguage (employee, gnc_entry_get_text (GTK_ENTRY (ew->language_entry)));
 
     /* Parse and set the workday and rate amounts */
@@ -159,8 +159,8 @@ static void gnc_ui_to_employee (EmployeeWindow *ew, GncEmployee *employee)
 
     /* Fill in the CCard Acct */
     gncEmployeeSetCCard (employee,
-                         (gtk_toggle_button_get_active
-                          (GTK_TOGGLE_BUTTON (ew->ccard_acct_check)) ?
+                         (gtk_check_button_get_active
+                          (GTK_CHECK_BUTTON (ew->ccard_acct_check)) ?
                           gnc_account_sel_get_account
                           (GNC_ACCOUNT_SEL (ew->ccard_acct_sel)) : NULL));
 
@@ -305,14 +305,14 @@ gnc_employee_name_changed_cb (GtkWidget *widget, gpointer data)
 }
 
 void
-gnc_employee_ccard_acct_toggled_cb (GtkToggleButton *button, gpointer data)
+gnc_employee_ccard_acct_toggled_cb (GtkCheckButton *button, gpointer data)
 {
     EmployeeWindow *ew = data;
 
     if (!ew)
         return;
 
-    bool active = gtk_toggle_button_get_active (button);
+    bool active = gtk_check_button_get_active (button);
     gtk_widget_set_sensitive (ew->ccard_acct_sel, active);
 }
 
@@ -547,7 +547,7 @@ gnc_employee_new_window (GtkWindow *parent,
                             gncEmployeeGetLanguage (employee));
 
         /* Set toggle buttons */
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ew->active_check),
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (ew->active_check),
                                       gncEmployeeGetActive (employee));
 
         ew->component_id =
@@ -582,12 +582,12 @@ gnc_employee_new_window (GtkWindow *parent,
     ccard_acct = gncEmployeeGetCCard (employee);
     if (ccard_acct == NULL)
     {
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ew->ccard_acct_check), FALSE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (ew->ccard_acct_check), FALSE);
         gtk_widget_set_sensitive (ew->ccard_acct_sel, FALSE);
     }
     else
     {
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ew->ccard_acct_check), TRUE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (ew->ccard_acct_check), TRUE);
         gnc_account_sel_set_account (GNC_ACCOUNT_SEL (ew->ccard_acct_sel), ccard_acct, FALSE);
     }
 

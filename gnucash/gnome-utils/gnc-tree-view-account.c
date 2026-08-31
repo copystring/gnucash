@@ -911,12 +911,12 @@ gnc_plugin_page_account_tree_filter_accounts (Account *account, gpointer user_da
     return type >= 0 && (fd->visible_types & (1u << type));
 }
 
-void gppat_filter_show_hidden_toggled_cb (GtkToggleButton *button, AccountFilterDialog *fd)
-{ fd->show_hidden = gtk_toggle_button_get_active (button); gnc_tree_view_account_refilter (fd->tree_view); }
-void gppat_filter_show_zero_toggled_cb (GtkToggleButton *button, AccountFilterDialog *fd)
-{ fd->show_zero_total = gtk_toggle_button_get_active (button); gnc_tree_view_account_refilter (fd->tree_view); }
-void gppat_filter_show_unused_toggled_cb (GtkToggleButton *button, AccountFilterDialog *fd)
-{ fd->show_unused = gtk_toggle_button_get_active (button); gnc_tree_view_account_refilter (fd->tree_view); }
+void gppat_filter_show_hidden_toggled_cb (GtkCheckButton *button, AccountFilterDialog *fd)
+{ fd->show_hidden = gtk_check_button_get_active (button); gnc_tree_view_account_refilter (fd->tree_view); }
+void gppat_filter_show_zero_toggled_cb (GtkCheckButton *button, AccountFilterDialog *fd)
+{ fd->show_zero_total = gtk_check_button_get_active (button); gnc_tree_view_account_refilter (fd->tree_view); }
+void gppat_filter_show_unused_toggled_cb (GtkCheckButton *button, AccountFilterDialog *fd)
+{ fd->show_unused = gtk_check_button_get_active (button); gnc_tree_view_account_refilter (fd->tree_view); }
 
 static void
 set_type_selection (AccountFilterDialog *fd, gboolean selected)
@@ -1063,9 +1063,9 @@ account_filter_dialog_create (AccountFilterDialog *fd, GncPluginPage *page)
     fd->original_show_hidden = fd->show_hidden;
     fd->original_show_zero_total = fd->show_zero_total;
     fd->original_show_unused = fd->show_unused;
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (gtk_builder_get_object (builder, "show_hidden")), fd->show_hidden);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (gtk_builder_get_object (builder, "show_zero")), fd->show_zero_total);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (gtk_builder_get_object (builder, "show_unused")), fd->show_unused);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (gtk_builder_get_object (builder, "show_hidden")), fd->show_hidden);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (gtk_builder_get_object (builder, "show_zero")), fd->show_zero_total);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (gtk_builder_get_object (builder, "show_unused")), fd->show_unused);
     list_view = GTK_LIST_VIEW (gtk_builder_get_object (builder, FILTER_TREE_VIEW));
     fd->type_model = gnc_account_type_list_new (~(1u << ACCT_TYPE_ROOT));
     for (guint position = 0; position < g_list_model_get_n_items (fd->type_model); position++)

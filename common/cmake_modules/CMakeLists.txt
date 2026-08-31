@@ -72,7 +72,7 @@ add_test(NAME test-gnc-add-test-windows-scheme-runner
 add_test(NAME test-gnc-add-scheme-targets-relative-install-dirs
   COMMAND ${CMAKE_COMMAND}
     -DTEST_MODULE=${CMAKE_CURRENT_SOURCE_DIR}/GncAddSchemeTargets.cmake
-    -DTEST_MINGW64=${MINGW64}
+    -DTEST_MINGW=${MINGW}
     -DTEST_GUILE_PREFIX=${GUILE_PREFIX}
     -DTEST_GUILE_SITEDIR=${GUILE_SITEDIR}
     -DTEST_GUILE_SITECCACHEDIR=${GUILE_SITECCACHEDIR}

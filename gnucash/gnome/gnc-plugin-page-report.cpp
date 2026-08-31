@@ -127,7 +127,6 @@ typedef struct GncPluginPageReportPrivate
     /// the gnc_html abstraction this PluginPage contains
 //        gnc_html *html;
     GncHtml *html;
-    gboolean webkit2;
 
     /// The report page widget containing the above HTML widget.
     GtkWidget *container;
@@ -524,9 +523,6 @@ gnc_plugin_page_report_create_widget( GncPluginPage *page )
 
     report = GNC_PLUGIN_PAGE_REPORT(page);
     priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
-
-    /* Native report backends handle PDF export outside the page action. */
-    priv->webkit2 = TRUE;
 
     topLvl = gnc_ui_get_main_window (nullptr);
 //        priv->html = gnc_html_new( topLvl );
@@ -943,8 +939,8 @@ gnc_plugin_page_report_save_page (GncPluginPage *plugin_page,
     report = GNC_PLUGIN_PAGE_REPORT(plugin_page);
     priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
 
-    if (!priv || !priv->cur_report || scm_is_null(priv->cur_report) ||
-            SCM_UNBNDP(priv->cur_report) || SCM_BOOL_F == priv->cur_report)
+    if (!priv || !priv->initial_report || scm_is_null (priv->initial_report) ||
+        SCM_UNBNDP (priv->initial_report) || scm_is_false (priv->initial_report))
     {
         LEAVE("not saving invalid report");
         return;
@@ -953,7 +949,7 @@ gnc_plugin_page_report_save_page (GncPluginPage *plugin_page,
     gen_save_text = scm_c_eval_string("gnc:report-serialize");
     get_embedded_list = scm_c_eval_string("gnc:report-embedded-list");
     get_options    = scm_c_eval_string("gnc:report-options");
-    embedded = scm_call_1(get_embedded_list, scm_call_1(get_options, priv->cur_report));
+    embedded = scm_call_1(get_embedded_list, scm_call_1(get_options, priv->initial_report));
     count = scm_ilength(embedded);
     while (count-- > 0)
     {
@@ -977,7 +973,7 @@ gnc_plugin_page_report_save_page (GncPluginPage *plugin_page,
         g_free(key_name);
     }
 
-    scm_text = scm_call_1(gen_save_text, priv->cur_report);
+    scm_text = scm_call_1 (gen_save_text, priv->initial_report);
     if (!scm_is_string (scm_text))
     {
         LEAVE("nothing to save");
@@ -1303,7 +1299,6 @@ gnc_plugin_page_report_constr_init (GncPluginPageReport *plugin_page, gint repor
     DEBUG("property reportId=%d", reportId);
     priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(plugin_page);
     priv->reportId = reportId;
-    priv->webkit2 = FALSE;
 
     gnc_plugin_page_report_setup( GNC_PLUGIN_PAGE(plugin_page));
 
@@ -2424,13 +2419,26 @@ void
 gnc_main_window_open_report_url(const char * url, GncMainWindow *window)
 {
     GncPluginPage *reportPage;
+    gint report_id;
 
     DEBUG( "report url: [%s]\n", url );
 
     if (window)
         g_return_if_fail(GNC_IS_MAIN_WINDOW(window));
 
-    reportPage = gnc_plugin_page_report_new( 42 /* url? */ );
+    /* Duplicating report pages copies an uncopiable reference leading
+     * to crashes so don't allow multicolumn subreports to open in new
+     * GncMainWindows.
+     */
+    if (strncmp (url, "id=", 3) != 0 ||
+        (report_id = gnc_report_id_string_to_report_id (url + 3)) < 0)
+    {
+        PWARN ("gnc_main_window_open_report_url: badly formed report url '%s'", url);
+        return;
+    }
+
+    reportPage = gnc_plugin_page_report_new( report_id );
+    gnc_plugin_page_set_use_new_window (reportPage, TRUE);
     gnc_main_window_open_page( window, reportPage );
 }
 

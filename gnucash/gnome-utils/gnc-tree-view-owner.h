@@ -38,9 +38,9 @@ void gnc_tree_view_owner_restore (GncTreeViewOwner *view, OwnerFilterDialog *fd,
                                   GncOwnerType owner_type);
 void owner_filter_dialog_create (OwnerFilterDialog *fd, GncPluginPage *page);
 gboolean gnc_plugin_page_owner_tree_filter_owners (GncOwner *owner, gpointer data);
-void gppot_filter_show_inactive_toggled_cb (GtkToggleButton *button,
+void gppot_filter_show_inactive_toggled_cb (GtkCheckButton *button,
                                             OwnerFilterDialog *fd);
-void gppot_filter_show_zero_toggled_cb (GtkToggleButton *button,
+void gppot_filter_show_zero_toggled_cb (GtkCheckButton *button,
                                         OwnerFilterDialog *fd);
 void gppot_filter_apply_cb (GtkButton *button, OwnerFilterDialog *fd);
 void gppot_filter_cancel_cb (GtkButton *button, OwnerFilterDialog *fd);

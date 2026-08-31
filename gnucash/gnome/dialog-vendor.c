@@ -52,7 +52,7 @@
 
 #define GNC_PREFS_GROUP_SEARCH "dialogs.business.vendor-search"
 
-void gnc_vendor_taxtable_check_cb (GtkToggleButton *togglebutton, gpointer user_data);
+void gnc_vendor_taxtable_check_cb (GtkCheckButton *togglebutton, gpointer user_data);
 void gnc_vendor_window_ok_cb (GtkWidget *widget, gpointer data);
 void gnc_vendor_window_cancel_cb (GtkWidget *widget, gpointer data);
 void gnc_vendor_window_help_cb (GtkWidget *widget, gpointer data);
@@ -111,12 +111,12 @@ struct _vendor_window
 };
 
 void
-gnc_vendor_taxtable_check_cb (GtkToggleButton *togglebutton,
+gnc_vendor_taxtable_check_cb (GtkCheckButton *togglebutton,
                               gpointer user_data)
 {
     VendorWindow *vw = user_data;
 
-    if (gtk_toggle_button_get_active (togglebutton))
+    if (gtk_check_button_get_active (togglebutton))
         gtk_widget_set_sensitive (vw->taxtable_menu, TRUE);
     else
         gtk_widget_set_sensitive (vw->taxtable_menu, FALSE);
@@ -158,8 +158,8 @@ static void gnc_ui_to_vendor (VendorWindow *vw, GncVendor *vendor)
     gncAddressSetFax (addr, gnc_entry_get_text (GTK_ENTRY (vw->fax_entry)));
     gncAddressSetEmail (addr, gnc_entry_get_text (GTK_ENTRY (vw->email_entry)));
 
-    gncVendorSetActive (vendor, gtk_toggle_button_get_active
-                        (GTK_TOGGLE_BUTTON (vw->active_check)));
+    gncVendorSetActive (vendor, gtk_check_button_get_active
+                        (GTK_CHECK_BUTTON (vw->active_check)));
     gncVendorSetTaxIncluded (vendor, vw->taxincluded);
 
     text_buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW(vw->notes_text));
@@ -173,7 +173,7 @@ static void gnc_ui_to_vendor (VendorWindow *vw, GncVendor *vendor)
                                   (vw->currency_edit)));
 
     gncVendorSetTaxTableOverride
-    (vendor, gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (vw->taxtable_check)));
+    (vendor, gtk_check_button_get_active (GTK_CHECK_BUTTON (vw->taxtable_check)));
     gncVendorSetTaxTable (vendor, vw->taxtable);
 
     gncVendorCommitEdit (vendor);
@@ -466,7 +466,7 @@ gnc_vendor_new_window (GtkWindow *parent, QofBook *bookp, GncVendor *vendor)
         gnc_entry_set_text (GTK_ENTRY (vw->email_entry), gncAddressGetEmail (addr));
 
         /* Set toggle buttons */
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vw->active_check),
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (vw->active_check),
                                       gncVendorGetActive (vendor));
 
         string = gncVendorGetNotes (vendor);
@@ -506,9 +506,9 @@ gnc_vendor_new_window (GtkWindow *parent, QofBook *bookp, GncVendor *vendor)
 
     vw->taxtable = gncVendorGetTaxTable (vendor);
     gnc_taxtables_dropdown (GTK_DROP_DOWN(vw->taxtable_menu), bookp, TRUE, vw->taxtable);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vw->taxtable_check),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (vw->taxtable_check),
                                   gncVendorGetTaxTableOverride (vendor));
-    gnc_vendor_taxtable_check_cb (GTK_TOGGLE_BUTTON (vw->taxtable_check), vw);
+    gnc_vendor_taxtable_check_cb (GTK_CHECK_BUTTON (vw->taxtable_check), vw);
 
     gnc_gui_component_watch_entity_type (vw->component_id,
                                          GNC_VENDOR_MODULE_NAME,

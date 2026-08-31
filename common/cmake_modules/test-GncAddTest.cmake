@@ -25,13 +25,15 @@ get_filename_component(test_guile_prefix
   "${test_guile_bin_dir}" DIRECTORY)
 file(TO_CMAKE_PATH "${test_guile_prefix}" test_guile_prefix)
 
+file(TO_CMAKE_PATH "${TEST_CMAKE_PREFIX_PATH}" test_cmake_prefix_path)
+
 set(fixture [=[
 cmake_minimum_required(VERSION 3.16)
 project(test-gnc-add-test NONE)
 enable_testing()
 
 set(WIN32 TRUE)
-set(MINGW64 TRUE)
+set(MINGW TRUE)
 set(GUILE_EFFECTIVE_VERSION 2.2)
 set(GUILE_REL_SITEDIR "share/guile/site")
 set(GUILE_REL_UNIX_SITEDIR "share/guile/site")
@@ -42,7 +44,7 @@ set(LIBDIR_BUILD "${CMAKE_BINARY_DIR}/lib")
 set(DATADIR_BUILD "${CMAKE_BINARY_DIR}/share")
 set(GUILE_EXECUTABLE "@TEST_GUILE_EXECUTABLE@")
 set(GUILD_EXECUTABLE "@TEST_GUILD_EXECUTABLE@")
-set(CMAKE_PREFIX_PATH "C:/staged;@TEST_CMAKE_PREFIX_PATH@")
+set(CMAKE_PREFIX_PATH "C:/staged;@test_cmake_prefix_path@")
 
 include("@test_scheme_module@")
 include("@test_module@")

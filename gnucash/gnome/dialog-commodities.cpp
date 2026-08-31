@@ -1137,7 +1137,7 @@ void gnc_commodities_dialog_close_clicked (GtkWidget *widget, gpointer data);
 
 void gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer data);
 
-void gnc_commodities_show_currencies_toggled (GtkToggleButton *toggle, CommoditiesDialog *cd);
+void gnc_commodities_show_currencies_toggled (GtkCheckButton *toggle, CommoditiesDialog *cd);
 }
 
 static gboolean gnc_commodities_window_key_pressed_cb (GtkEventControllerKey *key,
@@ -1322,9 +1322,9 @@ gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer dat
 }
 
 void
-gnc_commodities_show_currencies_toggled (GtkToggleButton *toggle, CommoditiesDialog *cd)
+gnc_commodities_show_currencies_toggled (GtkCheckButton *toggle, CommoditiesDialog *cd)
 {
-    cd->show_currencies = gtk_toggle_button_get_active (toggle);
+    cd->show_currencies = gtk_check_button_get_active (toggle);
     commodity_manager_rebuild (cd);
 }
 
@@ -1358,7 +1358,7 @@ gnc_commodities_dialog_create (GtkWidget *parent, CommoditiesDialog *cd)
                       G_CALLBACK (commodity_manager_row_activated_cb), cd);
 
     button = GTK_WIDGET (gtk_builder_get_object (builder, "show_currencies_button"));
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (button), cd->show_currencies);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (button), cd->show_currencies);
 
     button = GTK_WIDGET (gtk_builder_get_object (builder, "close_button"));
     gtk_window_set_default_widget (GTK_WINDOW (cd->window), button);

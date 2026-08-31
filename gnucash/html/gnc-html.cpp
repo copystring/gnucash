@@ -389,7 +389,7 @@ gnc_html_show_data( GncHtml* self, const gchar* data, int datalen ) noexcept
 void
 gnc_html_show_url( GncHtml* self, URLType type,
                    const gchar* location, const gchar* label,
-                   gboolean new_window_hint ) noexcept
+                   gboolean new_window ) noexcept
 {
     g_return_if_fail( self != nullptr );
     g_return_if_fail( GNC_IS_HTML(self) );
@@ -398,7 +398,7 @@ gnc_html_show_url( GncHtml* self, URLType type,
 
     if ( GNC_HTML_GET_CLASS(self)->show_url != nullptr )
     {
-        GNC_HTML_GET_CLASS(self)->show_url( self, lc_type, location, label, new_window_hint );
+        GNC_HTML_GET_CLASS(self)->show_url( self, lc_type, location, label, new_window );
     }
     else
     {
@@ -660,7 +660,7 @@ gnc_html_urltype_is_internal (URLType type) noexcept
 
 gboolean
 gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
-                              gboolean new_window_hint) noexcept
+                              gboolean new_window) noexcept
 {
     gchar *location = nullptr;
     gchar *label = nullptr;
@@ -675,7 +675,7 @@ gnc_html_handle_internal_url (GncHtml *html, const gchar *url,
      * the backend's show_url implementation rejects the null location. */
     const auto handled = gnc_html_urltype_is_internal (type) && location;
     if (handled)
-        gnc_html_show_url (html, type, location, label, new_window_hint);
+        gnc_html_show_url (html, type, location, label, new_window);
 
     g_free (location);
     g_free (label);

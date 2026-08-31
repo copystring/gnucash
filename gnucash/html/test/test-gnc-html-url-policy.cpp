@@ -32,7 +32,7 @@ typedef struct
     gchar *type;
     gchar *location;
     gchar *label;
-    gboolean new_window_hint;
+    gboolean new_window;
 } TestHtml;
 
 typedef struct
@@ -46,7 +46,7 @@ G_DEFINE_TYPE (TestHtml, test_html, GNC_TYPE_HTML)
 
 static void
 test_html_show_url (GncHtml *html, URLType type, const gchar *location,
-                    const gchar *label, gboolean new_window_hint)
+                    const gchar *label, gboolean new_window)
 {
     auto test_html = reinterpret_cast<TestHtml *> (html);
 
@@ -56,7 +56,7 @@ test_html_show_url (GncHtml *html, URLType type, const gchar *location,
     test_html->type = g_strdup (type);
     test_html->location = g_strdup (location);
     test_html->label = g_strdup (label);
-    test_html->new_window_hint = new_window_hint;
+    test_html->new_window = new_window;
 }
 
 static void
@@ -145,7 +145,7 @@ test_internal_url_dispatches_through_controller (void)
     g_assert_cmpstr (test_html->type, ==, URL_TYPE_REPORT);
     g_assert_cmpstr (test_html->location, ==, "income");
     g_assert_cmpstr (test_html->label, ==, "details");
-    g_assert_true (test_html->new_window_hint);
+    g_assert_true (test_html->new_window);
 
     g_assert_false (gnc_html_handle_internal_url (html, "https://example.invalid", FALSE));
     g_assert_cmpstr (test_html->location, ==, "income");

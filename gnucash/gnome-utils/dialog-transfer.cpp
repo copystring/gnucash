@@ -218,7 +218,7 @@ void gnc_xfer_description_insert_cb(GtkEditable *editable,
                                     gint *start_pos,
                                     XferDialog *xferData);
 void gnc_xfer_dialog_fetch (GtkButton *button, XferDialog *xferData);
-void price_amount_radio_toggled_cb(GtkToggleButton *togglebutton, gpointer data);
+void price_amount_radio_toggled_cb(GtkCheckButton *togglebutton, gpointer data);
 
 void gnc_xfer_dialog_response_cb (gint response, gpointer data);
 void gnc_xfer_dialog_close_cb(GtkWindow *window, gpointer data);
@@ -556,13 +556,13 @@ transfer_account_model_rebuild (XferDialog *xferData, XferDirection direction)
 }
 
 static void
-gnc_xfer_dialog_toggle_cb (GtkToggleButton *button, gpointer data)
+gnc_xfer_dialog_toggle_cb (GtkCheckButton *button, gpointer data)
 {
     auto xferData = static_cast<XferDialog*> (data);
     auto direction = GTK_WIDGET (button) == xferData->from_show_button
         ? XFER_DIALOG_FROM : XFER_DIALOG_TO;
     auto info = direction == XFER_DIALOG_FROM ? &xferData->from_info : &xferData->to_info;
-    info->show_inc_exp = gtk_toggle_button_get_active (button);
+    info->show_inc_exp = gtk_check_button_get_active (button);
     info->show_hidden = FALSE;
     transfer_account_model_rebuild (xferData, direction);
 }
@@ -639,11 +639,11 @@ gnc_xfer_dialog_curr_acct_activate(XferDialog *xferData)
 
     gtk_widget_set_sensitive(xferData->curr_xfer_table, curr_active);
     gtk_widget_set_sensitive(xferData->price_edit,
-                             curr_active && gtk_toggle_button_get_active
-                             (GTK_TOGGLE_BUTTON(xferData->price_radio)));
+                             curr_active && gtk_check_button_get_active
+                             (GTK_CHECK_BUTTON(xferData->price_radio)));
     gtk_widget_set_sensitive(xferData->to_amount_edit,
-                             curr_active && gtk_toggle_button_get_active
-                             (GTK_TOGGLE_BUTTON(xferData->amount_radio)));
+                             curr_active && gtk_check_button_get_active
+                             (GTK_CHECK_BUTTON(xferData->amount_radio)));
     gtk_widget_set_sensitive(xferData->price_radio, curr_active);
     gtk_widget_set_sensitive(xferData->amount_radio, curr_active);
 
@@ -663,16 +663,16 @@ gnc_xfer_dialog_curr_acct_activate(XferDialog *xferData)
 
 
 void
-price_amount_radio_toggled_cb(GtkToggleButton *togglebutton, gpointer data)
+price_amount_radio_toggled_cb(GtkCheckButton *togglebutton, gpointer data)
 {
     g_return_if_fail (data);
 
     auto xferData = static_cast<XferDialog *> (data);
-    gtk_widget_set_sensitive(xferData->price_edit, gtk_toggle_button_get_active
-                             (GTK_TOGGLE_BUTTON(xferData->price_radio)));
+    gtk_widget_set_sensitive(xferData->price_edit, gtk_check_button_get_active
+                             (GTK_CHECK_BUTTON(xferData->price_radio)));
     gtk_widget_set_sensitive(xferData->to_amount_edit,
-                             gtk_toggle_button_get_active
-                             (GTK_TOGGLE_BUTTON(xferData->amount_radio)));
+                             gtk_check_button_get_active
+                             (GTK_CHECK_BUTTON(xferData->amount_radio)));
 }
 
 
@@ -796,7 +796,7 @@ gnc_xfer_dialog_fill_tree_view (XferDialog *xferData,
     gtk_column_view_append_column (view, column);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroll_win), GTK_WIDGET (view));
     gtk_widget_set_tooltip_text (button, show_inc_exp_message);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (button), FALSE);
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (button), FALSE);
     g_signal_connect (button, "toggled", G_CALLBACK (gnc_xfer_dialog_toggle_cb), xferData);
 
     auto key_controller = gtk_event_controller_key_new ();
@@ -942,7 +942,7 @@ gnc_xfer_dialog_quickfill( XferDialog *xferData )
          * isn't an income or expense account
          */
         if ( (other_type == ACCT_TYPE_EXPENSE) || (other_type == ACCT_TYPE_INCOME) )
-            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(other_button), TRUE);
+            gtk_check_button_set_active(GTK_CHECK_BUTTON(other_button), TRUE);
 
         gnc_transfer_dialog_set_selected_account (xferData, other_acct, other_direction);
 
@@ -1603,8 +1603,8 @@ check_edit(XferDialog *xferData)
 {
     if (!gnc_amount_edit_evaluate (GNC_AMOUNT_EDIT (xferData->price_edit), NULL))
     {
-        if (gtk_toggle_button_get_active
-            (GTK_TOGGLE_BUTTON(xferData->price_radio)))
+        if (gtk_check_button_get_active
+            (GTK_CHECK_BUTTON(xferData->price_radio)))
         {
             gnc_parse_error_dialog (xferData, _("You must enter a valid price."));
             LEAVE("invalid price");
@@ -1614,8 +1614,8 @@ check_edit(XferDialog *xferData)
 
     if (!gnc_amount_edit_evaluate (GNC_AMOUNT_EDIT (xferData->to_amount_edit), NULL))
     {
-        if (gtk_toggle_button_get_active
-            (GTK_TOGGLE_BUTTON(xferData->amount_radio)))
+        if (gtk_check_button_get_active
+            (GTK_CHECK_BUTTON(xferData->amount_radio)))
         {
             gnc_parse_error_dialog (xferData,
                                     _("You must enter a valid 'to' amount."));
@@ -1866,7 +1866,7 @@ gnc_xfer_dialog_response_cb (gint response, gpointer data)
         /* If we've got the price-button set, then make sure we update the
          * to-amount before we use it.
          */
-        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(xferData->price_radio)))
+        if (gtk_check_button_get_active(GTK_CHECK_BUTTON(xferData->price_radio)))
             gnc_xfer_update_to_amount(xferData);
 
         auto price_value = gnc_xfer_dialog_compute_price_value(xferData);
@@ -2355,7 +2355,7 @@ gnc_xfer_dialog_set_from_show_button_active( XferDialog *xferData,
 {
     if ( xferData && xferData->from_show_button )
     {
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(xferData->from_show_button),
+        gtk_check_button_set_active( GTK_CHECK_BUTTON(xferData->from_show_button),
                                       set_value );
     }
 }
@@ -2366,7 +2366,7 @@ gnc_xfer_dialog_set_to_show_button_active( XferDialog *xferData,
 {
     if ( xferData && xferData->to_show_button )
     {
-        gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(xferData->to_show_button),
+        gtk_check_button_set_active( GTK_CHECK_BUTTON(xferData->to_show_button),
                                       set_value );
     }
 }
@@ -2433,8 +2433,8 @@ gnc_transfer_dialog_set_selected_account (XferDialog *dialog,
         ? dialog->from_show_button : dialog->to_show_button;
     auto show_inc_exp = xaccAccountGetType (account) == ACCT_TYPE_EXPENSE ||
                         xaccAccountGetType (account) == ACCT_TYPE_INCOME;
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (show_button)) != show_inc_exp)
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (show_button), show_inc_exp);
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (show_button)) != show_inc_exp)
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (show_button), show_inc_exp);
     auto selection = direction == XFER_DIALOG_FROM
         ? dialog->from_account_selection : dialog->to_account_selection;
     transfer_account_select (selection, account);

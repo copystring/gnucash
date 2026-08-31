@@ -56,6 +56,21 @@
           </object>
         </child>
         <child>
+          <object class="GtkCheckButton" id="pref/dialogs.import.hbci/import-noted-transactions">
+            <property name="label" translatable="1">Import noted or _pending transactions</property>
+            <property name="focusable">1</property>
+            <property name="has-tooltip">1</property>
+            <property name="tooltip-markup">If active, GnuCash will import AqBanking noted or pending transactions. These transactions are not final and may later appear again as booked transactions.</property>
+            <property name="tooltip-text" translatable="1">If active, GnuCash will import AqBanking noted or pending transactions. These transactions are not final and may later appear again as booked transactions.</property>
+            <property name="halign">start</property>
+            <property name="use-underline">1</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="row">4</property>
+            </layout>
+          </object>
+        </child>
+        <child>
           <object class="GtkCheckButton" id="checkbutton3">
             <property name="label" translatable="1">_Verbose debug messages</property>
             <property name="focusable">1</property>
@@ -66,7 +81,7 @@
             <property name="use-underline">1</property>
             <layout>
               <property name="column">0</property>
-              <property name="row">4</property>
+              <property name="row">5</property>
             </layout>
           </object>
         </child>

@@ -239,8 +239,8 @@ date_close_collect_values (DialogDateClose *ddc)
     }
 
     if (ddc->question_check)
-        ddc->answer = gtk_toggle_button_get_active (
-            GTK_TOGGLE_BUTTON (ddc->question_check));
+        ddc->answer = gtk_check_button_get_active (
+            GTK_CHECK_BUTTON (ddc->question_check));
 
     return TRUE;
 }
@@ -604,7 +604,7 @@ date_close_create_date_account_dialog (
     {
         gtk_check_button_set_label (GTK_CHECK_BUTTON (ddc->question_check),
                                     question_check_message);
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ddc->question_check),
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (ddc->question_check),
                                       ddc->answer);
     }
     else

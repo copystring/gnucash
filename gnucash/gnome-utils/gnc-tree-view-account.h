@@ -41,11 +41,11 @@ typedef struct
 void account_filter_dialog_create (AccountFilterDialog *fd, GncPluginPage *page);
 gboolean gnc_plugin_page_account_tree_filter_accounts (Account *account,
                                                          gpointer user_data);
-void gppat_filter_show_hidden_toggled_cb (GtkToggleButton *togglebutton,
+void gppat_filter_show_hidden_toggled_cb (GtkCheckButton *togglebutton,
                                           AccountFilterDialog *fd);
-void gppat_filter_show_zero_toggled_cb (GtkToggleButton *togglebutton,
+void gppat_filter_show_zero_toggled_cb (GtkCheckButton *togglebutton,
                                         AccountFilterDialog *fd);
-void gppat_filter_show_unused_toggled_cb (GtkToggleButton *togglebutton,
+void gppat_filter_show_unused_toggled_cb (GtkCheckButton *togglebutton,
                                           AccountFilterDialog *fd);
 void gppat_filter_clear_all_cb (GtkWidget *button, AccountFilterDialog *fd);
 void gppat_filter_select_all_cb (GtkWidget *button, AccountFilterDialog *fd);

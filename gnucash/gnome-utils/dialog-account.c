@@ -364,26 +364,26 @@ gnc_account_to_ui (AccountWindow *aw)
     gnc_account_opening_balance_button_update (aw, commodity);
 
     flag = xaccAccountGetIsOpeningBalance (account);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(aw->opening_balance_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(aw->opening_balance_button),
                                   flag);
 
     flag = xaccAccountGetTaxRelated (account);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(aw->tax_related_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(aw->tax_related_button),
                                   flag);
 
     flag = xaccAccountGetPlaceholder (account);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(aw->placeholder_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(aw->placeholder_button),
                                   flag);
 
     flag = xaccAccountGetHidden (account);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(aw->hidden_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(aw->hidden_button),
                                   flag);
 
     aw->balance_is_reversed = gnc_reverse_balance (account);
 
     flag = xaccAccountGetIncludeSubAccountBalances (account);
 
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(aw->include_balance_sub_accts),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON(aw->include_balance_sub_accts),
                                   flag);
 
     balance_limit_valid = xaccAccountGetHigherBalanceLimit (account, &balance_limit);
@@ -575,23 +575,23 @@ gnc_ui_to_account (AccountWindow *aw)
         xaccAccountSetNotes (account, new_string);
     g_free (new_string);
 
-    flag = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(aw->opening_balance_button));
+    flag = gtk_check_button_get_active (GTK_CHECK_BUTTON(aw->opening_balance_button));
     if (xaccAccountGetIsOpeningBalance (account) != flag)
         xaccAccountSetIsOpeningBalance (account, flag);
 
-    flag = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(aw->tax_related_button));
+    flag = gtk_check_button_get_active (GTK_CHECK_BUTTON(aw->tax_related_button));
     if (xaccAccountGetTaxRelated (account) != flag)
         xaccAccountSetTaxRelated (account, flag);
 
-    flag = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(aw->placeholder_button));
+    flag = gtk_check_button_get_active (GTK_CHECK_BUTTON(aw->placeholder_button));
     if (xaccAccountGetPlaceholder (account) != flag)
         xaccAccountSetPlaceholder (account, flag);
 
-    flag = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(aw->hidden_button));
+    flag = gtk_check_button_get_active (GTK_CHECK_BUTTON(aw->hidden_button));
     if (xaccAccountGetHidden (account) != flag)
         xaccAccountSetHidden (account, flag);
 
-    flag = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(aw->auto_interest_button));
+    flag = gtk_check_button_get_active (GTK_CHECK_BUTTON(aw->auto_interest_button));
     if (xaccAccountGetAutoInterest (account) != flag)
         xaccAccountSetAutoInterest (account, flag);
 
@@ -602,7 +602,7 @@ gnc_ui_to_account (AccountWindow *aw)
     if (parent_account != gnc_account_get_parent (account))
         gnc_account_append_child (parent_account, account);
 
-    flag = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(
+    flag = gtk_check_button_get_active (GTK_CHECK_BUTTON(
                                          aw->include_balance_sub_accts));
 
     xaccAccountSetIncludeSubAccountBalances (account, flag);
@@ -671,7 +671,7 @@ gnc_ui_to_account (AccountWindow *aw)
 
     date = gnc_date_edit_get_date (GNC_DATE_EDIT(aw->opening_balance_date_edit));
 
-    use_equity = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(aw->opening_equity_radio));
+    use_equity = gtk_check_button_get_active (GTK_CHECK_BUTTON(aw->opening_equity_radio));
 
     if (use_equity)
     {
@@ -1200,8 +1200,8 @@ gnc_new_account_ok (AccountWindow *aw)
     {
         gboolean use_equity;
 
-        use_equity = gtk_toggle_button_get_active
-                     (GTK_TOGGLE_BUTTON(aw->opening_equity_radio));
+        use_equity = gtk_check_button_get_active
+                     (GTK_CHECK_BUTTON(aw->opening_equity_radio));
 
         if (!use_equity)
         {
@@ -1484,7 +1484,7 @@ set_auto_interest_box (AccountWindow *aw)
     gboolean type_ok = account_type_has_auto_interest_xfer (aw->type);
     gboolean pref_set = xaccAccountGetAutoInterest (account);
 
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (aw->auto_interest_button),
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (aw->auto_interest_button),
                                   type_ok && pref_set);
     gtk_widget_set_sensitive (aw->auto_interest_button, type_ok);
 }
@@ -1695,7 +1695,7 @@ opening_equity_cb (GtkWidget *w, gpointer data)
     AccountWindow *aw = data;
     gboolean use_equity;
 
-    use_equity = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(w));
+    use_equity = gtk_check_button_get_active (GTK_CHECK_BUTTON(w));
 
     gtk_widget_set_sensitive (aw->transfer_account_scroll, !use_equity);
 }
@@ -2630,11 +2630,11 @@ update_account_color (Account *acc, const gchar *old_color, const gchar *new_col
 }
 
 static void
-enable_box_cb (GtkToggleButton *toggle_button, gpointer user_data)
+enable_box_cb (GtkCheckButton *toggle_button, gpointer user_data)
 {
     gboolean sensitive = FALSE;
 
-    if (gtk_toggle_button_get_active (toggle_button))
+    if (gtk_check_button_get_active (toggle_button))
         sensitive = TRUE;
 
     gtk_widget_set_sensitive (GTK_WIDGET(user_data), sensitive);
@@ -2721,13 +2721,13 @@ cascade_dialog_apply_cb (GtkButton *button, CascadePropertiesDialog *data)
         cascade_dialog_close (data);
         return;
     }
-    color_active = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (data->enable_color));
-    placeholder_active = gtk_toggle_button_get_active (
-        GTK_TOGGLE_BUTTON (data->enable_placeholder));
-    hidden_active = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (data->enable_hidden));
-    replace = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (data->over_write));
-    placeholder = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (data->placeholder_button));
-    hidden = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (data->hidden_button));
+    color_active = gtk_check_button_get_active (GTK_CHECK_BUTTON (data->enable_color));
+    placeholder_active = gtk_check_button_get_active (
+        GTK_CHECK_BUTTON (data->enable_placeholder));
+    hidden_active = gtk_check_button_get_active (GTK_CHECK_BUTTON (data->enable_hidden));
+    replace = gtk_check_button_get_active (GTK_CHECK_BUTTON (data->over_write));
+    placeholder = gtk_check_button_get_active (GTK_CHECK_BUTTON (data->placeholder_button));
+    hidden = gtk_check_button_get_active (GTK_CHECK_BUTTON (data->hidden_button));
 
     if (color_active)
     {

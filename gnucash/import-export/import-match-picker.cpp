@@ -331,7 +331,7 @@ match_update_match_model (GNCImportMatchPicker *matcher)
     if (!matcher->selected_trans_info)
         return;
 
-    auto show_reconciled = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (matcher->reconciled_chk));
+    auto show_reconciled = gtk_check_button_get_active (GTK_CHECK_BUTTON (matcher->reconciled_chk));
     for (auto n = gnc_import_TransInfo_get_match_list (matcher->selected_trans_info); n; n = g_list_next (n))
     {
         auto match_info = static_cast<GNCImportMatchInfo*> (n->data);

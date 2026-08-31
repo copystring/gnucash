@@ -75,12 +75,12 @@ static void csv_export_assistant_finish_page_prepare (GncImportAssistant *assist
 static void csv_export_assistant_summary_page_prepare (GncImportAssistant *assistant,
                                                        gpointer user_data);
 
-void csv_export_quote_cb (GtkToggleButton *button, gpointer user_data);
-void csv_export_simple_cb (GtkToggleButton *button, gpointer user_data);
+void csv_export_quote_cb (GtkCheckButton *button, gpointer user_data);
+void csv_export_simple_cb (GtkCheckButton *button, gpointer user_data);
 void csv_export_sep_cb (GtkWidget *radio, gpointer user_data);
 void csv_export_custom_entry_cb (GtkWidget *widget, gpointer user_data);
 
-void csv_export_show_range_cb (GtkToggleButton *button, gpointer user_data);
+void csv_export_show_range_cb (GtkCheckButton *button, gpointer user_data);
 void csv_export_start_date_cb (GtkWidget *radio, gpointer user_data);
 void csv_export_end_date_cb (GtkWidget *radio, gpointer user_data);
 
@@ -278,7 +278,7 @@ csv_export_sep_cb (GtkWidget *radio, gpointer user_data)
     GncImportAssistant *assistant = GNC_IMPORT_ASSISTANT (info->assistant);
     const gchar *name;
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(radio)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON(radio)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;
@@ -313,11 +313,11 @@ csv_export_sep_cb (GtkWidget *radio, gpointer user_data)
  * call back for use of quotes
  *******************************************************/
 void
-csv_export_quote_cb (GtkToggleButton *button, gpointer user_data)
+csv_export_quote_cb (GtkCheckButton *button, gpointer user_data)
 {
     CsvExportInfo *info = user_data;
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(button)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON(button)))
         info->use_quotes = TRUE;
     else
         info->use_quotes = FALSE;
@@ -329,11 +329,11 @@ csv_export_quote_cb (GtkToggleButton *button, gpointer user_data)
  * call back for use of simple_layout
  *******************************************************/
 void
-csv_export_simple_cb (GtkToggleButton *button, gpointer user_data)
+csv_export_simple_cb (GtkCheckButton *button, gpointer user_data)
 {
     CsvExportInfo *info = user_data;
 
-    info->simple_layout = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(button));
+    info->simple_layout = gtk_check_button_get_active (GTK_CHECK_BUTTON(button));
 
     gchar *msg = NULL;
     if (info->simple_layout)
@@ -629,7 +629,7 @@ get_filter_times (CsvExportInfo *info)
 {
     time64 time_val;
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(info->csvd.start_date_choose)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON(info->csvd.start_date_choose)))
     {
         time_val = gnc_date_edit_get_date (GNC_DATE_EDIT(info->csvd.start_date));
         time_val = gnc_time64_get_day_start (time_val);
@@ -637,13 +637,13 @@ get_filter_times (CsvExportInfo *info)
     }
     else
     {
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(info->csvd.start_date_today)))
+        if (gtk_check_button_get_active (GTK_CHECK_BUTTON(info->csvd.start_date_today)))
             info->csvd.start_time = gnc_time64_get_today_start();
         else
             info->csvd.start_time = info->csvd.earliest_time;
     }
 
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(info->csvd.end_date_choose)))
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON(info->csvd.end_date_choose)))
     {
         time_val = gnc_date_edit_get_date (GNC_DATE_EDIT(info->csvd.end_date));
         time_val = gnc_time64_get_day_end (time_val);
@@ -651,7 +651,7 @@ get_filter_times (CsvExportInfo *info)
     }
     else
     {
-        if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(info->csvd.end_date_today)))
+        if (gtk_check_button_get_active (GTK_CHECK_BUTTON(info->csvd.end_date_today)))
             info->csvd.end_time = gnc_time64_get_today_end();
         else
             info->csvd.end_time = info->csvd.latest_time;
@@ -665,14 +665,14 @@ get_filter_times (CsvExportInfo *info)
  * call back for show range button
  *******************************************************/
 void
-csv_export_show_range_cb (GtkToggleButton *button, gpointer user_data)
+csv_export_show_range_cb (GtkCheckButton *button, gpointer user_data)
 {
     CsvExportInfo *info = user_data;
     gboolean active;
 
     g_return_if_fail (GTK_IS_TOGGLE_BUTTON(button));
 
-    active = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(button));
+    active = gtk_check_button_get_active (GTK_CHECK_BUTTON(button));
 
     if (!active)
     {
@@ -714,7 +714,7 @@ csv_export_start_date_cb (GtkWidget *radio, gpointer user_data)
 
     g_return_if_fail (GTK_IS_TOGGLE_BUTTON(radio));
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(radio)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON(radio)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;
@@ -741,7 +741,7 @@ csv_export_end_date_cb (GtkWidget *radio, gpointer user_data)
 
     g_return_if_fail (GTK_IS_TOGGLE_BUTTON(radio));
 
-    if (!gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(radio)))
+    if (!gtk_check_button_get_active (GTK_CHECK_BUTTON(radio)))
     {
         LEAVE("1st callback of pair. Defer to 2nd callback.");
         return;
@@ -1116,7 +1116,7 @@ csv_export_assistant_create (CsvExportInfo *info)
 
         info->csvd.start_time = info->csvd.earliest_time;
         info->csvd.end_time = info->csvd.latest_time;
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(button), FALSE);
+        gtk_check_button_set_active (GTK_CHECK_BUTTON(button), FALSE);
 
         table = GTK_WIDGET(gtk_builder_get_object (builder, "select_range_table"));
         info->csvd.table = table;

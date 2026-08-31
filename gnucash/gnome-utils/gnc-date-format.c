@@ -277,7 +277,7 @@ gnc_date_format_set_months (GNCDateFormat *gdf, GNCDateMonthFormat months)
 
     g_return_if_fail(button);
 
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), TRUE);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(button), TRUE);
     gnc_date_format_compute_format(gdf);
 }
 
@@ -288,11 +288,11 @@ gnc_date_format_get_months (GNCDateFormat *gdf)
     g_return_val_if_fail(gdf, GNCDATE_MONTH_NUMBER);
     g_return_val_if_fail(GNC_IS_DATE_FORMAT(gdf), GNCDATE_MONTH_NUMBER);
 
-    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gdf->months_number)))
+    if (gtk_check_button_get_active(GTK_CHECK_BUTTON(gdf->months_number)))
         return GNCDATE_MONTH_NUMBER;
-    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gdf->months_abbrev)))
+    if (gtk_check_button_get_active(GTK_CHECK_BUTTON(gdf->months_abbrev)))
         return GNCDATE_MONTH_ABBREV;
-    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gdf->months_name)))
+    if (gtk_check_button_get_active(GTK_CHECK_BUTTON(gdf->months_name)))
         return GNCDATE_MONTH_NAME;
 
     /* We should never reach this point */
@@ -307,7 +307,7 @@ gnc_date_format_set_years (GNCDateFormat *gdf, gboolean include_century)
     g_return_if_fail(gdf);
     g_return_if_fail(GNC_IS_DATE_FORMAT(gdf));
 
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gdf->years_button),
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(gdf->years_button),
                                  include_century);
     gnc_date_format_compute_format(gdf);
 }
@@ -319,7 +319,7 @@ gnc_date_format_get_years (GNCDateFormat *gdf)
     g_return_val_if_fail(gdf, FALSE);
     g_return_val_if_fail(GNC_IS_DATE_FORMAT(gdf), FALSE);
 
-    return gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gdf->years_button));
+    return gtk_check_button_get_active(GTK_CHECK_BUTTON(gdf->years_button));
 }
 
 
@@ -428,7 +428,7 @@ gnc_date_format_refresh (GNCDateFormat *gdf)
         break;
 
     case QOF_DATE_FORMAT_ISO:
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gdf->months_number), TRUE);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(gdf->months_number), TRUE);
         enable_year = check_modifiers = TRUE;
         enable_month = enable_custom = FALSE;
         break;
@@ -447,21 +447,21 @@ gnc_date_format_refresh (GNCDateFormat *gdf)
     /* Update the format string based upon the user's preferences */
     if (check_modifiers)
     {
-        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gdf->months_number)))
+        if (gtk_check_button_get_active(GTK_CHECK_BUTTON(gdf->months_number)))
         {
             format = g_strdup(qof_date_format_get_string(sel_option));
         }
         else
         {
             format = g_strdup(qof_date_text_format_get_string(sel_option));
-            if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gdf->months_name)))
+            if (gtk_check_button_get_active(GTK_CHECK_BUTTON(gdf->months_name)))
             {
                 c = strchr(format, 'b');
                 if (c)
                     *c = 'B';
             }
         }
-        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gdf->years_button)))
+        if (gtk_check_button_get_active(GTK_CHECK_BUTTON(gdf->years_button)))
         {
             c = strchr(format, 'y');
             if (c)
