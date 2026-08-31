@@ -1745,12 +1745,12 @@ gwen_message_window_new (GtkWindow *parent, const gchar *title,
                          const gchar *text, GtkBox **actions_out)
 {
     GtkWindow *window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (window);
     GtkWidget *content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
     GtkWidget *actions = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *label;
     gchar *raw_text = strip_html (g_strdup (text));
 
-    gnc_window_bind_to_application (window);
     label = gtk_label_new (raw_text);
     g_free (raw_text);
     gtk_label_set_justify (GTK_LABEL (label), GTK_JUSTIFY_LEFT);

@@ -216,11 +216,9 @@ target_link_libraries(gnc-gnome-utils
     gnucash-guile
     PkgConfig::GTK4
     ${CMAKE_DL_LIBS}
-    ${LIBSECRET_LDFLAGS}
-    ${GTK_MAC_LDFLAGS})
+    ${LIBSECRET_LDFLAGS})
 
-target_compile_definitions(gnc-gnome-utils PUBLIC ${GTK_MAC_CFLAGS_OTHER}
-  PRIVATE -DG_LOG_DOMAIN=\"gnc.gui\")
+target_compile_definitions(gnc-gnome-utils PRIVATE -DG_LOG_DOMAIN=\"gnc.gui\")
 
 if (BUILDING_FROM_VCS)
   target_compile_definitions(gnc-gnome-utils PRIVATE -DGNC_VCS=\"git\")
@@ -240,7 +238,6 @@ target_include_directories(gnc-gnome-utils
       ${CMAKE_CURRENT_SOURCE_DIR}
       ${CMAKE_SOURCE_DIR}/gnucash/register/register-core
     PRIVATE
-      ${GTK_MAC_INCLUDE_DIRS}
       ${LIBSECRET_INCLUDE_DIRS}
       ${CMAKE_CURRENT_BINARY_DIR}
 )

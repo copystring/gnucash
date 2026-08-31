@@ -36,7 +36,7 @@
     the name of a glade file and the content to load from that
     file along with a widget in that file.  If a partial
     page is added, the widget name provided must be that of
-    a GtkTable containing four columns. If a full page is added,
+    a GtkGrid containing four columns. If a full page is added,
     the widget name provided to this code can be any kind of
     widget, but for consistency it should probably be the same.
 

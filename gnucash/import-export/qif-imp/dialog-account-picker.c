@@ -22,6 +22,7 @@
 #include "assistant-qif-import.h"
 #include "dialog-utils.h"
 #include "gnc-prefs.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-ui-util.h"
 #include "guile-mappings.h"
 #include "gnc-guile-utils.h"
@@ -394,6 +395,7 @@ picker_new_clicked (GtkButton *button, gpointer user_data)
 
     dialog->picker = picker;
     dialog->window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (dialog->window);
     dialog->entry = GTK_ENTRY (gtk_entry_new ());
     gtk_window_set_title (dialog->window, _("New Account"));
     gtk_window_set_transient_for (dialog->window, picker->window);

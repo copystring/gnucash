@@ -20,6 +20,7 @@
 #include "dialog-custom-report.h"
 #include "dialog-utils.h"
 #include "gnc-main-window.h"
+#include "gnc-gtk-utils.h"
 #include "window-report.h"
 #include "guile-mappings.h"
 #include "gnc-guile-utils.h"
@@ -485,6 +486,7 @@ custom_report_edit_guid (CustomReportDialog *crd, const GncGUID *guid)
     }
     request = g_new0 (CustomReportNameRequest, 1);
     request->window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (request->window);
     request->guid = *guid;
     g_weak_ref_init (&request->parent, owner);
     gtk_window_set_title (request->window, _("Edit Report Configuration Name"));
@@ -622,6 +624,7 @@ custom_report_delete_guid (CustomReportDialog *crd, const GncGUID *guid)
     message = g_strdup_printf (_("Are you sure you want to delete %s?"), name);
     request = g_new0 (CustomReportDeleteRequest, 1);
     request->window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (request->window);
     request->guid = *guid;
     g_weak_ref_init (&request->parent, owner);
     gtk_window_set_title (request->window, _("Delete Report Configuration?"));

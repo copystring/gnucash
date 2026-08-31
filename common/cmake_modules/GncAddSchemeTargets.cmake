@@ -35,6 +35,55 @@ function(make_win32_path_list PATH)
     set(${PATH} "${newpath}" PARENT_SCOPE)
 endfunction()
 
+function(make_guile_relative_path _OUTPUT _PATH _PREFIX)
+    set(_path "${_PATH}")
+    set(_prefix "${_PREFIX}")
+
+    # MSYS2 Guile records an MSYS prefix but its runtime directory functions
+    # return native Win32 paths. Put both in the MSYS namespace before
+    # calculating the prefix-relative install directory.
+    if(MINGW64 AND _prefix MATCHES "^/" AND _path MATCHES "^[A-Za-z]:[/\\\\]")
+        find_program(CYGPATH_EXECUTABLE NAMES cygpath)
+        if(NOT CYGPATH_EXECUTABLE)
+            message(FATAL_ERROR
+                "cygpath is required to resolve Guile directory '${_path}'")
+        endif()
+        execute_process(
+            COMMAND "${CYGPATH_EXECUTABLE}" -u "${_path}"
+            RESULT_VARIABLE _cygpath_result
+            OUTPUT_VARIABLE _path
+            ERROR_VARIABLE _cygpath_error
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_STRIP_TRAILING_WHITESPACE)
+        if(_cygpath_result)
+            message(FATAL_ERROR
+                "Could not resolve Guile directory '${_PATH}':\n${_cygpath_error}")
+        endif()
+    else()
+        string(REPLACE "\\" "/" _path "${_path}")
+        string(REPLACE "\\" "/" _prefix "${_prefix}")
+    endif()
+
+    if(NOT _prefix STREQUAL "/")
+        string(REGEX REPLACE "/+$" "" _prefix "${_prefix}")
+    endif()
+    if(_prefix STREQUAL "/")
+        string(REGEX REPLACE "^/+" "" _relative_path "${_path}")
+    elseif(_path STREQUAL _prefix)
+        set(_relative_path "")
+    else()
+        string(FIND "${_path}" "${_prefix}/" _prefix_position)
+        if(NOT _prefix_position EQUAL 0)
+            message(FATAL_ERROR
+                "Guile directory '${_PATH}' is outside its prefix '${_PREFIX}'")
+        endif()
+        string(LENGTH "${_prefix}/" _prefix_length)
+        string(SUBSTRING "${_path}" ${_prefix_length} -1 _relative_path)
+    endif()
+
+    set(${_OUTPUT} "${_relative_path}" PARENT_SCOPE)
+endfunction()
+
 # This function will set two or four environment variables to a directory in the parent PARENT_SCOPE
 # * _DIRCLASS (eg "prefix", "sitedir" is used to construct the variable name(s) and in error messages
 # * _DIRCMD is the guile command to run to get the path for the given _DIRCLASS (eg "(display (%site-dir))")
@@ -69,21 +118,7 @@ function(find_one_guile_dir _DIRCLASS _DIRCMD _PREFIX)
     set(GUILE_UNIX_${CLASS_UPPER} ${CMD_UNIX_OUTPUT} PARENT_SCOPE)
 
     if (_PREFIX)
-      # Paths with backslashes can't be used in regular expressions
-      # because cmake interprets the backslash as an escape. Convert
-      # them to forward slashes on both strings. On MinGW Guile's
-      # build info may use an MSYS prefix while its runtime directory
-      # functions use a Win32 prefix, so normalize both before comparing.
-        set(_prefix_re ${_PREFIX})
-        set(_cmd_output ${CMD_OUTPUT})
-        if (MINGW64)
-            make_unix_path(_prefix_re)
-            make_unix_path(_cmd_output)
-        else()
-            string(REGEX REPLACE "\\\\" "/" _prefix_re ${_prefix_re})
-            string(REGEX REPLACE "\\\\" "/" _cmd_output ${_cmd_output})
-        endif()
-        string(REGEX REPLACE "^${_prefix_re}[\\/]*" "" CMD_REL_OUTPUT ${_cmd_output})
+        make_guile_relative_path(CMD_REL_OUTPUT "${CMD_OUTPUT}" "${_PREFIX}")
         set(GUILE_REL_${CLASS_UPPER} ${CMD_REL_OUTPUT} PARENT_SCOPE)
         set(CMD_REL_UNIX_OUTPUT  ${CMD_REL_OUTPUT})
         make_unix_path(CMD_REL_UNIX_OUTPUT)
@@ -261,10 +296,18 @@ function(gnc_add_scheme_targets _TARGET)
         message("add_custom_command: output = ${output_file}")
       endif()
       if (MINGW64)
-        set(fpath "")
+        set(_scheme_runtime_path "${BINDIR_BUILD}")
+        get_filename_component(_guile_runtime_path
+          "${GUILE_EXECUTABLE}" DIRECTORY)
+        list(APPEND _scheme_runtime_path "${_guile_runtime_path}")
+        foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+          list(APPEND _scheme_runtime_path "${_prefix}/bin")
+        endforeach()
         file(TO_CMAKE_PATH "$ENV{PATH}" fpath)
-        set(LIBRARY_PATH "PATH=${BINDIR_BUILD};${fpath}")
-        make_win32_path_list(LIBRARY_PATH)
+        list(APPEND _scheme_runtime_path ${fpath})
+        list(REMOVE_DUPLICATES _scheme_runtime_path)
+        make_win32_path_list(_scheme_runtime_path)
+        set(LIBRARY_PATH "PATH=${_scheme_runtime_path}")
       else()
         set (LIBRARY_PATH "LD_LIBRARY_PATH=${LIBDIR_BUILD}:${LIBDIR_BUILD}/gnucash:$ENV{LD_LIBRARY_PATH}")
       endif()
@@ -348,6 +391,7 @@ endfunction()
 # See that function's description for more details.
 function(gnc_add_scheme_test_targets _TARGET)
   gnc_add_scheme_targets(${_TARGET} ${ARGN} TEST)
+  add_dependencies(testbuild ${_TARGET})
 endfunction()
 
 # gnc_add_scheme_deprecated_module (OLD_MODULE old_module_name

@@ -119,6 +119,7 @@ set(gnucash_cli_SOURCES
     gnucash-cli.cpp
     gnucash-commands.cpp
     gnucash-core-app.cpp
+    gnucash-guile-bootstrap.c
     )
 
 if (MINGW)
@@ -169,6 +170,19 @@ endif()
 
 install(TARGETS gnucash gnucash-cli DESTINATION ${CMAKE_INSTALL_BINDIR})
 # No headers to install.
+
+get_filename_component(_guile_runtime_bindir "${GUILE_EXECUTABLE}" DIRECTORY)
+get_filename_component(_guile_runtime_prefix "${_guile_runtime_bindir}" DIRECTORY)
+
+add_test(NAME test-gnucash-cli-report-bootstrap
+  COMMAND ${CMAKE_COMMAND}
+    -DGNUCASH_CLI_EXECUTABLE=$<TARGET_FILE:gnucash-cli>
+    -DBUILD_ROOT=${CMAKE_BINARY_DIR}
+    -DGUILE_RUNTIME_LIBDIR=${_guile_runtime_prefix}/${GUILE_REL_LIBDIR}
+    -DGUILE_RUNTIME_CCACHEDIR=${_guile_runtime_prefix}/${GUILE_REL_CCACHEDIR}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/test-gnucash-cli-report-bootstrap.cmake)
+gnc_add_test_runtime_path(test-gnucash-cli-report-bootstrap)
+add_dependencies(testbuild gnucash-cli scm-reports)
 
 
 set(TOP_SRC_DIR ${CMAKE_SOURCE_DIR})
@@ -274,6 +288,7 @@ install(FILES ${ENVIRONMENT_FILE_DIR}/environment DESTINATION
 set_local_dist(gnucash_DIST_local CMakeLists.txt environment.in generate-gnc-script
     gnucash.cpp gnucash-commands.cpp gnucash-cli.cpp gnucash-core-app.cpp
     gnucash-guile-bootstrap.c
+    test-gnucash-cli-report-bootstrap.cmake
     gnucash-locale-macos.mm gnucash-locale-windows.c gnucash.rc.in gnucash-valgrind.in
     ${gnucash_GRESOURCES}
     ${gnucash_noinst_HEADERS} ${gnucash_EXTRA_DIST})

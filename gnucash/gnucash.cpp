@@ -322,6 +322,57 @@ on_application_activate ([[maybe_unused]] GtkApplication *application, gpointer 
     static_cast<Gnucash::Gnucash*>(user_data)->activate ();
 }
 
+#ifdef MAC_INTEGRATION
+static void
+on_macos_application_action (GSimpleAction *action, GVariant *parameter,
+                             gpointer user_data)
+{
+    auto application = GTK_APPLICATION (user_data);
+    auto active_window = gtk_application_get_active_window (application);
+    auto main_window = gnc_ui_get_main_window (active_window
+                                               ? GTK_WIDGET (active_window)
+                                               : nullptr);
+    const auto action_name = g_action_get_name (G_ACTION (action));
+    const char *window_action = nullptr;
+
+    (void)parameter;
+    if (g_str_equal (action_name, "quit"))
+        window_action = "FileQuitAction";
+    else if (g_str_equal (action_name, "preferences"))
+        window_action = "EditPreferencesAction";
+    else if (g_str_equal (action_name, "about"))
+        window_action = "HelpAboutAction";
+
+    if (main_window && window_action)
+        g_action_group_activate_action (G_ACTION_GROUP (main_window),
+                                        window_action, nullptr);
+    else if (g_str_equal (action_name, "quit"))
+        g_application_quit (G_APPLICATION (application));
+}
+
+static void
+on_macos_application_startup (GApplication *application, gpointer user_data)
+{
+    static const GActionEntry actions[] =
+    {
+        { "about", on_macos_application_action, nullptr, nullptr, nullptr },
+        { "preferences", on_macos_application_action, nullptr, nullptr, nullptr },
+        { "quit", on_macos_application_action, nullptr, nullptr, nullptr },
+    };
+    const char *quit_accels[] = { "<Meta>q", nullptr };
+    const char *preferences_accels[] = { "<Meta>comma", nullptr };
+
+    (void)user_data;
+    g_action_map_add_action_entries (G_ACTION_MAP (application), actions,
+                                     G_N_ELEMENTS (actions), application);
+    gtk_application_set_accels_for_action (GTK_APPLICATION (application),
+                                           "app.quit", quit_accels);
+    gtk_application_set_accels_for_action (GTK_APPLICATION (application),
+                                           "app.preferences",
+                                           preferences_accels);
+}
+#endif
+
 static int
 on_application_command_line ([[maybe_unused]] GApplication *application,
                              GApplicationCommandLine *command_line,
@@ -386,6 +437,10 @@ Gnucash::Gnucash::run (int argc, char **argv)
 {
     auto gtk_application = gtk_application_new ("org.gnucash.GnuCash",
                                                 G_APPLICATION_HANDLES_COMMAND_LINE);
+#ifdef MAC_INTEGRATION
+    g_signal_connect (gtk_application, "startup",
+                      G_CALLBACK (on_macos_application_startup), nullptr);
+#endif
     g_signal_connect (gtk_application, "activate", G_CALLBACK (on_application_activate), this);
     g_signal_connect (gtk_application, "command-line",
                       G_CALLBACK (on_application_command_line), this);

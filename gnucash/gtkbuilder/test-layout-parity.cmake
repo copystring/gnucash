@@ -1,14 +1,48 @@
-# Verify every declarative GTK4 resource and the GTK3-to-GTK4 layout invariants
+# Verify every declarative resource and the preserved layout invariants
 # that cannot be represented by a GtkBox default alone.
-if (NOT DEFINED GTK4_BUILDER_TOOL OR NOT DEFINED GTKBUILDER_DIR OR NOT DEFINED GNC_SOURCE_DIR OR NOT DEFINED AQB_ASSISTANT)
+if (NOT DEFINED GTK4_BUILDER_TOOL OR NOT DEFINED GTKBUILDER_DIR OR
+    NOT DEFINED GNC_SOURCE_DIR OR NOT DEFINED GTKBUILDER_RESOURCES OR
+    NOT DEFINED AQB_ASSISTANT)
     message(FATAL_ERROR "GTK builder layout parity test was invoked without its source paths")
 endif()
 
-file(GLOB_RECURSE builder_files "${GNC_SOURCE_DIR}/*.glade" "${GNC_SOURCE_DIR}/*.ui")
-list(LENGTH builder_files builder_file_count)
-if (NOT builder_file_count EQUAL 91)
-    message(FATAL_ERROR "Expected 91 tracked declarative GTK resources, found ${builder_file_count}")
-endif()
+# gtkbuilder_SOURCES is the manifest authority for installed builder files.
+# The remaining entries are the explicit manifests of the other CMake resource
+# sets (AqBanking, OFX, and the main GnuCash GResource).
+string(REPLACE "|" ";" gtkbuilder_resources "${GTKBUILDER_RESOURCES}")
+set(builder_files)
+foreach (builder_resource IN LISTS gtkbuilder_resources)
+    list(APPEND builder_files "${GTKBUILDER_DIR}/${builder_resource}")
+endforeach()
+list(APPEND builder_files
+    "${GNC_SOURCE_DIR}/import-export/aqb/assistant-ab-initial.glade"
+    "${GNC_SOURCE_DIR}/import-export/aqb/dialog-ab-pref.glade"
+    "${GNC_SOURCE_DIR}/import-export/aqb/dialog-ab.glade"
+    "${GNC_SOURCE_DIR}/import-export/aqb/gnc-plugin-aqbanking.ui"
+    "${GNC_SOURCE_DIR}/import-export/ofx/gnc-plugin-ofx.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-embedded-register-window.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-main-window.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-account-tree.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-basic-commands.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-bi-import.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-budget.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-business.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-csv-export.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-csv-import.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-customer-import.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-file-history.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-log-replay.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-page-account-tree.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-page-budget.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-page-invoice.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-page-owner-tree.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-page-register.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-page-report.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-page-sx-list.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-qif-import.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-register.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-plugin-report-system.ui"
+    "${GNC_SOURCE_DIR}/ui/gnc-reconcile-window.ui")
 foreach (builder_file IN LISTS builder_files)
     execute_process(
         COMMAND "${GTK4_BUILDER_TOOL}" validate "${builder_file}"
@@ -28,73 +62,149 @@ foreach (builder_file IN LISTS builder_files)
     endif()
 endforeach()
 
-function (read_box_properties relative_file object_id out_var)
-    file(READ "${GTKBUILDER_DIR}/${relative_file}" contents)
-    string(FIND "${contents}" "<object class=\"GtkBox\" id=\"${object_id}\">" object_offset)
-    if (object_offset EQUAL -1)
-        message(FATAL_ERROR "Missing GtkBox ${object_id} in ${relative_file}")
+function (read_object_properties_from_contents contents_var object_id out_var)
+    set(contents "${${contents_var}}")
+    string(REGEX MATCH "<object class=\"[^\"]+\" id=\"${object_id}\">"
+           object_open "${contents}")
+    if (NOT object_open)
+        message(FATAL_ERROR "Missing widget ${object_id}")
     endif()
-    string(SUBSTRING "${contents}" ${object_offset} 2048 object_prefix)
-    string(FIND "${object_prefix}" "<child" first_child)
-    if (first_child EQUAL -1)
-        message(FATAL_ERROR "GtkBox ${object_id} in ${relative_file} has no child boundary")
-    endif()
-    string(SUBSTRING "${object_prefix}" 0 ${first_child} properties)
+
+    string(FIND "${contents}" "${object_open}" object_offset)
+    string(SUBSTRING "${contents}" ${object_offset} -1 object_suffix)
+
+    # Retain all markup belonging to the target object, including direct
+    # layout/style sections after children, while omitting complete nested
+    # object blocks. GtkBuilder puts some direct layout properties after the
+    # child object, so a first-<child> boundary is insufficient.
+    set(properties "")
+    set(remainder "${object_suffix}")
+    set(object_depth 0)
+    while (TRUE)
+        string(REGEX MATCH "</?object([ \t\r\n][^>]*)?>" object_tag
+               "${remainder}")
+        if (NOT object_tag)
+            message(FATAL_ERROR "Widget ${object_id} has no object boundary")
+        endif()
+
+        string(FIND "${remainder}" "${object_tag}" tag_offset)
+        string(SUBSTRING "${remainder}" 0 ${tag_offset} before_tag)
+        if (object_depth EQUAL 1)
+            string(APPEND properties "${before_tag}")
+        endif()
+
+        string(LENGTH "${object_tag}" tag_length)
+        math(EXPR remainder_offset "${tag_offset} + ${tag_length}")
+        string(SUBSTRING "${remainder}" ${remainder_offset} -1 remainder)
+
+        if (object_tag MATCHES "^</object")
+            if (object_depth EQUAL 1)
+                string(APPEND properties "${object_tag}")
+                break()
+            endif()
+            math(EXPR object_depth "${object_depth} - 1")
+        else()
+            if (object_depth EQUAL 0)
+                string(APPEND properties "${object_tag}")
+            endif()
+            if (object_tag MATCHES "/[ \t\r\n]*>$")
+                continue()
+            endif()
+            math(EXPR object_depth "${object_depth} + 1")
+        endif()
+    endwhile()
+
     set(${out_var} "${properties}" PARENT_SCOPE)
 endfunction()
 
+function (read_object_properties file_name object_id out_var)
+    if (IS_ABSOLUTE "${file_name}")
+        file(READ "${file_name}" contents)
+    else()
+        file(READ "${GTKBUILDER_DIR}/${file_name}" contents)
+    endif()
+    read_object_properties_from_contents(contents "${object_id}" properties)
+    set(${out_var} "${properties}" PARENT_SCOPE)
+endfunction()
+
+# Keep the object-boundary helper honest: a child property must never satisfy
+# a parent assertion, including GtkWindow's property-based child topology.
+set(object_boundary_fixture [=[
+<object class="GtkWindow" id="parent">
+  <property name="title">Parent</property>
+  <property name="child">
+    <object class="GtkLabel" id="child">
+      <property name="label">child-only</property>
+    </object>
+  </property>
+  <property name="focus-widget">
+    <object class="GtkLabel" id="self-closing-child" />
+  </property>
+  <property name="resizable">true</property>
+  <layout>
+    <property name="row">5</property>
+  </layout>
+</object>
+]=])
+read_object_properties_from_contents(object_boundary_fixture "parent"
+                                     parent_properties)
+string(FIND "${parent_properties}"
+       "<property name=\"title\">Parent</property>" parent_title_offset)
+string(FIND "${parent_properties}" "child-only" child_property_offset)
+string(FIND "${parent_properties}"
+       "<property name=\"resizable\">true</property>"
+       parent_resizable_offset)
+string(FIND "${parent_properties}" "<layout>" parent_layout_offset)
+string(FIND "${parent_properties}"
+       "<property name=\"row\">5</property>" parent_row_offset)
+if (parent_title_offset EQUAL -1 OR NOT child_property_offset EQUAL -1 OR
+    parent_resizable_offset EQUAL -1 OR
+    parent_layout_offset EQUAL -1 OR parent_row_offset EQUAL -1)
+    message(FATAL_ERROR "Object property extraction crossed a child boundary")
+endif()
+
 function (require_box_property relative_file object_id name value)
-    read_box_properties("${relative_file}" "${object_id}" properties)
+    read_object_properties("${relative_file}" "${object_id}" properties)
+    string(FIND "${properties}"
+           "<object class=\"GtkBox\" id=\"${object_id}\">" box_offset)
     string(FIND "${properties}" "<property name=\"${name}\">${value}</property>" property_offset)
-    if (property_offset EQUAL -1)
+    if (box_offset EQUAL -1 OR property_offset EQUAL -1)
         message(FATAL_ERROR "GtkBox ${object_id} in ${relative_file} must retain ${name}=${value}")
     endif()
 endfunction()
 
 function (require_widget_property relative_file object_id name value_pattern)
-    file(READ "${GTKBUILDER_DIR}/${relative_file}" contents)
-    string(REGEX MATCH "<object class=\"[^\"]+\" id=\"${object_id}\">[ \t\r\n]*(<property name=\"[^\"]+\"[^>]*>[^<]*</property>[ \t\r\n]*)*" widget_prefix "${contents}")
-    string(REGEX MATCH "<property name=\"${name}\"[^>]*>(${value_pattern})</property>" property_match "${widget_prefix}")
+    read_object_properties("${relative_file}" "${object_id}" properties)
+    string(REGEX MATCH
+           "<property name=\"${name}\"[^>]*>(${value_pattern})</property>"
+           property_match "${properties}")
     if (NOT property_match)
         message(FATAL_ERROR "Widget ${object_id} in ${relative_file} must retain ${name} matching ${value_pattern}")
     endif()
 endfunction()
 
 function (require_layout_property relative_file object_id name value)
-    file(READ "${GTKBUILDER_DIR}/${relative_file}" contents)
-    string(FIND "${contents}" "id=\"${object_id}\"" object_offset)
-    if (object_offset EQUAL -1)
-        message(FATAL_ERROR "Missing widget ${object_id} in ${relative_file}")
-    endif()
-    string(SUBSTRING "${contents}" ${object_offset} 4096 object_suffix)
-    string(FIND "${object_suffix}" "<layout>" layout_offset)
-    if (layout_offset EQUAL -1)
-        message(FATAL_ERROR "Widget ${object_id} in ${relative_file} has no GtkGrid layout")
-    endif()
-    string(SUBSTRING "${object_suffix}" ${layout_offset} 1024 layout_prefix)
-    string(FIND "${layout_prefix}" "<property name=\"${name}\">${value}</property>" property_offset)
-    if (property_offset EQUAL -1)
+    read_object_properties("${relative_file}" "${object_id}" properties)
+    string(FIND "${properties}" "<layout>" layout_offset)
+    string(FIND "${properties}"
+           "<property name=\"${name}\">${value}</property>" property_offset)
+    if (layout_offset EQUAL -1 OR property_offset EQUAL -1)
         message(FATAL_ERROR "Widget ${object_id} in ${relative_file} must retain grid ${name}=${value}")
     endif()
 endfunction()
 
-function (require_window_property relative_file window_id name value)
-    file(READ "${GTKBUILDER_DIR}/${relative_file}" contents)
-    string(FIND "${contents}" "<object class=\"GtkWindow\" id=\"${window_id}\">" object_offset)
-    if (object_offset EQUAL -1)
-        message(FATAL_ERROR "Missing GtkWindow ${window_id} in ${relative_file}")
-    endif()
-    string(SUBSTRING "${contents}" ${object_offset} 2048 object_prefix)
-    string(FIND "${object_prefix}" "<child" first_child)
-    string(SUBSTRING "${object_prefix}" 0 ${first_child} properties)
+function (require_window_property file_name window_id name value)
+    read_object_properties("${file_name}" "${window_id}" properties)
+    string(FIND "${properties}"
+           "<object class=\"GtkWindow\" id=\"${window_id}\">" window_offset)
     string(FIND "${properties}" "<property name=\"${name}\">${value}</property>" property_offset)
-    if (property_offset EQUAL -1)
-        message(FATAL_ERROR "GtkWindow ${window_id} in ${relative_file} must retain ${name}=${value}")
+    if (window_offset EQUAL -1 OR property_offset EQUAL -1)
+        message(FATAL_ERROR "GtkWindow ${window_id} in ${file_name} must retain ${name}=${value}")
     endif()
 endfunction()
 
-# GtkButtonBox layout-style=end became GtkBox. These action areas must stay
-# grouped at the end with the GTK3 standard six-pixel inter-button gap.
+# Legacy end-aligned action areas must stay grouped at the end with the
+# standard six-pixel inter-button gap.
 set(end_areas
     "assistant-qif-import.glade|load_progress_hbuttonbox1"
     "assistant-qif-import.glade|convert_progress_hbuttonbox1"
@@ -126,7 +236,7 @@ foreach (entry IN LISTS end_areas)
     require_box_property("${relative_file}" "${object_id}" "spacing" "6")
 endforeach()
 
-# GTK3 ButtonBox secondary children must remain on the leading edge. The
+# Legacy secondary action children must remain on the leading edge. The
 # enclosing GtkBox expands, while only the original secondary child consumes
 # that space; the primary action group therefore remains right-aligned.
 set(secondary_areas
@@ -163,7 +273,7 @@ foreach (entry IN LISTS secondary_areas)
     require_widget_property("${relative_file}" "${child_id}" "halign" "start")
 endforeach()
 
-# These were the only non-default alignment deltas in the GTK3/GTK4 matrix.
+# These were the only non-default alignment deltas in the baseline matrix.
 # Keeping their exact values prevents a builder regeneration from silently
 # reintroducing the visually observable layout shifts.
 set(alignment_invariants
@@ -231,9 +341,7 @@ require_window_property("assistant-hierarchy.glade" "hierarchy_assistant" "defau
 require_window_property("dialog-lot-viewer.glade" "lot_viewer_dialog" "default-width" "600")
 require_window_property("dialog-lot-viewer.glade" "lot_viewer_dialog" "default-height" "400")
 
-file(READ "${AQB_ASSISTANT}" aqb_assistant_contents)
-string(FIND "${aqb_assistant_contents}" "<property name=\"default-width\">500</property>" aqb_width_offset)
-string(FIND "${aqb_assistant_contents}" "<property name=\"default-height\">500</property>" aqb_height_offset)
-if (aqb_width_offset EQUAL -1 OR aqb_height_offset EQUAL -1)
-    message(FATAL_ERROR "The AqBanking initial assistant must retain its GTK3-effective 500x500 default size")
-endif()
+require_window_property("${AQB_ASSISTANT}" "aqbanking_init_assistant"
+                        "default-width" "500")
+require_window_property("${AQB_ASSISTANT}" "aqbanking_init_assistant"
+                        "default-height" "500")

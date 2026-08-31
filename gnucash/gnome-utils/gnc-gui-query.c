@@ -25,6 +25,7 @@
 #include <glib/gi18n.h>
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "qof.h"
 #include "gnc-gui-query.h"
 #include "gnc-ui.h"
@@ -499,6 +500,7 @@ gnc_input_dialog_async (GtkWindow *parent, const gchar *title, const gchar *msg,
             parent, "destroy", G_CALLBACK (input_dialog_parent_destroyed_cb), request);
 
     request->dialog = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gnc_window_bind_to_application (request->dialog);
     gtk_window_set_title (request->dialog, title);
     gtk_window_set_modal (request->dialog, TRUE);
     if (parent)
@@ -563,6 +565,7 @@ gnc_info2_dialog (GtkWidget *parent, const gchar *title, const gchar *msg)
     gint height;
 
     window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (window);
     gtk_window_set_title (window, title);
     gtk_window_set_modal (window, TRUE);
     if (GTK_IS_WINDOW (parent))

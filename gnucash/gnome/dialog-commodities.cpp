@@ -36,6 +36,7 @@
 #include "gnc-prefs.h"
 #include "gnc-ui.h"
 #include "gnc-ui-util.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-gnome-utils.h"
 #include "gnc-session.h"
 #include "gnc-warnings.h"
@@ -996,6 +997,7 @@ commodity_delete_confirm_async (CommoditiesDialog *cd, gnc_commodity *commodity,
     }
 
     auto dialog = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (dialog);
     auto content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
     auto detail = GTK_LABEL (gtk_label_new (message));
     auto permanent = GTK_CHECK_BUTTON (
@@ -1263,6 +1265,7 @@ gnc_commodities_dialog_rename_namespace_clicked (GtkWidget *widget, gpointer dat
         return;
 
     auto dialog = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (dialog);
     auto content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
     auto form = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     auto label = GTK_LABEL (gtk_label_new_with_mnemonic (_("New _name:")));

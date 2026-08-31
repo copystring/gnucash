@@ -14,12 +14,16 @@
 
 /* Register Cursor settings, top, right, bottom, left */
 gnc-id-cursor entry {
+  min-height: 0;
   margin: 2px 5px 2px 5px;
   padding: 0px 2px 0px 2px;
 }
 
 gnc-id-cursor button {
+  min-width: 0;
+  min-height: 0;
   margin: 1px 1px 1px 1px;
+  padding: 0;
 }
 
 /* Register defaults */
@@ -99,7 +103,7 @@ dialog#GnuCash * text selection {
 /* ==================================================================== */
 
 /*
- * Keep the GTK3-like density local to the main application window. Do not
+ * Keep the compact density local to the main application window. Do not
  * set fonts or colours here: those are inherited from the active GTK theme so
  * that dark themes, accessibility settings, and display scaling stay intact.
  */
@@ -145,7 +149,7 @@ dialog#GnuCash * text selection {
 }
 
 /* GtkColumnView has no headers-visible property. Account selectors that do
- * not permit sorting retain the GTK3 headerless presentation through this
+ * not permit sorting retain their headerless presentation through this
  * semantic class instead. */
 columnview.gnc-account-no-headers header,
 columnview.gnc-account-no-headers header button {
@@ -195,5 +199,3 @@ columnview.gnc-account-no-headers header button {
   padding: 2px 6px;
   min-height: 20px;
 }
-
-

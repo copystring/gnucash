@@ -42,6 +42,9 @@
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
+#ifndef G_OS_WIN32
+# include <signal.h>
+#endif
 #include <zlib.h>
 #include <errno.h>
 #include <cstdint>
@@ -938,6 +941,13 @@ struct GncXmlV2LoadPlan
     GncXmlV2LoadStatus status{GNC_XML_V2_LOAD_ACTIVE};
 };
 
+static gpointer
+gnc_xml_v2_load_plan_gzip_reaper (gpointer user_data)
+{
+    g_thread_join (static_cast<GThread *> (user_data));
+    return nullptr;
+}
+
 static void
 gnc_xml_v2_load_plan_close_input (GncXmlV2LoadPlan *plan)
 {
@@ -950,10 +960,15 @@ gnc_xml_v2_load_plan_close_input (GncXmlV2LoadPlan *plan)
     }
     if (plan->thread)
     {
-        /* Closing the pipe unblocks a cancelled GZip producer. Unref rather
-         * than join: an idle cancellation must not stall the UI thread. */
-        g_thread_unref (plan->thread);
+        /* Closing the pipe unblocks a cancelled GZip producer. Transfer its
+         * joinable GThread to a detached reaper so cancellation never blocks
+         * the UI while the worker's FDs and parameters are released. */
+        auto producer = plan->thread;
         plan->thread = NULL;
+        auto reaper = g_thread_new ("xml_gzip_reaper",
+                                    gnc_xml_v2_load_plan_gzip_reaper,
+                                    producer);
+        g_thread_unref (reaper);
     }
 }
 
@@ -2106,6 +2121,16 @@ gz_thread_func (gz_thread_params_t* params)
     gint gzval;
     bool success = true;
 
+#ifndef G_OS_WIN32
+    /* The loading side may close its pipe during cancellation. Keep SIGPIPE
+     * local to this worker so write() reports EPIPE instead of terminating
+     * the process. */
+    sigset_t sigpipe;
+    sigemptyset (&sigpipe);
+    sigaddset (&sigpipe, SIGPIPE);
+    pthread_sigmask (SIG_BLOCK, &sigpipe, nullptr);
+#endif
+
     auto file = do_gzopen (params->filename, params->perms);
 
     if (!file)
@@ -2207,6 +2232,14 @@ try_gz_open (const char* filename, const char* perms, gboolean compress,
                 file = fdopen (filedes[1], "w");
             else
                 file = fdopen (filedes[0], "r");
+
+            if (!file)
+            {
+                g_warning ("Could not open pipe stream for (de)compression.");
+                close (filedes[write ? 1 : 0]);
+                g_thread_join (thread);
+                thread = nullptr;
+            }
         }
 
         return std::pair<FILE*, GThread*>(file, thread);

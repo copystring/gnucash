@@ -31,6 +31,7 @@
 #include "gnc-version.h"
 #include "gnc-prefs.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 
 #define MARKUP_STRING "<span size='small'>%s</span>"
 #define GNC_PREF_SHOW_SPLASH "show-splash-screen"
@@ -76,6 +77,7 @@ gnc_show_splash_screen (void)
     if (!gnc_prefs_get_bool(GNC_PREFS_GROUP_GENERAL, GNC_PREF_SHOW_SPLASH)) return;
 
     splash = gtk_window_new ();
+    gnc_window_bind_to_application (GTK_WINDOW (splash));
     gtk_window_set_decorated(GTK_WINDOW (splash), FALSE);
 
     // Set the name for this dialog so it can be easily manipulated with css

@@ -4,7 +4,6 @@ set(CORE_UTILS_TEST_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common # for config.h
   ${MODULEPATH}
   ${CMAKE_SOURCE_DIR}/common/test-core
-  ${GTK_MAC_INCLUDE_DIRS}
 )
 set(CORE_UTILS_TEST_LIBS gnc-core-utils test-core)
 if (MAC_INTEGRATION)
@@ -31,7 +30,6 @@ if (NOT MAC_INTEGRATION AND NOT WIN32)
 endif()
 if (MAC_INTEGRATION)
   target_compile_options(test-userdata-dir PRIVATE ${OSX_EXTRA_COMPILE_FLAGS})
-  target_compile_definitions(test-userdata-dir PRIVATE ${GTK_MAC_CFLAGS_OTHER})
 endif()
 
 set(gtest_core_utils_INCLUDES

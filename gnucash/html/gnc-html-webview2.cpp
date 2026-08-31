@@ -33,6 +33,7 @@
 #include <cstring>
 #include <new>
 #include <regex.h>
+#include <memory>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -41,8 +42,11 @@
 #include "gnc-gui-query.h"
 #include "gnc-html-history.h"
 #include "gnc-html-p.h"
+#include "gnc-html-native-widget-lifecycle.hpp"
 #include "gnc-html-webview2-clipboard.hpp"
 #include "gnc-html-webview2-coordinates.hpp"
+#include "gnc-html-webview2-loader-state.hpp"
+#include "gnc-html-webview2-visibility.hpp"
 #include "gnc-html-webview2.hpp"
 #include "gnc-prefs.h"
 
@@ -70,9 +74,10 @@ struct GncHtmlWebView2Private
     gchar *temporary_report_uri = nullptr;
     gchar *pending_anchor = nullptr;
 
-    HMODULE loader_module = nullptr;
+    std::shared_ptr<GncHtmlWebView2LoaderState> loader;
     HWND hwnd = nullptr;
-    guint tick_callback = 0;
+    GncHtmlNativeWidgetLifecycle widget_lifecycle;
+    std::atomic<bool> disposing {false};
 
     ComPtr<IDCompositionDevice> composition_device;
     ComPtr<IDCompositionTarget> composition_target;
@@ -113,7 +118,18 @@ static void impl_webview2_default_zoom_changed (gpointer prefs, gchar *pref,
                                                 gpointer user_data);
 static void webview2_start (GncHtmlWebView2 *self);
 static void webview2_update_bounds (GncHtmlWebView2 *self);
+static void webview2_update_visibility (GncHtmlWebView2 *self);
 static void webview2_navigate_report (GncHtmlWebView2 *self);
+
+static void
+webview2_queue_loader_release (gpointer module)
+{
+    g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+                     [] (gpointer data) {
+                         FreeLibrary (static_cast<HMODULE> (data));
+                         return G_SOURCE_REMOVE;
+                     }, module, nullptr);
+}
 
 static GncHtmlWebView2Private *
 priv_for (GncHtmlWebView2 *self)
@@ -209,21 +225,42 @@ log_hresult (const char *operation, HRESULT result)
           static_cast<unsigned long> (result));
 }
 
+class CallbackOwner
+{
+public:
+    explicit CallbackOwner (GWeakRef *owner_ref) :
+        owner_ (nullptr)
+    {
+        auto object = g_weak_ref_get (owner_ref);
+        if (object)
+            owner_ = GNC_HTML_WEBVIEW2 (object);
+        if (owner_ && priv_for (owner_)->disposing)
+            g_clear_object (&owner_);
+    }
+
+    ~CallbackOwner () { g_clear_object (&owner_); }
+
+    explicit operator bool () const { return owner_ != nullptr; }
+    GncHtmlWebView2 *get () const { return owner_; }
+
+private:
+    GncHtmlWebView2 *owner_ = nullptr;
+};
+
 template <typename Interface>
 class CallbackBase : public Interface
 {
 public:
-    explicit CallbackBase (GncHtmlWebView2 *self) : self_ (self)
+    CallbackBase (GncHtmlWebView2 *self,
+                  std::shared_ptr<GncHtmlWebView2LoaderState> loader) :
+        loader_ (std::move (loader))
     {
-        g_object_add_weak_pointer (G_OBJECT (self),
-                                   reinterpret_cast<gpointer *> (&self_));
+        g_weak_ref_init (&owner_ref_, self);
     }
 
     virtual ~CallbackBase ()
     {
-        if (self_)
-            g_object_remove_weak_pointer (G_OBJECT (self_),
-                                          reinterpret_cast<gpointer *> (&self_));
+        g_weak_ref_clear (&owner_ref_);
     }
 
     ULONG STDMETHODCALLTYPE AddRef () override
@@ -254,11 +291,12 @@ protected:
         return E_NOINTERFACE;
     }
 
-    GncHtmlWebView2 *self () const { return self_; }
+    CallbackOwner self () { return CallbackOwner (&owner_ref_); }
 
 private:
     std::atomic<ULONG> references_ {1};
-    GncHtmlWebView2 *self_ = nullptr;
+    GWeakRef owner_ref_;
+    std::shared_ptr<GncHtmlWebView2LoaderState> loader_;
 };
 
 class EnvironmentCompletedHandler final
@@ -537,7 +575,7 @@ EnvironmentCompletedHandler::Invoke (HRESULT error, ICoreWebView2Environment *en
         return S_OK;
     }
 
-    auto priv = priv_for (owner);
+    auto priv = priv_for (owner.get ());
     priv->environment = environment;
     ComPtr<ICoreWebView2Environment3> environment3;
     if (FAILED (environment->QueryInterface (IID_ICoreWebView2Environment3,
@@ -548,7 +586,7 @@ EnvironmentCompletedHandler::Invoke (HRESULT error, ICoreWebView2Environment *en
         return S_OK;
     }
 
-    auto handler = new CompositionCompletedHandler (owner);
+    auto handler = new CompositionCompletedHandler (owner.get (), priv->loader);
     const auto result = environment3->CreateCoreWebView2CompositionController (priv->hwnd,
                                                                                  handler);
     handler->Release ();
@@ -570,7 +608,7 @@ CompositionCompletedHandler::Invoke (HRESULT error,
         return S_OK;
     }
 
-    auto priv = priv_for (owner);
+    auto priv = priv_for (owner.get ());
     priv->composition_controller = composition;
     if (FAILED (composition->QueryInterface (IID_ICoreWebView2Controller,
                                               reinterpret_cast<void **> (
@@ -592,21 +630,21 @@ CompositionCompletedHandler::Invoke (HRESULT error,
         return S_OK;
     }
 
-    auto navigation_handler = new NavigationStartingHandler (owner);
+    auto navigation_handler = new NavigationStartingHandler (owner.get (), priv->loader);
     if (SUCCEEDED (priv->web_view->add_NavigationStarting (navigation_handler,
                                                             &priv->navigation_starting)))
         priv->navigation_handler_installed = true;
     navigation_handler->Release ();
 
-    auto new_window_handler = new NewWindowRequestedHandler (owner);
+    auto new_window_handler = new NewWindowRequestedHandler (owner.get (), priv->loader);
     if (SUCCEEDED (priv->web_view->add_NewWindowRequested (new_window_handler,
                                                             &priv->new_window_requested)))
         priv->new_window_handler_installed = true;
     new_window_handler->Release ();
 
-    impl_webview2_default_zoom_changed (nullptr, nullptr, owner);
-    webview2_update_bounds (owner);
-    webview2_navigate_report (owner);
+    impl_webview2_default_zoom_changed (nullptr, nullptr, owner.get ());
+    webview2_update_bounds (owner.get ());
+    webview2_navigate_report (owner.get ());
     return S_OK;
 }
 
@@ -623,11 +661,11 @@ NavigationStartingHandler::Invoke (ICoreWebView2 *,
         return S_OK;
     auto uri = to_utf8 (wide_uri);
     CoTaskMemFree (wide_uri);
-    auto priv = priv_for (owner);
+    auto priv = priv_for (owner.get ());
     if (!same_document (uri, priv->temporary_report_uri))
     {
         args->put_Cancel (TRUE);
-        route_internal_url (owner, uri, FALSE);
+        route_internal_url (owner.get (), uri, FALSE);
     }
     g_free (uri);
     return S_OK;
@@ -647,7 +685,7 @@ NewWindowRequestedHandler::Invoke (ICoreWebView2 *,
         auto uri = to_utf8 (wide_uri);
         CoTaskMemFree (wide_uri);
         if (owner)
-            route_internal_url (owner, uri, TRUE);
+            route_internal_url (owner.get (), uri, TRUE);
         g_free (uri);
     }
     args->put_Handled (TRUE);
@@ -658,6 +696,12 @@ static void
 webview2_view_realize (GtkWidget *, gpointer user_data)
 {
     webview2_start (GNC_HTML_WEBVIEW2 (user_data));
+}
+
+static void
+webview2_view_mapping_changed (GtkWidget *, gpointer user_data)
+{
+    webview2_update_visibility (GNC_HTML_WEBVIEW2 (user_data));
 }
 
 static gboolean
@@ -830,7 +874,8 @@ static void
 webview2_start (GncHtmlWebView2 *self)
 {
     auto priv = priv_for (self);
-    if (priv->environment || !priv->view || !gtk_widget_get_realized (priv->view))
+    if (priv->environment || priv->loader || !priv->view ||
+        !gtk_widget_get_realized (priv->view))
         return;
 
     auto native = gtk_widget_get_native (priv->view);
@@ -868,42 +913,65 @@ webview2_start (GncHtmlWebView2 *self)
     if (application_directory.empty ())
         return;
     const auto loader_path = application_directory + L"\\WebView2Loader.dll";
-    priv->loader_module = LoadLibraryExW (loader_path.c_str (), nullptr,
-                                          LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-                                          LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    if (!priv->loader_module)
+    auto loader_module = LoadLibraryExW (loader_path.c_str (), nullptr,
+                                         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+                                         LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    if (!loader_module)
     {
         PERR ("WebView2Loader.dll could not be loaded from the GnuCash installation.");
         return;
     }
+    priv->loader = std::make_shared<GncHtmlWebView2LoaderState> (
+        loader_module, webview2_queue_loader_release);
     auto create_environment = reinterpret_cast<CreateEnvironmentWithOptionsFn> (
-        GetProcAddress (priv->loader_module, "CreateCoreWebView2EnvironmentWithOptions"));
+        GetProcAddress (loader_module, "CreateCoreWebView2EnvironmentWithOptions"));
     if (!create_environment)
     {
         PERR ("WebView2Loader.dll does not export CreateCoreWebView2EnvironmentWithOptions.");
+        priv->loader.reset ();
         return;
     }
 
     const auto runtime_directory = webview2_fixed_runtime_directory ();
 #if defined(GNC_REPORT_WEBVIEW2_FIXED_RUNTIME)
     if (runtime_directory.empty ())
+    {
+        priv->loader.reset ();
         return;
+    }
 #endif
     const auto user_data_directory = webview2_user_data_directory ();
     if (user_data_directory.empty ())
+    {
+        priv->loader.reset ();
         return;
-    auto handler = new EnvironmentCompletedHandler (self);
+    }
+    auto handler = new EnvironmentCompletedHandler (self, priv->loader);
     result = create_environment (runtime_directory.empty () ? nullptr : runtime_directory.c_str (),
                                  user_data_directory.c_str (), nullptr, handler);
     handler->Release ();
     if (FAILED (result))
+    {
         log_hresult ("environment request", result);
+        priv->loader.reset ();
+    }
+}
+
+static void
+webview2_update_visibility (GncHtmlWebView2 *self)
+{
+    auto priv = priv_for (self);
+
+    if (priv->controller && priv->view)
+        (void)priv->controller->put_IsVisible (
+            gnc_html_webview2_host_is_mapped (priv->view));
 }
 
 static void
 webview2_update_bounds (GncHtmlWebView2 *self)
 {
     auto priv = priv_for (self);
+    webview2_update_visibility (self);
     if (!priv->controller || !priv->view)
         return;
 
@@ -918,7 +986,6 @@ webview2_update_bounds (GncHtmlWebView2 *self)
         return;
     const RECT bounds = {top_left.x, top_left.y, bottom_right.x, bottom_right.y};
     (void)priv->controller->put_Bounds (bounds);
-    (void)priv->controller->put_IsVisible (gtk_widget_get_visible (priv->view));
 }
 
 static void
@@ -939,6 +1006,8 @@ gnc_html_webview2_dispose (GObject *object)
 {
     auto self = GNC_HTML_WEBVIEW2 (object);
     auto priv = priv_for (self);
+    priv->disposing = true;
+    priv->widget_lifecycle.clear ();
     if (priv->web_view)
     {
         if (priv->navigation_handler_installed)
@@ -955,11 +1024,7 @@ gnc_html_webview2_dispose (GObject *object)
     priv->composition_root.Reset ();
     priv->composition_target.Reset ();
     priv->composition_device.Reset ();
-    if (priv->tick_callback)
-    {
-        gtk_widget_remove_tick_callback (priv->view, priv->tick_callback);
-        priv->tick_callback = 0;
-    }
+    priv->loader.reset ();
     g_clear_pointer (&priv->html_string, g_free);
     if (priv->temporary_report)
         g_remove (priv->temporary_report);
@@ -999,22 +1064,39 @@ gnc_html_webview2_init (GncHtmlWebView2 *self)
     g_clear_object (&private_data->base.container);
     private_data->base.container = GTK_WIDGET (g_object_ref_sink (private_data->view));
 
-    g_signal_connect (private_data->view, "realize", G_CALLBACK (webview2_view_realize), self);
-    private_data->tick_callback = gtk_widget_add_tick_callback (private_data->view,
-                                                                  webview2_tick, self, nullptr);
+    private_data->widget_lifecycle.set_view (private_data->view);
+    private_data->widget_lifecycle.add_signal (G_OBJECT (private_data->view), g_signal_connect (
+        private_data->view, "realize", G_CALLBACK (webview2_view_realize), self));
+    private_data->widget_lifecycle.add_signal (G_OBJECT (private_data->view),
+        g_signal_connect_after (private_data->view, "map",
+                                G_CALLBACK (webview2_view_mapping_changed), self));
+    private_data->widget_lifecycle.add_signal (G_OBJECT (private_data->view),
+        g_signal_connect_after (private_data->view, "unmap",
+                                G_CALLBACK (webview2_view_mapping_changed), self));
+    private_data->widget_lifecycle.set_tick_callback (gtk_widget_add_tick_callback (
+        private_data->view, webview2_tick, self, nullptr));
     auto focus = gtk_event_controller_focus_new ();
-    g_signal_connect (focus, "enter", G_CALLBACK (webview2_focus_enter), self);
+    private_data->widget_lifecycle.add_signal (G_OBJECT (focus), g_signal_connect (
+        focus, "enter", G_CALLBACK (webview2_focus_enter), self));
     gtk_widget_add_controller (private_data->view, focus);
+    private_data->widget_lifecycle.add_controller (focus);
     auto click = GTK_GESTURE_CLICK (gtk_gesture_click_new ());
-    g_signal_connect (click, "pressed", G_CALLBACK (webview2_click_pressed), self);
-    g_signal_connect (click, "released", G_CALLBACK (webview2_click_released), self);
+    private_data->widget_lifecycle.add_signal (G_OBJECT (click), g_signal_connect (
+        click, "pressed", G_CALLBACK (webview2_click_pressed), self));
+    private_data->widget_lifecycle.add_signal (G_OBJECT (click), g_signal_connect (
+        click, "released", G_CALLBACK (webview2_click_released), self));
     gtk_widget_add_controller (private_data->view, GTK_EVENT_CONTROLLER (click));
+    private_data->widget_lifecycle.add_controller (GTK_EVENT_CONTROLLER (click));
     auto motion = gtk_event_controller_motion_new ();
-    g_signal_connect (motion, "motion", G_CALLBACK (webview2_motion), self);
+    private_data->widget_lifecycle.add_signal (G_OBJECT (motion), g_signal_connect (
+        motion, "motion", G_CALLBACK (webview2_motion), self));
     gtk_widget_add_controller (private_data->view, motion);
+    private_data->widget_lifecycle.add_controller (motion);
     auto scroll = gtk_event_controller_scroll_new (GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES);
-    g_signal_connect (scroll, "scroll", G_CALLBACK (webview2_scroll), self);
+    private_data->widget_lifecycle.add_signal (G_OBJECT (scroll), g_signal_connect (
+        scroll, "scroll", G_CALLBACK (webview2_scroll), self));
     gtk_widget_add_controller (private_data->view, scroll);
+    private_data->widget_lifecycle.add_controller (scroll);
     gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL_REPORT, default_zoom_pref,
                            reinterpret_cast<gpointer> (impl_webview2_default_zoom_changed), self);
 }
@@ -1217,7 +1299,7 @@ public:
             return S_OK;
         }
 
-        auto priv = priv_for (owner);
+        auto priv = priv_for (owner.get ());
         if (!priv->view)
         {
             PERR ("WebView2 cannot copy a report selection without a GTK widget.");
@@ -1272,7 +1354,8 @@ impl_webview2_copy_to_clipboard (GncHtml *html)
         L"selection.getRangeAt(index).cloneContents()); const html = container.innerHTML; if (!html) "
         L"return null; const encode = value => Array.from(new TextEncoder().encode(value), byte => "
         L"byte.toString(16).padStart(2, '0')).join(''); return `${encode(text)}:${encode(html)}`; })()";
-    auto handler = new CopyToClipboardCompletedHandler (GNC_HTML_WEBVIEW2 (html));
+    auto handler = new CopyToClipboardCompletedHandler (GNC_HTML_WEBVIEW2 (html),
+                                                         priv->loader);
     const auto result = priv->web_view->ExecuteScript (copy_selection_script, handler);
     handler->Release ();
     if (FAILED (result))
@@ -1319,7 +1402,8 @@ impl_webview2_print (GncHtml *html, const gchar *jobname, gboolean export_pdf)
             return;
         }
 
-        auto handler = new PrintToPdfCompletedHandler (GNC_HTML_WEBVIEW2 (html));
+        auto handler = new PrintToPdfCompletedHandler (GNC_HTML_WEBVIEW2 (html),
+                                                        priv->loader);
         const auto result = printable_view->PrintToPdf (output_path.c_str (), nullptr,
                                                          handler);
         handler->Release ();

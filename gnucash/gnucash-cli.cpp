@@ -29,6 +29,7 @@
 
 #include "gnucash-commands.hpp"
 #include "gnucash-core-app.hpp"
+#include "gnucash-guile-bootstrap.h"
 
 #include <glib/gi18n.h>
 #include <gnc-engine.h>
@@ -226,8 +227,15 @@ Gnucash::GnucashCli::start ([[maybe_unused]] int argc, [[maybe_unused]] char **a
     return 1;
 }
 
+static int
+run_gnucash_cli (int argc, char **argv, void *user_data)
+{
+    auto application = static_cast<Gnucash::GnucashCli *> (user_data);
+    return application->start (argc, argv);
+}
+
 int
-main(int argc, char **argv)
+main (int argc, char **argv)
 {
     const char *app_name = PROJECT_NAME "-cli";
     Gnucash::GnucashCli application (app_name);
@@ -237,5 +245,5 @@ main(int argc, char **argv)
     auto parse_result = application.parse_command_line (argc, argv);
     if (parse_result != Gnucash::CommandLineResult::Run)
         return parse_result == Gnucash::CommandLineResult::ExitSuccess ? 0 : 1;
-    return application.start (argc, argv);
+    gnc_run_with_guile (argc, argv, run_gnucash_cli, &application);
 }

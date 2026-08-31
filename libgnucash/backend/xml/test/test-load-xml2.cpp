@@ -308,6 +308,41 @@ remove_generated_file (gchar *filename)
     g_free (filename);
 }
 
+#if defined(__linux__)
+static gboolean
+gzip_producer_has_open_file (const gchar *filename)
+{
+    auto fd_dir = g_dir_open ("/proc/self/fd", 0, NULL);
+    if (!fd_dir)
+        return FALSE;
+
+    gboolean found = FALSE;
+    const gchar *entry = NULL;
+    while (!found && (entry = g_dir_read_name (fd_dir)))
+    {
+        auto fd_name = g_build_filename ("/proc/self/fd", entry, NULL);
+        auto target = g_file_read_link (fd_name, NULL);
+        found = target && g_strcmp0 (target, filename) == 0;
+        g_free (target);
+        g_free (fd_name);
+    }
+    g_dir_close (fd_dir);
+    return found;
+}
+
+static gboolean
+wait_for_gzip_producer_file (const gchar *filename, gboolean expected_open)
+{
+    for (guint attempt = 0; attempt < 1000; ++attempt)
+    {
+        if (gzip_producer_has_open_file (filename) == expected_open)
+            return TRUE;
+        g_usleep (1000);
+    }
+    return gzip_producer_has_open_file (filename) == expected_open;
+}
+#endif
+
 static void
 test_load_file_async_stale (const char *filename)
 {
@@ -378,7 +413,12 @@ test_load_file_async_bounded_finalization (void)
 static void
 test_load_file_async_gzip_cancel (void)
 {
-    auto filename = create_many_accounts_file (TRUE, 48);
+#ifdef G_OS_WIN32
+    constexpr guint account_count = 48;
+#else
+    constexpr guint account_count = 4096;
+#endif
+    auto filename = create_many_accounts_file (TRUE, account_count);
     do_test (filename != NULL, "create compressed XML-v2 fixture");
     if (!filename)
         return;
@@ -388,6 +428,22 @@ test_load_file_async_gzip_cancel (void)
     do_test (session != NULL, "start compressed XML-v2 async load");
     if (session)
     {
+#ifndef G_OS_WIN32
+        /* Let the large compressed input start producing pipe data before
+         * cancellation closes the reader. This exercises the EPIPE path. */
+        for (guint turn = 0; turn < 8 && !result.completed; ++turn)
+        {
+            g_main_context_iteration (NULL, FALSE);
+            ++result.idle_turns;
+        }
+        do_test (!result.completed,
+                 "large compressed XML-v2 load remains active before cancellation");
+#if defined(__linux__)
+        if (g_file_test ("/proc/self/fd", G_FILE_TEST_IS_DIR))
+            do_test (wait_for_gzip_producer_file (filename, TRUE),
+                     "gzip producer opened the compressed input before cancellation");
+#endif
+#endif
         do_test (qof_session_cancel_active_load (session),
                  "cancel compressed XML-v2 load");
         do_test (result.completed && result.callbacks == 1,
@@ -396,6 +452,11 @@ test_load_file_async_gzip_cancel (void)
                  "compressed XML-v2 load reports cancellation");
         do_test (qof_book_empty (qof_session_get_book (session)),
                  "compressed cancellation rolls back staging book");
+#if defined(__linux__)
+        if (g_file_test ("/proc/self/fd", G_FILE_TEST_IS_DIR))
+            do_test (wait_for_gzip_producer_file (filename, FALSE),
+                     "gzip producer released compressed input after cancellation");
+#endif
         qof_session_destroy (session);
     }
     remove_generated_file (filename);

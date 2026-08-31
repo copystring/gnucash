@@ -82,7 +82,7 @@
           <attribute name="action">mainwin.FileQuitAction</attribute>
           <attribute name="accel">&lt;Primary&gt;q</attribute>
           <attribute name="tooltip" translatable="yes">Quit this application</attribute>
-          <attribute name="hidden-when">action-disabled</attribute>
+          <attribute name="hidden-when">macos-menubar</attribute>
         </item>
       </section>
     </submenu>
@@ -140,7 +140,7 @@
           <attribute name="label" translatable="yes">Pr_eferences</attribute>
           <attribute name="action">mainwin.EditPreferencesAction</attribute>
           <attribute name="tooltip" translatable="yes">Edit the global preferences of GnuCash</attribute>
-          <attribute name="hidden-when">action-disabled</attribute>
+          <attribute name="hidden-when">macos-menubar</attribute>
         </item>
       </section>
       <section>
@@ -444,6 +444,7 @@
     <submenu>
       <attribute name="label" translatable="yes">_Windows</attribute>
       <attribute name="action">mainwin.WindowsAction</attribute>
+      <attribute name="gtk-macos-special">window-submenu</attribute>
       <section>
         <item>
           <attribute name="label" translatable="no">Placeholder</attribute>
@@ -505,6 +506,7 @@
           <attribute name="label" translatable="yes">_About</attribute>
           <attribute name="action">mainwin.HelpAboutAction</attribute>
           <attribute name="tooltip" translatable="yes">About GnuCash</attribute>
+          <attribute name="hidden-when">macos-menubar</attribute>
         </item>
       </section>
     </submenu>

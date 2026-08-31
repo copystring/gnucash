@@ -1155,6 +1155,7 @@ identity_edit_clicked_cb (GtkButton *button, gpointer user_data)
     edit = g_new0 (TaxIdentityEdit, 1);
     edit->dialog = ti_dialog;
     edit->window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (edit->window);
     gtk_window_set_title (edit->window, _("Income Tax Identity"));
     gtk_window_set_modal (edit->window, TRUE);
     gtk_window_set_transient_for (edit->window, GTK_WINDOW (ti_dialog->dialog));

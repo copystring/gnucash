@@ -2134,6 +2134,7 @@ payment_txn_request_show_split_picker (PaymentTxnRequest *request)
     GtkWidget *continue_button;
 
     request->dialog = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (request->dialog);
     gtk_window_set_title (request->dialog, _("Select Payment Split"));
     gtk_window_set_modal (request->dialog, TRUE);
     if (parent)

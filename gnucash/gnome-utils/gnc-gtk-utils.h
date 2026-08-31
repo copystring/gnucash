@@ -106,7 +106,7 @@ GtkWidget *gnc_get_widget_from_id (GtkWidget *root, const gchar *id);
 
 void gnc_disable_all_actions_in_group (GSimpleActionGroup *action_group);
 
-/** Load existing GTK3 accelerator-map entries as GTK4 action overrides. */
+/** Load existing legacy accelerator-map entries as action overrides. */
 void gnc_accelerator_overrides_load_legacy_map (const gchar *filename);
 void gnc_accelerator_overrides_clear (void);
 gboolean gnc_accelerator_overrides_lookup (const gchar *action_name,

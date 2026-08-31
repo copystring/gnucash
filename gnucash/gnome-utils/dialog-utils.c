@@ -254,7 +254,7 @@ gnc_window_adjust_for_screen (GtkWindow *window)
     LEAVE ("");
 }
 /********************************************************************\
- * Sets the alignment of a Label Widget, GTK3 version specific.    *
+ * Sets the alignment of a Label Widget.                           *
  *                                                                  *
  * Args: widget - the label widget to set alignment on              *
  *       xalign - x alignment                                       *
@@ -752,7 +752,9 @@ gnc_builder_add_from_file (GtkBuilder *builder, const char *filename, const char
         GSList *objects = gtk_builder_get_objects (builder);
 
         for (GSList *node = objects; node; node = node->next)
-            if (GTK_IS_DROP_DOWN (node->data))
+            if (GTK_IS_WINDOW (node->data))
+                gnc_window_bind_to_application (GTK_WINDOW (node->data));
+            else if (GTK_IS_DROP_DOWN (node->data))
                 gnc_gtk_drop_down_normalize_width (GTK_DROP_DOWN (node->data));
         g_slist_free (objects);
     }
@@ -1058,6 +1060,7 @@ gnc_warning_dialog_async_full (GtkWindow *parent, const gchar *pref_name,
     }
 
     request->window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gnc_window_bind_to_application (request->window);
     gtk_window_set_title (request->window, title);
     gtk_window_set_modal (request->window, TRUE);
     gtk_window_set_resizable (request->window, FALSE);

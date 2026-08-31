@@ -78,9 +78,6 @@
 #include "gnc-optiondb.h"
 #include "gnc-autosave.h"
 #include "print-session.h"
-#ifdef MAC_INTEGRATION
-#include <gtkmacintegration/gtkosxapplication.h>
-#endif
 #ifdef HAVE_SYS_STAT_H
 # define __need_system_sys_stat_h //To block Guile-2.0's evil substitute
 # include <sys/types.h>
@@ -207,9 +204,9 @@ static void gnc_main_window_update_tab_position (gpointer prefs, gchar *pref, gp
 static void gnc_main_window_remove_prefs (GncMainWindow *window);
 
 #ifdef MAC_INTEGRATION
-static void gnc_quartz_shutdown (GtkosxApplication *theApp, gpointer data);
-static gboolean gnc_quartz_should_quit (GtkosxApplication *theApp, GncMainWindow *window);
-static void gnc_quartz_set_menu (GncMainWindow* window);
+static void gnc_macos_set_menu (GncMainWindow *window);
+static void gnc_macos_active_window_changed (GObject *object, GParamSpec *pspec,
+                                             GncMainWindow *window);
 #endif
 static void gnc_main_window_init_menu_updaters (GncMainWindow *window);
 
@@ -1807,6 +1804,7 @@ gnc_main_window_quit_request_present (GncMainWindowQuitRequest *request)
     gnc_autosave_remove_timer (book);
 
     request->dialog = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gnc_window_bind_to_application (request->dialog);
     gtk_window_set_title (request->dialog, title);
     gtk_window_set_transient_for (request->dialog, parent);
     gtk_window_set_modal (request->dialog, TRUE);
@@ -3571,8 +3569,10 @@ gnc_main_window_dispose (GObject *object)
     window = GNC_MAIN_WINDOW (object);
 #ifdef MAC_INTEGRATION
     auto entry = g_list_find (active_windows, window);
-    if (entry && (entry->next || entry->prev))
-        gnc_quartz_set_menu (GNC_MAIN_WINDOW (entry->next ? entry->next->data : entry->prev->data));
+    gnc_macos_set_menu (entry && (entry->next || entry->prev)
+                        ? GNC_MAIN_WINDOW (entry->next ? entry->next->data
+                                                      : entry->prev->data)
+                        : nullptr);
 #endif
     active_windows = g_list_remove (active_windows, window);
 
@@ -3695,7 +3695,7 @@ gnc_main_window_new (void)
     window->just_plugin_prefs = FALSE;
     window->close_request_pending = FALSE;
 #ifdef MAC_INTEGRATION
-    gnc_quartz_set_menu(window);
+    gnc_macos_set_menu(window);
 #else
     gnc_main_window_update_all_menu_items();
 #endif
@@ -4508,9 +4508,6 @@ gnc_main_window_update_menu_and_toolbar (GncMainWindow *window,
     const gchar *menu_qualifier;
 
     GMenuModel *menu_model_part;
-#ifdef MAC_INTEGRATION
-    auto theApp{static_cast<GtkosxApplication *>(g_object_new(GTKOSX_TYPE_APPLICATION, nullptr))};
-#endif
     g_return_if_fail (GNC_IS_MAIN_WINDOW(window));
     g_return_if_fail (page != nullptr);
     g_return_if_fail (ui_updates != nullptr);
@@ -4582,10 +4579,6 @@ gnc_main_window_update_menu_and_toolbar (GncMainWindow *window,
     // need to add the accelerator keys
     gnc_add_accelerator_keys_for_menu (priv->menubar, priv->menubar_model,
                                        priv->shortcut_controller);
-#ifdef MAC_INTEGRATION
-    gtkosx_application_sync_menubar (theApp);
-    g_object_unref (theApp);
-#endif
     // need to signal menu has been changed
     g_signal_emit_by_name (window, "menu_changed", page);
 
@@ -4905,6 +4898,10 @@ gnc_main_window_setup_window (GncMainWindow *window)
     gnc_main_window_init_menu_updaters (window);
     g_signal_connect (window, "notify::focus-widget",
                       G_CALLBACK (gnc_main_window_focus_changed), window);
+#ifdef MAC_INTEGRATION
+    g_signal_connect (window, "notify::is-active",
+                      G_CALLBACK (gnc_macos_active_window_changed), window);
+#endif
 
     /* Disable the Transaction menu */
     action = gnc_main_window_find_action (window, "TransactionAction");
@@ -4939,48 +4936,33 @@ gnc_main_window_setup_window (GncMainWindow *window)
 }
 
 #ifdef MAC_INTEGRATION
-/* Event handlers for the shutdown process.  Gnc_quartz_shutdown is
- * connected to NSApplicationWillTerminate, the last chance to do
- * anything before quitting. The problem is that it's launched from a
- * CFRunLoop, not a g_main_loop, and if we call anything that would
- * affect the main_loop we get an assert that we're in a subidiary
- * loop.
- */
 static void
-gnc_quartz_shutdown (GtkosxApplication *theApp, gpointer data)
+gnc_macos_set_menu (GncMainWindow *window)
 {
-    /* Do Nothing. It's too late. */
+    auto application = g_application_get_default ();
+
+    if (!GTK_IS_APPLICATION (application))
+        return;
+    if (!window)
+    {
+        gtk_application_set_menubar (GTK_APPLICATION (application), nullptr);
+        return;
+    }
+
+    auto priv = GNC_MAIN_WINDOW_GET_PRIVATE (window);
+    gtk_application_set_menubar (GTK_APPLICATION (application),
+                                  priv->menubar_model);
+    gtk_widget_set_visible (priv->menubar, FALSE);
 }
-/* Should quit responds to NSApplicationBlockTermination; returning TRUE means
- * "don't terminate", FALSE means "do terminate". gnc_main_window_request_quit() queues
- * a timer that starts an orderly shutdown in 250ms and if we tell macOS it's OK
- * to quit GnuCash gets terminated instead of doing its orderly shutdown,
- * leaving the book locked.
- */
-static gboolean
-gnc_quartz_should_quit (GtkosxApplication *theApp, GncMainWindow *window)
-{
-    gnc_main_window_request_quit_after_pending (window);
-    return TRUE;
-}
+
 static void
-gnc_quartz_set_menu (GncMainWindow* window)
+gnc_macos_active_window_changed (GObject *object, GParamSpec *pspec,
+                                 GncMainWindow *window)
 {
-    auto theApp{static_cast<GtkosxApplication *>(g_object_new(GTKOSX_TYPE_APPLICATION, nullptr))};
-    const char *quit_accels[] = { "<Meta>q", nullptr };
-    auto application = GTK_APPLICATION (g_application_get_default ());
-
-    /* GtkPopoverMenuBar is not a GtkMenuShell. Keep it rendered by GTK4 and
-     * bind the native Quit accelerator through the application action map. */
-    if (application)
-        gtk_application_set_accels_for_action (application, "mainwin.FileQuitAction",
-                                                quit_accels);
-
-    g_signal_connect (theApp, "NSApplicationBlockTermination",
-                      G_CALLBACK(gnc_quartz_should_quit), window);
-
-    gtkosx_application_set_use_quartz_accelerators (theApp, FALSE);
-    g_object_unref (theApp);
+    (void)object;
+    (void)pspec;
+    if (gtk_window_is_active (GTK_WINDOW (window)))
+        gnc_macos_set_menu (window);
 }
 #endif //MAC_INTEGRATION
 
@@ -6091,19 +6073,10 @@ void
 gnc_main_window_show_all_windows(void)
 {
     GList *window_iter;
-#ifdef MAC_INTEGRATION
-    auto theApp{static_cast<GtkosxApplication *>(g_object_new(GTKOSX_TYPE_APPLICATION, nullptr))};
-#endif
     for (window_iter = active_windows; window_iter != nullptr; window_iter = window_iter->next)
     {
         gtk_window_present (GTK_WINDOW (window_iter->data));
     }
-#ifdef MAC_INTEGRATION
-    g_signal_connect(theApp, "NSApplicationWillTerminate",
-                     G_CALLBACK(gnc_quartz_shutdown), nullptr);
-    gtkosx_application_ready(theApp);
-    g_object_unref (theApp);
-#endif
 }
 
 GtkWindow *

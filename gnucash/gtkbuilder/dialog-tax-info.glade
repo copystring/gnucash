@@ -23,16 +23,72 @@
           <object class="GtkBox">
             <property name="orientation">vertical</property>
             <property name="spacing">6</property>
-            <child><object class="GtkLabel"><property name="label" translatable="1">Income Tax Identity</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style></object></child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="1">Income Tax Identity</property>
+                <property name="halign">start</property>
+                <style>
+                  <class name="gnc-class-strong"/>
+                </style>
+              </object>
+            </child>
             <child>
               <object class="GtkGrid">
                 <property name="row-spacing">6</property>
                 <property name="column-spacing">12</property>
-                <child><object class="GtkLabel"><property name="label" translatable="1">Name</property><property name="halign">end</property><layout><property name="column">0</property><property name="row">0</property></layout></object></child>
-                <child><object class="GtkLabel" id="entity_name"><property name="halign">start</property><property name="hexpand">1</property><property name="selectable">1</property><layout><property name="column">1</property><property name="row">0</property></layout></object></child>
-                <child><object class="GtkLabel"><property name="label" translatable="1">Type</property><property name="halign">end</property><layout><property name="column">0</property><property name="row">1</property></layout></object></child>
-                <child><object class="GtkLabel" id="entity_type"><property name="halign">start</property><property name="hexpand">1</property><property name="selectable">1</property><layout><property name="column">1</property><property name="row">1</property></layout></object></child>
-                <child><object class="GtkButton" id="identity_edit_button"><property name="label" translatable="1">_Edit</property><property name="use-underline">1</property><layout><property name="column">0</property><property name="row">2</property><property name="column-span">2</property></layout></object></child>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label" translatable="1">Name</property>
+                    <property name="halign">end</property>
+                    <layout>
+                      <property name="column">0</property>
+                      <property name="row">0</property>
+                    </layout>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="entity_name">
+                    <property name="halign">start</property>
+                    <property name="hexpand">1</property>
+                    <property name="selectable">1</property>
+                    <layout>
+                      <property name="column">1</property>
+                      <property name="row">0</property>
+                    </layout>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label" translatable="1">Type</property>
+                    <property name="halign">end</property>
+                    <layout>
+                      <property name="column">0</property>
+                      <property name="row">1</property>
+                    </layout>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="entity_type">
+                    <property name="halign">start</property>
+                    <property name="hexpand">1</property>
+                    <property name="selectable">1</property>
+                    <layout>
+                      <property name="column">1</property>
+                      <property name="row">1</property>
+                    </layout>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton" id="identity_edit_button">
+                    <property name="label" translatable="1">_Edit</property>
+                    <property name="use-underline">1</property>
+                    <layout>
+                      <property name="column">0</property>
+                      <property name="row">2</property>
+                      <property name="column-span">2</property>
+                    </layout>
+                  </object>
+                </child>
               </object>
             </child>
           </object>
@@ -47,20 +103,87 @@
                 <property name="orientation">vertical</property>
                 <property name="spacing">6</property>
                 <property name="margin-end">6</property>
-                <child><object class="GtkLabel" id="accounts_label"><property name="label" translatable="1">_Accounts</property><property name="use-underline">1</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style></object></child>
+                <child>
+                  <object class="GtkLabel" id="accounts_label">
+                    <property name="label" translatable="1">_Accounts</property>
+                    <property name="use-underline">1</property>
+                    <property name="halign">start</property>
+                    <style>
+                      <class name="gnc-class-strong"/>
+                    </style>
+                  </object>
+                </child>
                 <child>
                   <object class="GtkGrid">
                     <property name="row-spacing">3</property>
                     <property name="column-spacing">6</property>
-                    <child><object class="GtkCheckButton" id="income_radio"><property name="label" translatable="1">_Income</property><property name="use-underline">1</property><property name="halign">start</property><layout><property name="column">0</property><property name="row">0</property></layout></object></child>
-                    <child><object class="GtkCheckButton" id="expense_radio"><property name="label" translatable="1">_Expense</property><property name="use-underline">1</property><property name="group">income_radio</property><property name="halign">start</property><layout><property name="column">1</property><property name="row">0</property></layout></object></child>
-                    <child><object class="GtkCheckButton" id="asset_radio"><property name="label" translatable="1">_Asset</property><property name="use-underline">1</property><property name="group">income_radio</property><property name="halign">start</property><layout><property name="column">0</property><property name="row">1</property></layout></object></child>
-                    <child><object class="GtkCheckButton" id="liab_eq_radio"><property name="label" translatable="1">_Liability/Equity</property><property name="use-underline">1</property><property name="group">income_radio</property><property name="halign">start</property><layout><property name="column">1</property><property name="row">1</property></layout></object></child>
+                    <child>
+                      <object class="GtkCheckButton" id="income_radio">
+                        <property name="label" translatable="1">_Income</property>
+                        <property name="use-underline">1</property>
+                        <property name="halign">start</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">0</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCheckButton" id="expense_radio">
+                        <property name="label" translatable="1">_Expense</property>
+                        <property name="use-underline">1</property>
+                        <property name="group">income_radio</property>
+                        <property name="halign">start</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">0</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCheckButton" id="asset_radio">
+                        <property name="label" translatable="1">_Asset</property>
+                        <property name="use-underline">1</property>
+                        <property name="group">income_radio</property>
+                        <property name="halign">start</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">1</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCheckButton" id="liab_eq_radio">
+                        <property name="label" translatable="1">_Liability/Equity</property>
+                        <property name="use-underline">1</property>
+                        <property name="group">income_radio</property>
+                        <property name="halign">start</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">1</property>
+                        </layout>
+                      </object>
+                    </child>
                   </object>
                 </child>
-                <child><object class="GtkScrolledWindow" id="account_scroll"><property name="vexpand">1</property><property name="min-content-height">260</property></object></child>
-                <child><object class="GtkLabel" id="num_accounts_label"><property name="halign">center</property></object></child>
-                <child><object class="GtkButton" id="select_subaccounts_button"><property name="label" translatable="1">_Select Subaccounts</property><property name="use-underline">1</property><property name="halign">start</property></object></child>
+                <child>
+                  <object class="GtkScrolledWindow" id="account_scroll">
+                    <property name="vexpand">1</property>
+                    <property name="min-content-height">260</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="num_accounts_label">
+                    <property name="halign">center</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton" id="select_subaccounts_button">
+                    <property name="label" translatable="1">_Select Subaccounts</property>
+                    <property name="use-underline">1</property>
+                    <property name="halign">start</property>
+                  </object>
+                </child>
               </object>
             </property>
             <property name="end-child">
@@ -68,14 +191,37 @@
                 <property name="orientation">vertical</property>
                 <property name="spacing">8</property>
                 <property name="margin-start">6</property>
-                <child><object class="GtkLabel"><property name="label" translatable="1">Account Tax Information</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style></object></child>
-                <child><object class="GtkCheckButton" id="tax_related_button"><property name="label" translatable="1">Tax _Related</property><property name="use-underline">1</property><property name="halign">start</property></object></child>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label" translatable="1">Account Tax Information</property>
+                    <property name="halign">start</property>
+                    <style>
+                      <class name="gnc-class-strong"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="tax_related_button">
+                    <property name="label" translatable="1">Tax _Related</property>
+                    <property name="use-underline">1</property>
+                    <property name="halign">start</property>
+                  </object>
+                </child>
                 <child>
                   <object class="GtkBox" id="txf_categories_vbox">
                     <property name="orientation">vertical</property>
                     <property name="spacing">6</property>
                     <property name="vexpand">1</property>
-                    <child><object class="GtkLabel" id="txf_category_label"><property name="label" translatable="1">_TXF Categories</property><property name="use-underline">1</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style></object></child>
+                    <child>
+                      <object class="GtkLabel" id="txf_category_label">
+                        <property name="label" translatable="1">_TXF Categories</property>
+                        <property name="use-underline">1</property>
+                        <property name="halign">start</property>
+                        <style>
+                          <class name="gnc-class-strong"/>
+                        </style>
+                      </object>
+                    </child>
                     <child>
                       <object class="GtkPaned">
                         <property name="orientation">vertical</property>
@@ -93,17 +239,51 @@
                       <object class="GtkBox" id="payer_name_source_vbox">
                         <property name="orientation">vertical</property>
                         <property name="spacing">3</property>
-                        <child><object class="GtkLabel"><property name="label" translatable="1">Payer Name Source</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style></object></child>
-                        <child><object class="GtkCheckButton" id="current_account_button"><property name="label" translatable="1">C_urrent Account</property><property name="use-underline">1</property><property name="halign">start</property></object></child>
-                        <child><object class="GtkCheckButton" id="parent_account_button"><property name="label" translatable="1">_Parent Account</property><property name="use-underline">1</property><property name="group">current_account_button</property><property name="halign">start</property></object></child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label" translatable="1">Payer Name Source</property>
+                            <property name="halign">start</property>
+                            <style>
+                              <class name="gnc-class-strong"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkCheckButton" id="current_account_button">
+                            <property name="label" translatable="1">C_urrent Account</property>
+                            <property name="use-underline">1</property>
+                            <property name="halign">start</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkCheckButton" id="parent_account_button">
+                            <property name="label" translatable="1">_Parent Account</property>
+                            <property name="use-underline">1</property>
+                            <property name="group">current_account_button</property>
+                            <property name="halign">start</property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>
                       <object class="GtkBox" id="copy_number_vbox">
                         <property name="orientation">vertical</property>
                         <property name="spacing">3</property>
-                        <child><object class="GtkLabel"><property name="label" translatable="1">Copy Number</property><property name="halign">start</property><style><class name="gnc-class-strong"/></style></object></child>
-                        <child><object class="GtkSpinButton" id="copy_spin_button"><property name="adjustment">copy_spin_adj</property><property name="halign">start</property></object></child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label" translatable="1">Copy Number</property>
+                            <property name="halign">start</property>
+                            <style>
+                              <class name="gnc-class-strong"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkSpinButton" id="copy_spin_button">
+                            <property name="adjustment">copy_spin_adj</property>
+                            <property name="halign">start</property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                   </object>
@@ -116,9 +296,25 @@
           <object class="GtkBox">
             <property name="spacing">6</property>
             <property name="halign">end</property>
-            <child><object class="GtkButton" id="cancel_button"><property name="label" translatable="1">_Cancel</property><property name="use-underline">1</property></object></child>
-            <child><object class="GtkButton" id="apply_button"><property name="label" translatable="1">_Apply</property><property name="use-underline">1</property><property name="sensitive">0</property></object></child>
-            <child><object class="GtkButton" id="ok_button"><property name="label" translatable="1">_OK</property><property name="use-underline">1</property></object></child>
+            <child>
+              <object class="GtkButton" id="cancel_button">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="apply_button">
+                <property name="label" translatable="1">_Apply</property>
+                <property name="use-underline">1</property>
+                <property name="sensitive">0</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="ok_button">
+                <property name="label" translatable="1">_OK</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
         </child>
       </object>

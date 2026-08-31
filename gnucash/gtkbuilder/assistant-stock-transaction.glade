@@ -743,10 +743,34 @@
           <object class="GtkBox" id="stock_assistant_actions">
             <property name="halign">end</property>
             <property name="spacing">6</property>
-            <child><object class="GtkButton" id="stock_assistant_cancel"><property name="label" translatable="1">_Cancel</property><property name="use-underline">1</property><signal name="clicked" handler="stock_assistant_cancel_cb" swapped="no" /></object></child>
-            <child><object class="GtkButton" id="stock_assistant_back"><property name="label" translatable="1">_Back</property><property name="use-underline">1</property><signal name="clicked" handler="stock_assistant_back_cb" swapped="no" /></object></child>
-            <child><object class="GtkButton" id="stock_assistant_next"><property name="label" translatable="1">_Next</property><property name="use-underline">1</property><signal name="clicked" handler="stock_assistant_next_cb" swapped="no" /></object></child>
-            <child><object class="GtkButton" id="stock_assistant_apply"><property name="label" translatable="1">_Apply</property><property name="use-underline">1</property><signal name="clicked" handler="stock_assistant_finish_cb" swapped="no" /></object></child>
+            <child>
+              <object class="GtkButton" id="stock_assistant_cancel">
+                <property name="label" translatable="1">_Cancel</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="stock_assistant_cancel_cb" swapped="no" />
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="stock_assistant_back">
+                <property name="label" translatable="1">_Back</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="stock_assistant_back_cb" swapped="no" />
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="stock_assistant_next">
+                <property name="label" translatable="1">_Next</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="stock_assistant_next_cb" swapped="no" />
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="stock_assistant_apply">
+                <property name="label" translatable="1">_Apply</property>
+                <property name="use-underline">1</property>
+                <signal name="clicked" handler="stock_assistant_finish_cb" swapped="no" />
+              </object>
+            </child>
           </object>
         </child>
       </object>

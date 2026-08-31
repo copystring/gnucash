@@ -525,10 +525,8 @@ gnc_plugin_page_report_create_widget( GncPluginPage *page )
     report = GNC_PLUGIN_PAGE_REPORT(page);
     priv = GNC_PLUGIN_PAGE_REPORT_GET_PRIVATE(report);
 
-#ifndef WEBKIT1
-    /* Hide the ExportPdf action for Webkit2 */
+    /* Native report backends handle PDF export outside the page action. */
     priv->webkit2 = TRUE;
-#endif
 
     topLvl = gnc_ui_get_main_window (nullptr);
 //        priv->html = gnc_html_new( topLvl );
@@ -1180,7 +1178,7 @@ gnc_plugin_page_report_destroy(GncPluginPageReportPrivate * priv)
         scm_call_2(set_editor, SCM_CAR(edited), SCM_BOOL_F);
         if (editor != SCM_BOOL_F)
         {
-#define FUNC_NAME "gtk_widget_destroy"
+#define FUNC_NAME "gnc_plugin_page_report_destroy"
             auto w{static_cast<GtkWidget*>(SWIG_MustGetPtr(editor, SWIG_TypeQuery("_p_GtkWidget"), 1, 0))};
 #undef FUNC_NAME
             if (GTK_IS_WINDOW (w))

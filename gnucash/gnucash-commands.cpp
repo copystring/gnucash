@@ -74,10 +74,12 @@ cleanup_and_exit_with_failure (QofSession *session)
     return 1;
 }
 
-static void gnc_shutdown_cli (int exit_status)
+[[noreturn]] static void
+gnc_shutdown_cli (int exit_status)
 {
     gnc_hook_run (HOOK_SHUTDOWN, NULL);
     gnc_engine_shutdown ();
+    exit (exit_status);
 }
 
 /* scm_boot_guile doesn't expect to return, so call shutdown ourselves here */

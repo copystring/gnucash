@@ -31,6 +31,11 @@ add_test(NAME check-no-local-main-loop-pumps
     -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
     -P ${CMAKE_SOURCE_DIR}/cmake/check-no-local-main-loop-pumps.cmake)
 
+add_test(NAME check-gtk-window-application-bindings
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+    -P ${CMAKE_SOURCE_DIR}/cmake/check-gtk-window-application-bindings.cmake)
+
 set (PACKAGE_NAME GnuCash)
 set (PACKAGE_BUGREPORT "https://bugs.gnucash.org")
 set (PACKAGE_STRING "${PACKAGE_NAME} ${PROJECT_VERSION}")
@@ -290,6 +295,9 @@ if (WITH_GNUCASH)
   if (APPLE)
     # gdk_macos_surface_get_native_window is a supported GTK macOS backend API.
     pkg_check_modules (GTK4MACOS REQUIRED IMPORTED_TARGET gtk4-macos>=${GTK_MIN_VERSION})
+    set(GNC_PLATFORM_COCOA 1)
+    set(MAC_INTEGRATION 1)
+    add_compile_definitions(MAC_INTEGRATION)
   endif()
 endif()
 
@@ -509,9 +517,6 @@ endif()
 # ############################################################
 
 if(APPLE)
-  set(GNC_PLATFORM_COCOA 1)
-  set(MAC_INTEGRATION 1)
-  add_compile_definitions(MAC_INTEGRATION)
   find_library(COCOA_LIBRARY Cocoa REQUIRED)
   find_library(SECURITY_LIBRARY Security REQUIRED)
   find_library(CARBON_LIBRARY Carbon REQUIRED)
@@ -845,9 +850,16 @@ endif()
 gnc_gtest_configure()
 
 # There are targets that need to build before tests will run
+set(GNC_USE_VIRTUAL_DISPLAY FALSE)
+if(UNIX AND NOT APPLE)
+  set(GNC_USE_VIRTUAL_DISPLAY TRUE)
+endif()
 add_custom_target(testbuild)
 add_custom_target(check DEPENDS testbuild
-  COMMAND ${CMAKE_CTEST_COMMAND}
+  COMMAND ${CMAKE_COMMAND}
+    -DCTEST_COMMAND=${CMAKE_CTEST_COMMAND}
+    -DUSE_VIRTUAL_DISPLAY=${GNC_USE_VIRTUAL_DISPLAY}
+    -P ${CMAKE_SOURCE_DIR}/cmake/run-ctest.cmake
 )
 
 if (COVERAGE)
@@ -984,7 +996,6 @@ set (GNC_PLATFORM_WINDOWS 1)
 endif()
 
 if (APPLE)
-# FIXME: HANDLE gtk-mac-integration-gtk2
 set(GNC_PLATFORM_DARWIN 1)
 set(GNC_PLATFORM_OSX 1)
 set(PLATFORM_OSX 1)
@@ -1185,7 +1196,7 @@ endif()
 #For windows, copy in some DLLs from Mingw
 
 if (WIN32)
-if ($ENV{MSYSTEM} STREQUAL "CLANG64")
+if ("$ENV{MSYSTEM}" STREQUAL "CLANG64")
   find_file(LIBSTDC++ libc++.dll)
 else()
   find_file(LIBSTDC++ libstdc++-6.dll)
@@ -1193,8 +1204,8 @@ endif()
   if (NOT LIBSTDC++)
     message(FATAL_ERROR "libstdc++ not found.")
   endif()
-  if(NOT $ENV{MSYSTEM} STREQUAL "CLANG64")
-    if ($ENV{MSYSTEM} STREQUAL "MINGW32")
+  if(NOT "$ENV{MSYSTEM}" STREQUAL "CLANG64")
+    if ("$ENV{MSYSTEM}" STREQUAL "MINGW32")
       find_file(LIBDW2 libgcc_s_dw2-1.dll)
     else()
       find_file(LIBDW2 libgcc_s_seh-1.dll)

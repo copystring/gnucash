@@ -3222,7 +3222,10 @@ xaccTransScrubGains (Transaction *trans, Account *gain_acc)
     if (!trans || !gnc_scrub_legacy_operation_allowed (
                       xaccTransGetBook (trans), "transaction gains scrub"))
         return;
-    if (!gnc_current_session_exist ())
+
+    auto book = xaccTransGetBook (trans);
+    if (!gnc_current_session_exist () ||
+        qof_session_get_book (gnc_get_current_session ()) != book)
         TransScrubGains (trans, gain_acc);
     else
         run_transaction_gains_fifo (trans, gain_acc);

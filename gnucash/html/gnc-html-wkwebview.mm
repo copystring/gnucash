@@ -23,6 +23,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <new>
 #include <regex.h>
 #include <unistd.h>
 
@@ -30,6 +31,7 @@
 #include "gnc-gui-query.h"
 #include "gnc-html-history.h"
 #include "gnc-html-p.h"
+#include "gnc-html-native-widget-lifecycle.hpp"
 #include "gnc-html-wkwebview.hpp"
 #include "gnc-prefs.h"
 
@@ -51,7 +53,7 @@ struct GncHtmlWKWebViewPrivate
     gchar *temporary_report;
     gchar *temporary_report_uri;
     gchar *pending_anchor;
-    guint tick_callback;
+    GncHtmlNativeWidgetLifecycle widget_lifecycle;
 
     NSView *host_view;
     WKWebView *web_view;
@@ -482,11 +484,7 @@ gnc_html_wkwebview_dispose (GObject *object)
     auto self = GNC_HTML_WKWEBVIEW (object);
     auto priv = priv_for (self);
 
-    if (priv->tick_callback && priv->view)
-    {
-        gtk_widget_remove_tick_callback (priv->view, priv->tick_callback);
-        priv->tick_callback = 0;
-    }
+    priv->widget_lifecycle.clear ();
     if (priv->web_view)
     {
         [priv->web_view stopLoading];
@@ -521,7 +519,9 @@ gnc_html_wkwebview_dispose (GObject *object)
 static void
 gnc_html_wkwebview_finalize (GObject *object)
 {
-    GNC_HTML_WKWEBVIEW (object)->priv = nullptr;
+    auto self = GNC_HTML_WKWEBVIEW (object);
+    if (self->priv)
+        self->priv->~GncHtmlWKWebViewPrivate ();
     G_OBJECT_CLASS (gnc_html_wkwebview_parent_class)->finalize (object);
 }
 
@@ -531,7 +531,7 @@ gnc_html_wkwebview_init (GncHtmlWKWebView *self)
     const auto base = *GNC_HTML (self)->priv;
     auto private_data = static_cast<GncHtmlWKWebViewPrivate *> (
         g_realloc (GNC_HTML (self)->priv, sizeof (GncHtmlWKWebViewPrivate)));
-    memset (private_data, 0, sizeof (GncHtmlWKWebViewPrivate));
+    new (private_data) GncHtmlWKWebViewPrivate ();
     private_data->base = base;
     self->priv = private_data;
     GNC_HTML (self)->priv = &private_data->base;
@@ -543,12 +543,16 @@ gnc_html_wkwebview_init (GncHtmlWKWebView *self)
     g_clear_object (&private_data->base.container);
     private_data->base.container = GTK_WIDGET (g_object_ref_sink (private_data->view));
 
-    g_signal_connect (private_data->view, "realize", G_CALLBACK (wkwebview_view_realize), self);
-    private_data->tick_callback = gtk_widget_add_tick_callback (private_data->view,
-                                                                 wkwebview_tick, self, nullptr);
+    private_data->widget_lifecycle.set_view (private_data->view);
+    private_data->widget_lifecycle.add_signal (G_OBJECT (private_data->view), g_signal_connect (
+        private_data->view, "realize", G_CALLBACK (wkwebview_view_realize), self));
+    private_data->widget_lifecycle.set_tick_callback (gtk_widget_add_tick_callback (
+        private_data->view, wkwebview_tick, self, nullptr));
     auto focus = gtk_event_controller_focus_new ();
-    g_signal_connect (focus, "enter", G_CALLBACK (wkwebview_focus_enter), self);
+    private_data->widget_lifecycle.add_signal (G_OBJECT (focus), g_signal_connect (
+        focus, "enter", G_CALLBACK (wkwebview_focus_enter), self));
     gtk_widget_add_controller (private_data->view, focus);
+    private_data->widget_lifecycle.add_controller (focus);
     gnc_prefs_register_cb (GNC_PREFS_GROUP_GENERAL_REPORT, default_zoom_pref,
                            reinterpret_cast<gpointer> (impl_wkwebview_default_zoom_changed), self);
 }

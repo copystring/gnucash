@@ -2073,10 +2073,10 @@ radiobutton_set_cb (GtkCheckButton *button, gpointer data)
     gnc_option_changed_widget_cb (frame, option);
 }
 
-class GncGtkRadioButtonUIItem : public GncOptionGtkUIItem
+class GncGtkCheckButtonGroupUIItem : public GncOptionGtkUIItem
 {
 public:
-    GncGtkRadioButtonUIItem(GtkWidget* widget) :
+    GncGtkCheckButtonGroupUIItem(GtkWidget* widget) :
         GncOptionGtkUIItem{widget, GncOptionUIType::RADIOBUTTON} {}
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
@@ -2136,7 +2136,7 @@ create_radiobutton_widget(char *name, GncOption& option)
         gtk_box_append (GTK_BOX (box), GTK_WIDGET (button));
     }
 
-    option.set_ui_item (std::make_unique<GncGtkRadioButtonUIItem> (frame));
+    option.set_ui_item (std::make_unique<GncGtkCheckButtonGroupUIItem> (frame));
     option.set_ui_item_from_option ();
     return frame;
 }

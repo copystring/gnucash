@@ -138,8 +138,18 @@
                         <property name="orientation">vertical</property>
                         <property name="valign">center</property>
                         <property name="spacing">6</property>
-                        <child><object class="GtkButton" id="add_split_to_lot_button"><property name="label">&gt;&gt;</property><property name="tooltip-text" translatable="1">Add the selected split to the lot</property></object></child>
-                        <child><object class="GtkButton" id="remove_split_from_lot_button"><property name="label">&lt;&lt;</property><property name="tooltip-text" translatable="1">Remove the selected split from the lot</property></object></child>
+                        <child>
+                          <object class="GtkButton" id="add_split_to_lot_button">
+                            <property name="label">&gt;&gt;</property>
+                            <property name="tooltip-text" translatable="1">Add the selected split to the lot</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkButton" id="remove_split_from_lot_button">
+                            <property name="label">&lt;&lt;</property>
+                            <property name="tooltip-text" translatable="1">Remove the selected split from the lot</property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>
@@ -180,11 +190,40 @@
             <property name="margin-top">6</property><property name="margin-bottom">6</property>
             <property name="margin-start">6</property><property name="margin-end">6</property>
             <property name="halign">end</property>
-            <child><object class="GtkButton" id="new_lot_button"><property name="label" translatable="1">_New Lot</property><property name="use-underline">1</property></object></child>
-            <child><object class="GtkButton" id="scrub_account_button"><property name="label" translatable="1">Scrub _Account</property><property name="use-underline">1</property></object></child>
-            <child><object class="GtkButton" id="scrub_lot_button"><property name="label" translatable="1">_Scrub</property><property name="use-underline">1</property><property name="sensitive">False</property><property name="tooltip-text" translatable="1">Scrub the highlighted lot</property></object></child>
-            <child><object class="GtkButton" id="delete_button"><property name="label" translatable="1">_Delete</property><property name="use-underline">1</property><property name="sensitive">False</property><property name="tooltip-text" translatable="1">Delete the highlighted lot</property></object></child>
-            <child><object class="GtkButton" id="close_button"><property name="label" translatable="1">_Close</property><property name="use-underline">1</property></object></child>
+            <child>
+              <object class="GtkButton" id="new_lot_button">
+                <property name="label" translatable="1">_New Lot</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="scrub_account_button">
+                <property name="label" translatable="1">Scrub _Account</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="scrub_lot_button">
+                <property name="label" translatable="1">_Scrub</property>
+                <property name="use-underline">1</property>
+                <property name="sensitive">False</property>
+                <property name="tooltip-text" translatable="1">Scrub the highlighted lot</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="delete_button">
+                <property name="label" translatable="1">_Delete</property>
+                <property name="use-underline">1</property>
+                <property name="sensitive">False</property>
+                <property name="tooltip-text" translatable="1">Delete the highlighted lot</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="close_button">
+                <property name="label" translatable="1">_Close</property>
+                <property name="use-underline">1</property>
+              </object>
+            </child>
           </object>
         </child>
       </object>

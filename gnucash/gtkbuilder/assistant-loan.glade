@@ -821,11 +821,31 @@ If you make a mistake or want to make changes later, you can edit the created Sc
           <object class="GtkBox" id="loan_footer">
             <property name="halign">end</property>
             <property name="spacing">6</property>
-            <child><object class="GtkButton" id="loan_back_button"><property name="label" translatable="1">Back</property></object></child>
-            <child><object class="GtkButton" id="loan_next_button"><property name="label" translatable="1">Next</property></object></child>
-            <child><object class="GtkButton" id="loan_apply_button"><property name="label" translatable="1">Apply</property></object></child>
-            <child><object class="GtkButton" id="loan_cancel_button"><property name="label" translatable="1">Cancel</property></object></child>
-            <child><object class="GtkButton" id="loan_close_button"><property name="label" translatable="1">Close</property></object></child>
+            <child>
+              <object class="GtkButton" id="loan_back_button">
+                <property name="label" translatable="1">Back</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="loan_next_button">
+                <property name="label" translatable="1">Next</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="loan_apply_button">
+                <property name="label" translatable="1">Apply</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="loan_cancel_button">
+                <property name="label" translatable="1">Cancel</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="loan_close_button">
+                <property name="label" translatable="1">Close</property>
+              </object>
+            </child>
           </object>
         </child>
       </object>

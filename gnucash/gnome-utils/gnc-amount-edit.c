@@ -317,8 +317,6 @@ gnc_amount_edit_key_press (GtkEventControllerKey *key, guint keyval,
         if (gae->print_info.monetary)
         {
             struct lconv *lc = gnc_localeconv ();
-            keyval = lc->mon_decimal_point[0];
-//FIXME in GTK4            event->key.string[0] = lc->mon_decimal_point[0];
             decimal = g_strdup_printf ("%c", lc->mon_decimal_point[0]);
         }
         else

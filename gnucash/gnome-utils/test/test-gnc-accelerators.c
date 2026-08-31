@@ -19,7 +19,7 @@ static void
 test_legacy_accelerator_map (void)
 {
     const gchar *contents =
-        "; GTK3 accelerator map\n"
+        "; Legacy accelerator map\n"
         "(gtk_accel_path \"<Actions>/gnc-plugin-basic-commands-actions/FileOpenAction\" \"<Control><Shift>o\")\n"
         "(gtk_accel_path \"<Actions>/gnc-plugin-basic-commands-actions/FileSaveAction\" \"\")\n"
         "(gtk_accel_path \"invalid\" \"<Control>i\")\n";

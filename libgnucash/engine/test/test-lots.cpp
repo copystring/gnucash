@@ -1075,6 +1075,34 @@ test_lot_scrub_cancel_preserves_vdirty_terminal_marker (void)
 }
 
 static void
+test_legacy_gains_scrub_uses_transaction_book (void)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+    ScopedEnvironment lots_off {"GNC_AUTO_SCRUB_LOTS", nullptr};
+    auto current = qof_session_new (qof_book_new ());
+    auto foreign = make_empty_lot_assignment_fixture ();
+    auto source = add_lot_assignment_split (&foreign, 10, 86400);
+    auto gains = add_lot_assignment_split (&foreign, -10, 2 * 86400);
+    gains->gains = GAINS_STATUS_GAINS | GAINS_STATUS_DATE_DIRTY;
+    gains->gains_split = source;
+    auto gains_transaction = xaccSplitGetParent (gains);
+
+    gnc_set_current_session (current);
+    xaccTransScrubGains (gains_transaction, nullptr);
+
+    do_test (gnc_get_current_session () == current,
+             "legacy gains scrub preserves an unrelated current session");
+    do_test (xaccTransRetDatePosted (gains_transaction) ==
+                 xaccTransRetDatePosted (xaccSplitGetParent (source)) &&
+             !(gains->gains & GAINS_STATUS_DATE_DIRTY),
+             "legacy gains scrub synchronously processes a foreign book");
+
+    gnc_clear_current_session ();
+    destroy_lot_assignment_fixture (&foreign);
+}
+
+static void
 test_lot_scrub_plan_external_mutation_is_stale (void)
 {
     if (gnc_current_session_exist ())
@@ -1381,6 +1409,7 @@ main (int argc, char **argv)
     test_rollback_gains_split_endpoint_collectors ();
     test_rollback_gains_source_endpoint_collectors ();
     test_lot_scrub_cancel_preserves_vdirty_terminal_marker ();
+    test_legacy_gains_scrub_uses_transaction_book ();
     test_lot_scrub_plan_external_mutation_is_stale ();
     test_lot_scrub_external_mutation_after_every_step_is_stale ();
     test_composite_lots_job_cancel_handoff_and_drain ();

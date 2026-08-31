@@ -43,6 +43,7 @@
 #include "gnc-plugin-page-register.h"
 #include "dialog-print-check.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "print-session.h"
 #include "gnc-ui.h"
 #include "gnc-date-format.h"
@@ -877,6 +878,7 @@ gnc_print_check_save_button_clicked(GtkButton *button, PrintCheckDialog *pcd)
     request = g_new0 (FormatTitleRequest, 1);
     request->pcd = pcd;
     request->window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (request->window);
     request->entry = GTK_ENTRY (gtk_entry_new ());
     pcd->format_title_window = request->window;
     gtk_window_set_title (request->window, _("Save Custom Check Format"));

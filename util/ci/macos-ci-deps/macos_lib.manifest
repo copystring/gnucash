@@ -83,8 +83,6 @@ libgthread-2.0.0.dylib
 libgthread-2.0.dylib
 libgtk-4.1.dylib
 libgtk-4.dylib
-libgtkmacintegration-gtk4.4.dylib
-libgtkmacintegration-gtk4.dylib
 libguile-2.2.1.dylib
 libguile-2.2.dylib
 libgwengui-cpp.79.dylib

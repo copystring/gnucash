@@ -700,6 +700,7 @@ tax_table_rename_table_cb (GtkButton *button, TaxTableWindow *ttw)
     request->table_guid = gncTaxTableRetGUID (ttw->current_table);
     g_weak_ref_init (&request->parent, ttw->dialog);
     request->window = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (request->window);
     gtk_window_set_title (request->window, _("Rename"));
     gtk_window_set_modal (request->window, TRUE);
     gtk_window_set_transient_for (request->window, GTK_WINDOW (ttw->dialog));
@@ -1291,6 +1292,7 @@ gnc_ui_tax_table_new_from_name_async (GtkWindow *parent, QofBook *book,
     request->callback = callback;
     request->user_data = user_data;
     request->window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gnc_window_bind_to_application (request->window);
     gtk_window_set_title (request->window, _("New Tax Table"));
     gtk_window_set_modal (request->window, TRUE);
     gtk_window_set_resizable (request->window, FALSE);

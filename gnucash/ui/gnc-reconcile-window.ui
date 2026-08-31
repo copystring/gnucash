@@ -138,16 +138,96 @@
         <property name="action-name">recwin.RecnAutoClearAction</property>
       </object>
     </child>
-    <child><object class="GtkButton" id="but1"><property name="tooltip-text" translatable="yes">Add a new balancing entry to the account</property><property name="action-name">recwin.TransBalanceAction</property><property name="label" translatable="yes" context="reconcile menu">_Balance</property><property name="use-underline">True</property><property name="icon-name">document-new</property></object></child>
-    <child><object class="GtkButton" id="but2"><property name="tooltip-text" translatable="yes">Edit the current transaction</property><property name="action-name">recwin.TransEditAction</property><property name="label" translatable="yes">_Edit</property><property name="use-underline">True</property><property name="icon-name">document-properties</property></object></child>
-    <child><object class="GtkButton" id="but3"><property name="tooltip-text" translatable="yes">Reconcile the selected transactions</property><property name="action-name">recwin.TransRecAction</property><property name="label" translatable="yes">Reconcile Selection</property><property name="use-underline">True</property><property name="icon-name">emblem-default</property></object></child>
-    <child><object class="GtkButton" id="but4"><property name="tooltip-text" translatable="yes">Unreconcile the selected transactions</property><property name="action-name">recwin.TransUnRecAction</property><property name="label" translatable="yes">Unreconcile Selection</property><property name="use-underline">True</property><property name="icon-name">edit-clear</property></object></child>
-    <child><object class="GtkButton" id="but5"><property name="tooltip-text" translatable="yes">Delete the selected transaction</property><property name="action-name">recwin.TransDeleteAction</property><property name="label" translatable="yes">_Delete</property><property name="use-underline">True</property><property name="icon-name">edit-delete</property></object></child>
-    <child><object class="GtkSeparator"><property name="orientation">vertical</property></object></child>
-    <child><object class="GtkButton" id="but6"><property name="tooltip-text" translatable="yes">Open the account</property><property name="action-name">recwin.AccountOpenAccountAction</property><property name="label" translatable="yes">_Open</property><property name="use-underline">True</property><property name="icon-name">gnc-jumpto</property></object></child>
-    <child><object class="GtkSeparator"><property name="orientation">vertical</property></object></child>
-    <child><object class="GtkButton" id="but7"><property name="tooltip-text" translatable="yes">Finish the reconciliation of this account</property><property name="action-name">recwin.RecnFinishAction</property><property name="label" translatable="yes">_Finish</property><property name="use-underline">True</property><property name="icon-name">system-run</property></object></child>
-    <child><object class="GtkButton" id="but8"><property name="tooltip-text" translatable="yes">Postpone the reconciliation of this account</property><property name="action-name">recwin.RecnPostponeAction</property><property name="label" translatable="yes">_Postpone</property><property name="use-underline">True</property><property name="icon-name">go-previous</property></object></child>
-    <child><object class="GtkButton" id="but9"><property name="tooltip-text" translatable="yes">Cancel the reconciliation of this account</property><property name="action-name">recwin.RecnCancelAction</property><property name="label" translatable="yes">_Cancel</property><property name="use-underline">True</property><property name="icon-name">process-stop</property></object></child>
+    <child>
+      <object class="GtkButton" id="but1">
+        <property name="tooltip-text" translatable="yes">Add a new balancing entry to the account</property>
+        <property name="action-name">recwin.TransBalanceAction</property>
+        <property name="label" translatable="yes" context="reconcile menu">_Balance</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">document-new</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but2">
+        <property name="tooltip-text" translatable="yes">Edit the current transaction</property>
+        <property name="action-name">recwin.TransEditAction</property>
+        <property name="label" translatable="yes">_Edit</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">document-properties</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but3">
+        <property name="tooltip-text" translatable="yes">Reconcile the selected transactions</property>
+        <property name="action-name">recwin.TransRecAction</property>
+        <property name="label" translatable="yes">Reconcile Selection</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">emblem-default</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but4">
+        <property name="tooltip-text" translatable="yes">Unreconcile the selected transactions</property>
+        <property name="action-name">recwin.TransUnRecAction</property>
+        <property name="label" translatable="yes">Unreconcile Selection</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">edit-clear</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but5">
+        <property name="tooltip-text" translatable="yes">Delete the selected transaction</property>
+        <property name="action-name">recwin.TransDeleteAction</property>
+        <property name="label" translatable="yes">_Delete</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">edit-delete</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkSeparator">
+        <property name="orientation">vertical</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but6">
+        <property name="tooltip-text" translatable="yes">Open the account</property>
+        <property name="action-name">recwin.AccountOpenAccountAction</property>
+        <property name="label" translatable="yes">_Open</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">gnc-jumpto</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkSeparator">
+        <property name="orientation">vertical</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but7">
+        <property name="tooltip-text" translatable="yes">Finish the reconciliation of this account</property>
+        <property name="action-name">recwin.RecnFinishAction</property>
+        <property name="label" translatable="yes">_Finish</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">system-run</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but8">
+        <property name="tooltip-text" translatable="yes">Postpone the reconciliation of this account</property>
+        <property name="action-name">recwin.RecnPostponeAction</property>
+        <property name="label" translatable="yes">_Postpone</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">go-previous</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="but9">
+        <property name="tooltip-text" translatable="yes">Cancel the reconciliation of this account</property>
+        <property name="action-name">recwin.RecnCancelAction</property>
+        <property name="label" translatable="yes">_Cancel</property>
+        <property name="use-underline">True</property>
+        <property name="icon-name">process-stop</property>
+      </object>
+    </child>
   </object>
 </interface>

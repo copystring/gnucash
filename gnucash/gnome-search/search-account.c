@@ -32,6 +32,7 @@
 #include "Account.h"
 #include "qof.h"
 #include "gnc-tree-view-account.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-gui-query.h"
 #include "dialog-utils.h"
 
@@ -437,6 +438,7 @@ button_clicked (GtkButton *button, GNCSearchAccount *fi)
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
 
     dialog = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (dialog);
     gtk_window_set_title (dialog, _("Select the Accounts to Compare"));
     gtk_window_set_modal (dialog, TRUE);
     gtk_window_set_default_size (dialog, 420, 420);

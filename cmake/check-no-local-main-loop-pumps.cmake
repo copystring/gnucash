@@ -7,13 +7,12 @@ endif()
 
 set(SOURCE_DIRECTORIES common gnucash libgnucash bindings)
 set(SOURCE_EXTENSIONS c cc cpp cxx h hh hpp hxx)
-# Gwen needs a synchronous foreign-ABI progress drain; WebKit1 is inactive legacy code.
+# Gwen needs a synchronous foreign-ABI progress drain.
 set(ALLOWED_FILES
   "gnucash/import-export/aqb/gnc-gwen-gui.c"
-  "gnucash/html/gnc-html-webkit1.cpp"
 )
 # Gwen has one progress drain and two synchronous foreign-ABI response waits.
-set(ALLOWED_PUMP_COUNTS 3 1)
+set(ALLOWED_PUMP_COUNTS 3)
 set(VIOLATIONS)
 
 foreach(DIRECTORY IN LISTS SOURCE_DIRECTORIES)

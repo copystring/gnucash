@@ -3,6 +3,8 @@ set(required_html_backend_files
   gnucash/html/gnc-html-webkit2.hpp
   gnucash/html/gnc-html-webview2.cpp
   gnucash/html/gnc-html-webview2.hpp
+  gnucash/html/gnc-html-webview2-loader-state.hpp
+  gnucash/html/gnc-html-native-widget-lifecycle.hpp
   gnucash/html/gnc-html-wkwebview.mm
   gnucash/html/gnc-html-wkwebview.hpp
 )

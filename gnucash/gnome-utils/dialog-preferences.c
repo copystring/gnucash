@@ -1181,7 +1181,7 @@ file_chooser_clear_cb (GtkButton *button, gpointer user_data)
 
 /** Connect a GtkCheckButton widget to its stored value in the preferences database.
  *  This covers both independent boolean check buttons and grouped check
- *  buttons, which replace GtkRadioButton in GTK4.
+ *  buttons.
  *
  *  @internal
  *

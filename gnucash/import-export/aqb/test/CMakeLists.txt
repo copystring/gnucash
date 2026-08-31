@@ -72,10 +72,17 @@ if(WITH_AQBANKING)
     # unmodified locale-path initialization sees the configured dependency.
     set(AQBANKING_TEST_RUNTIME_PREFIX
       "${CMAKE_CURRENT_BINARY_DIR}/aqbanking-runtime")
+    set(AQBANKING_TEST_HOME
+      "${AQBANKING_TEST_RUNTIME_PREFIX}/test-home")
     file(MAKE_DIRECTORY "${AQBANKING_TEST_RUNTIME_PREFIX}/bin")
+    file(MAKE_DIRECTORY
+      "${AQBANKING_TEST_HOME}/aqbanking/settings6/users")
     file(COPY "${AQBANKING_TEST_LOCALE_DIR}"
       DESTINATION "${AQBANKING_TEST_RUNTIME_PREFIX}/share")
     set_target_properties(test-gwen-gui-shutdown PROPERTIES
       RUNTIME_OUTPUT_DIRECTORY "${AQBANKING_TEST_RUNTIME_PREFIX}/bin")
+    set_property(TEST test-gwen-gui-shutdown APPEND PROPERTY ENVIRONMENT
+      "HOME=${AQBANKING_TEST_HOME}"
+      "AQBANKING_HOME=${AQBANKING_TEST_HOME}/aqbanking")
   endif()
  endif()

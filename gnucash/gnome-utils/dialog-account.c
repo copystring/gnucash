@@ -36,6 +36,7 @@
 #include "dialog-account.h"
 #include "dialog-commodity.h"
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-amount-edit.h"
 #include "gnc-general-select.h"
 #include "gnc-commodity.h"
@@ -925,6 +926,7 @@ verify_children_compatible (AccountWindow *aw)
     confirmation = g_new0 (AccountTypeConfirmation, 1);
     g_weak_ref_init (&confirmation->account_window, G_OBJECT (aw->dialog));
     confirmation->dialog = GTK_WINDOW (gtk_window_new ());
+    gnc_window_bind_to_application (confirmation->dialog);
     g_object_set_data (G_OBJECT (confirmation->dialog), ACCOUNT_TYPE_CONFIRMATION_DATA,
                        confirmation);
     gtk_window_set_title (confirmation->dialog, _("Give the children the same type?"));

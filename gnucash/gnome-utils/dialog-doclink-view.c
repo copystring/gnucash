@@ -240,6 +240,8 @@ factory_rel_bind (GtkListItemFactory *factory, GtkListItem *list_item, gpointer 
 
     if (item->uri_relative_pix)
         gtk_image_set_from_icon_name (GTK_IMAGE(image), item->uri_relative_pix);
+    else
+        gtk_image_set_from_icon_name (GTK_IMAGE(image), NULL);
 }
 
 GtkWidget *

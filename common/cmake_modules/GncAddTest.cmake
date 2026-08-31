@@ -3,6 +3,11 @@
 function(gnc_add_test_runtime_path _TARGET)
   if (MINGW64)
     set(_runtime_path ${CMAKE_BINARY_DIR}/bin)
+    if (GUILE_EXECUTABLE)
+      get_filename_component(_guile_runtime_path
+        "${GUILE_EXECUTABLE}" DIRECTORY)
+      list(APPEND _runtime_path "${_guile_runtime_path}")
+    endif()
     foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
       list(APPEND _runtime_path "${_prefix}/bin")
     endforeach()
@@ -24,8 +29,7 @@ function(get_guile_env)
   set(_relative_cache_dir "${CMAKE_BINARY_DIR}/${GUILE_REL_SITECCACHEDIR}")
 
 
-  set(guile_load_paths "$ENV{GUILE_LOAD_PATH}")
-  list(APPEND guile_load_paths
+  set(guile_load_paths
     "${_relative_site_dir}"
     "${_relative_site_dir}/gnucash/deprecated" 
     )
@@ -40,14 +44,20 @@ function(get_guile_env)
       )
 
   endif()
+  if (NOT "$ENV{GUILE_LOAD_PATH}" STREQUAL "")
+    list(APPEND guile_load_paths "$ENV{GUILE_LOAD_PATH}")
+  endif()
   set(_guile_load_path "${guile_load_paths}")
 
-  set(guile_load_compiled_paths "$ENV{GUILE_LOAD_COMPILED_PATH}")
-  list(APPEND guile_load_compiled_paths
+  set(guile_load_compiled_paths
     "${_relative_cache_dir}"
     "${_relative_cache_dir}/gnucash/deprecated"
     "${_relative_cache_dir}/tests"
   )
+  if (NOT "$ENV{GUILE_LOAD_COMPILED_PATH}" STREQUAL "")
+    list(APPEND guile_load_compiled_paths
+      "$ENV{GUILE_LOAD_COMPILED_PATH}")
+  endif()
   set(_guile_load_compiled_path "${guile_load_compiled_paths}")
 
   if (MINGW64 AND ${GUILE_EFFECTIVE_VERSION} VERSION_LESS 2.2)
@@ -131,10 +141,11 @@ function(gnc_add_scheme_test _TARGET _SOURCE_FILE)
   get_filename_component(_scheme_test_source "${_SOURCE_FILE}" ABSOLUTE
     BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
   if (WIN32)
-    # Do not let Guile's per-user cache shadow the bytecode that Ninja just
-    # built. The build still compiles every Scheme source; CTest executes the
-    # explicitly named source under the staged runtime.
-    set(_scheme_test_load "(load \"${_scheme_test_source}\")")
+    get_filename_component(_scheme_test_name "${_SOURCE_FILE}" NAME_WE)
+    set(_scheme_test_compiled
+      "${CMAKE_BINARY_DIR}/${GUILE_REL_UNIX_SITECCACHEDIR}/tests/${_scheme_test_name}.go")
+    file(TO_CMAKE_PATH "${_scheme_test_compiled}" _scheme_test_compiled)
+    set(_scheme_test_load "(load-compiled \"${_scheme_test_compiled}\")")
   else()
     set(_scheme_test_load "(load-from-path \"${_TARGET}\")")
   endif()
