@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@v6
       - run: sudo apt-get update
       - name: Install additional dependencies
-        run: sudo apt-get install -y gettext cmake libxslt-dev xsltproc ninja-build libboost-all-dev libgtk-4-dev guile-2.2-dev libaqbanking-dev libofx-dev libdbi-dev libdbd-sqlite3 libwebkitgtk-6.0-dev googletest
+        run: sudo apt-get install -y gettext cmake libxslt-dev xsltproc ninja-build libboost-all-dev libgtk-4-dev guile-2.2-dev libofx-dev libdbi-dev libdbd-sqlite3 libwebkitgtk-6.0-dev googletest
       - name: Install language packs.
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
@@ -22,10 +22,11 @@ jobs:
           pwd
           mkdir $ROOT_DIR/inst
           mkdir build
-      - name: Configure GnuCash
+      - name: Configure GnuCash without AqBanking
         run: |
           cd build
-          cmake -G Ninja -DWITH_PYTHON=ON -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst $GITHUB_WORKSPACE
+          # Ubuntu doesn't yet provide the required gwengui-gtk4 package.
+          cmake -G Ninja -DWITH_PYTHON=ON -DWITH_AQBANKING=OFF -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst $GITHUB_WORKSPACE
       - name: Validate GTK4 builder resources
         run: find "$GITHUB_WORKSPACE/gnucash" -type f \( -name '*.ui' -o -name '*.glade' \) -exec gtk4-builder-tool validate {} \;
       - name: Build and Test GnuCash
@@ -51,7 +52,7 @@ jobs:
         uses: actions/checkout@v6
       - run: sudo apt-get update
       - name: Install additional dependencies
-        run: sudo apt-get install -y gettext cmake libxslt-dev xsltproc ninja-build libboost-all-dev libgtk-4-dev guile-2.2-dev libaqbanking-dev libofx-dev libdbi-dev libdbd-sqlite3 libwebkitgtk-6.0-dev googletest
+        run: sudo apt-get install -y gettext cmake libxslt-dev xsltproc ninja-build libboost-all-dev libgtk-4-dev guile-2.2-dev libofx-dev libdbi-dev libdbd-sqlite3 libwebkitgtk-6.0-dev googletest
       - name: Install language packs.
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
@@ -61,10 +62,11 @@ jobs:
           pwd
           mkdir $ROOT_DIR/inst
           mkdir build
-      - name: Configure GnuCash
+      - name: Configure GnuCash without AqBanking
         run: |
           cd build
-          cmake -G Ninja -DWITH_PYTHON=ON -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=Asan
+          # Ubuntu doesn't yet provide the required gwengui-gtk4 package.
+          cmake -G Ninja -DWITH_PYTHON=ON -DWITH_AQBANKING=OFF -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=Asan
       - name: Validate GTK4 builder resources
         run: find "$GITHUB_WORKSPACE/gnucash" -type f \( -name '*.ui' -o -name '*.glade' \) -exec gtk4-builder-tool validate {} \;
       - name: Build and Test GnuCash

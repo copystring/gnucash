@@ -40,6 +40,13 @@ jobs:
         cd $HOME/gnucash/source
         tar -xf $GITHUB_WORKSPACE/googletest-1.17.0.tar.gz
         mv googletest-* googletest
+    - name: Verify dependency archive
+      run: |
+        "$PREFIX/bin/pkgconf" --exists \
+          'gtk4 >= 4.14' \
+          gtk4-macos \
+          gwengui-gtk4 \
+          aqbanking
     - name: Configure GnuCash
       run: |
         mkdir $HOME/gnucash/build
@@ -58,5 +65,5 @@ jobs:
       if: failure()
       with:
         name: TestLog
-        path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
+        path: /Users/runner/gnucash/build/Testing/Temporary/LastTest.log
         if-no-files-found: ignore
