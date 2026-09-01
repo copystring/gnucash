@@ -1103,6 +1103,29 @@ test_legacy_gains_scrub_uses_transaction_book (void)
 }
 
 static void
+test_legacy_lot_scrub_uses_account_book (void)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+    ScopedEnvironment lots_off {"GNC_AUTO_SCRUB_LOTS", nullptr};
+    auto current = qof_session_new (qof_book_new ());
+    auto foreign = make_lot_assignment_fixture ();
+
+    gnc_set_current_session (current);
+    xaccAccountScrubLots (foreign.account);
+    auto lots = xaccAccountGetLotList (foreign.account);
+
+    do_test (gnc_get_current_session () == current,
+             "legacy lot scrub preserves an unrelated current session");
+    do_test (lots != nullptr,
+             "legacy lot scrub synchronously processes a foreign book");
+    g_list_free (lots);
+
+    gnc_clear_current_session ();
+    destroy_lot_assignment_fixture (&foreign);
+}
+
+static void
 test_lot_scrub_plan_external_mutation_is_stale (void)
 {
     if (gnc_current_session_exist ())
@@ -1410,6 +1433,7 @@ main (int argc, char **argv)
     test_rollback_gains_source_endpoint_collectors ();
     test_lot_scrub_cancel_preserves_vdirty_terminal_marker ();
     test_legacy_gains_scrub_uses_transaction_book ();
+    test_legacy_lot_scrub_uses_account_book ();
     test_lot_scrub_plan_external_mutation_is_stale ();
     test_lot_scrub_external_mutation_after_every_step_is_stale ();
     test_composite_lots_job_cancel_handoff_and_drain ();
