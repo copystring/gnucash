@@ -72,6 +72,68 @@ const gchar *msg_no_help_reason =
     /* Translators: URI of missing help files */
 const gchar *msg_no_help_location = N_("Expected location");
 
+#if !defined(MAC_INTEGRATION) && !defined(G_OS_WIN32)
+typedef struct
+{
+    GWeakRef parent;
+    gchar *message;
+    gchar *detail;
+} GncUriLauncherData;
+
+static void
+gnc_uri_launcher_data_free (GncUriLauncherData *data)
+{
+    g_weak_ref_clear (&data->parent);
+    g_free (data->message);
+    g_free (data->detail);
+    g_free (data);
+}
+
+static void
+gnc_uri_launcher_cb (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    GncUriLauncherData *data = user_data;
+    GError *error = NULL;
+    GtkWindow *parent;
+
+    if (gtk_uri_launcher_launch_finish (GTK_URI_LAUNCHER (source), result, &error))
+    {
+        gnc_uri_launcher_data_free (data);
+        return;
+    }
+
+    parent = g_weak_ref_get (&data->parent);
+    gnc_error_dialog (parent, "%s\n%s", data->message,
+                      data->detail ? data->detail : "");
+    g_clear_object (&parent);
+    if (error)
+    {
+        PERR ("%s", error->message);
+        g_error_free (error);
+    }
+    gnc_uri_launcher_data_free (data);
+}
+
+static void
+gnc_launch_uri (GtkWindow *parent, const gchar *uri, const gchar *message,
+                const gchar *detail)
+{
+    GncUriLauncherData *data;
+    GtkUriLauncher *launcher;
+
+    g_return_if_fail (uri != NULL);
+
+    data = g_new0 (GncUriLauncherData, 1);
+    g_weak_ref_init (&data->parent, parent);
+    data->message = g_strdup (message);
+    data->detail = g_strdup (detail);
+
+    launcher = gtk_uri_launcher_new (uri);
+    gtk_uri_launcher_launch (launcher, parent, NULL, gnc_uri_launcher_cb, data);
+    g_object_unref (launcher);
+}
+#endif
+
 void
 gnc_gnome_utils_init (void)
 {
@@ -353,30 +415,17 @@ gnc_gnome_help (GtkWindow *parent, const char *file_name, const char *anchor)
 void
 gnc_gnome_help (GtkWindow *parent, const char *file_name, const char *anchor)
 {
-    GError *error = NULL;
-    gchar *uri = NULL;
-    gboolean success = TRUE;
+    gchar *uri;
 
     if (anchor)
         uri = g_strconcat ("help:", file_name, "/", anchor, NULL);
     else
         uri = g_strconcat ("help:", file_name, NULL);
 
-    DEBUG ("Attempting to opening help uri %s", uri);
+    DEBUG ("Attempting to open help URI %s", uri);
 
-    if (uri)
-        success = gtk_show_uri_on_window (NULL, uri, gtk_get_current_event_time (), &error);
-
+    gnc_launch_uri (parent, uri, _(msg_no_help_found), _(msg_no_help_reason));
     g_free (uri);
-    if (success)
-        return;
-
-    g_assert(error != NULL);
-    {
-        gnc_error_dialog (parent, "%s\n%s", _(msg_no_help_found), _(msg_no_help_reason));
-    }
-    PERR ("%s", error->message);
-    g_error_free(error);
 }
 
 
@@ -448,39 +497,26 @@ gnc_launch_doclink (GtkWindow *parent, const char *uri)
 void
 gnc_launch_doclink (GtkWindow *parent, const char *uri)
 {
-    GError *error = NULL;
-    gboolean success;
+    gchar *error_uri;
+    const gchar *message =
+        _("GnuCash could not open the linked document:");
 
     if (!uri)
         return;
 
-    DEBUG ("Attempting to open uri %s", uri);
+    DEBUG ("Attempting to open URI %s", uri);
 
-    success = gtk_show_uri_on_window (NULL, uri, gtk_get_current_event_time (), &error);
-
-    if (success)
-        return;
-
-    g_assert (error != NULL);
+    if (gnc_uri_is_file_uri (uri))
     {
-        gchar *error_uri = NULL;
-        const gchar *message =
-            _("GnuCash could not open the linked document:");
-
-        if (gnc_uri_is_file_uri (uri))
-        {
-            gchar *uri_scheme = gnc_uri_get_scheme (uri);
-            error_uri = gnc_doclink_get_unescape_uri (NULL, uri, uri_scheme);
-            g_free (uri_scheme);
-        }
-        else
-            error_uri = g_strdup (uri);
-
-        gnc_error_dialog (parent, "%s\n%s", message, error_uri);
-        g_free (error_uri);
+        gchar *uri_scheme = gnc_uri_get_scheme (uri);
+        error_uri = gnc_doclink_get_unescape_uri (NULL, uri, uri_scheme);
+        g_free (uri_scheme);
     }
-    PERR ("%s", error->message);
-    g_error_free (error);
+    else
+        error_uri = g_strdup (uri);
+
+    gnc_launch_uri (parent, uri, message, error_uri);
+    g_free (error_uri);
 }
 
 #endif
