@@ -41,5 +41,7 @@ if(WITH_OFX)
     OFX_LIFECYCLE_TEST_INCLUDE_DIRS OFX_LIFECYCLE_TEST_LIBS)
 endif()
 
-set_dist_list(test_ofx_DIST CMakeLists.txt test-link.c)
-list(APPEND test_ofx_DIST gtest-ofx-import-lifecycle.cpp)
+set_dist_list(test_ofx_DIST
+  CMakeLists.txt
+  gtest-ofx-import-lifecycle.cpp
+  test-link.c)
