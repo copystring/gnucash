@@ -1626,9 +1626,9 @@ TEST (QofSessionOperationLeaseTest,
     EXPECT_TRUE (xaccTransIsBalanced (transaction));
     EXPECT_EQ (xaccTransCountSplits (transaction), 2);
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0u);
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 0);
+                   context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 0u);
 
     gnc_scrub_context_end (context);
     gnc_scrub_context_unref (context);
@@ -1656,9 +1656,9 @@ TEST (QofSessionOperationLeaseTest,
         EXPECT_TRUE (xaccTransIsBalanced (transaction));
         EXPECT_EQ (xaccTransCountSplits (transaction), 2);
         EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0u);
         EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 1);
+                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 1u);
 
         GncGUID guid;
         ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
@@ -1686,9 +1686,9 @@ TEST (QofSessionOperationLeaseTest,
         EXPECT_FALSE (xaccTransIsBalanced (transaction));
         EXPECT_EQ (xaccTransCountSplits (transaction), 1);
         EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1u);
         EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 0);
+                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 0u);
         EXPECT_FALSE (gnc_scrub_defer_commit_hook (
             book, xaccTransGetGUID (transaction),
             GNC_SCRUB_DEFERRED_COMMIT_GAINS));
@@ -1728,12 +1728,12 @@ TEST (QofSessionOperationLeaseTest,
     EXPECT_FALSE (xaccTransIsBalanced (first));
     EXPECT_EQ (xaccTransCountSplits (first), 1);
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2);
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2u);
 
     xaccTransBeginEdit (first);
     xaccTransCommitEdit (first);
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2);
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2u);
 
     GncGUID guid;
     auto first_guid = *xaccTransGetGUID (first);
@@ -1754,9 +1754,9 @@ TEST (QofSessionOperationLeaseTest,
         ScopedEnvironment lots_on {"GNC_AUTO_SCRUB_LOTS", "1"};
         third = fixture.commit_unbalanced (3);
         EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2);
+                       context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 2u);
         EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 1);
+                       context, GNC_SCRUB_DEFERRED_COMMIT_GAINS), 1u);
         ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
             context, GNC_SCRUB_DEFERRED_COMMIT_GAINS, &guid));
         EXPECT_TRUE (guid_equal (&guid, xaccTransGetGUID (third)));
@@ -1780,7 +1780,7 @@ TEST (QofSessionOperationLeaseTest,
     EXPECT_FALSE (gnc_scrub_deferred_commit_peek (
         context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0u);
     gnc_scrub_context_end (context);
     EXPECT_FALSE (gnc_scrub_context_enable_commit_deferral (
         context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE));
@@ -1789,14 +1789,14 @@ TEST (QofSessionOperationLeaseTest,
     auto later_context = gnc_scrub_context_begin (book);
     ASSERT_NE (later_context, nullptr);
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1u);
     ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
         later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
     EXPECT_TRUE (guid_equal (&guid, &third_guid));
     EXPECT_TRUE (gnc_scrub_deferred_commit_ack (
         later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0);
+                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 0u);
 
     gnc_scrub_context_end (later_context);
     gnc_scrub_context_unref (later_context);
@@ -1925,7 +1925,7 @@ TEST (QofSessionOperationLeaseTest,
     auto transaction = fixture.commit_unbalanced (1);
     auto transaction_guid = *xaccTransGetGUID (transaction);
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+                   context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1u);
     gnc_scrub_context_end (context);
 
     GncGUID guid;
@@ -1936,7 +1936,7 @@ TEST (QofSessionOperationLeaseTest,
     auto later_context = gnc_scrub_context_begin (book);
     ASSERT_NE (later_context, nullptr);
     EXPECT_EQ (gnc_scrub_deferred_commit_pending_count (
-                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1);
+                   later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE), 1u);
     ASSERT_TRUE (gnc_scrub_deferred_commit_peek (
         later_context, GNC_SCRUB_DEFERRED_COMMIT_IMBALANCE, &guid));
     EXPECT_TRUE (guid_equal (&guid, &transaction_guid));
