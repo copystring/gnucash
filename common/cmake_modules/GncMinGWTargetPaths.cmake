@@ -25,7 +25,8 @@ function(gnc_append_flags_once variable)
 endfunction()
 
 function(_gnc_normalize_target_path input output)
-  cmake_path(CONVERT "${input}" TO_CMAKE_PATH_LIST normalized NORMALIZE)
+  string(REPLACE "\\" "/" normalized "${input}")
+  cmake_path(SET normalized NORMALIZE "${normalized}")
   set(${output} "${normalized}" PARENT_SCOPE)
 endfunction()
 
