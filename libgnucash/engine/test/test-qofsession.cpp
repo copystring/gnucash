@@ -592,7 +592,7 @@ TEST (QofSessionOperationLeaseTest, is_exclusive_and_session_bound)
 
     ASSERT_NE (lease, nullptr);
     auto operation_id = qof_session_operation_lease_get_id (lease);
-    EXPECT_NE (operation_id, 0);
+    EXPECT_NE (operation_id, 0u);
     EXPECT_TRUE (qof_session_operation_lease_is_valid (lease, session_1));
     EXPECT_FALSE (qof_session_operation_lease_is_valid (lease, session_2));
     EXPECT_EQ (qof_session_operation_lease_acquire (session_1), nullptr);
@@ -673,7 +673,7 @@ TEST (QofSessionOperationLeaseTest, clears_current_session_only_for_owner)
     EXPECT_TRUE (current_session_was_detached_on_end);
     EXPECT_FALSE (gnc_current_session_exist ());
     EXPECT_NE (gnc_current_session_get_generation (), generation);
-    EXPECT_EQ (qof_session_operation_lease_get_id (current_lease), 0);
+    EXPECT_EQ (qof_session_operation_lease_get_id (current_lease), 0u);
 
     qof_session_operation_lease_release (current_lease);
     qof_session_operation_lease_release (foreign_lease);
@@ -727,7 +727,7 @@ TEST (QofSessionOperationLeaseTest, protects_session_operations)
     EXPECT_FALSE (qof_session_destroy_with_lease (session_1, lease_2));
     EXPECT_TRUE (qof_session_operation_lease_is_valid (lease_1, session_1));
     EXPECT_TRUE (qof_session_destroy_with_lease (session_1, lease_1));
-    EXPECT_EQ (qof_session_operation_lease_get_id (lease_1), 0);
+    EXPECT_EQ (qof_session_operation_lease_get_id (lease_1), 0u);
     qof_session_operation_lease_release (lease_1);
 
     qof_session_operation_lease_release (lease_2);
@@ -840,7 +840,7 @@ TEST (QofSessionOperationLeaseTest, book_replacement_invalidates_lease)
     load_error = true;
     EXPECT_TRUE (qof_session_load_with_lease (session, lease, nullptr));
     EXPECT_FALSE (qof_session_operation_lease_is_valid (lease, session));
-    EXPECT_EQ (qof_session_operation_lease_get_id (lease), 0);
+    EXPECT_EQ (qof_session_operation_lease_get_id (lease), 0u);
 
     qof_session_operation_lease_release (lease);
     qof_session_destroy (session);
@@ -1056,21 +1056,21 @@ TEST (QofSessionOperationLeaseTest, orphan_scrub_job_is_incremental_and_matches_
 
     auto job = gnc_scrub_orphans_job_begin (incremental.account, FALSE);
     ASSERT_NE (job, nullptr);
-    EXPECT_EQ (gnc_scrub_job_get_total (job), 3);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 0);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 3u);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 0u);
     EXPECT_TRUE (qof_session_has_active_operation_kind (
         session, QOF_SESSION_OPERATION_SCRUB));
     EXPECT_EQ (qof_session_operation_lease_acquire_for (
         session, QOF_SESSION_OPERATION_SAVE), nullptr);
 
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1u);
     EXPECT_TRUE (qof_session_has_active_operation_kind (
         session, QOF_SESSION_OPERATION_SCRUB));
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 2);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 2u);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 3);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 3u);
     EXPECT_FALSE (qof_session_has_active_operation_lease (session));
     auto incremental_destination = expect_orphans_scrubbed (incremental);
 
@@ -1288,9 +1288,9 @@ TEST (QofSessionOperationLeaseTest,
     auto job = gnc_scrub_imbalance_job_begin (incremental.account, TRUE);
     ASSERT_NE (job, nullptr);
     EXPECT_EQ (gnc_scrub_job_get_kind (job), GNC_SCRUB_JOB_IMBALANCE);
-    EXPECT_EQ (gnc_scrub_job_get_total (job), 3);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 3u);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1u);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
     expect_imbalance_scrubbed (incremental);
@@ -1323,16 +1323,16 @@ TEST (QofSessionOperationLeaseTest,
     ASSERT_NE (job, nullptr);
     EXPECT_EQ (gnc_scrub_job_get_kind (job), GNC_SCRUB_JOB_ACCOUNT);
     EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_ORPHANS);
-    EXPECT_EQ (gnc_scrub_job_get_total (job), 6);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 0);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 6u);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 0u);
 
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1u);
     EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_ORPHANS);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 2);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 2u);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 3);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 3u);
     EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_IMBALANCE);
     EXPECT_TRUE (qof_session_has_active_operation_kind (
         session, QOF_SESSION_OPERATION_SCRUB));
@@ -1340,11 +1340,11 @@ TEST (QofSessionOperationLeaseTest,
         session, QOF_SESSION_OPERATION_SAVE), nullptr);
 
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 4);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 4u);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 5);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 5u);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 6);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 6u);
     EXPECT_FALSE (qof_session_has_active_operation_lease (session));
     expect_imbalance_scrubbed (incremental);
 
@@ -1375,7 +1375,7 @@ TEST (QofSessionOperationLeaseTest,
 
     auto job = gnc_scrub_account_job_begin (incremental.account, FALSE);
     ASSERT_NE (job, nullptr);
-    EXPECT_EQ (gnc_scrub_job_get_total (job), 2);
+    EXPECT_EQ (gnc_scrub_job_get_total (job), 2u);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
     EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_IMBALANCE);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_DONE);
@@ -1409,7 +1409,7 @@ TEST (QofSessionOperationLeaseTest,
     auto job = gnc_scrub_account_job_begin (fixture.account, FALSE);
     ASSERT_NE (job, nullptr);
     EXPECT_EQ (gnc_scrub_job_step (job, 1), GNC_SCRUB_JOB_RUNNING);
-    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1);
+    EXPECT_EQ (gnc_scrub_job_get_completed (job), 1u);
     EXPECT_EQ (gnc_scrub_job_get_phase (job), GNC_SCRUB_JOB_PHASE_IMBALANCE);
     EXPECT_TRUE (qof_session_has_active_operation_kind (
         session, QOF_SESSION_OPERATION_SCRUB));
