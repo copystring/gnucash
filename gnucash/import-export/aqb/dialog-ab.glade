@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
-  <requires lib="gtk" version="4.0"/>
   <requires lib="gtk" version="4.14"/>
   <object class="GtkWindow" id="aqbanking_connection_dialog">
     <property name="title" translatable="1">Online Banking Connection Window</property>
