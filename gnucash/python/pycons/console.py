@@ -300,9 +300,6 @@ class Console (Gtk.ScrolledWindow):
         self.buffer.move_mark (self.buffer.get_mark('linestart'), iter)
         self.history_reset()
         self.view.scroll_mark_onscreen(self.buffer.get_insert())
-        context = GLib.MainContext.default()
-        while context.pending():
-            context.iteration(False)
 
     def key_press_event (self, controller, keyval, keycode, state):
         """ Handle key press event """
@@ -420,9 +417,6 @@ class Console (Gtk.ScrolledWindow):
 
         self.shell.eval(self)
         self.view.scroll_mark_onscreen(self.buffer.get_insert())
-        context = GLib.MainContext.default()
-        while context.pending():
-            context.iteration(False)
 
         # Get system output and remove system redirection
         os.dup2 (sys_stdout, 1)
