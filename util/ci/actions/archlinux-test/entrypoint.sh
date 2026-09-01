@@ -14,7 +14,10 @@ git config --global --add safe.directory /github/workspace
 cmake /github/workspace -DWITH_PYTHON=ON -DWITH_AQBANKING=OFF -DCMAKE_BUILD_TYPE=debug -G Ninja
 find /github/workspace/gnucash -type f \( -name '*.ui' -o -name '*.glade' \) -exec gtk4-builder-tool validate {} \;
 ninja
+ninja test-engine
 trap 'cp Testing/Temporary/LastTest.log /github/workspace/LastTest.log 2>/dev/null || true' EXIT
+export GNC_UNINSTALLED=YES
+export GNC_BUILDDIR="$(pwd)"
 dbus-run-session -- xvfb-run -a gdb -batch -return-child-result \
     -ex 'set pagination off' -ex run -ex 'thread apply all bt full' --args \
     ./bin/test-engine 2>&1 | tee /github/workspace/test-engine-gdb.log
