@@ -816,7 +816,7 @@ impl_webkit_show_data( GncHtml* self, const gchar* data, int datalen )
      if (priv->pending_anchor && *priv->pending_anchor)
      {
           gchar *fragment = g_uri_escape_string (priv->pending_anchor, nullptr,
-                                                  nullptr);
+                                                  TRUE);
           gchar *anchored_uri = g_strconcat (uri, "#", fragment, nullptr);
 
           webkit_web_view_load_uri (priv->web_view, anchored_uri);
@@ -1309,8 +1309,8 @@ impl_webkit_print (GncHtml *self, const gchar *jobname, gboolean export_pdf)
 
         gnc_print_operation_init (print_operation,
                                   jobname && *jobname ? jobname : _("Report"));
-        settings = gtk_print_operation_get_print_settings (print_operation);
-        page_setup = gtk_print_operation_get_default_page_setup (print_operation);
+        auto settings = gtk_print_operation_get_print_settings (print_operation);
+        auto page_setup = gtk_print_operation_get_default_page_setup (print_operation);
         request->dialog = gtk_print_dialog_new ();
         gtk_print_dialog_set_title (request->dialog,
                                     jobname && *jobname ? jobname : _("Print Report"));
