@@ -11,8 +11,10 @@ jobs:
     - name: Test Action
       uses: ./util/ci/actions/archlinux-test
     - uses: actions/upload-artifact@v7
-      if: failure()
+      if: always()
       with:
-        name: TestLog
-        path: ${{ github.workspace }}/LastTest.log
+        name: ArchEngineDiagnostics
+        path: |
+          ${{ github.workspace }}/LastTest.log
+          ${{ github.workspace }}/test-engine-gdb.log
         if-no-files-found: ignore

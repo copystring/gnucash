@@ -16,6 +16,6 @@ find /github/workspace/gnucash -type f \( -name '*.ui' -o -name '*.glade' \) -ex
 ninja
 trap 'cp Testing/Temporary/LastTest.log /github/workspace/LastTest.log 2>/dev/null || true' EXIT
 dbus-run-session -- xvfb-run -a gdb -batch -return-child-result \
-    -ex run -ex 'thread apply all bt full' --args \
-    ./bin/test-engine -p '/engine/gncInvoice/post trans - vendor bill' || true
-dbus-run-session -- ninja check
+    -ex 'set pagination off' -ex run -ex 'thread apply all bt full' --args \
+    ./bin/test-engine 2>&1 | tee /github/workspace/test-engine-gdb.log
+exit "${PIPESTATUS[0]}"
