@@ -1516,7 +1516,7 @@ TEST (QofSessionOperationLeaseTest,
     xaccTransBeginEdit (transaction);
     xaccTransCommitEdit (transaction);
     EXPECT_FALSE (gnc_transaction_imbalance_collector_consume (collector, split));
-    EXPECT_EQ (gnc_transaction_imbalance_collector_get_count (collector), 0);
+    EXPECT_EQ (gnc_transaction_imbalance_collector_get_count (collector), 0u);
     EXPECT_EQ (gnc_transaction_imbalance_collector_finish (collector), nullptr);
     gnc_transaction_imbalance_collector_free (collector);
 
@@ -1577,7 +1577,7 @@ TEST (QofSessionOperationLeaseTest,
     GncGUID commodity_guid;
     gnc_numeric amount;
     gnc_numeric value;
-    ASSERT_EQ (gnc_transaction_imbalance_collector_get_count (collector), 2);
+    ASSERT_EQ (gnc_transaction_imbalance_collector_get_count (collector), 2u);
     ASSERT_TRUE (gnc_transaction_imbalance_collector_get_entry (
         collector, 0, &commodity_guid, &amount, &value));
     EXPECT_TRUE (guid_equal (&commodity_guid, qof_instance_get_guid (QOF_INSTANCE (currency_a))));
