@@ -1511,7 +1511,8 @@ xaccScrubLot (GNCLot *lot)
     auto book = lot ? qof_instance_get_book (QOF_INSTANCE (lot)) : nullptr;
     if (!lot || !gnc_scrub_legacy_operation_allowed (book, "lot scrub"))
         return FALSE;
-    if (!gnc_current_session_exist ())
+    if (!gnc_current_session_exist () ||
+        qof_session_get_book (gnc_get_current_session ()) != book)
         return xaccScrubLotInternal (lot, nullptr);
     auto job = gnc_scrub_lot_job_begin (lot);
     if (!job)
@@ -1603,7 +1604,8 @@ xaccAccountScrubLots (Account *acc)
     auto book = acc ? qof_instance_get_book (QOF_INSTANCE (acc)) : nullptr;
     if (!acc || !gnc_scrub_legacy_operation_allowed (book, "account lot scrub"))
         return;
-    if (!gnc_current_session_exist ())
+    if (!gnc_current_session_exist () ||
+        qof_session_get_book (gnc_get_current_session ()) != book)
     {
         AccountScrubLots (acc, nullptr);
         return;
@@ -1639,7 +1641,8 @@ xaccAccountTreeScrubLots (Account *acc)
     if (!acc || !gnc_scrub_legacy_operation_allowed (
                     book, "account-tree lot scrub"))
         return;
-    if (!gnc_current_session_exist ())
+    if (!gnc_current_session_exist () ||
+        qof_session_get_book (gnc_get_current_session ()) != book)
     {
         AccountTreeScrubLots (acc, nullptr);
         return;
