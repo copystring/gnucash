@@ -38,7 +38,8 @@ jobs:
             GUILE_LOAD_COMPILED_PATH: "${{ env.MSYSTEM_PREFIX }}/lib/guile/3.0/ccache"
           run: |
             mkdir build && cd build
-            cmake -G Ninja ..
+            # The rolling dependency repository doesn't yet provide gwengui-gtk4.
+            cmake -G Ninja -DWITH_AQBANKING=OFF ..
         - name: Build and Test GnuCash
           env:
             GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
