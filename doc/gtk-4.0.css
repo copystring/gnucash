@@ -5,7 +5,7 @@
   - Windows: CSIDL_APPDATA/GnuCash
     (or the default is users\%USERNAME%\AppData\Roaming\GnuCash)
 
-  - OS X: $HOME/Application Support/GnuCash
+  - macOS: $HOME/Application Support/GnuCash
 
   - Linux: $XDG_CONFIG_HOME/gnucash
     (or the default is $HOME/.config/gnucash)
@@ -14,9 +14,9 @@
   when the preference setting 'Register\Use GnuCash built-in color theme'
   is unset.
 
-  Note: Widgets obtained from Glade files will not be addressable
-  directly by name as these are not brought in when loaded, only
-  the widget type can be configured unless they are named in code.
+  Note: Widgets obtained from GtkBuilder files will not be addressable
+  directly by name as these are not brought in when loaded, only the
+  widget type can be configured unless they are named in code.
 */
 
 
@@ -26,7 +26,7 @@
 }
 
 
-/* Scollbar size */
+/* Scrollbar size */
 scrollbar slider {
     /* Size of the slider */
     min-width: 20px;
@@ -192,7 +192,7 @@ calendar .header {
   color: black;
 }
 
-#gnc-id-dense-calendar-popup treeview {
+#gnc-id-dense-calendar-popup listbox {
   background-color: lightcoral;
 }
 
@@ -204,12 +204,12 @@ progressbar progress {
 
 
 /* Status Bar */
-statusbar frame {
+.statusbar {
   margin-top: 0px;
   margin-bottom: 0px;
 }
 
-statusbar label {
+.statusbar label {
   font-size: 12px;
   color: red;
 }
@@ -220,20 +220,20 @@ statusbar label {
   background-color: darkgrey;
 }
 
-.gnc-class-credits treeview {
+.gnc-class-credits columnview row {
   background-color: pink;
 }
 
-.gnc-class-credits treeview:selected {
+.gnc-class-credits columnview row:selected {
   background-color: cornflowerblue;
   color: white;
 }
 
-.gnc-class-debits treeview {
+.gnc-class-debits columnview row {
   background-color: lightblue;
 }
 
-.gnc-class-debits treeview:selected {
+.gnc-class-debits columnview row:selected {
   background-color: cornflowerblue;
   color: white;
 }
