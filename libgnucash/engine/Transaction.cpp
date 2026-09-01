@@ -246,6 +246,14 @@ gnc_transaction_bump_scrub_generations (Transaction *trans)
 {
     if (!trans) return;
     ++trans->split_list_generation;
+
+    /* xaccTransClearSplits() deliberately retains list entries while it
+     * commits and frees the destroyed splits. Once transaction destruction
+     * starts those entries are no longer safe to traverse. The account and
+     * lot removal paths advance their own generations. */
+    if (qof_instance_get_destroying (QOF_INSTANCE (trans)))
+        return;
+
     std::unordered_set<Account *> accounts;
     std::unordered_set<GNCLot *> lots;
     FOR_EACH_SPLIT (trans,
