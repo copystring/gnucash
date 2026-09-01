@@ -1414,6 +1414,8 @@ test_do_destroy (GainsFixture *fixture, gconstpointer pData)
     g_assert_true (gnc_lot_get_scrub_generation (second_lot) >
                    second_lot_generation);
 
+    test_destroy (first_lot);
+    test_destroy (second_lot);
     test_signal_free (sig);
 }
 /* xaccEnableDataScrubbing
