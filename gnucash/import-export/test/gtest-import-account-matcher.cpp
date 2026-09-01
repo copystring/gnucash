@@ -215,21 +215,21 @@ run_matcher_ofx_cancel_order (QofBook *book, gboolean matcher_first)
         gnc_gen_trans_list_delete (payload->matcher);
     }
     EXPECT_FALSE (gnc_ofx_import_lifecycle_request (lifecycle));
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 0);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 0u);
 
     qof_session_operation_lease_release (save_lease);
     for (guint turn = 0;
          turn < 16 && metrics.metadata_cleanup_calls == 0; ++turn)
         g_main_context_iteration (nullptr, TRUE);
 
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
     EXPECT_EQ (metrics.result,
                GNC_IMPORT_OPERATION_TEARDOWN_MUTATION_ALLOWED);
     for (guint turn = 0; turn < 3; ++turn)
         g_main_context_iteration (nullptr, FALSE);
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
     g_object_unref (application);
 }
 
@@ -294,8 +294,8 @@ TEST_F(ImportMatcherTest, ofx_immediate_cleanup_uses_product_lifecycle)
     add_open_transaction (m_book, payload);
 
     EXPECT_TRUE (gnc_ofx_import_lifecycle_request (lifecycle));
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
     EXPECT_EQ (metrics.result,
                GNC_IMPORT_OPERATION_TEARDOWN_MUTATION_ALLOWED);
     g_object_unref (application);
@@ -314,10 +314,10 @@ TEST_F(ImportMatcherTest, parent_abort_keeps_payload_until_async_state_releases)
 
     EXPECT_TRUE (gnc_ofx_import_async_state_request_teardown (state));
     EXPECT_FALSE (gnc_ofx_import_async_state_is_active (state));
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 0);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 0u);
     gnc_ofx_import_async_state_unref (state);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
     g_object_unref (application);
 }
 
@@ -336,10 +336,10 @@ TEST_F(ImportMatcherTest, parent_abort_disconnects_reconcile_before_window_destr
         &metrics));
 
     EXPECT_TRUE (gnc_ofx_import_lifecycle_request (lifecycle));
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
     gtk_window_destroy (GTK_WINDOW (window));
-    EXPECT_EQ (metrics.reconcile_calls, 0);
+    EXPECT_EQ (metrics.reconcile_calls, 0u);
     g_object_unref (window);
     g_object_unref (application);
 }
@@ -361,8 +361,8 @@ TEST_F(ImportMatcherTest, shutdown_destroys_retry_source_and_transfers_book_owne
      * terminalize the multi-turn workflow and release its application hold. */
     g_signal_emit_by_name (application, "shutdown");
 
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
     EXPECT_EQ (metrics.result,
                GNC_IMPORT_OPERATION_TEARDOWN_BOOK_SHUTDOWN);
     ASSERT_NE (raw_transaction, nullptr);
@@ -402,21 +402,21 @@ TEST_F(ImportMatcherTest, pending_timeout_shutdown_completes_once_and_cancels_re
     EXPECT_FALSE (gnc_ofx_import_lifecycle_request (lifecycle));
     EXPECT_TRUE (gnc_import_operation_teardown_has_pending_retry (
         gnc_ofx_import_lifecycle_get_teardown (lifecycle)));
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 0);
-    EXPECT_EQ (metrics.payload_destroy_calls, 0);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 0u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 0u);
 
     g_signal_emit_by_name (application, "shutdown");
 
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
     EXPECT_EQ (metrics.result,
                GNC_IMPORT_OPERATION_TEARDOWN_BOOK_SHUTDOWN);
     ASSERT_NE (raw_transaction, nullptr);
     EXPECT_TRUE (xaccTransIsOpen (raw_transaction));
     for (guint turn = 0; turn < 4; ++turn)
         g_main_context_iteration (nullptr, FALSE);
-    EXPECT_EQ (metrics.metadata_cleanup_calls, 1);
-    EXPECT_EQ (metrics.payload_destroy_calls, 1);
+    EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
+    EXPECT_EQ (metrics.payload_destroy_calls, 1u);
 
     qof_session_operation_lease_release (save_lease);
     auto cleanup_lease = qof_session_operation_lease_acquire_for (

@@ -49,8 +49,8 @@ run_parent_abort_with_async_state (gboolean commodity)
 
     gnc_ofx_import_test_parent_destroy (seam);
 
-    EXPECT_EQ (gnc_ofx_import_test_metadata_cleanup_calls (seam), 1);
-    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 0);
+    EXPECT_EQ (gnc_ofx_import_test_metadata_cleanup_calls (seam), 1u);
+    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 0u);
     EXPECT_EQ (gnc_ofx_import_test_cleanup_result (seam),
                GNC_IMPORT_OPERATION_TEARDOWN_MUTATION_ALLOWED);
 
@@ -59,8 +59,8 @@ run_parent_abort_with_async_state (gboolean commodity)
     else
         gnc_ofx_import_test_complete_account_cancel (seam);
 
-    EXPECT_EQ (gnc_ofx_import_test_metadata_cleanup_calls (seam), 1);
-    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 1);
+    EXPECT_EQ (gnc_ofx_import_test_metadata_cleanup_calls (seam), 1u);
+    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 1u);
     gnc_ofx_import_test_seam_free (seam);
     g_object_unref (application);
 }
@@ -91,15 +91,15 @@ TEST_F(OfxImportLifecycleTest,
 
     gnc_ofx_import_test_parent_destroy (seam);
 
-    EXPECT_EQ (gnc_ofx_import_test_metadata_cleanup_calls (seam), 1);
-    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 1);
-    EXPECT_EQ (gnc_ofx_import_test_reconcile_calls (seam), 0);
+    EXPECT_EQ (gnc_ofx_import_test_metadata_cleanup_calls (seam), 1u);
+    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 1u);
+    EXPECT_EQ (gnc_ofx_import_test_reconcile_calls (seam), 0u);
     EXPECT_EQ (gnc_ofx_import_test_cleanup_result (seam),
                GNC_IMPORT_OPERATION_TEARDOWN_MUTATION_ALLOWED);
 
     gtk_window_destroy (reconcile);
-    EXPECT_EQ (gnc_ofx_import_test_reconcile_calls (seam), 0);
-    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 1);
+    EXPECT_EQ (gnc_ofx_import_test_reconcile_calls (seam), 0u);
+    EXPECT_EQ (gnc_ofx_import_test_payload_destroy_calls (seam), 1u);
     g_object_unref (reconcile);
     gnc_ofx_import_test_seam_free (seam);
     g_object_unref (application);
