@@ -1388,6 +1388,8 @@ test_do_destroy (GainsFixture *fixture, gconstpointer pData)
                                       QOF_EVENT_DESTROY, NULL);
     gnc_lot_add_split (first_lot, first_split);
     gnc_lot_add_split (second_lot, base_split);
+    auto first_lot_generation = gnc_lot_get_scrub_generation (first_lot);
+    auto second_lot_generation = gnc_lot_get_scrub_generation (second_lot);
     g_object_add_weak_pointer (G_OBJECT (first_split),
                                reinterpret_cast<void**>(&first_split));
     g_object_ref (base->txn);
@@ -1403,6 +1405,14 @@ test_do_destroy (GainsFixture *fixture, gconstpointer pData)
     g_assert_cmpint (GPOINTER_TO_INT(base->txn->num), ==, 1);
     g_assert_true (qof_instance_get_destroying (QOF_INSTANCE (fixture->gains_txn)));
     g_assert_true (first_split == NULL);
+    g_assert_cmpint (gnc_lot_count_splits (first_lot), ==, 0);
+    g_assert_cmpint (gnc_lot_count_splits (second_lot), ==, 0);
+    g_assert_null (gnc_lot_get_account (first_lot));
+    g_assert_null (gnc_lot_get_account (second_lot));
+    g_assert_true (gnc_lot_get_scrub_generation (first_lot) >
+                   first_lot_generation);
+    g_assert_true (gnc_lot_get_scrub_generation (second_lot) >
+                   second_lot_generation);
 
     test_signal_free (sig);
 }
