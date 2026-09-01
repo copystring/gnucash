@@ -171,6 +171,16 @@ endif()
 install(TARGETS gnucash gnucash-cli DESTINATION ${CMAKE_INSTALL_BINDIR})
 # No headers to install.
 
+set(test_gapplication_command_line_SOURCES
+  test-gapplication-command-line.c
+)
+set(GAPPLICATION_TEST_INCLUDE_DIRS ${GIO_INCLUDE_DIRS})
+set(GAPPLICATION_TEST_LIBS ${GIO_LDFLAGS})
+
+gnc_add_test(test-gapplication-command-line-file
+  "${test_gapplication_command_line_SOURCES}"
+  GAPPLICATION_TEST_INCLUDE_DIRS GAPPLICATION_TEST_LIBS)
+
 get_filename_component(_guile_runtime_bindir "${GUILE_EXECUTABLE}" DIRECTORY)
 get_filename_component(_guile_runtime_prefix "${_guile_runtime_bindir}" DIRECTORY)
 
@@ -288,6 +298,7 @@ install(FILES ${ENVIRONMENT_FILE_DIR}/environment DESTINATION
 set_local_dist(gnucash_DIST_local CMakeLists.txt environment.in generate-gnc-script
     gnucash.cpp gnucash-commands.cpp gnucash-cli.cpp gnucash-core-app.cpp
     gnucash-guile-bootstrap.c
+    ${test_gapplication_command_line_SOURCES}
     test-gnucash-cli-report-bootstrap.cmake
     gnucash-locale-macos.mm gnucash-locale-windows.c gnucash.rc.in gnucash-valgrind.in
     ${gnucash_GRESOURCES}

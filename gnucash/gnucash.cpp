@@ -412,21 +412,25 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
         activate ();
     else if (argc == 2 && argv[1][0] != '-')
     {
-        gchar *scheme = g_uri_parse_scheme (argv[1]);
-        gchar *filename = nullptr;
-
-        if (!scheme)
-            filename = g_filename_to_uri (argv[1], nullptr, nullptr);
-        else
-            g_free (scheme);
+        auto file = g_application_command_line_create_file_for_arg (
+            command_line, argv[1]);
+        auto filename = g_file_get_uri (file);
 
         gnc_file_open_file (gnc_ui_get_main_window (nullptr),
-                            filename ? filename : argv[1],
+                            filename,
                             /*open_readonly*/ FALSE);
         g_free (filename);
+        g_object_unref (file);
     }
     else
-        g_printerr ("%s\n", _("A separate GnuCash instance is already running. Open files one at a time."));
+    {
+        g_application_command_line_printerr (
+            command_line, "%s\n",
+            _("A separate GnuCash instance is already running. "
+              "Open files one at a time."));
+        g_strfreev (argv);
+        return 1;
+    }
 
     g_strfreev (argv);
     return 0;
