@@ -19,15 +19,19 @@ jobs:
             install: git
             pacboy: toolchain:p cmake:p ninja:p
 
-        - name: Add our repo
+        - name: Add GnuCash dependency repositories
           shell: msys2 {0}
           run: |
-            sed -i "/^# SigLevel = Never/a [gnc-ucrt64]\nSigLevel = Optional TrustAll\nServer = https://github.com/gnucash/gnucash-windows-deps-repo/releases/download/gnc-ucrt64-repo/" /etc/pacman.conf
+            sed -i "/^# SigLevel = Never/a [gnc-ucrt64-gtk4]\nSigLevel = Optional TrustAll\nServer = https://github.com/copystring/gnucash-windows-deps-repo/releases/download/gnc-ucrt64-gtk4-preflight/\n\n[gnc-ucrt64]\nSigLevel = Optional TrustAll\nServer = https://github.com/gnucash/gnucash-windows-deps-repo/releases/download/gnc-ucrt64-repo/" /etc/pacman.conf
             sed -i "s/^# ParallelDownloads/ParallelDownloads/" /etc/pacman.conf
 
             pacman -Syv
-            pacboy --noconfirm -S swig:p appstream-glib:p boost:p gtk4:p gsettings-desktop-schemas:p docbook-xsl:p gettext-tools:p gtest:p guile3:p harfbuzz-icu:p icu:p iso-codes:p pdcurses:p libdbi-drivers:p libofx:p libsecret:p webview2-loader zlib:p
+            pacboy --noconfirm -S swig:p appstream-glib:p aqbanking:p boost:p gtk4:p gsettings-desktop-schemas:p docbook-xsl:p gettext-tools:p gtest:p guile3:p gwenhywfar:p harfbuzz-icu:p icu:p iso-codes:p libchipcard:p pdcurses:p libdbi-drivers:p libofx:p libsecret:p webview2-loader zlib:p
             ls -l $MSYSTEM_PREFIX/lib/dbd
+            pacman -Q mingw-w64-ucrt-x86_64-guile3 mingw-w64-ucrt-x86_64-gwenhywfar mingw-w64-ucrt-x86_64-libchipcard mingw-w64-ucrt-x86_64-aqbanking
+            pkg-config --atleast-version=5.14.1 gwenhywfar
+            pkg-config --exists gwengui-gtk4
+            pkg-config --atleast-version=6.9.1 aqbanking
 
         - name: Checkout
           uses: actions/checkout@v7
@@ -38,8 +42,8 @@ jobs:
             GUILE_LOAD_COMPILED_PATH: "${{ env.MSYSTEM_PREFIX }}/lib/guile/3.0/ccache"
           run: |
             mkdir build && cd build
-            # The rolling dependency repository doesn't yet provide gwengui-gtk4.
-            cmake -G Ninja -DWITH_AQBANKING=OFF ..
+            # The preflight repository overlays the GTK4 AqBanking stack.
+            cmake -G Ninja -DWITH_AQBANKING=ON ..
         - name: Build and Test GnuCash
           env:
             GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
