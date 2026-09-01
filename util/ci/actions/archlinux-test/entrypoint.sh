@@ -15,4 +15,7 @@ cmake /github/workspace -DWITH_PYTHON=ON -DWITH_AQBANKING=OFF -DCMAKE_BUILD_TYPE
 find /github/workspace/gnucash -type f \( -name '*.ui' -o -name '*.glade' \) -exec gtk4-builder-tool validate {} \;
 ninja
 trap 'cp Testing/Temporary/LastTest.log /github/workspace/LastTest.log 2>/dev/null || true' EXIT
+dbus-run-session -- xvfb-run -a gdb -batch -return-child-result \
+    -ex run -ex 'thread apply all bt full' --args \
+    ./bin/test-engine -p '/engine/gncInvoice/post trans - vendor bill' || true
 dbus-run-session -- ninja check
