@@ -50,6 +50,7 @@ void gnc_gwen_gui_test_get_state (guint*, guint*, guint*, guint*, guint*,
                                   guint*, guint*, guint*, guint*, guint*,
                                   guint*, guint*, guint*, guint*, guint*,
                                   gulong*);
+void gnc_gwen_gui_test_take_permanent_certs (GWEN_DB_NODE *certs);
 
 typedef struct
 {
@@ -240,6 +241,9 @@ run_gwen_wait_scenario_cb (GApplication *application, gpointer user_data)
     state->application = application;
     init_gwen_for_test ();
     g_assert_cmpuint (gwen_component_count (), ==, 0);
+    /* The GUI owns and frees this after shutdown. The lifecycle test must not
+     * touch AqBanking's configuration just to populate an empty cert store. */
+    gnc_gwen_gui_test_take_permanent_certs (GWEN_DB_Group_new ("certs"));
     g_assert_nonnull (create_gwen_gui_for_test ());
     g_assert_cmpuint (gwen_component_count (), ==, 1);
 
