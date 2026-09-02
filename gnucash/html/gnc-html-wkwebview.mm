@@ -18,6 +18,7 @@
 #import <WebKit/WebKit.h>
 
 #include <gdk/macos/gdkmacos.h>
+#include <glib/gi18n.h>
 #include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
@@ -387,14 +388,15 @@ wkwebview_update_frame (GncHtmlWKWebView *self)
     if (!priv->host_view || !priv->web_view)
         return;
 
-    auto root = gtk_widget_get_root (priv->view);
+    auto native = gtk_widget_get_native (priv->view);
     double x = 0.0, y = 0.0;
     const graphene_point_t point = GRAPHENE_POINT_INIT (0.0f, 0.0f);
-    graphene_point_t root_point;
-    if (root && gtk_widget_compute_point (priv->view, root, &point, &root_point))
+    graphene_point_t native_point;
+    if (native && gtk_widget_compute_point (priv->view, GTK_WIDGET (native),
+                                             &point, &native_point))
     {
-        x = root_point.x;
-        y = root_point.y;
+        x = native_point.x;
+        y = native_point.y;
     }
 
     auto content_view = [priv->host_view superview];
@@ -780,7 +782,8 @@ impl_wkwebview_print (GncHtml *html, const gchar *jobname, gboolean export_pdf)
         return;
     }
 
-    auto operation = [web_view printOperation];
+    NSPrintOperation *operation =
+        [web_view printOperationWithPrintInfo:[NSPrintInfo sharedPrintInfo]];
     if (!operation)
         return;
     if (jobname && *jobname)
