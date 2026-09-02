@@ -74,6 +74,7 @@ jobs:
             --enable-shared \
             --with-guis=gtk4 \
             --enable-local-install \
+            --disable-network-checks \
             --disable-binreloc
           make -j2
           xvfb-run -a make check
