@@ -150,6 +150,7 @@ void gnc_gwen_gui_test_get_state (guint*, guint*, guint*, guint*, guint*,
                                   guint*, guint*, guint*, guint*, guint*,
                                   guint*, guint*, guint*, guint*, guint*,
                                   gulong*);
+void gnc_gwen_gui_test_take_permanent_certs (GWEN_DB_NODE *certs);
 
 static guint test_init_wrapper_calls = 0;
 static guint test_fini_wrapper_calls = 0;
@@ -162,6 +163,11 @@ static guint test_component_register_calls = 0;
 static guint test_component_unregister_calls = 0;
 static guint test_application_barrier_connect_calls = 0;
 static guint test_application_barrier_disconnect_calls = 0;
+/* The lifecycle test transfers an empty certificate store before the GUI is
+ * created.  Keeping this injection here prevents test setup from initializing
+ * AqBanking's per-user configuration merely to obtain an otherwise unrelated
+ * certificate store. */
+static GWEN_DB_NODE *test_permanently_accepted_certs = NULL;
 # define GNC_GWEN_TEST_COUNT(counter) ((counter)++)
 #else
 # define GNC_GWEN_TEST_COUNT(counter) ((void)0)
@@ -1132,7 +1138,15 @@ reset_dialog(GncGWENGui *gui)
         gui->accepted_certs = g_hash_table_new_full(
                                   g_str_hash, g_str_equal, (GDestroyNotify) g_free, NULL);
     if (!gui->permanently_accepted_certs)
+#ifdef GNC_GWEN_GUI_TESTING
+    {
+        g_assert_nonnull (test_permanently_accepted_certs);
+        gui->permanently_accepted_certs = test_permanently_accepted_certs;
+        test_permanently_accepted_certs = NULL;
+    }
+#else
         gui->permanently_accepted_certs = gnc_ab_get_permanent_certs();
+#endif
 
     LEAVE(" ");
 }
@@ -2676,6 +2690,16 @@ ggg_close_toggled_cb(GtkCheckButton *button, gpointer user_data)
 }
 
 #ifdef GNC_GWEN_GUI_TESTING
+void
+gnc_gwen_gui_test_take_permanent_certs (GWEN_DB_NODE *certs)
+{
+    g_return_if_fail (certs);
+    g_return_if_fail (!full_gui);
+    g_return_if_fail (!test_permanently_accepted_certs);
+
+    test_permanently_accepted_certs = certs;
+}
+
 void
 gnc_gwen_gui_test_get_state (guint *init_wrapper_calls,
                               guint *fini_wrapper_calls,
