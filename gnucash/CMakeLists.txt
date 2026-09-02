@@ -191,6 +191,8 @@ add_test(NAME test-gnucash-cli-report-bootstrap
     -DGUILE_RUNTIME_LIBDIR=${_guile_runtime_prefix}/${GUILE_REL_LIBDIR}
     -DGUILE_RUNTIME_CCACHEDIR=${_guile_runtime_prefix}/${GUILE_REL_CCACHEDIR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/test-gnucash-cli-report-bootstrap.cmake)
+set_tests_properties(test-gnucash-cli-report-bootstrap PROPERTIES
+  ENVIRONMENT "$<$<CONFIG:Asan>:ASAN_OPTIONS=${ASAN_TEST_OPTIONS}>")
 gnc_add_test_runtime_path(test-gnucash-cli-report-bootstrap)
 add_dependencies(testbuild gnucash-cli scm-reports)
 
