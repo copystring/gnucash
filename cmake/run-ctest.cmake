@@ -9,7 +9,23 @@ if(USE_VIRTUAL_DISPLAY)
     message(FATAL_ERROR
       "xvfb-run is required to run the GnuCash tests on Linux")
   endif()
-  set(test_command "${XVFB_RUN_EXECUTABLE}" -a "${CTEST_COMMAND}")
+  find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session)
+  if(NOT DBUS_RUN_SESSION_EXECUTABLE)
+    message(FATAL_ERROR
+      "dbus-run-session is required to run the GnuCash tests on Linux")
+  endif()
+
+  set(test_runtime_directory "${CMAKE_CURRENT_BINARY_DIR}/gnucash-test-runtime")
+  file(MAKE_DIRECTORY "${test_runtime_directory}")
+  file(CHMOD "${test_runtime_directory}"
+    DIRECTORY_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+
+  # Start D-Bus inside xvfb-run so D-Bus activated GTK services inherit DISPLAY.
+  # GTK_A11Y=none avoids an accessibility-bus activation attempt in headless CI.
+  set(test_command "${CMAKE_COMMAND}" -E env
+    "XDG_RUNTIME_DIR=${test_runtime_directory}" "GTK_A11Y=none"
+    "${XVFB_RUN_EXECUTABLE}" -a "${DBUS_RUN_SESSION_EXECUTABLE}" --
+    "${CTEST_COMMAND}")
 endif()
 
 execute_process(COMMAND ${test_command} RESULT_VARIABLE test_result)
