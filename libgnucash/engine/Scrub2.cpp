@@ -420,6 +420,7 @@ xaccAccountAssignLots (Account *acc)
     ENTER ("acc=%s", xaccAccountGetName(acc));
     xaccAccountBeginEdit (acc);
 
+restart_loop:
     for (auto split : xaccAccountGetSplits (acc))
     {
         /* If already in lot, then no-op */
@@ -433,13 +434,21 @@ xaccAccountAssignLots (Account *acc)
                 xaccTransGetVoidStatus(split->parent)) continue;
 
         auto remainder = split;
+        auto split_up = false;
         while (remainder)
         {
             auto result = assign_split_to_next_lot (remainder);
             if (result.outcome != LotAssignmentOutcome::ASSIGNED)
                 break;
+            split_up = split_up || result.remainder;
             remainder = result.remainder;
         }
+
+        /* A split remainder is inserted into the account, invalidating the
+         * vector cursor. Restart as the original scrubber did before the
+         * account split container was converted to std::vector. */
+        if (split_up)
+            goto restart_loop;
     }
     xaccAccountCommitEdit (acc);
     LEAVE ("acc=%s", xaccAccountGetName(acc));
