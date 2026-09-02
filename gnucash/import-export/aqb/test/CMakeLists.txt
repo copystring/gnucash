@@ -46,6 +46,20 @@ if(WITH_AQBANKING)
   target_compile_definitions(test-gwen-gui-shutdown PRIVATE
     GNC_GWEN_GUI_TESTING
     G_LOG_DOMAIN="gnc.import.aqbanking")
+
+  # Keep AqBanking's per-user configuration out of the developer's home
+  # directory. AqBanking honors AQBANKING_HOME on every platform, whereas
+  # Gwenhywfar's Unix home lookup deliberately ignores HOME.
+  set(AQBANKING_TEST_HOME
+    "${CMAKE_CURRENT_BINARY_DIR}/aqbanking-test-home")
+  set(AQBANKING_TEST_DATA_DIR
+    "${AQBANKING_TEST_HOME}/.aqbanking")
+  file(MAKE_DIRECTORY
+    "${AQBANKING_TEST_DATA_DIR}/settings6/users")
+  set_property(TEST test-gwen-gui-shutdown APPEND PROPERTY ENVIRONMENT
+    "HOME=${AQBANKING_TEST_HOME}"
+    "AQBANKING_HOME=${AQBANKING_TEST_DATA_DIR}")
+
   if(WIN32)
     file(GLOB GWENHYWFAR_CONFIGMGR_PLUGINS
       LIST_DIRECTORIES FALSE
@@ -72,17 +86,10 @@ if(WITH_AQBANKING)
     # unmodified locale-path initialization sees the configured dependency.
     set(AQBANKING_TEST_RUNTIME_PREFIX
       "${CMAKE_CURRENT_BINARY_DIR}/aqbanking-runtime")
-    set(AQBANKING_TEST_HOME
-      "${AQBANKING_TEST_RUNTIME_PREFIX}/test-home")
     file(MAKE_DIRECTORY "${AQBANKING_TEST_RUNTIME_PREFIX}/bin")
-    file(MAKE_DIRECTORY
-      "${AQBANKING_TEST_HOME}/aqbanking/settings6/users")
     file(COPY "${AQBANKING_TEST_LOCALE_DIR}"
       DESTINATION "${AQBANKING_TEST_RUNTIME_PREFIX}/share")
     set_target_properties(test-gwen-gui-shutdown PROPERTIES
       RUNTIME_OUTPUT_DIRECTORY "${AQBANKING_TEST_RUNTIME_PREFIX}/bin")
-    set_property(TEST test-gwen-gui-shutdown APPEND PROPERTY ENVIRONMENT
-      "HOME=${AQBANKING_TEST_HOME}"
-      "AQBANKING_HOME=${AQBANKING_TEST_HOME}/aqbanking")
   endif()
  endif()
