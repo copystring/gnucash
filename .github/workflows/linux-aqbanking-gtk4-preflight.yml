@@ -21,13 +21,6 @@ jobs:
       - name: Checkout GnuCash
         uses: actions/checkout@v6
 
-      - name: Checkout pinned GTK4 build support
-        uses: actions/checkout@v6
-        with:
-          repository: copystring/gnucash-on-windows
-          ref: d6a4204808e6a7ed89593511e35cf7f628c130af
-          path: windows-buildsupport
-
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -53,18 +46,18 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           curl --fail --location --show-error \
-            https://aquamaniac.de/rdm/attachments/download/630/gwenhywfar-5.14.1.tar.gz \
-            --output gwenhywfar-5.14.1.tar.gz
+            https://github.com/copystring/gwenhywfar/archive/b573ce81a709520eb95e9de3a0c680abe3d735e6.tar.gz \
+            --output gwenhywfar-b573ce81a709520eb95e9de3a0c680abe3d735e6.tar.gz
           curl --fail --location --show-error \
             https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz \
             --output libchipcard-5.1.6.tar.gz
           curl --fail --location --show-error \
             https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz \
             --output aqbanking-6.9.2.tar.gz
-          echo '8916feaa99cb954f963f2cba8dd2dffe57cacf7f284daf00eab071aad6fe2ab3  gwenhywfar-5.14.1.tar.gz' | sha256sum --check
+          echo '1585111691cb9fe0b74424dea291398a6e227cb38ad0e1bdb8fcc964627f4d2d  gwenhywfar-b573ce81a709520eb95e9de3a0c680abe3d735e6.tar.gz' | sha256sum --check
           echo '6c07f527417f7562074f99012da4d11eb4dbafd33f49e66b442ccd6e3b8cfd20  libchipcard-5.1.6.tar.gz' | sha256sum --check
           echo '244b5f7a139f829928f5cdc3f5f7488517b3e8aa63625a92741c3efc1892bb3f  aqbanking-6.9.2.tar.gz' | sha256sum --check
-          tar -xf gwenhywfar-5.14.1.tar.gz
+          tar -xf gwenhywfar-b573ce81a709520eb95e9de3a0c680abe3d735e6.tar.gz
           tar -xf libchipcard-5.1.6.tar.gz
           tar -xf aqbanking-6.9.2.tar.gz
 
@@ -72,12 +65,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          patch -d gwenhywfar-5.14.1 -p1 \
-            < "$GITHUB_WORKSPACE/windows-buildsupport/packages/gwenhywfar/gwenhywfar-5.14.1-gtk4.patch"
-          autoreconf -fi gwenhywfar-5.14.1
+          autoreconf -fi gwenhywfar-b573ce81a709520eb95e9de3a0c680abe3d735e6
           mkdir gwenhywfar-build
           cd gwenhywfar-build
-          ../gwenhywfar-5.14.1/configure \
+          ../gwenhywfar-b573ce81a709520eb95e9de3a0c680abe3d735e6/configure \
             --prefix="$AQ_PREFIX" \
             --disable-static \
             --enable-shared \
