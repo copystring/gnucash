@@ -31,7 +31,7 @@ jobs:
             libgmp-dev libgnutls28-dev libgtk-4-dev libofx-dev \
             libpcsclite-dev libssl-dev libudev-dev libwebkitgtk-6.0-dev \
             libxml2-dev libxmlsec1-dev libxslt1-dev xsltproc googletest \
-            guile-2.2-dev
+            guile-2.2-dev xvfb
           sudo apt-get --reinstall install -y language-pack-en language-pack-fr
 
       - name: Configure dependency prefix
@@ -76,6 +76,7 @@ jobs:
             --enable-local-install \
             --disable-binreloc
           make -j2
+          xvfb-run -a make check
           make install
 
       - name: Build libchipcard
