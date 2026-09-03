@@ -1084,9 +1084,18 @@ test_legacy_gains_scrub_uses_transaction_book (void)
     auto foreign = make_empty_lot_assignment_fixture ();
     auto source = add_lot_assignment_split (&foreign, 10, 86400);
     auto gains = add_lot_assignment_split (&foreign, -10, 2 * 86400);
+    auto source_transaction = xaccSplitGetParent (source);
+    auto gains_transaction = xaccSplitGetParent (gains);
+    xaccTransBeginEdit (source_transaction);
+    qof_instance_set (QOF_INSTANCE (source), "gains-split",
+                      xaccSplitGetGUID (gains), nullptr);
+    xaccTransCommitEdit (source_transaction);
+    xaccTransBeginEdit (gains_transaction);
+    qof_instance_set (QOF_INSTANCE (gains), "gains-source",
+                      xaccSplitGetGUID (source), nullptr);
+    xaccTransCommitEdit (gains_transaction);
     gains->gains = GAINS_STATUS_GAINS | GAINS_STATUS_DATE_DIRTY;
     gains->gains_split = source;
-    auto gains_transaction = xaccSplitGetParent (gains);
 
     gnc_set_current_session (current);
     xaccTransScrubGains (gains_transaction, nullptr);
