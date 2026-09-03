@@ -3347,8 +3347,8 @@ gnc_account_get_full_name(const Account *account)
                    [&p, rv](auto a)
                    {
                        if (p != rv)
-                           p = stpcpy (p, account_separator);
-                       p = stpcpy (p, xaccAccountGetName (a));
+                           p = g_stpcpy (p, account_separator);
+                       p = g_stpcpy (p, xaccAccountGetName (a));
                    });
     *p = '\0';
 
