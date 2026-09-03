@@ -202,10 +202,7 @@ gnc_save_window_size (const char *group, GtkWindow *window)
     if (!gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_SAVE_GEOMETRY))
         return;
 
-    width = gtk_widget_get_width (GTK_WIDGET (window));
-    height = gtk_widget_get_height (GTK_WIDGET (window));
-    if (width <= 0 || height <= 0)
-        gtk_window_get_default_size (window, &width, &height);
+    gtk_window_get_default_size (window, &width, &height);
 
     if (width <= 0 || height <= 0)
         return;

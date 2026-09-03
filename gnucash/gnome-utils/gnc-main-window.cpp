@@ -1036,13 +1036,12 @@ gnc_main_window_save_window (GncMainWindow *window, GncMainWindowSaveData *data)
                                 WINDOW_PAGEORDER, order, num_pages);
     g_free(order);
 
-    /* GTK4 provides allocation and maximization state but intentionally no
+    /* GTK4 provides default size and maximization state but intentionally no
      * cross-platform position or iconification state. Persist the last known
      * validated position for backwards-compatible sessions. */
     coords[0] = priv->pos[0];
     coords[1] = priv->pos[1];
-    coords[2] = gtk_widget_get_width (GTK_WIDGET (window));
-    coords[3] = gtk_widget_get_height (GTK_WIDGET (window));
+    gtk_window_get_default_size (GTK_WINDOW (window), &coords[2], &coords[3]);
     maximized = gtk_window_is_maximized (GTK_WINDOW (window));
     g_key_file_set_integer_list(data->key_file, window_group,
                                 WINDOW_POSITION, &coords[0], 2);
@@ -3682,8 +3681,9 @@ gnc_main_window_new (void)
     auto old_window = gnc_ui_get_main_window (nullptr);
     if (old_window)
     {
-        gint width = gtk_widget_get_width (GTK_WIDGET (old_window));
-        gint height = gtk_widget_get_height (GTK_WIDGET (old_window));
+        gint width;
+        gint height;
+        gtk_window_get_default_size (old_window, &width, &height);
         if (width > 0 && height > 0)
             gtk_window_set_default_size (GTK_WINDOW (window), width, height);
         if (gtk_window_is_maximized (old_window))
