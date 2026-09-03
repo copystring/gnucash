@@ -1,5 +1,14 @@
 name: windows-tests
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dependency_overlay_release:
+        description: Optional immutable release tag from copystring/gnucash-windows-deps-repo
+        required: false
+        default: ''
+        type: string
 permissions: {}
 jobs:
     ci_tests_ucrt64:
@@ -21,8 +30,18 @@ jobs:
 
         - name: Add our repo
           shell: msys2 {0}
+          env:
+            DEPENDENCY_OVERLAY_RELEASE: ${{ inputs.dependency_overlay_release }}
           run: |
+            set -euo pipefail
             sed -i "/^# SigLevel = Never/a [gnc-ucrt64]\nSigLevel = Optional TrustAll\nServer = https://github.com/gnucash/gnucash-windows-deps-repo/releases/download/gnc-ucrt64-repo/" /etc/pacman.conf
+            if [[ -n "$DEPENDENCY_OVERLAY_RELEASE" ]]; then
+              if [[ ! "$DEPENDENCY_OVERLAY_RELEASE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+                echo "Invalid dependency overlay release: $DEPENDENCY_OVERLAY_RELEASE" >&2
+                exit 1
+              fi
+              sed -i "/^# SigLevel = Never/a [gnc-ucrt64-gtk4]\nSigLevel = Optional TrustAll\nServer = https://github.com/copystring/gnucash-windows-deps-repo/releases/download/$DEPENDENCY_OVERLAY_RELEASE/" /etc/pacman.conf
+            fi
             sed -i "s/^# ParallelDownloads/ParallelDownloads/" /etc/pacman.conf
 
             pacman -Syv
