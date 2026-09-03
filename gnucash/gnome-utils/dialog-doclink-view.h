@@ -64,6 +64,7 @@ struct _DoclinkViewItem {
 };
 
 GtkWidget * gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model);
+DoclinkViewItem * gnc_doclink_get_selected_item (GtkWidget *view);
 
 #ifdef __cplusplus
 }

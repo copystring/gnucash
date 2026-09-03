@@ -349,3 +349,22 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
 
     return view;
 }
+
+DoclinkViewItem *
+gnc_doclink_get_selected_item (GtkWidget *view)
+{
+    GtkSelectionModel *selection_model;
+    guint position;
+
+    g_return_val_if_fail (GTK_IS_COLUMN_VIEW (view), NULL);
+
+    selection_model = gtk_column_view_get_model (GTK_COLUMN_VIEW (view));
+    g_return_val_if_fail (GTK_IS_SINGLE_SELECTION (selection_model), NULL);
+
+    position = gtk_single_selection_get_selected (
+                   GTK_SINGLE_SELECTION (selection_model));
+    if (position == GTK_INVALID_LIST_POSITION)
+        return NULL;
+
+    return g_list_model_get_item (G_LIST_MODEL (selection_model), position);
+}

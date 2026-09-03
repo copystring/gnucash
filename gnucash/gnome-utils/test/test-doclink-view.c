@@ -76,6 +76,29 @@ test_relative_icon_is_cleared_on_rebind (void)
     g_object_unref (model);
 }
 
+static void
+test_get_selected_item (void)
+{
+    GListStore *model = g_list_store_new (DOCLINKVIEW_TYPE_ITEM);
+    DoclinkViewItem *item = doclink_item_new (NULL);
+    DoclinkViewItem *selected;
+    GtkWidget *scroller = gtk_scrolled_window_new ();
+    GtkWidget *view;
+
+    g_object_ref_sink (scroller);
+    view = gnc_doclink_create_column_view (scroller, G_LIST_MODEL (model));
+    g_assert_null (gnc_doclink_get_selected_item (view));
+
+    g_list_store_append (model, item);
+    selected = gnc_doclink_get_selected_item (view);
+    g_assert_true (selected == item);
+
+    g_object_unref (selected);
+    g_object_unref (scroller);
+    g_object_unref (item);
+    g_object_unref (model);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -84,5 +107,7 @@ main (int argc, char **argv)
 
     g_test_add_func ("/gnome-utils/doclink-view/relative-icon-cleared-on-rebind",
                      test_relative_icon_is_cleared_on_rebind);
+    g_test_add_func ("/gnome-utils/doclink-view/get-selected-item",
+                     test_get_selected_item);
     return g_test_run ();
 }

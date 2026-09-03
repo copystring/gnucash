@@ -940,9 +940,9 @@ static gboolean
 row_selected_bus_cb (GtkGestureClick *gesture, int n_press,
                      double x, double y, gpointer user_data)
 {
-    DoclinkDialog     *doclink_dialog = user_data;
+    DoclinkDialog   *doclink_dialog = user_data;
     DoclinkViewItem *item;
-    gint               prop_position = 0;
+    gint             prop_position = 0;
 
     if (n_press == 2)
     {
@@ -957,19 +957,9 @@ row_selected_bus_cb (GtkGestureClick *gesture, int n_press,
     if (prop_position == 0)
         return FALSE;
 
-    GtkSelectionModel *selection_model = gtk_column_view_get_model (GTK_COLUMN_VIEW(
-                                            doclink_dialog->column_view));
-
-    GtkBitset *bitset = gtk_selection_model_get_selection (selection_model);
-    guint64 bit_size = gtk_bitset_get_size (bitset);
-
-    if (bit_size == 1)
-    {
-        item = g_list_model_get_item (G_LIST_MODEL(selection_model), gtk_bitset_get_nth (bitset, 0));
-
-        if (!item)
-            return FALSE;
-    }
+    item = gnc_doclink_get_selected_item (doclink_dialog->column_view);
+    if (!item)
+        return FALSE;
 
     // Open linked document
     if (prop_position == PROP_DOCLINK_DISPLAY_URI)
@@ -1077,9 +1067,9 @@ static gboolean
 row_selected_trans_cb (GtkGestureClick *gesture, int n_press,
                        double x, double y, gpointer user_data)
 {
-    DoclinkDialog     *doclink_dialog = user_data;
+    DoclinkDialog   *doclink_dialog = user_data;
     DoclinkViewItem *item;
-    gint               prop_position = 0;
+    gint             prop_position = 0;
 
     if (n_press == 2)
     {
@@ -1094,18 +1084,9 @@ row_selected_trans_cb (GtkGestureClick *gesture, int n_press,
     if (prop_position == 0)
         return FALSE;
 
-    GtkSelectionModel *selection_model = gtk_column_view_get_model (GTK_COLUMN_VIEW(doclink_dialog->column_view));
-
-    GtkBitset *bitset = gtk_selection_model_get_selection (selection_model);
-    guint64 bit_size = gtk_bitset_get_size (bitset);
-
-    if (bit_size == 1)
-    {
-        item = g_list_model_get_item (G_LIST_MODEL(selection_model), gtk_bitset_get_nth (bitset, 0));
-
-        if (!item)
-            return FALSE;
-    }
+    item = gnc_doclink_get_selected_item (doclink_dialog->column_view);
+    if (!item)
+        return FALSE;
 
     // Open linked document
     if (prop_position == PROP_DOCLINK_DISPLAY_URI)
