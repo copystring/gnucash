@@ -62,9 +62,9 @@ target_compile_definitions(gnc-core-utils
         G_LOG_DOMAIN=\"gnc.core-utils\"
         $<$<BOOL:${BUILDING_FROM_VCS}>:GNC_VCS=\"git\">)
 
-target_compile_options(gnc-core-utils
-    PRIVATE
-        $<$<BOOL:${MAC_INTEGRATION}>:${OSX_EXTRA_COMPILE_FLAGS}>)
+if (MAC_INTEGRATION)
+  target_compile_options(gnc-core-utils PRIVATE ${OSX_EXTRA_COMPILE_FLAGS})
+endif()
 
 install(TARGETS gnc-core-utils
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

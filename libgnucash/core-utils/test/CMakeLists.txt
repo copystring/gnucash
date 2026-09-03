@@ -45,6 +45,9 @@ set(gtest_core_utils_LIBS
   ${GTHREAD_LDFLAGS}
   ctre
   gtest)
+if (MAC_INTEGRATION)
+  list(APPEND gtest_core_utils_LIBS ${OSX_EXTRA_LIBRARIES})
+endif()
 
 set(test_gnc_path_util_SOURCES
   ${MODULEPATH}/gnc-path.c
@@ -55,6 +58,9 @@ set(test_gnc_path_util_SOURCES
 
 gnc_add_test(test-gnc-path-util "${test_gnc_path_util_SOURCES}"
   gtest_core_utils_INCLUDES gtest_core_utils_LIBS "GNC_UNINSTALLED=yes")
+if (MAC_INTEGRATION)
+  target_compile_options(test-gnc-path-util PRIVATE ${OSX_EXTRA_COMPILE_FLAGS})
+endif()
 
 set(gtest_icu_locale_INCLUDES
   ${CMAKE_BINARY_DIR}/common
