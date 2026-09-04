@@ -42,7 +42,7 @@
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
-#ifndef G_OS_WIN32
+#if !defined(G_OS_WIN32) && !defined(F_SETNOSIGPIPE)
 # include <signal.h>
 #endif
 #include <zlib.h>
@@ -2092,8 +2092,12 @@ gz_thread_read (gzFile file, gz_thread_params_t* params)
         {
             if (WRITE_FN (params->fd, buffer, gzval) < 0)
             {
-                g_warning ("Could not write to pipe. The error is '%s' (%d)",
-                           g_strerror (errno) ? g_strerror (errno) : "", errno);
+                /* A reader that cancels or rejects input closes its end of
+                 * the pipe deliberately. EPIPE is therefore the expected
+                 * producer shutdown path, not a separate I/O failure. */
+                if (errno != EPIPE)
+                    g_warning ("Could not write to pipe. The error is '%s' (%d)",
+                               g_strerror (errno) ? g_strerror (errno) : "", errno);
                 success = false;
             }
         }
@@ -2121,10 +2125,10 @@ gz_thread_func (gz_thread_params_t* params)
     gint gzval;
     bool success = true;
 
-#ifndef G_OS_WIN32
+#if !defined(G_OS_WIN32) && !defined(F_SETNOSIGPIPE)
     /* The loading side may close its pipe during cancellation. Keep SIGPIPE
-     * local to this worker so write() reports EPIPE instead of terminating
-     * the process. */
+     * blocked in this worker on systems without per-descriptor suppression so
+     * write() reports EPIPE instead of terminating the process. */
     sigset_t sigpipe;
     sigemptyset (&sigpipe);
     sigaddset (&sigpipe, SIGPIPE);
@@ -2177,11 +2181,11 @@ try_gz_open (const char* filename, const char* perms, gboolean compress,
                                           nullptr);
 
     {
-        int filedes[2]{};
+        int filedes[2] {-1, -1};
+        bool pipe_ready = false;
 
 #ifdef G_OS_WIN32
-        if (_pipe (filedes, 4096, _O_BINARY) < 0)
-        {
+        pipe_ready = _pipe (filedes, 4096, _O_BINARY) == 0;
 #else
         /* Set CLOEXEC on the pipe FDs so that if the user runs a
          * report while saving WebKit's fork won't get an open copy
@@ -2189,17 +2193,32 @@ try_gz_open (const char* filename, const char* perms, gboolean compress,
          * https://bugs.gnucash.org/show_bug.cgi?id=798250. Win32
          * doesn't fork nor does it support CLOEXEC.
          */
-        if (pipe (filedes) < 0 ||
-            fcntl(filedes[0], F_SETFD, FD_CLOEXEC) == -1 ||
-	    fcntl(filedes[1], F_SETFD, FD_CLOEXEC) == -1)
-        {
+        pipe_ready = pipe (filedes) == 0;
+        if (pipe_ready &&
+            (fcntl (filedes[0], F_SETFD, FD_CLOEXEC) == -1 ||
+             fcntl (filedes[1], F_SETFD, FD_CLOEXEC) == -1))
+            pipe_ready = false;
+#ifdef F_SETNOSIGPIPE
+        /* Darwin delivers a pipe's SIGPIPE to the process, so masking it in
+         * only the GZip worker cannot protect the application. Make this
+         * internal pipe's write end report EPIPE without generating SIGPIPE.
+         * The setting follows the file description and is inherited by the
+         * worker without changing the process-wide signal disposition. */
+        if (pipe_ready &&
+            fcntl (filedes[1], F_SETNOSIGPIPE, 1) == -1)
+            pipe_ready = false;
 #endif
-            g_warning ("Pipe setup failed with errno %d. Opening uncompressed file.", errno);
-            if (filedes[0])
-            {
-                close(filedes[0]);
-                close(filedes[1]);
-            }
+#endif
+        if (!pipe_ready)
+        {
+            auto pipe_errno = errno;
+            g_warning ("Pipe setup failed with errno %d. Opening uncompressed file.",
+                       pipe_errno);
+            if (filedes[0] >= 0)
+                close (filedes[0]);
+            if (filedes[1] >= 0)
+                close (filedes[1]);
+            errno = pipe_errno;
 
             return std::pair<FILE*, GThread*>(g_fopen (filename, perms),
                                               nullptr);
