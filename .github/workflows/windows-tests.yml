@@ -46,6 +46,10 @@ jobs:
 
             pacman -Syv
             pacboy --noconfirm -S swig:p appstream-glib:p boost:p gtk4:p gsettings-desktop-schemas:p docbook-xsl:p gettext-tools:p gtest:p guile3:p harfbuzz-icu:p icu:p iso-codes:p pdcurses:p libdbi-drivers:p libofx:p libsecret:p webview2-loader zlib:p
+            if [[ -n "$DEPENDENCY_OVERLAY_RELEASE" ]]; then
+              pacboy --noconfirm -S aqbanking:p
+              pkg-config --exists aqbanking gwengui-gtk4
+            fi
             ls -l $MSYSTEM_PREFIX/lib/dbd
 
         - name: Checkout
@@ -55,10 +59,16 @@ jobs:
           env:
             GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
             GUILE_LOAD_COMPILED_PATH: "${{ env.MSYSTEM_PREFIX }}/lib/guile/3.0/ccache"
+            DEPENDENCY_OVERLAY_RELEASE: ${{ inputs.dependency_overlay_release }}
           run: |
+            set -euo pipefail
             mkdir build && cd build
             # The rolling dependency repository doesn't yet provide gwengui-gtk4.
-            cmake -G Ninja -DWITH_AQBANKING=OFF ..
+            with_aqbanking=OFF
+            if [[ -n "$DEPENDENCY_OVERLAY_RELEASE" ]]; then
+              with_aqbanking=ON
+            fi
+            cmake -G Ninja -DWITH_AQBANKING="$with_aqbanking" ..
         - name: Build and Test GnuCash
           env:
             GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
