@@ -416,11 +416,25 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
             command_line, argv[1]);
         auto filename = g_file_get_uri (file);
 
-        gnc_file_open_file (gnc_ui_get_main_window (nullptr),
-                            filename,
-                            /*open_readonly*/ FALSE);
+        auto open_result = gnc_file_open_file (gnc_ui_get_main_window (nullptr),
+                                               filename,
+                                               /*open_readonly*/ FALSE);
         g_free (filename);
         g_object_unref (file);
+        if (open_result == GNC_FILE_OPEN_QUEUED)
+            g_application_command_line_print (
+                command_line, "%s\n",
+                _("GnuCash is busy completing another file operation. "
+                  "The requested file has been queued."));
+        else if (open_result == GNC_FILE_OPEN_REJECTED)
+        {
+            g_application_command_line_printerr (
+                command_line, "%s\n",
+                _("GnuCash is shutting down. "
+                  "The requested file was not opened."));
+            g_strfreev (argv);
+            return 1;
+        }
     }
     else
     {

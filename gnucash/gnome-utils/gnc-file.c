@@ -42,7 +42,9 @@
 #include "gnc-gui-query.h"
 #include "gnc-hooks.h"
 #include "gnc-keyring.h"
+#include "gnc-session-load-executor.h"
 #include "gnc-splash.h"
+#include "gnc-session-transition.h"
 #include "gnc-ui.h"
 #include "gnc-ui-balances.h"
 #include "gnc-ui-util.h"
@@ -656,8 +658,9 @@ gnc_file_select_async (GtkWindow *parent, const gchar *title, GList *filters,
     gnc_file_select_async_full (parent, title, filters, starting_dir, type,
                                 selected, NULL, NULL, NULL);
 }
-static void gnc_file_open_request_dialog (GtkWindow *parent,
-                                          const gchar *starting_dir);
+static void gnc_file_open_request_dialog_with_transition (
+    GtkWindow *parent, const gchar *starting_dir,
+    GncSessionTransition *transition);
 typedef void (*GncFileSessionErrorCallback) (GtkWindow *parent,
                                              gboolean uh_oh,
                                              gpointer user_data);
@@ -1336,16 +1339,35 @@ gnc_file_query_save_async (GtkWindow *parent, gboolean can_cancel,
     gnc_file_query_save_continue (request);
 }
 
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    GncSessionTransition *transition;
+} GncFileNewTransitionRequest;
+
+static void
+gnc_file_new_transition_request_free (GncFileNewTransitionRequest *request)
+{
+    GncSessionTransition *transition = request->transition;
+
+    request->transition = NULL;
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+    if (transition)
+        gnc_session_transition_complete (transition);
+}
+
 static void
 gnc_file_new_after_query (GtkWindow *parent, gboolean can_continue,
                           gpointer user_data)
 {
+    GncFileNewTransitionRequest *request = user_data;
     QofSession *session;
     QofSessionOperationLease *close_lease;
 
-    (void)user_data;
     if (!can_continue)
-        return;
+        goto out;
 
     if (gnc_current_session_exist())
     {
@@ -1353,7 +1375,7 @@ gnc_file_new_after_query (GtkWindow *parent, gboolean can_continue,
         close_lease = qof_session_operation_lease_acquire_for (
             session, QOF_SESSION_OPERATION_CLOSE);
         if (!close_lease)
-            return;
+            goto out;
 
         qof_event_suspend ();
         gnc_hook_run(HOOK_BOOK_CLOSED, session);
@@ -1365,7 +1387,7 @@ gnc_file_new_after_query (GtkWindow *parent, gboolean can_continue,
         {
             qof_session_operation_lease_release (close_lease);
             qof_event_resume ();
-            return;
+            goto out;
         }
         qof_session_operation_lease_release (close_lease);
         qof_event_resume ();
@@ -1376,12 +1398,56 @@ gnc_file_new_after_query (GtkWindow *parent, gboolean can_continue,
     gnc_gui_refresh_all ();
     gnc_book_opened ();
     (void)parent;
+
+out:
+    gnc_file_new_transition_request_free (request);
+}
+
+static void
+gnc_file_new_transition_start (GncSessionTransition *transition,
+                               gpointer user_data)
+{
+    GncFileNewTransitionRequest *request = user_data;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    request->transition = transition;
+    if (request->has_parent && !parent)
+    {
+        gnc_file_new_transition_request_free (request);
+        return;
+    }
+    gnc_file_query_save_async (parent, TRUE, gnc_file_new_after_query, request);
+    g_clear_object (&parent);
+}
+
+static void
+gnc_file_new_from_transition (GtkWindow *parent,
+                              GncSessionTransition *transition)
+{
+    GncFileNewTransitionRequest *request =
+        g_new0 (GncFileNewTransitionRequest, 1);
+
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->transition = transition;
+    gnc_file_new_after_query (parent, TRUE, request);
 }
 
 void
 gnc_file_new (GtkWindow *parent)
 {
-    gnc_file_query_save_async (parent, TRUE, gnc_file_new_after_query, NULL);
+    GncFileNewTransitionRequest *request =
+        g_new0 (GncFileNewTransitionRequest, 1);
+    GncSessionTransitionDisposition disposition;
+
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    disposition = gnc_session_transition_enqueue (
+        GNC_SESSION_TRANSITION_NEW, gnc_file_new_transition_start,
+        (GncSessionTransitionCancelFunc)gnc_file_new_transition_request_free,
+        request);
+    if (disposition == GNC_SESSION_TRANSITION_REJECTED)
+        gnc_file_new_transition_request_free (request);
 }
 
 
@@ -1457,6 +1523,7 @@ typedef struct
     gboolean is_readonly;
     gboolean reset_bayes_conversion;
     gboolean break_lock;
+    GncSessionTransition *transition;
 } GncFileOpenRequest;
 
 
@@ -1464,11 +1531,13 @@ static gboolean gnc_file_open_request_with_mode (GtkWindow *parent,
                                                   const char *filename,
                                                   gboolean is_readonly,
                                                   gboolean reset_bayes_conversion,
-                                                  gboolean break_lock);
+                                                  gboolean break_lock,
+                                                  GncSessionTransition *transition);
 static gboolean gnc_post_file_open (GtkWindow *parent, const char *filename,
                                     gboolean is_readonly,
                                     gboolean reset_bayes_conversion,
-                                    gboolean break_lock);
+                                    gboolean break_lock,
+                                    GncSessionTransition *transition);
 typedef struct
 {
     GWeakRef parent;
@@ -1480,16 +1549,22 @@ typedef struct
     gboolean is_readonly;
     gboolean reset_bayes_conversion;
     gboolean break_lock;
+    GncSessionTransition *transition;
 } GncFilePasswordRequest;
 
 static void
 gnc_file_password_request_free (GncFilePasswordRequest *request)
 {
+    GncSessionTransition *transition = request->transition;
+
+    request->transition = NULL;
     g_weak_ref_clear (&request->parent);
     g_free (request->scheme);
     g_free (request->hostname);
     g_free (request->path);
     g_free (request);
+    if (transition)
+        gnc_session_transition_complete (transition);
 }
 
 static void
@@ -1513,9 +1588,13 @@ gnc_file_open_after_keyring_password (GObject *source, GAsyncResult *result,
                                   request->port, username, password,
                                   request->path);
         if (uri)
-            (void)gnc_post_file_open (parent, uri, request->is_readonly,
-                                      request->reset_bayes_conversion,
-                                      request->break_lock);
+        {
+            if (gnc_post_file_open (parent, uri, request->is_readonly,
+                                    request->reset_bayes_conversion,
+                                    request->break_lock,
+                                    request->transition))
+                request->transition = NULL;
+        }
         else
             gnc_error_dialog (parent, "%s",
                               _("The database connection URI is invalid."));
@@ -1538,9 +1617,14 @@ out:
 static void
 gnc_file_open_request_free (GncFileOpenRequest *request)
 {
+    GncSessionTransition *transition = request->transition;
+
+    request->transition = NULL;
     g_weak_ref_clear (&request->parent);
     g_free (request->filename);
     g_free (request);
+    if (transition)
+        gnc_session_transition_complete (transition);
 }
 
 static gboolean
@@ -1597,6 +1681,8 @@ typedef struct
     QofBackendError last_error;
     gulong parent_destroy_handler;
     gboolean load_registered;
+    GncSessionLoadExecutor *load_executor;
+    GncSessionTransition *transition;
 } GncFileOpenOperation;
 
 static GList *file_open_load_operations;
@@ -1672,11 +1758,27 @@ file_open_load_registry_add (GncFileOpenOperation *operation,
 static void
 file_open_operation_free (GncFileOpenOperation *operation)
 {
+    GncSessionTransition *transition = operation->transition;
+
+    operation->transition = NULL;
     file_open_load_registry_remove (operation);
+    gnc_session_load_executor_free (operation->load_executor);
+    operation->load_executor = NULL;
     g_weak_ref_clear (&operation->parent);
     g_free (operation->filename);
     g_free (operation->expected_url);
     g_free (operation);
+    if (transition)
+        gnc_session_transition_complete (transition);
+}
+
+static GncSessionTransition *
+file_open_operation_take_transition (GncFileOpenOperation *operation)
+{
+    GncSessionTransition *transition = operation->transition;
+
+    operation->transition = NULL;
+    return transition;
 }
 
 static void
@@ -1778,6 +1880,7 @@ static void
 file_open_bad_url_finished (GtkWindow *parent, gboolean uh_oh, gpointer user_data)
 {
     GncFileOpenOperation *operation = user_data;
+    GncSessionTransition *transition;
     gchar *directory;
 
     (void)uh_oh;
@@ -1792,8 +1895,10 @@ file_open_bad_url_finished (GtkWindow *parent, gboolean uh_oh, gpointer user_dat
         directory = g_strdup (operation->filename);
     else
         directory = gnc_get_default_directory (GNC_PREFS_GROUP_OPEN_SAVE);
+    transition = file_open_operation_take_transition (operation);
     file_open_operation_free (operation);
-    gnc_file_open_request_dialog (parent, directory);
+    gnc_file_open_request_dialog_with_transition (parent, directory,
+                                                  transition);
     g_free (directory);
 }
 
@@ -1816,6 +1921,7 @@ static void
 file_open_locked_choice_finished (GtkWindow *parent, gint choice, gpointer user_data)
 {
     GncFileOpenOperation *operation = user_data;
+    GncSessionTransition *transition;
 
     if ((operation->has_parent && !parent) ||
         !file_open_operation_is_current (operation))
@@ -1832,21 +1938,26 @@ file_open_locked_choice_finished (GtkWindow *parent, gint choice, gpointer user_
         file_open_start (operation);
         return;
     case 1: /* Create New File */
+        transition = file_open_operation_take_transition (operation);
         file_open_operation_free (operation);
-        gnc_file_new (parent);
+        gnc_file_new_from_transition (parent, transition);
         return;
     case 2: /* Open Anyway */
         operation->mode = GNC_FILE_OPEN_BREAK_LOCK;
         file_open_start (operation);
         return;
     case 4: /* Quit */
+        transition = file_open_operation_take_transition (operation);
         file_open_operation_free (operation);
+        gnc_session_transition_begin_shutdown (transition);
         if (shutdown_cb)
             shutdown_cb (0);
         return;
     default: /* Open Folder and cancellation */
+        transition = file_open_operation_take_transition (operation);
         file_open_operation_free (operation);
-        gnc_file_open (parent);
+        gnc_file_open_request_dialog_with_transition (parent, NULL,
+                                                      transition);
         return;
     }
 }
@@ -2127,8 +2238,10 @@ file_open_start (GncFileOpenOperation *operation)
     gnc_window_show_progress (_("Loading user data…"), 0.0);
     lease = qof_session_operation_lease_acquire_for (
         operation->new_session, QOF_SESSION_OPERATION_LOAD);
+    operation->load_executor = gnc_session_load_executor_new ();
     authorized = lease && qof_session_load_async_with_lease (
         operation->new_session, lease, gnc_window_show_progress,
+        gnc_session_load_executor_get (operation->load_executor),
         file_open_load_finished, operation);
     if (authorized)
     {
@@ -2144,6 +2257,8 @@ file_open_start (GncFileOpenOperation *operation)
         return;
     }
     qof_session_operation_lease_release (lease);
+    gnc_session_load_executor_free (operation->load_executor);
+    operation->load_executor = NULL;
     gnc_window_show_progress (NULL, -1.0);
     if (!authorized)
     {
@@ -2175,8 +2290,12 @@ gnc_file_open_after_xml_conversion (GObject *source, GAsyncResult *result,
     {
         if (request->reset_bayes_conversion)
             gnc_account_reset_convert_bayes_to_flat ();
-        gnc_post_file_open (parent, request->filename, request->is_readonly,
-                            request->reset_bayes_conversion, request->break_lock);
+        if (gnc_post_file_open (parent, request->filename,
+                                request->is_readonly,
+                                request->reset_bayes_conversion,
+                                request->break_lock,
+                                request->transition))
+            request->transition = NULL;
     }
     else if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         gnc_error_dialog (parent, "%s", error->message);
@@ -2190,17 +2309,20 @@ gnc_file_open_after_xml_conversion (GObject *source, GAsyncResult *result,
 static gboolean
 gnc_file_open_request (GtkWindow *parent, const char *filename,
                        gboolean is_readonly,
-                       gboolean reset_bayes_conversion)
+                       gboolean reset_bayes_conversion,
+                       GncSessionTransition *transition)
 {
     return gnc_file_open_request_with_mode (parent, filename, is_readonly,
-                                            reset_bayes_conversion, FALSE);
+                                            reset_bayes_conversion, FALSE,
+                                            transition);
 }
 
 static gboolean
 gnc_file_open_request_with_mode (GtkWindow *parent, const char *filename,
                                   gboolean is_readonly,
                                   gboolean reset_bayes_conversion,
-                                  gboolean break_lock)
+                                  gboolean break_lock,
+                                  GncSessionTransition *transition)
 {
     GncFileOpenRequest *request;
 
@@ -2212,7 +2334,8 @@ gnc_file_open_request_with_mode (GtkWindow *parent, const char *filename,
         if (reset_bayes_conversion)
             gnc_account_reset_convert_bayes_to_flat ();
         return gnc_post_file_open (parent, filename, is_readonly,
-                                   reset_bayes_conversion, break_lock);
+                                   reset_bayes_conversion, break_lock,
+                                   transition);
     }
 
     request = g_new0 (GncFileOpenRequest, 1);
@@ -2221,6 +2344,7 @@ gnc_file_open_request_with_mode (GtkWindow *parent, const char *filename,
     request->is_readonly = is_readonly;
     request->reset_bayes_conversion = reset_bayes_conversion;
     request->break_lock = break_lock;
+    request->transition = transition;
     gnc_xml_convert_single_file_async (filename, parent, NULL,
                                        gnc_file_open_after_xml_conversion,
                                        request);
@@ -2228,7 +2352,8 @@ gnc_file_open_request_with_mode (GtkWindow *parent, const char *filename,
 }
 static gboolean
 gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonly,
-                    gboolean reset_bayes_conversion, gboolean break_lock)
+                    gboolean reset_bayes_conversion, gboolean break_lock,
+                    GncSessionTransition *transition)
 {
     GncFileOpenOperation *operation;
     GncFilePasswordRequest *password_request;
@@ -2267,6 +2392,7 @@ gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonl
         password_request->is_readonly = is_readonly;
         password_request->reset_bayes_conversion = reset_bayes_conversion;
         password_request->break_lock = break_lock;
+        password_request->transition = transition;
         gnc_keyring_get_password_async (parent, password_request->scheme,
                                         password_request->hostname,
                                         password_request->port,
@@ -2289,6 +2415,7 @@ gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonl
     operation->is_readonly = is_readonly;
     operation->reset_bayes_conversion = reset_bayes_conversion;
     operation->mode = break_lock ? GNC_FILE_OPEN_BREAK_LOCK : GNC_FILE_OPEN_NORMAL;
+    operation->transition = transition;
     operation->expected_generation = gnc_current_session_get_generation ();
     if (gnc_current_session_exist ())
     {
@@ -2313,20 +2440,75 @@ gnc_post_file_open (GtkWindow *parent, const char *filename, gboolean is_readonl
  *       so the paths used in here are always file
  *       paths, never db uris.
  */
-static void
-gnc_file_open_selected (GtkWindow *parent, const gchar *filename,
-                        gpointer user_data)
+typedef struct
 {
-    (void)user_data;
-    (void)gnc_file_open_request (parent, filename, FALSE, FALSE);
+    GWeakRef parent;
+    gboolean has_parent;
+    gchar *filename;
+    gboolean open_readonly;
+    gboolean choose_file;
+    GncSessionTransition *transition;
+} GncFileOpenTransitionRequest;
+
+static void
+gnc_file_open_transition_request_free (GncFileOpenTransitionRequest *request)
+{
+    GncSessionTransition *transition = request->transition;
+
+    request->transition = NULL;
+    g_weak_ref_clear (&request->parent);
+    g_free (request->filename);
+    g_free (request);
+    if (transition)
+        gnc_session_transition_complete (transition);
 }
 
 static void
-gnc_file_open_request_dialog (GtkWindow *parent, const gchar *starting_dir)
+gnc_file_open_transition_selected (GtkWindow *parent, const gchar *filename,
+                                   gpointer user_data)
 {
-    gnc_file_select_async (parent, _("Open"),
-                           gnc_file_dialog_get_datafile_filters (), starting_dir,
-                           GNC_FILE_DIALOG_OPEN, gnc_file_open_selected);
+    GncFileOpenTransitionRequest *request = user_data;
+    GncSessionTransition *transition = request->transition;
+
+    request->transition = NULL;
+    if (!gnc_file_open_request (parent, filename, FALSE, FALSE, transition))
+        request->transition = transition;
+}
+
+static void
+gnc_file_open_transition_cancelled (GtkWindow *parent, const GError *error,
+                                    gpointer user_data)
+{
+    (void)parent;
+    (void)error;
+    (void)user_data;
+}
+
+static void
+gnc_file_open_transition_choose (GncFileOpenTransitionRequest *request,
+                                 GtkWindow *parent,
+                                 const gchar *starting_dir)
+{
+    gnc_file_select_async_full (
+        parent, _("Open"), gnc_file_dialog_get_datafile_filters (), starting_dir,
+        GNC_FILE_DIALOG_OPEN, gnc_file_open_transition_selected,
+        gnc_file_open_transition_cancelled, request,
+        (GDestroyNotify)gnc_file_open_transition_request_free);
+}
+
+static void
+gnc_file_open_request_dialog_with_transition (
+    GtkWindow *parent, const gchar *starting_dir,
+    GncSessionTransition *transition)
+{
+    GncFileOpenTransitionRequest *request =
+        g_new0 (GncFileOpenTransitionRequest, 1);
+
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->choose_file = TRUE;
+    request->transition = transition;
+    gnc_file_open_transition_choose (request, parent, starting_dir);
 }
 
 /* Starts the native file request only after the current session has either
@@ -2335,12 +2517,29 @@ static void
 gnc_file_open_after_query (GtkWindow *parent, gboolean can_continue,
                            gpointer user_data)
 {
+    GncFileOpenTransitionRequest *request = user_data;
+    GncSessionTransition *transition;
     gchar *default_dir;
     gchar *last;
 
-    (void)user_data;
     if (!can_continue)
+    {
+        gnc_file_open_transition_request_free (request);
         return;
+    }
+
+    if (!request->choose_file)
+    {
+        transition = request->transition;
+        request->transition = NULL;
+        if (!gnc_file_open_request (parent, request->filename,
+                                    request->open_readonly,
+                                    /*reset_bayes_conversion*/ TRUE,
+                                    transition))
+            request->transition = transition;
+        gnc_file_open_transition_request_free (request);
+        return;
+    }
 
     last = gnc_history_get_last ();
     if (last && gnc_uri_targets_local_fs (last))
@@ -2353,7 +2552,7 @@ gnc_file_open_after_query (GtkWindow *parent, gboolean can_continue,
     else
         default_dir = gnc_get_default_directory (GNC_PREFS_GROUP_OPEN_SAVE);
 
-    gnc_file_open_request_dialog (parent, default_dir);
+    gnc_file_open_transition_choose (request, parent, default_dir);
     g_free (last);
     g_free (default_dir);
 
@@ -2361,47 +2560,67 @@ gnc_file_open_after_query (GtkWindow *parent, gboolean can_continue,
     gnc_get_current_session ();
 }
 
+static void
+gnc_file_open_transition_start (GncSessionTransition *transition,
+                                gpointer user_data)
+{
+    GncFileOpenTransitionRequest *request = user_data;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    request->transition = transition;
+    if (request->has_parent && !parent)
+    {
+        gnc_file_open_transition_request_free (request);
+        return;
+    }
+    gnc_file_query_save_async (parent, TRUE, gnc_file_open_after_query, request);
+    g_clear_object (&parent);
+}
+
 gboolean
 gnc_file_open (GtkWindow *parent)
 {
-    gnc_file_query_save_async (parent, TRUE, gnc_file_open_after_query, NULL);
-    return TRUE;
+    GncFileOpenTransitionRequest *request =
+        g_new0 (GncFileOpenTransitionRequest, 1);
+    GncSessionTransitionDisposition disposition;
+
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->choose_file = TRUE;
+    disposition = gnc_session_transition_enqueue (
+        GNC_SESSION_TRANSITION_OPEN, gnc_file_open_transition_start,
+        (GncSessionTransitionCancelFunc)gnc_file_open_transition_request_free,
+        request);
+    if (disposition == GNC_SESSION_TRANSITION_REJECTED)
+        gnc_file_open_transition_request_free (request);
+    return disposition != GNC_SESSION_TRANSITION_REJECTED;
 }
 
-typedef struct
-{
-    gchar *filename;
-    gboolean open_readonly;
-} GncFileOpenAfterQuery;
-
-static void
-gnc_file_open_after_query_file (GtkWindow *parent, gboolean can_continue,
-                                gpointer user_data)
-{
-    GncFileOpenAfterQuery *request = user_data;
-
-    if (can_continue)
-        (void)gnc_file_open_request (parent, request->filename,
-                                     request->open_readonly,
-                                     /*reset_bayes_conversion*/ TRUE);
-    g_free (request->filename);
-    g_free (request);
-}
-
-gboolean
+GncFileOpenResult
 gnc_file_open_file (GtkWindow *parent, const char *newfile, gboolean open_readonly)
 {
-    GncFileOpenAfterQuery *request;
+    GncFileOpenTransitionRequest *request;
+    GncSessionTransitionDisposition disposition;
 
     if (!newfile)
-        return FALSE;
+        return GNC_FILE_OPEN_REJECTED;
 
-    request = g_new0 (GncFileOpenAfterQuery, 1);
+    request = g_new0 (GncFileOpenTransitionRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
     request->filename = g_strdup (newfile);
     request->open_readonly = open_readonly;
-    gnc_file_query_save_async (parent, TRUE, gnc_file_open_after_query_file,
-                               request);
-    return TRUE;
+    disposition = gnc_session_transition_enqueue (
+        GNC_SESSION_TRANSITION_OPEN, gnc_file_open_transition_start,
+        (GncSessionTransitionCancelFunc)gnc_file_open_transition_request_free,
+        request);
+    if (disposition == GNC_SESSION_TRANSITION_REJECTED)
+    {
+        gnc_file_open_transition_request_free (request);
+        return GNC_FILE_OPEN_REJECTED;
+    }
+    return disposition == GNC_SESSION_TRANSITION_QUEUED ?
+        GNC_FILE_OPEN_QUEUED : GNC_FILE_OPEN_STARTED;
 }
 /* Note: this dialog will only be used when dbi is not enabled
  *       paths used in it always refer to files and are
@@ -2955,10 +3174,132 @@ gnc_file_save_async (GtkWindow *parent,
     LEAVE (" ");
 }
 
+typedef enum
+{
+    GNC_FILE_MANUAL_SAVE,
+    GNC_FILE_MANUAL_SAVE_AS,
+    GNC_FILE_MANUAL_SAVE_AS_FILE
+} GncFileManualSaveKind;
+
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    GncFileManualSaveKind kind;
+    gchar *filename;
+    QofSession *session;
+    QofBook *book;
+    gchar *session_url;
+    guint64 session_generation;
+    GncSessionTransition *transition;
+} GncFileManualSaveRequest;
+
+static void
+gnc_file_manual_save_request_free (GncFileManualSaveRequest *request)
+{
+    g_weak_ref_clear (&request->parent);
+    g_free (request->filename);
+    g_free (request->session_url);
+    g_free (request);
+}
+
+static gboolean
+gnc_file_manual_save_request_is_current (GncFileManualSaveRequest *request)
+{
+    QofSession *session;
+
+    if (!request->session)
+        return !gnc_current_session_exist () &&
+               gnc_current_session_get_generation () ==
+                   request->session_generation;
+    if (!gnc_current_session_exist () ||
+        gnc_current_session_get_generation () != request->session_generation)
+        return FALSE;
+    session = gnc_get_current_session ();
+    return session == request->session &&
+           qof_session_get_book (session) == request->book &&
+           g_strcmp0 (qof_session_get_url (session), request->session_url) == 0;
+}
+
+static void
+gnc_file_manual_save_complete (GtkWindow *parent, gboolean saved,
+                               gpointer user_data)
+{
+    GncFileManualSaveRequest *request = user_data;
+    GncSessionTransition *transition = request->transition;
+
+    (void)parent;
+    (void)saved;
+    request->transition = NULL;
+    gnc_file_manual_save_request_free (request);
+    gnc_session_transition_complete (transition);
+}
+
+static void
+gnc_file_manual_save_start (GncSessionTransition *transition,
+                            gpointer user_data)
+{
+    GncFileManualSaveRequest *request = user_data;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
+
+    request->transition = transition;
+    if ((request->has_parent && !parent) ||
+        !gnc_file_manual_save_request_is_current (request))
+    {
+        gnc_file_manual_save_request_free (request);
+        gnc_session_transition_complete (transition);
+        return;
+    }
+
+    switch (request->kind)
+    {
+    case GNC_FILE_MANUAL_SAVE:
+        gnc_file_save_async (parent, gnc_file_manual_save_complete, request);
+        break;
+    case GNC_FILE_MANUAL_SAVE_AS:
+        gnc_file_save_as_with_completion (
+            parent, gnc_file_manual_save_complete, request);
+        break;
+    case GNC_FILE_MANUAL_SAVE_AS_FILE:
+        gnc_file_do_save_as_async (
+            parent, request->filename, gnc_file_manual_save_complete, request);
+        break;
+    }
+    g_clear_object (&parent);
+}
+
+static void
+gnc_file_manual_save_enqueue (GtkWindow *parent,
+                              GncFileManualSaveKind kind,
+                              const gchar *filename)
+{
+    GncFileManualSaveRequest *request =
+        g_new0 (GncFileManualSaveRequest, 1);
+    GncSessionTransitionDisposition disposition;
+
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->kind = kind;
+    request->filename = g_strdup (filename);
+    request->session_generation = gnc_current_session_get_generation ();
+    if (gnc_current_session_exist ())
+    {
+        request->session = gnc_get_current_session ();
+        request->book = qof_session_get_book (request->session);
+        request->session_url = g_strdup (qof_session_get_url (request->session));
+    }
+    disposition = gnc_session_transition_enqueue (
+        GNC_SESSION_TRANSITION_SAVE, gnc_file_manual_save_start,
+        (GncSessionTransitionCancelFunc)gnc_file_manual_save_request_free,
+        request);
+    if (disposition == GNC_SESSION_TRANSITION_REJECTED)
+        gnc_file_manual_save_request_free (request);
+}
+
 void
 gnc_file_save (GtkWindow *parent)
 {
-    gnc_file_save_async (parent, NULL, NULL);
+    gnc_file_manual_save_enqueue (parent, GNC_FILE_MANUAL_SAVE, NULL);
 }
 /* Note: this dialog will only be used when dbi is not enabled
  *       paths used in it always refer to files and are
@@ -3061,7 +3402,7 @@ gnc_file_save_as_with_completion (GtkWindow *parent,
 void
 gnc_file_save_as (GtkWindow *parent)
 {
-    gnc_file_save_as_with_completion (parent, NULL, NULL);
+    gnc_file_manual_save_enqueue (parent, GNC_FILE_MANUAL_SAVE_AS, NULL);
 }
 
 typedef enum
@@ -3469,23 +3810,42 @@ gnc_file_do_save_as_async (GtkWindow *parent, const char *filename,
 void
 gnc_file_do_save_as (GtkWindow *parent, const char *filename)
 {
-    gnc_file_do_save_as_async (parent, filename, NULL, NULL);
+    gnc_file_manual_save_enqueue (parent, GNC_FILE_MANUAL_SAVE_AS_FILE,
+                                  filename);
 }
 typedef struct
 {
+    GWeakRef parent;
+    gboolean has_parent;
     QofSession *session;
     QofBook *book;
     gchar *fileurl;
     gchar *session_url;
     guint64 session_generation;
     gboolean open_readonly;
+    GncSessionTransition *transition;
 } GncFileRevertRequest;
+
+static void
+gnc_file_revert_request_free (GncFileRevertRequest *request)
+{
+    GncSessionTransition *transition = request->transition;
+
+    request->transition = NULL;
+    g_weak_ref_clear (&request->parent);
+    g_free (request->fileurl);
+    g_free (request->session_url);
+    g_free (request);
+    if (transition)
+        gnc_session_transition_complete (transition);
+}
 
 static void
 gnc_file_revert_finished (GtkWindow *parent, gint response, gpointer user_data)
 {
     GncFileRevertRequest *request = user_data;
     QofSessionOperationLease *lease = NULL;
+    GncSessionTransition *transition;
 
     if (response == GTK_RESPONSE_YES && gnc_current_session_exist () &&
         gnc_current_session_get_generation () == request->session_generation &&
@@ -3500,25 +3860,37 @@ gnc_file_revert_finished (GtkWindow *parent, gint response, gpointer user_data)
         {
             qof_book_mark_session_saved (request->book);
             qof_session_operation_lease_release (lease);
-            gnc_file_open_file (parent, request->fileurl, request->open_readonly);
+            transition = request->transition;
+            request->transition = NULL;
+            if (!gnc_file_open_request (parent, request->fileurl,
+                                        request->open_readonly,
+                                        /*reset_bayes_conversion*/ TRUE,
+                                        transition))
+                request->transition = transition;
         }
     }
-    g_free (request->fileurl);
-    g_free (request->session_url);
-    g_free (request);
+    gnc_file_revert_request_free (request);
 }
 
-void
-gnc_file_revert (GtkWindow *parent)
+static void
+gnc_file_revert_start (GncSessionTransition *transition, gpointer user_data)
 {
+    GncFileRevertRequest *request = user_data;
+    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
     QofSession *session;
     const gchar *fileurl;
     const gchar *filename;
     const gchar *tmp;
-    GncFileRevertRequest *request;
     const gchar *title = _("Reverting will discard all unsaved changes to %s. "
                            "Are you sure you want to proceed?");
 
+    request->transition = transition;
+    if ((request->has_parent && !parent) || !gnc_current_session_exist ())
+    {
+        gnc_file_revert_request_free (request);
+        g_clear_object (&parent);
+        return;
+    }
 
     session = gnc_get_current_session ();
     fileurl = qof_session_get_url (session);
@@ -3527,7 +3899,6 @@ gnc_file_revert (GtkWindow *parent)
     tmp = strrchr (fileurl, '/');
     filename = tmp ? tmp + 1 : fileurl;
 
-    request = g_new0 (GncFileRevertRequest, 1);
     request->session = session;
     request->book = qof_session_get_book (session);
     request->fileurl = g_strdup (fileurl);
@@ -3536,6 +3907,22 @@ gnc_file_revert (GtkWindow *parent)
     request->open_readonly = qof_book_is_readonly (request->book);
     gnc_verify_dialog_async (parent, FALSE, gnc_file_revert_finished, request,
                              title, filename);
+    g_clear_object (&parent);
+}
+
+void
+gnc_file_revert (GtkWindow *parent)
+{
+    GncFileRevertRequest *request = g_new0 (GncFileRevertRequest, 1);
+    GncSessionTransitionDisposition disposition;
+
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    disposition = gnc_session_transition_enqueue (
+        GNC_SESSION_TRANSITION_REVERT, gnc_file_revert_start,
+        (GncSessionTransitionCancelFunc)gnc_file_revert_request_free, request);
+    if (disposition == GNC_SESSION_TRANSITION_REJECTED)
+        gnc_file_revert_request_free (request);
 }
 
 void
@@ -3544,6 +3931,7 @@ gnc_file_quit (void)
     QofSession *session;
     QofSessionOperationLease *close_lease;
 
+    gnc_session_transition_begin_shutdown (NULL);
     if (!gnc_current_session_exist ())
         return;
     gnc_set_busy_cursor (NULL, TRUE);

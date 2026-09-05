@@ -62,6 +62,7 @@ static QofLogModule log_module = QOF_MOD_SESSION;
 #include <boost/algorithm/string.hpp>
 #include <vector>
 #include <algorithm>
+#include <atomic>
 #include <string>
 #include <sstream>
 #include <new>
@@ -83,37 +84,40 @@ struct QofSessionOperationLease
 
 struct QofSessionAsyncLoad
 {
-    gatomicrefcount ref_count;
+    std::atomic_uint ref_count{1};
     QofSessionImpl *session{};
     QofSessionOperationLease *lease{};
     QofPercentageFunc percentage{};
+    QofSessionLoadExecutor executor{};
     QofSessionLoadAsyncCallback callback{};
     gpointer user_data{};
-    guint source_id{};
-    bool cancelled{};
+    std::atomic_uintptr_t task_handle{};
+    std::atomic_bool cancelled{};
     bool sync_dispatched{};
-    bool terminal_dispatched{};
+    std::atomic_bool terminal_dispatched{};
 };
 
 static QofSessionAsyncLoad *
 qof_session_async_load_ref (QofSessionAsyncLoad *load)
 {
     if (load)
-        g_atomic_ref_count_inc (&load->ref_count);
+        load->ref_count.fetch_add (1, std::memory_order_relaxed);
     return load;
 }
 
 static void
 qof_session_async_load_unref (QofSessionAsyncLoad *load)
 {
-    if (load && g_atomic_ref_count_dec (&load->ref_count))
+    if (load && load->ref_count.fetch_sub (
+                    1, std::memory_order_acq_rel) == 1)
         delete load;
 }
 
 static gboolean qof_session_async_load_guard (gpointer user_data);
 static void qof_session_async_load_complete (gboolean success,
                                              gpointer user_data);
-static void qof_session_async_load_source_destroy (gpointer user_data);
+static void qof_session_async_load_legacy_step (void *user_data);
+static void qof_session_async_load_legacy_discard (void *user_data);
 /*
  * These getters are used in tests to reach static vars from outside
  * They should be removed when no longer needed
@@ -514,7 +518,8 @@ bool
 QofSessionImpl::async_load_is_current (
     const QofSessionAsyncLoad *load) const noexcept
 {
-    return load && load == m_async_load && !load->cancelled &&
+    return load && load == m_async_load &&
+           !load->cancelled.load (std::memory_order_acquire) &&
            operation_lease_is_valid (load->lease);
 }
 
@@ -524,18 +529,23 @@ QofSessionImpl::has_async_load () const noexcept
     return m_async_load != nullptr;
 }
 
-static gboolean
-qof_session_async_load_legacy_step (gpointer user_data)
+static void
+qof_session_async_load_legacy_step (void *user_data)
 {
     auto load = static_cast<QofSessionAsyncLoad *> (user_data);
     if (!load || !load->session)
-        return G_SOURCE_REMOVE;
+    {
+        qof_session_async_load_unref (load);
+        return;
+    }
+    load->task_handle.store (0, std::memory_order_release);
 
     auto session = load->session;
     if (!session->async_load_is_current (load))
     {
         session->complete_async_load (load, FALSE);
-        return G_SOURCE_REMOVE;
+        qof_session_async_load_unref (load);
+        return;
     }
 
     /* Legacy backends retain their synchronous implementation, but never run
@@ -546,7 +556,7 @@ qof_session_async_load_legacy_step (gpointer user_data)
                    !qof_session_load_error_requires_reset (
                        session->get_error ());
     session->complete_async_load (load, success);
-    return G_SOURCE_REMOVE;
+    qof_session_async_load_unref (load);
 }
 
 static gboolean
@@ -557,13 +567,14 @@ qof_session_async_load_guard (gpointer user_data)
 }
 
 static void
-qof_session_async_load_source_destroy (gpointer user_data)
+qof_session_async_load_legacy_discard (void *user_data)
 {
     auto load = static_cast<QofSessionAsyncLoad *> (user_data);
     if (!load)
         return;
-    load->source_id = 0;
-    if (!load->terminal_dispatched && load->session)
+    load->task_handle.store (0, std::memory_order_release);
+    if (!load->terminal_dispatched.load (std::memory_order_acquire) &&
+        load->session)
         load->session->complete_async_load (load, FALSE);
     qof_session_async_load_unref (load);
 }
@@ -579,6 +590,7 @@ qof_session_async_load_complete (gboolean success, gpointer user_data)
 bool
 QofSessionImpl::start_async_load (QofSessionOperationLease *lease,
                                   QofPercentageFunc percentage_func,
+                                  const QofSessionLoadExecutor *executor,
                                   QofSessionLoadAsyncCallback callback,
                                   gpointer user_data) noexcept
 {
@@ -592,10 +604,11 @@ QofSessionImpl::start_async_load (QofSessionOperationLease *lease,
     if (!load)
         return false;
 
-    g_atomic_ref_count_init (&load->ref_count);
     load->session = this;
     load->lease = lease;
     load->percentage = percentage_func;
+    if (executor)
+        load->executor = *executor;
     load->callback = callback;
     load->user_data = user_data;
     m_async_load = load;
@@ -603,21 +616,32 @@ QofSessionImpl::start_async_load (QofSessionOperationLease *lease,
     clear_error ();
     qof_book_set_backend (m_book, m_backend);
     m_backend->set_percentage (percentage_func);
-    if (m_backend->load_async (m_book, LOAD_TYPE_INITIAL_LOAD,
+    if (m_backend->load_async (m_book, LOAD_TYPE_INITIAL_LOAD, executor,
                                qof_session_async_load_guard, load,
                                qof_session_async_load_complete, load))
         return true;
 
-    load->source_id = g_idle_add_full (
-        G_PRIORITY_DEFAULT_IDLE, qof_session_async_load_legacy_step,
-        qof_session_async_load_ref (load), qof_session_async_load_source_destroy);
-    if (!load->source_id)
+    if (!load->executor.schedule || !load->executor.cancel)
     {
         m_async_load = nullptr;
         load->session = nullptr;
         qof_session_async_load_unref (load);
         return false;
     }
+
+    auto task_load = qof_session_async_load_ref (load);
+    auto task_handle = load->executor.schedule (
+        load->executor.user_data, qof_session_async_load_legacy_step,
+        qof_session_async_load_legacy_discard, task_load);
+    if (!task_handle)
+    {
+        qof_session_async_load_unref (task_load);
+        m_async_load = nullptr;
+        load->session = nullptr;
+        qof_session_async_load_unref (load);
+        return false;
+    }
+    load->task_handle.store (task_handle, std::memory_order_release);
     return true;
 }
 
@@ -627,17 +651,24 @@ QofSessionImpl::cancel_active_load () noexcept
     if (!m_async_load || m_async_load->lease->kind != QOF_SESSION_OPERATION_LOAD)
         return false;
 
-    auto source_id = m_async_load->source_id;
+    auto load = m_async_load;
+    auto task_handle = load->task_handle.load (std::memory_order_acquire);
+    auto executor = load->executor;
     /* Cancellation must still terminalise a generation-stale LOAD. */
-    m_async_load->cancelled = true;
+    load->cancelled.store (true, std::memory_order_release);
+    if (task_handle)
+    {
+        /* The executor's synchronous discard owns terminal callback dispatch.
+         * That callback may destroy this session, so touch no member after
+         * cancelling the task. */
+        executor.cancel (executor.user_data, task_handle);
+        return true;
+    }
+
+    /* Native backend cancellation is a separate ownership path and may invoke
+     * the terminal callback synchronously. */
     if (m_backend)
         m_backend->cancel_load_async ();
-    if (source_id)
-    {
-        /* Legacy async fallback owns its terminal callback from the source
-         * destroy notifier. The callback may mutate this session. */
-        g_source_remove (source_id);
-    }
     return true;
 }
 
@@ -650,13 +681,13 @@ QofSessionImpl::complete_async_load (QofSessionAsyncLoad *load,
     QofSessionLoadAsyncCallback callback;
     gpointer user_data;
 
-    if (!load || load != m_async_load || load->terminal_dispatched)
+    if (!load || load != m_async_load ||
+        load->terminal_dispatched.exchange (true, std::memory_order_acq_rel))
         return;
 
-    load->terminal_dispatched = true;
-    load->source_id = 0;
+    load->task_handle.store (0, std::memory_order_release);
     m_async_load = nullptr;
-    if (load->cancelled)
+    if (load->cancelled.load (std::memory_order_acquire))
     {
         /* A cancelled staging book must never escape as a usable partial
          * result. The token is invalidated before the bound book is gone. */
@@ -1109,11 +1140,11 @@ qof_session_load (QofSession *session,
 gboolean
 qof_session_load_async_with_lease (
     QofSession *session, QofSessionOperationLease *lease,
-    QofPercentageFunc percentage_func, QofSessionLoadAsyncCallback callback,
-    gpointer user_data)
+    QofPercentageFunc percentage_func, const QofSessionLoadExecutor *executor,
+    QofSessionLoadAsyncCallback callback, gpointer user_data)
 {
     return session && session->start_async_load (lease, percentage_func,
-                                                 callback, user_data);
+                                                 executor, callback, user_data);
 }
 
 gboolean

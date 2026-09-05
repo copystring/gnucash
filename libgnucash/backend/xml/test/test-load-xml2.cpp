@@ -31,6 +31,8 @@
 
 #include <config.h>
 #include <stdlib.h>
+#include <algorithm>
+#include <deque>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -122,12 +124,77 @@ test_load_file (const char* filename)
     qof_book_destroy (book);
 }
 
+struct XmlTestLoadTask
+{
+    uintptr_t handle{};
+    QofSessionLoadTaskFunc run{};
+    QofSessionLoadTaskFunc discard{};
+    void *task_data{};
+};
+
+struct XmlTestLoadExecutor
+{
+    QofSessionLoadExecutor api{};
+    std::deque<XmlTestLoadTask> tasks{};
+    uintptr_t next_handle{1};
+    guint schedule_calls{};
+    guint reject_schedule_call{};
+    guint max_pending{};
+
+    XmlTestLoadExecutor ()
+    {
+        api.user_data = this;
+        api.schedule = schedule;
+        api.cancel = cancel;
+    }
+
+    static uintptr_t schedule (void *executor_data, QofSessionLoadTaskFunc run,
+                               QofSessionLoadTaskFunc discard, void *task_data)
+    {
+        auto self = static_cast<XmlTestLoadExecutor *> (executor_data);
+        ++self->schedule_calls;
+        if (self->reject_schedule_call == self->schedule_calls)
+            return 0;
+        auto handle = self->next_handle++;
+        if (!handle)
+            handle = self->next_handle++;
+        self->tasks.push_back ({handle, run, discard, task_data});
+        self->max_pending = std::max (
+            self->max_pending, static_cast<guint> (self->tasks.size ()));
+        return handle;
+    }
+
+    static void cancel (void *executor_data, uintptr_t handle)
+    {
+        auto self = static_cast<XmlTestLoadExecutor *> (executor_data);
+        auto task = std::find_if (
+            self->tasks.begin (), self->tasks.end (),
+            [handle] (const auto& pending) { return pending.handle == handle; });
+        if (task == self->tasks.end ())
+            return;
+        auto discarded = *task;
+        self->tasks.erase (task);
+        discarded.discard (discarded.task_data);
+    }
+
+    bool run_next ()
+    {
+        if (tasks.empty ())
+            return false;
+        auto task = tasks.front ();
+        tasks.pop_front ();
+        task.run (task.task_data);
+        return true;
+    }
+};
+
 struct AsyncLoadResult
 {
+    XmlTestLoadExecutor executor;
     gboolean completed {FALSE};
     QofSessionLoadAsyncStatus status {QOF_SESSION_LOAD_ERROR};
     guint callbacks {};
-    guint idle_turns {};
+    guint executor_turns {};
 };
 
 static void
@@ -140,20 +207,46 @@ async_load_finished (QofSession *, QofSessionLoadAsyncStatus status,
     ++result->callbacks;
 }
 
+static void
+async_load_finished_destroy_session (QofSession *session,
+                                     QofSessionLoadAsyncStatus status,
+                                     gpointer user_data)
+{
+    async_load_finished (session, status, user_data);
+    qof_session_destroy (session);
+}
+
+static QofSession *progress_cancel_session;
+static guint progress_cancel_calls;
+
+static void
+cancel_load_from_progress (const char *, double)
+{
+    auto session = progress_cancel_session;
+    if (!session)
+        return;
+    progress_cancel_session = nullptr;
+    ++progress_cancel_calls;
+    (void)qof_session_cancel_active_load (session);
+}
+
 static gboolean
 pump_async_load (AsyncLoadResult *result)
 {
-    /* Bounded test-only pump: product code never owns a nested main loop. */
+    /* Bounded test-owned executor: product scheduling remains outside XML. */
     for (guint turns = 0; turns < 10000 && !result->completed; ++turns)
     {
-        g_main_context_iteration (NULL, FALSE);
-        ++result->idle_turns;
+        if (!result->executor.run_next ())
+            break;
+        ++result->executor_turns;
     }
     return result->completed;
 }
 
 static QofSession *
-start_async_load (const char *filename, AsyncLoadResult *result)
+start_async_load (const char *filename, AsyncLoadResult *result,
+                  QofPercentageFunc percentage = nullptr,
+                  QofSessionLoadAsyncCallback callback = async_load_finished)
 {
     auto session = qof_session_new (qof_book_new ());
     auto url = GncUri { filename }.try_str (false);
@@ -172,7 +265,8 @@ start_async_load (const char *filename, AsyncLoadResult *result)
     auto load_lease = qof_session_operation_lease_acquire_for (
         session, QOF_SESSION_OPERATION_LOAD);
     auto started = load_lease && qof_session_load_async_with_lease (
-        session, load_lease, NULL, async_load_finished, result);
+        session, load_lease, percentage, &result->executor.api,
+        callback, result);
     if (!started)
     {
         qof_session_operation_lease_release (load_lease);
@@ -368,8 +462,8 @@ test_load_file_async_stale (const char *filename)
          !result.completed;
          ++turn)
     {
-        g_main_context_iteration (NULL, FALSE);
-        ++result.idle_turns;
+        result.executor.run_next ();
+        ++result.executor_turns;
     }
     do_test (!result.completed, "XML-v2 load remains active before STALE");
     do_test (!qof_book_empty (qof_session_get_book (session)),
@@ -403,8 +497,12 @@ test_load_file_async_bounded_finalization (void)
                  "many-account XML-v2 load completed");
         do_test (result.callbacks == 1,
                  "many-account XML-v2 callback exactly once");
-        do_test (result.idle_turns > account_count * 4,
-                 "many objects require many bounded idle finalization steps");
+        do_test (result.executor_turns > account_count * 4,
+                 "many objects require many bounded executor tasks");
+        do_test (result.executor.schedule_calls == result.executor_turns,
+                 "each XML step owns one executor task");
+        do_test (result.executor.max_pending == 1,
+                 "XML load retains at most one pending executor task");
         qof_session_destroy (session);
     }
     remove_generated_file (filename);
@@ -433,8 +531,8 @@ test_load_file_async_gzip_cancel (void)
          * cancellation closes the reader. This exercises the EPIPE path. */
         for (guint turn = 0; turn < 8 && !result.completed; ++turn)
         {
-            g_main_context_iteration (NULL, FALSE);
-            ++result.idle_turns;
+            result.executor.run_next ();
+            ++result.executor_turns;
         }
         do_test (!result.completed,
                  "large compressed XML-v2 load remains active before cancellation");
@@ -460,6 +558,96 @@ test_load_file_async_gzip_cancel (void)
         qof_session_destroy (session);
     }
     remove_generated_file (filename);
+}
+
+static void
+test_load_file_async_followup_schedule_rejected (void)
+{
+    constexpr guint account_count = 8;
+    auto filename = create_many_accounts_file (FALSE, account_count);
+    do_test (filename != NULL, "create follow-up rejection XML-v2 fixture");
+    if (!filename)
+        return;
+
+    AsyncLoadResult result;
+    result.executor.reject_schedule_call = 2;
+    auto session = start_async_load (filename, &result);
+    do_test (session != NULL, "initial XML executor task accepted");
+    if (session)
+    {
+        do_test (result.executor.run_next (), "run first XML executor task");
+        do_test (result.completed,
+                 "rejected follow-up schedule terminalizes XML load");
+        do_test (result.status == QOF_SESSION_LOAD_ERROR,
+                 "rejected follow-up schedule reports terminal error");
+        do_test (result.callbacks == 1,
+                 "follow-up schedule rejection calls back exactly once");
+        do_test (result.executor.schedule_calls == 2,
+                 "follow-up schedule, not initial schedule, was rejected");
+        do_test (result.executor.tasks.empty (),
+                 "schedule rejection retains no executor task");
+        do_test (qof_book_empty (qof_session_get_book (session)),
+                 "schedule rejection rolls back the staging book");
+        qof_session_destroy (session);
+    }
+    remove_generated_file (filename);
+}
+
+static void
+test_load_file_async_cancel_from_running_step (void)
+{
+    constexpr guint account_count = 48;
+    auto filename = create_many_accounts_file (FALSE, account_count);
+    do_test (filename != NULL, "create running-step cancel XML-v2 fixture");
+    if (!filename)
+        return;
+
+    AsyncLoadResult result;
+    progress_cancel_calls = 0;
+    auto session = start_async_load (filename, &result,
+                                     cancel_load_from_progress);
+    do_test (session != NULL, "start progress-cancelled XML-v2 load");
+    if (session)
+    {
+        progress_cancel_session = session;
+        do_test (pump_async_load (&result),
+                 "running XML step observes deferred cancellation");
+        progress_cancel_session = nullptr;
+        do_test (progress_cancel_calls == 1,
+                 "progress callback requests cancellation once");
+        do_test (result.status == QOF_SESSION_LOAD_CANCELLED,
+                 "running-step cancellation reports cancelled");
+        do_test (result.callbacks == 1,
+                 "running-step cancellation calls back exactly once");
+        do_test (result.executor.tasks.empty (),
+                 "running-step cancellation schedules no successor");
+        do_test (qof_book_empty (qof_session_get_book (session)),
+                 "running-step cancellation rolls back staging data");
+        qof_session_destroy (session);
+    }
+    progress_cancel_session = nullptr;
+    remove_generated_file (filename);
+}
+
+static void
+test_load_file_async_callback_destroys_session (const char *filename)
+{
+    AsyncLoadResult result;
+    remove_locks (filename);
+    auto session = start_async_load (filename, &result, nullptr,
+                                     async_load_finished_destroy_session);
+    do_test (session != NULL, "start self-destroying XML-v2 async load");
+    if (!session)
+        return;
+
+    do_test (pump_async_load (&result),
+             "XML terminal callback may destroy session and backend");
+    do_test (result.status == QOF_SESSION_LOAD_COMPLETED,
+             "self-destroying XML-v2 load completed");
+    do_test (result.callbacks == 1,
+             "self-destroying XML-v2 callback ran exactly once");
+    do_test (result.executor.tasks.empty (),
+             "self-destroying terminal callback retains no task");
 }
 
 int
@@ -501,6 +689,8 @@ main (int argc, char** argv)
                         test_load_file_async_cancel (to_open);
                     if (files_tested == 0)
                         test_load_file_async_stale (to_open);
+                    if (files_tested == 0)
+                        test_load_file_async_callback_destroys_session (to_open);
                     test_load_file (to_open);
                     files_tested++;
                 }
@@ -512,6 +702,8 @@ main (int argc, char** argv)
     g_dir_close (xml2_dir);
     test_load_file_async_error ();
     test_load_file_async_bounded_finalization ();
+    test_load_file_async_followup_schedule_rejected ();
+    test_load_file_async_cancel_from_running_step ();
     test_load_file_async_gzip_cancel ();
 
     if (files_tested == 0)

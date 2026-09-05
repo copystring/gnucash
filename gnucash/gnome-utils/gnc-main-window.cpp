@@ -66,6 +66,7 @@
 #include "gnc-hooks.h"
 #include "gnc-icons.h"
 #include "gnc-session.h"
+#include "gnc-session-transition.h"
 #include "gnc-state.h"
 #include "gnc-ui.h"
 #include "gnc-ui-util.h"
@@ -1458,6 +1459,7 @@ typedef struct
     guint seconds_to_save;
     gboolean deciding;
     gboolean completed;
+    GncSessionTransition *transition;
 } GncMainWindowQuitRequest;
 
 typedef struct
@@ -1469,10 +1471,14 @@ typedef struct
 typedef struct
 {
     GWeakRef window;
+    GncSessionTransition *transition;
+    gboolean finish_pending;
 } GncMainWindowQuitAfterPendingRequest;
 
 static void gnc_main_window_quit_request_finish (GncMainWindowQuitRequest *request,
                                                   gboolean proceed);
+static void gnc_main_window_enqueue_quit (GncMainWindow *window,
+                                          gboolean finish_pending);
 
 
 
@@ -1579,6 +1585,7 @@ gnc_main_window_quit_request_finish (GncMainWindowQuitRequest *request,
 {
     GObject *object;
     GncMainWindow *window = nullptr;
+    GncSessionTransition *transition;
 
     if (request->completed)
         return;
@@ -1592,11 +1599,18 @@ gnc_main_window_quit_request_finish (GncMainWindowQuitRequest *request,
         window->close_request_pending = FALSE;
     }
 
-    if (proceed)
-        gnc_main_window_begin_shutdown ();
-
+    transition = request->transition;
+    request->transition = nullptr;
     g_clear_object (&object);
     gnc_main_window_quit_request_free (request);
+
+    if (proceed)
+    {
+        gnc_session_transition_begin_shutdown (transition);
+        gnc_main_window_begin_shutdown ();
+    }
+    else
+        gnc_session_transition_complete (transition);
 }
 
 static void
@@ -1901,17 +1915,22 @@ gnc_main_window_quit_request_after_save (GtkWindow *parent, gboolean saved,
 }
 
 static void
-gnc_main_window_request_quit (GncMainWindow *window)
+gnc_main_window_request_quit (GncMainWindow *window,
+                              GncSessionTransition *transition)
 {
     QofSession *session;
     QofBook *book;
     GncMainWindowQuitRequest *request;
 
     if (quit_request_pending || shutdown_started)
+    {
+        gnc_session_transition_complete (transition);
         return;
+    }
 
     if (!gnc_current_session_exist () || gnc_file_save_in_progress ())
     {
+        gnc_session_transition_begin_shutdown (transition);
         gnc_main_window_begin_shutdown ();
         return;
     }
@@ -1920,6 +1939,7 @@ gnc_main_window_request_quit (GncMainWindow *window)
     book = qof_session_get_book (session);
     if (!qof_book_session_not_saved (book))
     {
+        gnc_session_transition_begin_shutdown (transition);
         gnc_main_window_begin_shutdown ();
         return;
     }
@@ -1929,6 +1949,7 @@ gnc_main_window_request_quit (GncMainWindow *window)
 
     request->session = session;
     request->book = book;
+    request->transition = transition;
     quit_request_pending = TRUE;
     gnc_main_window_quit_request_present (request);
 }
@@ -1957,7 +1978,7 @@ gnc_main_window_close_request_pending_finished (GncMainWindow *window,
             else
             {
                 window->close_request_pending = TRUE;
-                gnc_main_window_request_quit (window);
+                gnc_main_window_enqueue_quit (window, FALSE);
             }
         }
     }
@@ -1993,22 +2014,80 @@ gnc_main_window_quit_after_pending_finished (gboolean accepted, gpointer user_da
 {
     auto request = static_cast<GncMainWindowQuitAfterPendingRequest *> (user_data);
     auto object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+    auto transition = request->transition;
 
+    request->transition = nullptr;
+    g_weak_ref_clear (&request->window);
+    g_free (request);
     if (accepted && object && GNC_IS_MAIN_WINDOW (object))
-        gnc_main_window_request_quit (GNC_MAIN_WINDOW (object));
+        gnc_main_window_request_quit (GNC_MAIN_WINDOW (object), transition);
+    else
+        gnc_session_transition_complete (transition);
+    g_clear_object (&object);
+}
+
+static void
+gnc_main_window_quit_admission_cancelled (gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowQuitAfterPendingRequest *> (user_data);
+    auto object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+
+    if (object && GNC_IS_MAIN_WINDOW (object))
+        GNC_MAIN_WINDOW (object)->close_request_pending = FALSE;
     g_clear_object (&object);
     g_weak_ref_clear (&request->window);
     g_free (request);
 }
 
 static void
-gnc_main_window_request_quit_after_pending (GncMainWindow *window)
+gnc_main_window_quit_admission_start (GncSessionTransition *transition,
+                                      gpointer user_data)
+{
+    auto request = static_cast<GncMainWindowQuitAfterPendingRequest *> (user_data);
+    auto object = static_cast<GObject *> (g_weak_ref_get (&request->window));
+
+    request->transition = transition;
+    if (!object || !GNC_IS_MAIN_WINDOW (object))
+    {
+        g_clear_object (&object);
+        request->transition = nullptr;
+        gnc_main_window_quit_admission_cancelled (request);
+        gnc_session_transition_complete (transition);
+        return;
+    }
+
+    if (request->finish_pending)
+        gnc_main_window_all_finish_pending_async (
+            nullptr, gnc_main_window_quit_after_pending_finished, request);
+    else
+    {
+        request->transition = nullptr;
+        g_weak_ref_clear (&request->window);
+        g_free (request);
+        gnc_main_window_request_quit (GNC_MAIN_WINDOW (object), transition);
+    }
+    g_clear_object (&object);
+}
+
+static void
+gnc_main_window_enqueue_quit (GncMainWindow *window, gboolean finish_pending)
 {
     auto request = g_new0 (GncMainWindowQuitAfterPendingRequest, 1);
+    GncSessionTransitionDisposition disposition;
 
     g_weak_ref_init (&request->window, window);
-    gnc_main_window_all_finish_pending_async
-        (nullptr, gnc_main_window_quit_after_pending_finished, request);
+    request->finish_pending = finish_pending;
+    disposition = gnc_session_transition_enqueue (
+        GNC_SESSION_TRANSITION_QUIT, gnc_main_window_quit_admission_start,
+        gnc_main_window_quit_admission_cancelled, request);
+    if (disposition == GNC_SESSION_TRANSITION_REJECTED)
+        gnc_main_window_quit_admission_cancelled (request);
+}
+
+static void
+gnc_main_window_request_quit_after_pending (GncMainWindow *window)
+{
+    gnc_main_window_enqueue_quit (window, TRUE);
 }
 static gboolean
 gnc_main_window_close_request (GtkWindow *gtk_window, gpointer user_data)
@@ -2017,7 +2096,8 @@ gnc_main_window_close_request (GtkWindow *gtk_window, gpointer user_data)
 
     (void)user_data;
     if (!GNC_IS_MAIN_WINDOW (window) || window->window_quitting ||
-        window->close_request_pending || quit_request_pending || shutdown_started)
+        window->close_request_pending || quit_request_pending || shutdown_started ||
+        gnc_session_transition_quit_pending ())
         return TRUE;
 
     if (gnc_list_length_cmp (active_windows, 1) > 0)

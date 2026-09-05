@@ -50,6 +50,7 @@ static bool load_error {true};
 static bool data_loaded {false};
 static bool observe_current_session_during_end {false};
 static bool current_session_was_detached_on_end {false};
+static QofSession *cancel_session_during_load {nullptr};
 
 struct DestroyAccount
 {
@@ -85,6 +86,12 @@ public:
 
 void QofSessionMockBackend::load (QofBook *book, QofBackendLoadType)
 {
+    if (cancel_session_during_load)
+    {
+        auto session = cancel_session_during_load;
+        cancel_session_during_load = nullptr;
+        qof_session_cancel_active_load (session);
+    }
     if (load_error)
         set_error(ERR_BACKEND_NO_BACKEND);
     else
@@ -382,8 +389,88 @@ async_session_load_finished (QofSession *, QofSessionLoadAsyncStatus status,
     result->status = status;
 }
 
+struct ManualSessionLoadExecutor
+{
+    QofSessionLoadTaskFunc run{};
+    QofSessionLoadTaskFunc discard{};
+    void *task_data{};
+    uintptr_t handle{};
+    uintptr_t next_handle{1};
+    bool running{};
+    bool reject{};
+
+    QofSessionLoadExecutor api ()
+    {
+        return {this, schedule_cb, cancel_cb};
+    }
+
+    bool dispatch ()
+    {
+        if (!handle || running)
+            return false;
+
+        auto task = run;
+        auto data = task_data;
+        clear ();
+        running = true;
+        task (data);
+        running = false;
+        return true;
+    }
+
+private:
+    static uintptr_t schedule_cb (void *executor_data,
+                                  QofSessionLoadTaskFunc run,
+                                  QofSessionLoadTaskFunc discard,
+                                  void *task_data)
+    {
+        auto executor = static_cast<ManualSessionLoadExecutor *> (executor_data);
+        if (!executor || executor->reject || executor->handle ||
+            executor->running || !run || !discard)
+            return 0;
+
+        executor->run = run;
+        executor->discard = discard;
+        executor->task_data = task_data;
+        executor->handle = executor->next_handle++;
+        return executor->handle;
+    }
+
+    static void cancel_cb (void *executor_data, uintptr_t task_handle)
+    {
+        auto executor = static_cast<ManualSessionLoadExecutor *> (executor_data);
+        if (!executor || !task_handle || task_handle != executor->handle ||
+            executor->running)
+            return;
+
+        auto task = executor->discard;
+        auto data = executor->task_data;
+        executor->clear ();
+        task (data);
+    }
+
+    void clear ()
+    {
+        run = nullptr;
+        discard = nullptr;
+        task_data = nullptr;
+        handle = 0;
+    }
+};
+
+static void
+async_session_load_finished_and_destroy (
+    QofSession *session, QofSessionLoadAsyncStatus status, gpointer user_data)
+{
+    async_session_load_finished (session, status, user_data);
+    qof_session_destroy (session);
+}
+
 static QofSession *
 start_legacy_async_load (AsyncSessionLoadResult *result,
+                         ManualSessionLoadExecutor *executor,
+                         QofSessionLoadAsyncCallback callback =
+                             async_session_load_finished,
                          QofSessionOperationLease **load_lease_out = nullptr)
 {
     auto session = qof_session_new (qof_book_new ());
@@ -400,8 +487,10 @@ start_legacy_async_load (AsyncSessionLoadResult *result,
 
     auto load_lease = qof_session_operation_lease_acquire_for (
         session, QOF_SESSION_OPERATION_LOAD);
+    auto executor_api = executor ? executor->api () : QofSessionLoadExecutor {};
     if (!load_lease || !qof_session_load_async_with_lease (
-            session, load_lease, nullptr, async_session_load_finished, result))
+            session, load_lease, nullptr, executor ? &executor_api : nullptr,
+            callback, result))
     {
         qof_session_operation_lease_release (load_lease);
         qof_session_destroy (session);
@@ -418,18 +507,18 @@ TEST (QofSessionTest, legacy_async_load_success_is_deferred_and_exactly_once)
     load_error = false;
     data_loaded = false;
     AsyncSessionLoadResult result;
-    auto session = start_legacy_async_load (&result);
+    ManualSessionLoadExecutor executor;
+    auto session = start_legacy_async_load (&result, &executor);
     ASSERT_NE (session, nullptr);
 
     EXPECT_EQ (result.callbacks, 0u);
     EXPECT_FALSE (data_loaded);
-    EXPECT_TRUE (g_main_context_iteration (nullptr, FALSE));
+    EXPECT_TRUE (executor.dispatch ());
     EXPECT_TRUE (data_loaded);
     EXPECT_EQ (result.callbacks, 1u);
     EXPECT_EQ (result.status, QOF_SESSION_LOAD_COMPLETED);
     EXPECT_FALSE (qof_session_has_active_operation_lease (session));
-    while (g_main_context_iteration (nullptr, FALSE))
-        ;
+    EXPECT_FALSE (executor.dispatch ());
     EXPECT_EQ (result.callbacks, 1u);
 
     qof_session_destroy (session);
@@ -437,13 +526,14 @@ TEST (QofSessionTest, legacy_async_load_success_is_deferred_and_exactly_once)
     qof_backend_unregister_all_providers ();
 }
 
-TEST (QofSessionTest, legacy_async_load_cancel_destroys_source_exactly_once)
+TEST (QofSessionTest, legacy_async_load_cancel_discards_task_exactly_once)
 {
     qof_backend_register_provider (get_provider ());
     load_error = false;
     data_loaded = false;
     AsyncSessionLoadResult result;
-    auto session = start_legacy_async_load (&result);
+    ManualSessionLoadExecutor executor;
+    auto session = start_legacy_async_load (&result, &executor);
     ASSERT_NE (session, nullptr);
 
     EXPECT_TRUE (qof_session_cancel_active_load (session));
@@ -453,8 +543,7 @@ TEST (QofSessionTest, legacy_async_load_cancel_destroys_source_exactly_once)
     EXPECT_TRUE (qof_book_empty (qof_session_get_book (session)));
     EXPECT_FALSE (qof_session_has_active_operation_lease (session));
     EXPECT_FALSE (qof_session_cancel_active_load (session));
-    while (g_main_context_iteration (nullptr, FALSE))
-        ;
+    EXPECT_FALSE (executor.dispatch ());
     EXPECT_EQ (result.callbacks, 1u);
 
     qof_session_destroy (session);
@@ -468,12 +557,14 @@ TEST (QofSessionTest, legacy_async_load_teardown_cancels_before_destroy)
     load_error = false;
     data_loaded = false;
     AsyncSessionLoadResult result;
+    ManualSessionLoadExecutor executor;
     QofSessionOperationLease *load_lease = nullptr;
-    auto session = start_legacy_async_load (&result, &load_lease);
+    auto session = start_legacy_async_load (
+        &result, &executor, async_session_load_finished, &load_lease);
     ASSERT_NE (session, nullptr);
     ASSERT_NE (load_lease, nullptr);
 
-    /* An attempted owner teardown must first remove the deferred source. The
+    /* An attempted owner teardown must first discard the deferred task. The
      * session deliberately remains alive until its caller retries destruction
      * after the terminal callback has released the LOAD lease. */
     EXPECT_FALSE (qof_session_destroy_with_lease (session, load_lease));
@@ -482,8 +573,7 @@ TEST (QofSessionTest, legacy_async_load_teardown_cancels_before_destroy)
     EXPECT_FALSE (data_loaded);
     EXPECT_TRUE (qof_book_empty (qof_session_get_book (session)));
     EXPECT_FALSE (qof_session_has_active_operation_lease (session));
-    while (g_main_context_iteration (nullptr, FALSE))
-        ;
+    EXPECT_FALSE (executor.dispatch ());
     EXPECT_EQ (result.callbacks, 1u);
 
     qof_session_destroy (session);
@@ -497,10 +587,11 @@ TEST (QofSessionTest, legacy_async_load_error_rolls_back_staging_book)
     load_error = true;
     data_loaded = false;
     AsyncSessionLoadResult result;
-    auto session = start_legacy_async_load (&result);
+    ManualSessionLoadExecutor executor;
+    auto session = start_legacy_async_load (&result, &executor);
     ASSERT_NE (session, nullptr);
 
-    EXPECT_TRUE (g_main_context_iteration (nullptr, FALSE));
+    EXPECT_TRUE (executor.dispatch ());
     EXPECT_TRUE (data_loaded);
     EXPECT_EQ (result.callbacks, 1u);
     EXPECT_EQ (result.status, QOF_SESSION_LOAD_ERROR);
@@ -521,13 +612,14 @@ TEST (QofSessionTest, legacy_async_load_generation_drift_is_stale)
     auto marker = qof_session_new (qof_book_new ());
     gnc_set_current_session (marker);
     AsyncSessionLoadResult result;
-    auto session = start_legacy_async_load (&result);
+    ManualSessionLoadExecutor executor;
+    auto session = start_legacy_async_load (&result, &executor);
     ASSERT_NE (session, nullptr);
 
     /* Detaching the unrelated current session advances the generation that
      * the LOAD lease captured without explicitly cancelling the load. */
     gnc_clear_current_session ();
-    EXPECT_TRUE (g_main_context_iteration (nullptr, FALSE));
+    EXPECT_TRUE (executor.dispatch ());
     EXPECT_FALSE (data_loaded);
     EXPECT_EQ (result.callbacks, 1u);
     EXPECT_EQ (result.status, QOF_SESSION_LOAD_STALE);
@@ -535,6 +627,69 @@ TEST (QofSessionTest, legacy_async_load_generation_drift_is_stale)
     EXPECT_FALSE (qof_session_has_active_operation_lease (session));
 
     qof_session_destroy (session);
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionTest, legacy_async_load_callback_may_destroy_session)
+{
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    AsyncSessionLoadResult result;
+    ManualSessionLoadExecutor executor;
+    auto session = start_legacy_async_load (
+        &result, &executor, async_session_load_finished_and_destroy);
+    ASSERT_NE (session, nullptr);
+
+    EXPECT_TRUE (executor.dispatch ());
+    EXPECT_TRUE (data_loaded);
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_COMPLETED);
+    EXPECT_FALSE (executor.dispatch ());
+
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionTest, legacy_async_load_cancel_while_running_is_exactly_once)
+{
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    AsyncSessionLoadResult result;
+    ManualSessionLoadExecutor executor;
+    auto session = start_legacy_async_load (&result, &executor);
+    ASSERT_NE (session, nullptr);
+    cancel_session_during_load = session;
+
+    EXPECT_TRUE (executor.dispatch ());
+    EXPECT_EQ (cancel_session_during_load, nullptr);
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_CANCELLED);
+    EXPECT_TRUE (qof_book_empty (qof_session_get_book (session)));
+    EXPECT_FALSE (qof_session_has_active_operation_lease (session));
+    EXPECT_FALSE (executor.dispatch ());
+
+    qof_session_destroy (session);
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
+TEST (QofSessionTest, legacy_async_load_rejected_schedule_keeps_lease_ownership)
+{
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    AsyncSessionLoadResult result;
+    ManualSessionLoadExecutor executor;
+    executor.reject = true;
+
+    EXPECT_EQ (start_legacy_async_load (&result, &executor), nullptr);
+    EXPECT_EQ (result.callbacks, 0u);
+    EXPECT_FALSE (data_loaded);
+    EXPECT_FALSE (executor.dispatch ());
+
     load_error = true;
     qof_backend_unregister_all_providers ();
 }

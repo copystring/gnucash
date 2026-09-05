@@ -2700,8 +2700,44 @@ public:
 static void stock_assistant_window_destroy_cb (GtkWidget *object, gpointer user_data);
 static void close_handler (gpointer user_data);
 static gboolean stock_assistant_key_pressed_cb (GtkEventControllerKey *controller,
-                                                guint keyval, guint keycode,
-                                                GdkModifierType state, gpointer user_data);
+                                                 guint keyval, guint keycode,
+                                                 GdkModifierType state, gpointer user_data);
+
+struct StockRegisterRevealRequest
+{
+    GWeakRef page;
+};
+
+static void
+stock_register_reveal_request_free (gpointer user_data)
+{
+    auto request = static_cast<StockRegisterRevealRequest *> (user_data);
+
+    g_weak_ref_clear (&request->page);
+    g_free (request);
+}
+
+static void
+stock_register_reveal_finished (GNCSplitReg *gsr, Split *split,
+                                GncSplitRegRevealResult result,
+                                gpointer user_data)
+{
+    auto request = static_cast<StockRegisterRevealRequest *> (user_data);
+    auto object = static_cast<GObject *> (g_weak_ref_get (&request->page));
+
+    if (object && GNC_IS_PLUGIN_PAGE_REGISTER (object))
+    {
+        auto page = GNC_PLUGIN_PAGE (object);
+
+        if (gnc_plugin_page_register_get_gsr (page) == gsr)
+        {
+            if (result == GNC_SPLIT_REG_REVEAL_FILTER_CLEARED)
+                gnc_plugin_page_register_clear_current_filter (page);
+            gnc_split_reg_jump_to_split (gsr, split);
+        }
+    }
+    g_clear_object (&object);
+}
 
 StockAssistantController::~StockAssistantController ()
 {
@@ -2763,11 +2799,12 @@ StockAssistantController::finish ()
             gnc_main_window_open_page (nullptr, page);
             auto gsr = gnc_plugin_page_register_get_gsr (page);
             gnc_split_reg_raise (gsr);
+            auto request = g_new0 (StockRegisterRevealRequest, 1);
 
-            if (gnc_split_reg_clear_filter_for_split (gsr, split))
-                gnc_plugin_page_register_clear_current_filter (page);
-
-            gnc_split_reg_jump_to_split (gsr, split);
+            g_weak_ref_init (&request->page, G_OBJECT (page));
+            gnc_split_reg_reveal_split_async (
+                gsr, split, stock_register_reveal_finished, request,
+                stock_register_reveal_request_free);
         }
     }
 

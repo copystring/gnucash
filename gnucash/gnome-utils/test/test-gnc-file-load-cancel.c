@@ -16,6 +16,7 @@
 #include "gnc-file.h"
 #include "gnc-hooks.h"
 #include "gnc-session.h"
+#include "gnc-session-transition.h"
 
 static gchar *
 large_xml_fixture (void)
@@ -54,7 +55,8 @@ test_parent_destroy_cancels_active_load (void)
     parent = GTK_WINDOW (gtk_window_new ());
     filename = large_xml_fixture ();
 
-    g_assert_true (gnc_file_open_file (parent, filename, TRUE));
+    g_assert_cmpint (gnc_file_open_file (parent, filename, TRUE), ==,
+                     GNC_FILE_OPEN_STARTED);
     gtk_window_destroy (parent);
     assert_no_current_session ();
 
@@ -73,11 +75,15 @@ test_ui_shutdown_cancels_active_load (void)
         gnc_clear_current_session ();
     filename = large_xml_fixture ();
 
-    g_assert_true (gnc_file_open_file (NULL, filename, TRUE));
-    /* Two concurrent staging sessions exercise the copied central registry:
-     * terminalizing the first entry must not invalidate iteration of the
-     * second. */
-    g_assert_true (gnc_file_open_file (NULL, filename, TRUE));
+    g_assert_cmpint (gnc_file_open_file (NULL, filename, TRUE), ==,
+                     GNC_FILE_OPEN_STARTED);
+    g_assert_cmpint (gnc_file_open_file (NULL, filename, TRUE), ==,
+                     GNC_FILE_OPEN_QUEUED);
+
+    /* Production shutdown seals the transition queue before the UI shutdown
+     * hook cancels active loads. Otherwise completing the active load would
+     * synchronously start the queued request after the hook took its snapshot. */
+    gnc_session_transition_begin_shutdown (NULL);
     gnc_hook_run (HOOK_UI_SHUTDOWN, NULL);
     assert_no_current_session ();
 

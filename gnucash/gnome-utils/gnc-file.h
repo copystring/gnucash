@@ -219,9 +219,16 @@ GList *gnc_file_dialog_get_datafile_filters (void);
 
 
 
-gboolean gnc_file_open_file (GtkWindow *parent,
-                             const char *filename,
-                             gboolean open_readonly);
+typedef enum
+{
+    GNC_FILE_OPEN_REJECTED,
+    GNC_FILE_OPEN_STARTED,
+    GNC_FILE_OPEN_QUEUED
+} GncFileOpenResult;
+
+GncFileOpenResult gnc_file_open_file (GtkWindow *parent,
+                                      const char *filename,
+                                      gboolean open_readonly);
 
 /**
  * GncFileQuerySaveCallback:

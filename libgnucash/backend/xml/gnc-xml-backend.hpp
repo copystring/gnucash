@@ -40,6 +40,7 @@ public:
     void load(QofBook* book, QofBackendLoadType loadType) override;
     /* The XML backend isn't able to do anything with individual instances. */
     bool load_async (QofBook*, QofBackendLoadType,
+                     const QofSessionLoadExecutor*,
                      QofBackendLoadAsyncGuard, gpointer,
                      QofBackendLoadAsyncCallback, gpointer) override;
     void cancel_load_async () override;

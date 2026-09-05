@@ -219,10 +219,13 @@ public:
 /**
  * Start a resumable initial load. A backend returning false has no async
  * implementation; QofSession then dispatches its established synchronous
- * load through one deferred legacy step. Implementations returning true own
- * exactly one deferred callback and honour @a guard before each mutation.
+ * load through one deferred legacy step. @a executor is caller-owned and must
+ * provide every deferred task used by a resumable implementation.
+ * Implementations returning true own exactly one terminal callback and honour
+ * @a guard before each mutation.
  */
     virtual bool load_async (QofBook*, QofBackendLoadType,
+                             const QofSessionLoadExecutor*,
                              QofBackendLoadAsyncGuard, gpointer,
                              QofBackendLoadAsyncCallback, gpointer)
     { return false; }

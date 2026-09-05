@@ -45,6 +45,36 @@ gnc_add_test (test-gnc-file-load-cancel "${test_gnc_file_load_cancel_SOURCES}"
   GNC_TEST_FILES=${CMAKE_SOURCE_DIR}/libgnucash/backend/xml/test/test-files/xml2)
 add_dependencies (test-gnc-file-load-cancel gncmod-backend-xml)
 
+set (test_gnc_session_transition_SOURCES
+  test-gnc-session-transition.c
+)
+
+gnc_add_test (test-gnc-session-transition
+  "${test_gnc_session_transition_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
+set (test_gnc_session_load_executor_SOURCES
+  test-gnc-session-load-executor.c
+)
+
+gnc_add_test (test-gnc-session-load-executor
+  "${test_gnc_session_load_executor_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
+set (test_gnc_session_load_executor_no_assert_SOURCES
+  test-gnc-session-load-executor-no-assert.c
+  ../gnc-session-load-executor.c
+)
+set (SESSION_LOAD_EXECUTOR_TEST_LIBS
+  PkgConfig::GLIB2
+)
+
+gnc_add_test (test-gnc-session-load-executor-no-assert
+  "${test_gnc_session_load_executor_no_assert_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS SESSION_LOAD_EXECUTOR_TEST_LIBS)
+target_compile_definitions (test-gnc-session-load-executor-no-assert
+  PRIVATE G_DISABLE_ASSERT)
+
 
 set (test_gnc_account_type_list_SOURCES
   test-gnc-account-type-list.c
@@ -151,6 +181,9 @@ set_dist_list(test_gnome_utils_DIST
   test-load-gnome-utils-module.scm
   ${test_gnc_file_dialog_SOURCES}
   ${test_gnc_file_load_cancel_SOURCES}
+  ${test_gnc_session_transition_SOURCES}
+  ${test_gnc_session_load_executor_SOURCES}
+  test-gnc-session-load-executor-no-assert.c
   ${test_gnc_account_type_list_SOURCES}
   ${test_gnc_tree_view_SOURCES}
   ${test_gnc_register_input_SOURCES}

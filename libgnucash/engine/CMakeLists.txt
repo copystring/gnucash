@@ -125,6 +125,7 @@ set (engine_HEADERS
   qofsession.hpp
   qofutil.h
   qof-gobject.h
+  qof-load-executor.h
   qof-string-cache.h
 )
 

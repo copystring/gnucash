@@ -87,6 +87,7 @@ struct QofSessionImpl
     void release_operation_lease (QofSessionOperationLease *) noexcept;
 
     bool start_async_load (QofSessionOperationLease *, QofPercentageFunc,
+                           const QofSessionLoadExecutor *,
                            QofSessionLoadAsyncCallback, gpointer) noexcept;
     bool cancel_active_load () noexcept;
     bool has_async_load () const noexcept;

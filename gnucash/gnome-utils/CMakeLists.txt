@@ -87,6 +87,8 @@ set (gnome_utils_SOURCES
   gnc-query-view.c
   gnc-report-combo.c
   gnc-scrub-job-runner.c
+  gnc-session-load-executor.c
+  gnc-session-transition.c
   gnc-splash.c
   gnc-sx-instance-dense-cal-adapter.c
   gnc-sx-list-tree-model-adapter.c
@@ -119,6 +121,8 @@ set(gnome_utils_noinst_HEADERS
   gnc-gtk-utils.h
   gnc-import-assistant.h
   gnc-option-gtk-ui.hpp
+  gnc-session-load-executor.h
+  gnc-session-transition.h
   search-param.h
 )
 

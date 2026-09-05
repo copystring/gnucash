@@ -44,6 +44,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <atomic>
 #include <deque>
 #include <new>
 #include <unordered_set>
@@ -71,12 +72,12 @@ static QofLogModule log_module = G_LOG_DOMAIN;
 
 struct GncScrubContext
 {
-    gatomicrefcount ref_count;
-    QofSession *session;
-    QofBook *book;
-    QofSessionOperationLease *lease;
-    guint64 operation_id;
-    gint cancelled;
+    std::atomic_uint ref_count{1};
+    QofSession *session{};
+    QofBook *book{};
+    QofSessionOperationLease *lease{};
+    guint64 operation_id{};
+    std::atomic_bool cancelled{};
 };
 
 struct GncScrubJob
@@ -248,8 +249,12 @@ gnc_scrub_context_begin (QofBook *book)
     if (!lease)
         return nullptr;
 
-    auto context = g_new0 (GncScrubContext, 1);
-    g_atomic_ref_count_init (&context->ref_count);
+    auto context = new (std::nothrow) GncScrubContext;
+    if (!context)
+    {
+        qof_session_operation_lease_release (lease);
+        return nullptr;
+    }
     context->session = session;
     context->book = book;
     context->lease = lease;
@@ -261,7 +266,7 @@ GncScrubContext *
 gnc_scrub_context_ref (GncScrubContext *context)
 {
     if (context)
-        g_atomic_ref_count_inc (&context->ref_count);
+        context->ref_count.fetch_add (1, std::memory_order_relaxed);
     return context;
 }
 
@@ -294,7 +299,7 @@ gnc_scrub_context_cancel (GncScrubContext *context)
 {
     if (gnc_scrub_context_is_active (context))
     {
-        g_atomic_int_set (&context->cancelled, TRUE);
+        context->cancelled.store (true, std::memory_order_release);
         deferred_commit_context_deactivate (context);
     }
 }
@@ -302,8 +307,7 @@ gnc_scrub_context_cancel (GncScrubContext *context)
 gboolean
 gnc_scrub_context_is_cancelled (const GncScrubContext *context)
 {
-    return context &&
-           g_atomic_int_get (const_cast<gint *> (&context->cancelled));
+    return context && context->cancelled.load (std::memory_order_acquire);
 }
 
 void
@@ -323,11 +327,12 @@ gnc_scrub_context_end (GncScrubContext *context)
 void
 gnc_scrub_context_unref (GncScrubContext *context)
 {
-    if (!context || !g_atomic_ref_count_dec (&context->ref_count))
+    if (!context || context->ref_count.fetch_sub (
+                        1, std::memory_order_acq_rel) != 1)
         return;
 
     gnc_scrub_context_end (context);
-    g_free (context);
+    delete context;
 }
 
 gboolean

@@ -101,6 +101,7 @@
 #include "qofbackend.h"
 #include "qofbook.h"
 #include "qofclass.h"
+#include "qof-load-executor.h"
 #include "qofobject.h"
 
 #ifdef __cplusplus
@@ -300,6 +301,9 @@ typedef void (*QofSessionLoadAsyncCallback) (
  * @a lease must be the valid, exclusive LOAD lease for @a session. BEGIN and
  * LOAD are deliberately separate operations: this function rejects a lease
  * of any other kind, a session without a begun backend, and a non-empty book.
+ * @a executor supplies deferred execution to both resumable and legacy
+ * backends; its scheduling contract is described by QofSessionLoadExecutor.
+ *
  * On TRUE the function consumes @a lease and releases it exactly once before
  * invoking @a callback. The caller must not release or otherwise use the
  * token after a successful call. @a callback is deferred exactly once and may
@@ -308,8 +312,8 @@ typedef void (*QofSessionLoadAsyncCallback) (
  */
 gboolean qof_session_load_async_with_lease (
     QofSession *session, QofSessionOperationLease *lease,
-    QofPercentageFunc percentage_func, QofSessionLoadAsyncCallback callback,
-    gpointer user_data);
+    QofPercentageFunc percentage_func, const QofSessionLoadExecutor *executor,
+    QofSessionLoadAsyncCallback callback, gpointer user_data);
 
 /**
  * Request terminal cancellation of the active LOAD operation. The request is

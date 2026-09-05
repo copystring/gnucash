@@ -229,12 +229,16 @@ struct GncXmlBackendAsyncLoad
 {
     GncXmlBackend *backend{};
     GncXmlV2LoadPlan *plan{};
+    QofSessionLoadExecutor executor{};
     QofBackendLoadAsyncGuard guard{};
     gpointer guard_data{};
     QofBackendLoadAsyncCallback callback{};
     gpointer callback_data{};
-    guint source_id{};
-    gboolean terminal_dispatched{};
+    uintptr_t task_handle{};
+    unsigned ref_count{1};
+    bool step_running{};
+    bool cancel_requested{};
+    bool terminal_dispatched{};
 
     void detach_backend ()
     {
@@ -242,6 +246,23 @@ struct GncXmlBackendAsyncLoad
             backend->m_async_load = nullptr;
     }
 };
+
+static GncXmlBackendAsyncLoad *
+gnc_xml_backend_async_load_ref (GncXmlBackendAsyncLoad *load)
+{
+    if (load)
+        ++load->ref_count;
+    return load;
+}
+
+static void
+gnc_xml_backend_async_load_unref (GncXmlBackendAsyncLoad *load)
+{
+    if (!load || --load->ref_count)
+        return;
+    gnc_xml_v2_load_plan_free (load->plan);
+    delete load;
+}
 
 static void
 gnc_xml_backend_async_load_terminal (GncXmlBackendAsyncLoad *load,
@@ -255,9 +276,10 @@ gnc_xml_backend_async_load_terminal (GncXmlBackendAsyncLoad *load,
     if (!load || load->terminal_dispatched)
         return;
     load->terminal_dispatched = TRUE;
-    load->source_id = 0;
+    load->task_handle = 0;
     backend = load->backend;
     load->detach_backend ();
+    load->backend = nullptr;
     callback = load->callback;
     plan = load->plan;
     load->plan = nullptr;
@@ -272,32 +294,69 @@ gnc_xml_backend_async_load_terminal (GncXmlBackendAsyncLoad *load,
      * before transferring terminal control to it. */
     gnc_xml_v2_load_plan_free (plan);
     callback (status == GNC_XML_V2_LOAD_FINISHED, callback_data);
+    /* Drop the backend association. A running or discarded executor task
+     * retains the state until its callback returns. */
+    gnc_xml_backend_async_load_unref (load);
 }
+
+static bool gnc_xml_backend_async_load_schedule (
+    GncXmlBackendAsyncLoad *load, bool terminal_on_reject);
 
 static void
-gnc_xml_backend_async_load_free (gpointer user_data)
+gnc_xml_backend_async_load_step (void *user_data)
 {
     auto load = static_cast<GncXmlBackendAsyncLoad *> (user_data);
-    if (!load)
-        return;
-    if (!load->terminal_dispatched)
-        gnc_xml_backend_async_load_terminal (load, GNC_XML_V2_LOAD_CANCELLED);
-    gnc_xml_v2_load_plan_free (load->plan);
-    delete load;
-}
-
-static gboolean
-gnc_xml_backend_async_load_step (gpointer user_data)
-{
-    auto load = static_cast<GncXmlBackendAsyncLoad *> (user_data);
+    load->task_handle = 0;
+    load->step_running = true;
     auto status = load->plan ?
         gnc_xml_v2_load_plan_step (load->plan, load->guard, load->guard_data) :
         GNC_XML_V2_LOAD_ERROR;
-    if (status == GNC_XML_V2_LOAD_ACTIVE)
-        return G_SOURCE_CONTINUE;
+    load->step_running = false;
 
-    gnc_xml_backend_async_load_terminal (load, status);
-    return G_SOURCE_REMOVE;
+    /* A progress callback may request cancellation while this step owns parser
+     * stack state. Defer destructive plan cancellation until the step has
+     * returned, and never enqueue a successor afterwards. */
+    if (load->cancel_requested)
+    {
+        if (status == GNC_XML_V2_LOAD_ACTIVE)
+            gnc_xml_v2_load_plan_cancel (load->plan);
+        status = GNC_XML_V2_LOAD_CANCELLED;
+    }
+    if (status == GNC_XML_V2_LOAD_ACTIVE)
+        (void)gnc_xml_backend_async_load_schedule (load, true);
+    else
+        gnc_xml_backend_async_load_terminal (load, status);
+    gnc_xml_backend_async_load_unref (load);
+}
+
+static void
+gnc_xml_backend_async_load_discard (void *user_data)
+{
+    auto load = static_cast<GncXmlBackendAsyncLoad *> (user_data);
+    load->task_handle = 0;
+    load->cancel_requested = true;
+    gnc_xml_v2_load_plan_cancel (load->plan);
+    gnc_xml_backend_async_load_terminal (load, GNC_XML_V2_LOAD_CANCELLED);
+    gnc_xml_backend_async_load_unref (load);
+}
+
+static bool
+gnc_xml_backend_async_load_schedule (GncXmlBackendAsyncLoad *load,
+                                     bool terminal_on_reject)
+{
+    auto task_load = gnc_xml_backend_async_load_ref (load);
+    auto task_handle = load->executor.schedule (
+        load->executor.user_data, gnc_xml_backend_async_load_step,
+        gnc_xml_backend_async_load_discard, task_load);
+    if (!task_handle)
+    {
+        gnc_xml_backend_async_load_unref (task_load);
+        if (terminal_on_reject)
+            gnc_xml_backend_async_load_terminal (load, GNC_XML_V2_LOAD_ERROR);
+        return false;
+    }
+    load->task_handle = task_handle;
+    return true;
 }
 
 void
@@ -377,11 +436,13 @@ GncXmlBackend::load(QofBook* book, QofBackendLoadType loadType)
 
 bool
 GncXmlBackend::load_async (QofBook *book, QofBackendLoadType load_type,
+                           const QofSessionLoadExecutor *executor,
                            QofBackendLoadAsyncGuard guard, gpointer guard_data,
                            QofBackendLoadAsyncCallback callback,
                            gpointer callback_data)
 {
-    if (load_type != LOAD_TYPE_INITIAL_LOAD || !book || !callback ||
+    if (load_type != LOAD_TYPE_INITIAL_LOAD || !book || !executor ||
+        !executor->schedule || !executor->cancel || !callback ||
         determine_file_type (m_fullpath) != GNC_BOOK_XML2_FILE)
         return false;
     if (m_async_load)
@@ -395,6 +456,7 @@ GncXmlBackend::load_async (QofBook *book, QofBackendLoadType load_type,
     if (!load)
         return false;
     load->backend = this;
+    load->executor = *executor;
     load->guard = guard;
     load->guard_data = guard_data;
     load->callback = callback;
@@ -406,14 +468,13 @@ GncXmlBackend::load_async (QofBook *book, QofBackendLoadType load_type,
         return false;
     }
     m_async_load = load;
-    load->source_id = g_idle_add_full (
-        G_PRIORITY_DEFAULT_IDLE, gnc_xml_backend_async_load_step, load,
-        gnc_xml_backend_async_load_free);
-    if (!load->source_id)
+    if (!gnc_xml_backend_async_load_schedule (load, false))
     {
         m_async_load = nullptr;
+        load->backend = nullptr;
         gnc_xml_v2_load_plan_free (load->plan);
-        delete load;
+        load->plan = nullptr;
+        gnc_xml_backend_async_load_unref (load);
         return false;
     }
     return true;
@@ -425,14 +486,16 @@ GncXmlBackend::cancel_load_async ()
     if (!m_async_load)
         return;
 
-    auto source_id = m_async_load->source_id;
-    gnc_xml_v2_load_plan_cancel (m_async_load->plan);
-    if (source_id)
+    auto load = m_async_load;
+    auto task_handle = load->task_handle;
+    load->cancel_requested = true;
+    if (load->step_running)
+        return;
+    if (task_handle)
     {
-        /* Source destruction owns terminal callback dispatch and plan cleanup.
-         * That callback may destroy this backend, so touch no member after
-         * removing the source. */
-        g_source_remove (source_id);
+        /* Synchronous discard owns terminal callback dispatch and may destroy
+         * this backend, so touch no member after cancelling the task. */
+        load->executor.cancel (load->executor.user_data, task_handle);
     }
 }
 
