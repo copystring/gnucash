@@ -161,6 +161,13 @@ set (test_gnc_dropdown_width_SOURCES
 gnc_add_test (test-gnc-dropdown-width "${test_gnc_dropdown_width_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_gnc_currency_edit_SOURCES
+  test-gnc-currency-edit.c
+)
+
+gnc_add_test (test-gnc-currency-edit "${test_gnc_currency_edit_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
 set (test_doclink_view_SOURCES
   test-doclink-view.c
 )
@@ -194,6 +201,7 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_accelerators_SOURCES}
   ${test_gnc_dense_cal_SOURCES}
   ${test_gnc_dropdown_width_SOURCES}
+  ${test_gnc_currency_edit_SOURCES}
   ${test_doclink_view_SOURCES}
   ${test_gnc_scrub_job_runner_SOURCES}
 )

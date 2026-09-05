@@ -65,8 +65,17 @@
 static void gnc_currency_edit_finalize     (GObject *object);
 static void gnc_currency_edit_entry_changed (GtkEditable *editable,
         gpointer     user_data);
-static void gnc_currency_edit_selection_changed (GObject *object,
+static void gnc_currency_edit_item_setup (GtkSignalListItemFactory *factory,
+        GtkListItem *list_item, gpointer user_data);
+static void gnc_currency_edit_item_bind (GtkSignalListItemFactory *factory,
+        GtkListItem *list_item, gpointer user_data);
+static void gnc_currency_edit_list_activate (GtkListView *list_view,
+        guint position, gpointer user_data);
+static void gnc_currency_edit_popover_visible (GObject *object,
         GParamSpec *pspec, gpointer user_data);
+static gboolean gnc_currency_edit_entry_key_pressed (
+        GtkEventControllerKey *controller, guint keyval, guint keycode,
+        GdkModifierType state, gpointer user_data);
 
 struct _GNCCurrencyEdit
 {
@@ -74,8 +83,11 @@ struct _GNCCurrencyEdit
 
     gchar *mnemonic;
     GtkEntry *entry;
-    GtkStringList *model;
-    GtkDropDown *drop_down;
+    GListStore *model;
+    GtkMenuButton *menu_button;
+    GtkPopover *popover;
+    GtkListView *popup_view;
+    GtkSingleSelection *popup_selection;
     gnc_commodity *currency;
     gboolean updating;
 };
@@ -107,6 +119,25 @@ static guint currency_edit_signals[N_SIGNALS] = { 0, };
 
 constexpr const char *CURRENCY_DATA = "gnc-currency-edit-currency";
 
+static void fill_currencies (GNCCurrencyEdit *gce);
+
+static guint
+currency_position (GNCCurrencyEdit *gce, const gnc_commodity *currency)
+{
+    auto count = g_list_model_get_n_items (G_LIST_MODEL (gce->model));
+
+    for (guint position = 0; position < count; position++)
+    {
+        auto item = g_list_model_get_item (G_LIST_MODEL (gce->model), position);
+        auto item_currency = static_cast<gnc_commodity *> (
+            g_object_get_data (G_OBJECT (item), CURRENCY_DATA));
+        g_object_unref (item);
+        if (item_currency == currency)
+            return position;
+    }
+    return GTK_INVALID_LIST_POSITION;
+}
+
 static gnc_commodity *
 currency_from_text (GNCCurrencyEdit *gce, const char *text)
 {
@@ -119,7 +150,7 @@ currency_from_text (GNCCurrencyEdit *gce, const char *text)
         return currency;
 
     auto folded = g_utf8_casefold (text, -1);
-    auto count = g_list_model_get_n_items (G_LIST_MODEL (g_object_ref (gce->model)));
+    auto count = g_list_model_get_n_items (G_LIST_MODEL (gce->model));
     for (guint position = 0; position < count; position++)
     {
         auto item = g_list_model_get_item (G_LIST_MODEL (gce->model), position);
@@ -243,23 +274,72 @@ gnc_currency_edit_class_init (GNCCurrencyEditClass *klass)
 static void
 gnc_currency_edit_init (GNCCurrencyEdit *gce)
 {
+    GtkListItemFactory *factory;
+    GtkWidget *list_view;
+    GtkWidget *scroller;
+    GtkEventController *key_controller;
+
     // Set the name for this widget so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET(gce), "gnc-id-currency-edit");
     gtk_orientable_set_orientation (GTK_ORIENTABLE (gce), GTK_ORIENTATION_HORIZONTAL);
     gtk_box_set_spacing (GTK_BOX (gce), 6);
 
-    gce->model = gtk_string_list_new (nullptr);
+    gce->model = g_list_store_new (GTK_TYPE_STRING_OBJECT);
+    fill_currencies (gce);
     gce->entry = GTK_ENTRY (gtk_entry_new ());
-    gce->drop_down = gnc_gtk_drop_down_new (G_LIST_MODEL (gce->model), nullptr);
+    gce->popup_selection = gtk_single_selection_new (
+        G_LIST_MODEL (g_object_ref (gce->model)));
+    gtk_single_selection_set_autoselect (gce->popup_selection, FALSE);
+    gtk_single_selection_set_can_unselect (gce->popup_selection, TRUE);
+    gtk_single_selection_set_selected (gce->popup_selection,
+                                       GTK_INVALID_LIST_POSITION);
+
+    factory = gtk_signal_list_item_factory_new ();
+    g_signal_connect (factory, "setup",
+                      G_CALLBACK (gnc_currency_edit_item_setup), nullptr);
+    g_signal_connect (factory, "bind",
+                      G_CALLBACK (gnc_currency_edit_item_bind), nullptr);
+    list_view = gtk_list_view_new (
+        GTK_SELECTION_MODEL (g_object_ref (gce->popup_selection)), factory);
+    gce->popup_view = GTK_LIST_VIEW (list_view);
+    gtk_list_view_set_single_click_activate (GTK_LIST_VIEW (list_view), TRUE);
+
+    scroller = gtk_scrolled_window_new ();
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroller),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), list_view);
+    gtk_scrolled_window_set_propagate_natural_width (
+        GTK_SCROLLED_WINDOW (scroller), TRUE);
+    gtk_scrolled_window_set_propagate_natural_height (
+        GTK_SCROLLED_WINDOW (scroller), TRUE);
+    gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scroller),
+                                                240);
+    gce->popover = GTK_POPOVER (gtk_popover_new ());
+    gtk_popover_set_child (gce->popover, scroller);
+    gce->menu_button = GTK_MENU_BUTTON (gtk_menu_button_new ());
+    gtk_menu_button_set_icon_name (gce->menu_button, "pan-down-symbolic");
+    gtk_widget_set_tooltip_text (GTK_WIDGET (gce->menu_button),
+                                 _("Show available currencies"));
+    gtk_accessible_update_property (
+        GTK_ACCESSIBLE (gce->menu_button), GTK_ACCESSIBLE_PROPERTY_LABEL,
+        _("Show available currencies"), -1);
+    gtk_menu_button_set_popover (gce->menu_button,
+                                 GTK_WIDGET (gce->popover));
 
     gtk_widget_set_hexpand (GTK_WIDGET (gce->entry), TRUE);
     gtk_box_append (GTK_BOX (gce), GTK_WIDGET (gce->entry));
-    gtk_box_append (GTK_BOX (gce), GTK_WIDGET (gce->drop_down));
+    gtk_box_append (GTK_BOX (gce), GTK_WIDGET (gce->menu_button));
 
     g_signal_connect (gce->entry, "changed",
                       G_CALLBACK (gnc_currency_edit_entry_changed), gce);
-    g_signal_connect (gce->drop_down, "notify::selected",
-                      G_CALLBACK (gnc_currency_edit_selection_changed), gce);
+    g_signal_connect (list_view, "activate",
+                      G_CALLBACK (gnc_currency_edit_list_activate), gce);
+    g_signal_connect (gce->popover, "notify::visible",
+                      G_CALLBACK (gnc_currency_edit_popover_visible), gce);
+    key_controller = gtk_event_controller_key_new ();
+    g_signal_connect (key_controller, "key-pressed",
+                      G_CALLBACK (gnc_currency_edit_entry_key_pressed), gce);
+    gtk_widget_add_controller (GTK_WIDGET (gce->entry), key_controller);
 }
 
 
@@ -282,6 +362,7 @@ gnc_currency_edit_finalize (GObject *object)
     GNCCurrencyEdit *self = GNC_CURRENCY_EDIT(object);
 
     g_free (self->mnemonic);
+    g_clear_object (&self->popup_selection);
     g_clear_object (&self->model);
 
     G_OBJECT_CLASS(gnc_currency_edit_parent_class)->finalize (object);
@@ -303,24 +384,74 @@ gnc_currency_edit_entry_changed (GtkEditable *editable, gpointer user_data)
     {
         self->currency = nullptr;
         self->updating = TRUE;
-        gtk_drop_down_set_selected (self->drop_down, GTK_INVALID_LIST_POSITION);
+        gtk_single_selection_set_selected (self->popup_selection,
+                                           GTK_INVALID_LIST_POSITION);
         self->updating = FALSE;
     }
 }
 
 static void
-gnc_currency_edit_selection_changed (GObject *object, GParamSpec *, gpointer user_data)
+gnc_currency_edit_item_setup (GtkSignalListItemFactory *, GtkListItem *list_item,
+                              gpointer)
+{
+    auto label = gtk_label_new (nullptr);
+
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_list_item_set_child (list_item, label);
+}
+
+static void
+gnc_currency_edit_item_bind (GtkSignalListItemFactory *, GtkListItem *list_item,
+                             gpointer)
+{
+    auto item = GTK_STRING_OBJECT (gtk_list_item_get_item (list_item));
+    auto label = GTK_LABEL (gtk_list_item_get_child (list_item));
+
+    gtk_label_set_text (label, gtk_string_object_get_string (item));
+}
+
+static void
+gnc_currency_edit_list_activate (GtkListView *, guint position,
+                                 gpointer user_data)
 {
     auto self = GNC_CURRENCY_EDIT (user_data);
-    auto position = gtk_drop_down_get_selected (GTK_DROP_DOWN (object));
-
-    if (self->updating || position == GTK_INVALID_LIST_POSITION)
-        return;
-
     auto item = g_list_model_get_item (G_LIST_MODEL (self->model), position);
     auto currency = static_cast<gnc_commodity *> (g_object_get_data (G_OBJECT (item), CURRENCY_DATA));
     g_object_unref (item);
+
+    gtk_menu_button_popdown (self->menu_button);
     gnc_currency_edit_set_currency (self, currency);
+}
+
+static void
+gnc_currency_edit_popover_visible (GObject *object, GParamSpec *,
+                                   gpointer user_data)
+{
+    auto self = GNC_CURRENCY_EDIT (user_data);
+
+    if (gtk_widget_get_visible (GTK_WIDGET (object)))
+    {
+        gtk_single_selection_set_selected (
+            self->popup_selection,
+            self->currency ? currency_position (self, self->currency)
+                           : GTK_INVALID_LIST_POSITION);
+        gtk_widget_grab_focus (GTK_WIDGET (self->popup_view));
+    }
+    else
+        gtk_widget_grab_focus (GTK_WIDGET (self->entry));
+}
+
+static gboolean
+gnc_currency_edit_entry_key_pressed (GtkEventControllerKey *, guint keyval,
+                                     guint, GdkModifierType state,
+                                     gpointer user_data)
+{
+    auto self = GNC_CURRENCY_EDIT (user_data);
+
+    if (keyval != GDK_KEY_Down || !(state & GDK_ALT_MASK))
+        return FALSE;
+    gtk_menu_button_popup (self->menu_button);
+    return TRUE;
 }
 
 /** This auxiliary function adds a single currency name to the GTK4
@@ -339,10 +470,9 @@ add_item(gnc_commodity *commodity, GNCCurrencyEdit *gce)
     const char *string;
 
     string = gnc_commodity_get_printname(commodity);
-    gtk_string_list_append (gce->model, string);
-    auto position = g_list_model_get_n_items (G_LIST_MODEL (gce->model)) - 1;
-    auto item = g_list_model_get_item (G_LIST_MODEL (gce->model), position);
+    auto item = gtk_string_object_new (string);
     g_object_set_data (G_OBJECT (item), CURRENCY_DATA, commodity);
+    g_list_store_append (gce->model, item);
     g_object_unref (item);
 }
 
@@ -384,9 +514,6 @@ gnc_currency_edit_new (void)
 {
     auto gce = GNC_CURRENCY_EDIT (g_object_new (GNC_TYPE_CURRENCY_EDIT, nullptr));
 
-    /* Fill in all the data. */
-    fill_currencies (gce);
-
     return GTK_WIDGET (gce);
 }
 
@@ -411,25 +538,11 @@ gnc_currency_edit_set_currency (GNCCurrencyEdit *gce,
     g_return_if_fail(currency != nullptr);
 
     auto changed = gce->currency != currency;
-    auto count = g_list_model_get_n_items (G_LIST_MODEL (gce->model));
-    guint position = GTK_INVALID_LIST_POSITION;
-
-    for (guint candidate = 0; candidate < count; candidate++)
-    {
-        auto item = g_list_model_get_item (G_LIST_MODEL (gce->model), candidate);
-        auto item_currency = static_cast<gnc_commodity *> (
-            g_object_get_data (G_OBJECT (item), CURRENCY_DATA));
-        g_object_unref (item);
-        if (item_currency == currency)
-        {
-            position = candidate;
-            break;
-        }
-    }
+    auto position = currency_position (gce, currency);
 
     gce->updating = TRUE;
     gce->currency = const_cast<gnc_commodity *> (currency);
-    gtk_drop_down_set_selected (gce->drop_down, position);
+    gtk_single_selection_set_selected (gce->popup_selection, position);
     gtk_editable_set_text (GTK_EDITABLE (gce->entry),
                            gnc_commodity_get_printname (currency));
     set_mnemonic (gce, gnc_commodity_get_mnemonic (currency));
@@ -471,7 +584,8 @@ gnc_currency_edit_clear_display (GNCCurrencyEdit *gce)
 
     gce->updating = TRUE;
     gce->currency = nullptr;
-    gtk_drop_down_set_selected (gce->drop_down, GTK_INVALID_LIST_POSITION);
+    gtk_single_selection_set_selected (gce->popup_selection,
+                                       GTK_INVALID_LIST_POSITION);
     gtk_editable_set_text (GTK_EDITABLE (gce->entry), "");
     gce->updating = FALSE;
 }
