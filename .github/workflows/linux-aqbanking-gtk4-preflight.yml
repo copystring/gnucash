@@ -45,18 +45,18 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           curl --fail --location --show-error \
-            https://github.com/copystring/gwenhywfar/archive/4e896c5edc5c051402e7e0e2a13fbee3cd0c0304.tar.gz \
-            --output gwenhywfar-4e896c5edc5c051402e7e0e2a13fbee3cd0c0304.tar.gz
+            https://github.com/copystring/gwenhywfar/archive/be306f4c2b6d550e0595547a09966a9abef4ec56.tar.gz \
+            --output gwenhywfar-be306f4c2b6d550e0595547a09966a9abef4ec56.tar.gz
           curl --fail --location --show-error \
             https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz \
             --output libchipcard-5.1.6.tar.gz
           curl --fail --location --show-error \
             https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz \
             --output aqbanking-6.9.2.tar.gz
-          echo 'e81d4ea20dc6fd69db4b8c204e7266afd2d3ec9a0c291c48fa3e738d84e66855  gwenhywfar-4e896c5edc5c051402e7e0e2a13fbee3cd0c0304.tar.gz' | sha256sum --check
+          echo 'ed44c5d38a252e4eb4ea241a6f362a6a575f71f3edc9060b0a001faf79576c81  gwenhywfar-be306f4c2b6d550e0595547a09966a9abef4ec56.tar.gz' | sha256sum --check
           echo '6c07f527417f7562074f99012da4d11eb4dbafd33f49e66b442ccd6e3b8cfd20  libchipcard-5.1.6.tar.gz' | sha256sum --check
           echo '244b5f7a139f829928f5cdc3f5f7488517b3e8aa63625a92741c3efc1892bb3f  aqbanking-6.9.2.tar.gz' | sha256sum --check
-          tar -xf gwenhywfar-4e896c5edc5c051402e7e0e2a13fbee3cd0c0304.tar.gz
+          tar -xf gwenhywfar-be306f4c2b6d550e0595547a09966a9abef4ec56.tar.gz
           tar -xf libchipcard-5.1.6.tar.gz
           tar -xf aqbanking-6.9.2.tar.gz
 
@@ -64,10 +64,10 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          autoreconf -fi gwenhywfar-4e896c5edc5c051402e7e0e2a13fbee3cd0c0304
+          autoreconf -fi gwenhywfar-be306f4c2b6d550e0595547a09966a9abef4ec56
           mkdir gwenhywfar-build
           cd gwenhywfar-build
-          ../gwenhywfar-4e896c5edc5c051402e7e0e2a13fbee3cd0c0304/configure \
+          ../gwenhywfar-be306f4c2b6d550e0595547a09966a9abef4ec56/configure \
             --prefix="$AQ_PREFIX" \
             --disable-static \
             --enable-shared \
