@@ -776,6 +776,8 @@ xaccFreeSplit (Split *split)
         PERR ("double-free %p", split);
         return;
     }
+    auto shutting_down = qof_book_shutting_down (
+        qof_instance_get_book (QOF_INSTANCE (split)));
     CACHE_REMOVE(split->memo);
     CACHE_REMOVE(split->action);
 
@@ -823,7 +825,10 @@ xaccFreeSplit (Split *split)
     split->date_reconciled = 0;
     G_OBJECT_CLASS (QOF_INSTANCE_GET_CLASS (&split->inst))->dispose(G_OBJECT (split));
 
-    if (split->gains_split)
+    /* Book shutdown destroys every transaction, so following a cached gains
+     * relationship here is both unnecessary and unsafe: The related split can
+     * already have been destroyed by an earlier transaction teardown. */
+    if (!shutting_down && split->gains_split)
     {
         Split *other = xaccSplitGetOtherSplit(split->gains_split);
         split->gains_split->gains_split = nullptr;

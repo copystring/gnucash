@@ -266,6 +266,63 @@ make_empty_lot_assignment_fixture (void)
     return fixture;
 }
 
+struct GainsRelationshipFixture
+{
+    Split *source;
+    Split *lot_split;
+    Split *income_split;
+    Transaction *source_transaction;
+    Transaction *gains_transaction;
+};
+
+static GainsRelationshipFixture
+add_gains_relationship (LotAssignmentFixture *fixture, time64 source_date,
+                        time64 gains_date)
+{
+    auto source = add_lot_assignment_split (fixture, 10, source_date);
+    auto source_transaction = xaccSplitGetParent (source);
+    auto gains_transaction = xaccMallocTransaction (fixture->book);
+    auto lot_split = xaccMallocSplit (fixture->book);
+    auto income_split = xaccMallocSplit (fixture->book);
+    auto income_account = xaccMallocAccount (fixture->book);
+    auto root = gnc_book_get_root_account (fixture->book);
+    auto zero = gnc_numeric_zero ();
+    auto gain = gnc_numeric_create (-10, 1);
+    auto income = gnc_numeric_neg (gain);
+
+    xaccAccountBeginEdit (income_account);
+    xaccAccountSetName (income_account, "Lot gains income account");
+    xaccAccountSetType (income_account, ACCT_TYPE_INCOME);
+    xaccAccountSetCommodity (income_account, fixture->currency);
+    gnc_account_append_child (root, income_account);
+    xaccAccountCommitEdit (income_account);
+
+    xaccTransBeginEdit (gains_transaction);
+    xaccTransSetCurrency (gains_transaction, fixture->currency);
+    xaccTransSetDatePostedSecsNormalized (gains_transaction, gains_date);
+    xaccSplitSetParent (lot_split, gains_transaction);
+    xaccSplitSetAccount (lot_split, fixture->account);
+    xaccSplitSetAmount (lot_split, zero);
+    xaccSplitSetValue (lot_split, gain);
+    xaccSplitSetParent (income_split, gains_transaction);
+    xaccSplitSetAccount (income_split, income_account);
+    xaccSplitSetAmount (income_split, income);
+    xaccSplitSetValue (income_split, income);
+    xaccTransCommitEdit (gains_transaction);
+
+    xaccTransBeginEdit (source_transaction);
+    qof_instance_set (QOF_INSTANCE (source), "gains-split",
+                      xaccSplitGetGUID (lot_split), nullptr);
+    xaccTransCommitEdit (source_transaction);
+    xaccTransBeginEdit (gains_transaction);
+    qof_instance_set (QOF_INSTANCE (lot_split), "gains-source",
+                      xaccSplitGetGUID (source), nullptr);
+    xaccTransCommitEdit (gains_transaction);
+
+    return {source, lot_split, income_split, source_transaction,
+            gains_transaction};
+}
+
 static void
 populate_lot_assignment_noop_workload (LotAssignmentFixture *fixture)
 {
@@ -1082,33 +1139,71 @@ test_legacy_gains_scrub_uses_transaction_book (void)
     ScopedEnvironment lots_off {"GNC_AUTO_SCRUB_LOTS", nullptr};
     auto current = qof_session_new (qof_book_new ());
     auto foreign = make_empty_lot_assignment_fixture ();
-    auto source = add_lot_assignment_split (&foreign, 10, 86400);
-    auto gains = add_lot_assignment_split (&foreign, -10, 2 * 86400);
-    auto source_transaction = xaccSplitGetParent (source);
-    auto gains_transaction = xaccSplitGetParent (gains);
-    xaccTransBeginEdit (source_transaction);
-    qof_instance_set (QOF_INSTANCE (source), "gains-split",
-                      xaccSplitGetGUID (gains), nullptr);
-    xaccTransCommitEdit (source_transaction);
-    xaccTransBeginEdit (gains_transaction);
-    qof_instance_set (QOF_INSTANCE (gains), "gains-source",
-                      xaccSplitGetGUID (source), nullptr);
-    xaccTransCommitEdit (gains_transaction);
-    gains->gains = GAINS_STATUS_GAINS | GAINS_STATUS_DATE_DIRTY;
-    gains->gains_split = source;
+    auto relationship = add_gains_relationship (&foreign, 86400, 2 * 86400);
+    xaccSplitDetermineGainStatus (relationship.lot_split);
+    relationship.lot_split->gains |= GAINS_STATUS_DATE_DIRTY;
+
+    do_test (relationship.source->gains_split == nullptr &&
+                 relationship.lot_split->gains_split == relationship.source,
+             "loaded gains relationship may have a one-sided runtime cache");
 
     gnc_set_current_session (current);
-    xaccTransScrubGains (gains_transaction, nullptr);
+    xaccTransScrubGains (relationship.gains_transaction, nullptr);
 
     do_test (gnc_get_current_session () == current,
              "legacy gains scrub preserves an unrelated current session");
-    do_test (xaccTransRetDatePosted (gains_transaction) ==
-                 xaccTransRetDatePosted (xaccSplitGetParent (source)) &&
-             !(gains->gains & GAINS_STATUS_DATE_DIRTY),
+    do_test (xaccTransRetDatePosted (relationship.gains_transaction) ==
+                 xaccTransRetDatePosted (relationship.source_transaction) &&
+             !(relationship.lot_split->gains & GAINS_STATUS_DATE_DIRTY),
              "legacy gains scrub synchronously processes a foreign book");
 
     gnc_clear_current_session ();
     destroy_lot_assignment_fixture (&foreign);
+}
+
+static void
+test_book_shutdown_with_asymmetric_gains_cache (gboolean source_first)
+{
+    auto fixture = make_empty_lot_assignment_fixture ();
+    auto source_date = source_first ? 2 * 86400 : 86400;
+    auto gains_date = source_first ? 86400 : 2 * 86400;
+    auto relationship = add_gains_relationship (&fixture, source_date,
+                                                gains_date);
+
+    xaccSplitDetermineGainStatus (relationship.lot_split);
+    do_test (relationship.source->gains_split == nullptr &&
+                 relationship.lot_split->gains_split == relationship.source,
+             source_first
+                 ? "source-first shutdown starts with a one-sided gains cache"
+                 : "gains-first shutdown starts with a one-sided gains cache");
+
+    destroy_lot_assignment_fixture (&fixture);
+    success (source_first
+                 ? "source-first shutdown does not follow freed gains caches"
+                 : "gains-first shutdown handles one-sided gains caches");
+}
+
+static void
+test_non_shutdown_split_destroy_clears_gains_caches (void)
+{
+    auto fixture = make_empty_lot_assignment_fixture ();
+    auto relationship = add_gains_relationship (&fixture, 86400, 2 * 86400);
+
+    xaccSplitDetermineGainStatus (relationship.source);
+    xaccSplitDetermineGainStatus (relationship.lot_split);
+    relationship.income_split->gains = GAINS_STATUS_GAINS;
+    relationship.income_split->gains_split = relationship.source;
+    do_test (relationship.source->gains_split == relationship.lot_split &&
+                 relationship.lot_split->gains_split == relationship.source &&
+                 relationship.income_split->gains_split == relationship.source,
+             "normal split destroy starts with the complete gains cache");
+
+    do_test (xaccSplitDestroy (relationship.source),
+             "normal source split destroy succeeds");
+    do_test (relationship.lot_split->gains_split == nullptr &&
+                 relationship.income_split->gains_split == nullptr,
+             "normal source split destroy clears both gains transaction caches");
+    destroy_lot_assignment_fixture (&fixture);
 }
 
 static void
@@ -1442,6 +1537,9 @@ main (int argc, char **argv)
     test_rollback_gains_source_endpoint_collectors ();
     test_lot_scrub_cancel_preserves_vdirty_terminal_marker ();
     test_legacy_gains_scrub_uses_transaction_book ();
+    test_book_shutdown_with_asymmetric_gains_cache (TRUE);
+    test_book_shutdown_with_asymmetric_gains_cache (FALSE);
+    test_non_shutdown_split_destroy_clears_gains_caches ();
     test_legacy_lot_scrub_uses_account_book ();
     test_lot_scrub_plan_external_mutation_is_stale ();
     test_lot_scrub_external_mutation_after_every_step_is_stale ();
