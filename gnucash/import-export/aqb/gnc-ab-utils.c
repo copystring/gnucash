@@ -1065,10 +1065,10 @@ bal_accountinfo_cb (AB_IMEXPORTER_ACCOUNTINFO *element, gpointer user_data)
             "%s",
             _("The downloaded Online Banking Balance was zero.\n\n"
               "Either this is the correct balance, or your bank does not "
-              "support Balance download in this Online Banking version. "
-              "In the latter case you should choose a different Online Banking "
-              "version number in the Online Banking (AqBanking or HBCI) Setup. "
-              "After that, try again to download the Online Banking Balance."));
+              "support Balance download with the parameters you have selected. "
+              "In the latter case you should check the details of your connection "
+              "like Server URL in the Online Banking (AqBanking) Setup. After "
+              "that, try again to download the Online Banking Balance."));
         gtk_alert_dialog_show (dialog, parent);
         g_object_unref (dialog);
     }

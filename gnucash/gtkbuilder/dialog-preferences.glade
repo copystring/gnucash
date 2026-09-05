@@ -100,6 +100,48 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
+  <object class="GtkAdjustment" id="default_chart_point_size_adj">
+    <property name="lower">1</property>
+    <property name="upper">25</property>
+    <property name="value">4</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">3</property>
+  </object>
+  <object class="GtkAdjustment" id="default_chart_point_size_hover_adj">
+    <property name="lower">1</property>
+    <property name="upper">50</property>
+    <property name="value">9</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">3</property>
+  </object>
+  <object class="GtkAdjustment" id="default_chart_tooltip_engage_radius_adj">
+    <property name="lower">1</property>
+    <property name="upper">100</property>
+    <property name="value">7</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">3</property>
+  </object>
+  <object class="GtkAdjustment" id="default_chart_caret_size_adj">
+    <property name="lower">1</property>
+    <property name="upper">50</property>
+    <property name="value">10</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">3</property>
+  </object>
+  <object class="GtkStringList" id="chart_point_style_list">
+    <items>
+      <item translatable="1">Circle</item>
+      <item translatable="1">Cross</item>
+      <item translatable="1">Cross - rotated</item>
+      <item translatable="1">Dash</item>
+      <item translatable="1">Line</item>
+      <item translatable="1">Rectangle</item>
+      <item translatable="1">Rectangle - rounded</item>
+      <item translatable="1">Rectangle - rotated</item>
+      <item translatable="1">Star</item>
+      <item translatable="1">Triangle</item>
+    </items>
+  </object>
   <object class="GtkAdjustment" id="tab_width_adj">
     <property name="lower">1</property>
     <property name="upper">100</property>
@@ -2669,6 +2711,201 @@ many months before the current month</property>
                         <layout>
                           <property name="column">0</property>
                           <property name="row">8</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparator">
+                        <property name="orientation">horizontal</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">9</property>
+                          <property name="column-span">2</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel" id="label-tc-1">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Line Charts</property>
+                        <style>
+                          <class name="gnc-class-strong" />
+                        </style>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">10</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Point style</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">11</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkDropDown" id="pref/general.report/chart-point-style">
+                        <property name="tooltip-text" translatable="1">Which style should represent a data point. Only applicable to line charts.</property>
+                        <property name="model">chart_point_style_list</property>
+                        <property name="selected">7</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">11</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Point size</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">12</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSpinButton" id="pref/general.report/chart-point-size">
+                        <property name="focusable">1</property>
+                        <property name="tooltip-text" translatable="1">This setting specifies the default point's size (in pixels) displayed in charts. Only applicable to line charts.</property>
+                        <property name="halign">start</property>
+                        <property name="adjustment">default_chart_point_size_adj</property>
+                        <property name="value">4</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">12</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Point hovered size</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">13</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSpinButton" id="pref/general.report/chart-point-size-hover">
+                        <property name="focusable">1</property>
+                        <property name="tooltip-text" translatable="1">This setting specifies the hovered point's size (in pixels) displayed in charts. It tends to be bigger than the default size. Only applicable to line charts.</property>
+                        <property name="halign">start</property>
+                        <property name="adjustment">default_chart_point_size_hover_adj</property>
+                        <property name="value">9</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">13</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparator">
+                        <property name="orientation">horizontal</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">14</property>
+                          <property name="column-span">2</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel" id="label-tc-2">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Tooltip</property>
+                        <style>
+                          <class name="gnc-class-strong" />
+                        </style>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">15</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Engage within this radius</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">16</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSpinButton" id="pref/general.report/chart-tooltip-engage-radius">
+                        <property name="focusable">1</property>
+                        <property name="tooltip-text" translatable="1">This setting specifies the point's hover radius (in pixels), determining the proximity at which the point and tooltip are engaged.</property>
+                        <property name="halign">start</property>
+                        <property name="adjustment">default_chart_tooltip_engage_radius_adj</property>
+                        <property name="value">7</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">16</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Pointing arrow (caret) size</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">17</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSpinButton" id="pref/general.report/chart-tooltip-caret-size">
+                        <property name="focusable">1</property>
+                        <property name="tooltip-text" translatable="1">This setting specifies the size (in pixels) of the arrow extending from a tooltip toward the data point.</property>
+                        <property name="halign">start</property>
+                        <property name="adjustment">default_chart_caret_size_adj</property>
+                        <property name="value">10</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">17</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="halign">start</property>
+                        <property name="label" translatable="1">Position (for grouped only)</property>
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">18</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCheckButton" id="pref/general.report/chart-tooltip-position=average">
+                        <property name="label" translatable="1">average</property>
+                        <property name="focusable">1</property>
+                        <property name="tooltip-text" translatable="1">Show the tooltip at the average value of the engaged entries. Only applicable to grouped tooltips.</property>
+                        <property name="halign">start</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">18</property>
+                        </layout>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCheckButton" id="pref/general.report/chart-tooltip-position=nearest">
+                        <property name="label" translatable="1">nearest</property>
+                        <property name="focusable">1</property>
+                        <property name="tooltip-text" translatable="1">Show the tooltip nearest to the value of the engaged entries. Only applicable to grouped tooltips.</property>
+                        <property name="halign">start</property>
+                        <property name="active">1</property>
+                        <property name="group">pref/general.report/chart-tooltip-position=average</property>
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">19</property>
                         </layout>
                       </object>
                     </child>

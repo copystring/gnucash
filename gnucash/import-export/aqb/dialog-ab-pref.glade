@@ -30,8 +30,8 @@
             <property name="label" translatable="1">_Close log window when finished</property>
             <property name="focusable">1</property>
             <property name="has-tooltip">1</property>
-            <property name="tooltip-markup">If active, the window will be closed automatically when you finish the HBCI/AqBanking import process. Otherwise it will stay open.</property>
-            <property name="tooltip-text" translatable="1">If active, the window will be closed automatically when you finish the HBCI/AqBanking import process. Otherwise it will stay open.</property>
+            <property name="tooltip-markup">If active, the window will be closed automatically when you finish the AqBanking import process. Otherwise it will stay open.</property>
+            <property name="tooltip-text" translatable="1">If active, the window will be closed automatically when you finish the AqBanking import process. Otherwise it will stay open.</property>
             <property name="halign">start</property>
             <property name="use-underline">1</property>
             <layout>
@@ -45,8 +45,8 @@
             <property name="label" translatable="1">Remember the _PIN in memory</property>
             <property name="focusable">1</property>
             <property name="has-tooltip">1</property>
-            <property name="tooltip-markup">If active, the PIN for HBCI/AqBanking actions will be remembered in memory during a session. Otherwise it will have to be entered again each time during a session when it is needed.</property>
-            <property name="tooltip-text" translatable="1">If active, the PIN for HBCI/AqBanking actions will be remembered in memory during a session. Otherwise it will have to be entered again each time during a session when it is needed.</property>
+            <property name="tooltip-markup">If active, the PIN for AqBanking actions will be remembered in memory during a session. Otherwise it will have to be entered again each time during a session when it is needed.</property>
+            <property name="tooltip-text" translatable="1">If active, the PIN for AqBanking actions will be remembered in memory during a session. Otherwise it will have to be entered again each time during a session when it is needed.</property>
             <property name="halign">start</property>
             <property name="use-underline">1</property>
             <layout>
@@ -75,8 +75,8 @@
             <property name="label" translatable="1">_Verbose debug messages</property>
             <property name="focusable">1</property>
             <property name="has-tooltip">1</property>
-            <property name="tooltip-markup">Enables verbose debug messages for HBCI/AqBanking Online Banking.</property>
-            <property name="tooltip-text" translatable="1">Enables verbose debug messages for HBCI/AqBanking Online Banking.</property>
+            <property name="tooltip-markup">Enables verbose debug messages for AqBanking.</property>
+            <property name="tooltip-text" translatable="1">Enables verbose debug messages for AqBanking. See the Wiki for more information.</property>
             <property name="halign">start</property>
             <property name="use-underline">1</property>
             <layout>
