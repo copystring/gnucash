@@ -21,12 +21,33 @@ jobs:
 
         - name: Add our repo
           shell: msys2 {0}
+          env:
+            DEPENDENCY_OVERLAY_NAME: ${{ vars.WINDOWS_DEPENDENCY_OVERLAY_NAME }}
+            DEPENDENCY_OVERLAY_URL: ${{ vars.WINDOWS_DEPENDENCY_OVERLAY_URL }}
           run: |
+            set -euo pipefail
             sed -i "/^# SigLevel = Never/a [gnc-ucrt64]\nSigLevel = Optional TrustAll\nServer = https://github.com/gnucash/gnucash-windows-deps-repo/releases/download/gnc-ucrt64-repo/" /etc/pacman.conf
+            if [[ -n "$DEPENDENCY_OVERLAY_NAME" || -n "$DEPENDENCY_OVERLAY_URL" ]]; then
+              if [[ -z "$DEPENDENCY_OVERLAY_NAME" || -z "$DEPENDENCY_OVERLAY_URL" ]]; then
+                echo 'Both Windows dependency overlay variables must be set.' >&2
+                exit 1
+              fi
+              if [[ ! "$DEPENDENCY_OVERLAY_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+                echo "Invalid dependency overlay name: $DEPENDENCY_OVERLAY_NAME" >&2
+                exit 1
+              fi
+              dependency_overlay_url="${DEPENDENCY_OVERLAY_URL%/}/"
+              if [[ ! "$dependency_overlay_url" =~ ^https://[A-Za-z0-9._/-]+/$ ]]; then
+                echo "Invalid dependency overlay URL: $DEPENDENCY_OVERLAY_URL" >&2
+                exit 1
+              fi
+              sed -i "/^# SigLevel = Never/a [$DEPENDENCY_OVERLAY_NAME]\nSigLevel = Optional TrustAll\nServer = $dependency_overlay_url" /etc/pacman.conf
+            fi
             sed -i "s/^# ParallelDownloads/ParallelDownloads/" /etc/pacman.conf
 
             pacman -Syv
-            pacboy --noconfirm -S swig:p appstream-glib:p boost:p gtk4:p gsettings-desktop-schemas:p docbook-xsl:p gettext-tools:p gtest:p guile3:p harfbuzz-icu:p icu:p iso-codes:p pdcurses:p libdbi-drivers:p libofx:p libsecret:p webview2-loader zlib:p
+            pacboy --noconfirm -S swig:p appstream-glib:p aqbanking:p boost:p gtk4:p gsettings-desktop-schemas:p docbook-xsl:p gettext-tools:p gtest:p guile3:p harfbuzz-icu:p icu:p iso-codes:p pdcurses:p libdbi-drivers:p libofx:p libsecret:p webview2-loader zlib:p
+            pkg-config --exists aqbanking gwengui-gtk4
             ls -l $MSYSTEM_PREFIX/lib/dbd
 
         - name: Checkout
@@ -37,9 +58,9 @@ jobs:
             GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
             GUILE_LOAD_COMPILED_PATH: "${{ env.MSYSTEM_PREFIX }}/lib/guile/3.0/ccache"
           run: |
+            set -euo pipefail
             mkdir build && cd build
-            # The rolling dependency repository doesn't yet provide gwengui-gtk4.
-            cmake -G Ninja -DWITH_AQBANKING=OFF ..
+            cmake -G Ninja -DWITH_AQBANKING=ON ..
         - name: Build and Test GnuCash
           env:
             GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
