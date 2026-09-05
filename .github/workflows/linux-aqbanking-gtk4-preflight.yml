@@ -124,11 +124,7 @@ jobs:
             "$GITHUB_WORKSPACE"
 
       - name: Validate GTK4 builder resources
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' resource; do
-            gtk4-builder-tool validate "$resource"
-          done < <(find "$GITHUB_WORKSPACE/gnucash" -type f \( -name '*.ui' -o -name '*.glade' \) -print0)
+        run: xvfb-run -a bash "$GITHUB_WORKSPACE/util/ci/validate-gtk4-builder-resources.sh" "$GITHUB_WORKSPACE/gnucash"
 
       - name: Build and test GnuCash
         working-directory: build
