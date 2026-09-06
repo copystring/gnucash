@@ -89,7 +89,8 @@ set (test_dialog_account_type_selection_SOURCES
 
 gnc_add_test (test-dialog-account-type-selection
   "${test_dialog_account_type_selection_SOURCES}"
-  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
 
 set (test_gnc_tree_view_SOURCES
   test-gnc-tree-view.c
@@ -104,7 +105,8 @@ set (test_tree_view_row_ownership_SOURCES
 
 gnc_add_test (test-tree-view-row-ownership
   "${test_tree_view_row_ownership_SOURCES}"
-  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
 
 set (test_gnc_register_input_SOURCES
   test-gnc-register-input.c

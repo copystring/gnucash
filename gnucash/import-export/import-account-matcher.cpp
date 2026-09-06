@@ -408,8 +408,8 @@ gnc_import_select_account_async_internal (GtkWidget *parent, const gchar *online
     gtk_window_set_modal (picker->window, TRUE);
     gnc_restore_window_size (GNC_PREFS_GROUP, picker->window, parent ? GTK_WINDOW (parent) : nullptr);
     picker->rows = g_list_store_new (G_TYPE_OBJECT);
-    picker->selection = gtk_single_selection_new (G_LIST_MODEL (picker->rows));
-    picker->view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (picker->selection)));
+    picker->selection = gtk_single_selection_new (G_LIST_MODEL (g_object_ref (picker->rows)));
+    picker->view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (picker->selection))));
     picker_add_column (picker, _("Account"), TRUE);
     picker_add_column (picker, _("Account ID"), FALSE);
     gtk_scrolled_window_set_child (picker->scroller, GTK_WIDGET (picker->view));

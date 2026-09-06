@@ -221,7 +221,7 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
 
     /* The GTK4 preview uses the same row model as parsing and importing. */
     gui->store = g_list_store_new (G_TYPE_OBJECT);
-    selection = gtk_no_selection_new (G_LIST_MODEL (gui->store));
+    selection = gtk_no_selection_new (G_LIST_MODEL (g_object_ref (gui->store)));
     gui->preview_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
     customer_import_preview_add_column (gui->preview_view, _("ID"), CI_ID);
     customer_import_preview_add_column (gui->preview_view, _("Company"), CI_COMPANY);

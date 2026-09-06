@@ -379,14 +379,16 @@ payment_post_account_setup (PaymentWindow *pw, GtkBox *box)
     pw->post_account_store = g_list_store_new (GTK_TYPE_STRING_OBJECT);
     pw->post_account_filter = gtk_custom_filter_new (payment_post_account_matches, pw, NULL);
     pw->post_account_filtered = gtk_filter_list_model_new (
-        G_LIST_MODEL (pw->post_account_store), GTK_FILTER (pw->post_account_filter));
+        G_LIST_MODEL (g_object_ref (pw->post_account_store)),
+        GTK_FILTER (g_object_ref (pw->post_account_filter)));
     pw->post_account_selection = gtk_single_selection_new (
-        G_LIST_MODEL (pw->post_account_filtered));
+        G_LIST_MODEL (g_object_ref (pw->post_account_filtered)));
 
     factory = GTK_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
     g_signal_connect (factory, "setup", G_CALLBACK (payment_post_account_item_setup_cb), NULL);
     g_signal_connect (factory, "bind", G_CALLBACK (payment_post_account_item_bind_cb), NULL);
-    list = gtk_list_view_new (GTK_SELECTION_MODEL (pw->post_account_selection), factory);
+    list = gtk_list_view_new (
+        GTK_SELECTION_MODEL (g_object_ref (pw->post_account_selection)), factory);
     g_signal_connect (list, "activate", G_CALLBACK (payment_post_account_activated_cb), pw);
 
     scroller = gtk_scrolled_window_new ();
@@ -1554,11 +1556,14 @@ payment_document_view_setup (PaymentWindow *pw, GtkBox *box)
     GtkColumnViewColumn *date_column;
 
     pw->docs_list_store = g_list_store_new (G_TYPE_OBJECT);
-    pw->docs_list_sorted = gtk_sort_list_model_new (G_LIST_MODEL (pw->docs_list_store), NULL);
+    pw->docs_list_sorted = gtk_sort_list_model_new (
+        G_LIST_MODEL (g_object_ref (pw->docs_list_store)), NULL);
     gtk_sort_list_model_set_incremental (pw->docs_list_sorted, FALSE);
-    pw->docs_list_selection = gtk_multi_selection_new (G_LIST_MODEL (pw->docs_list_sorted));
+    pw->docs_list_selection = gtk_multi_selection_new (
+        G_LIST_MODEL (g_object_ref (pw->docs_list_sorted)));
     pw->docs_list_view = GTK_COLUMN_VIEW (
-        gtk_column_view_new (GTK_SELECTION_MODEL (pw->docs_list_selection)));
+        gtk_column_view_new (GTK_SELECTION_MODEL (
+            g_object_ref (pw->docs_list_selection))));
     gtk_column_view_set_show_row_separators (pw->docs_list_view, TRUE);
     gtk_column_view_set_show_column_separators (pw->docs_list_view, TRUE);
 

@@ -559,7 +559,7 @@ gnc_query_view_init (GNCQueryView *qview)
     gtk_single_selection_set_can_unselect (selection, TRUE);
     priv->selection = GTK_SELECTION_MODEL (selection);
     priv->selection_mode = GTK_SELECTION_SINGLE;
-    priv->view = GTK_COLUMN_VIEW (gtk_column_view_new (priv->selection));
+    priv->view = GTK_COLUMN_VIEW (gtk_column_view_new (g_object_ref (priv->selection)));
     priv->columns = g_ptr_array_new_with_free_func (query_column_info_free);
     priv->custom_sorter = gtk_custom_sorter_new (query_custom_sort, qview, NULL);
 
@@ -571,9 +571,10 @@ gnc_query_view_init (GNCQueryView *qview)
     gnc_column_view_bind_grid_line_preferences (priv->view);
     gtk_column_view_set_reorderable (priv->view, TRUE);
     gtk_box_append (GTK_BOX (qview), GTK_WIDGET (priv->view));
-    g_signal_connect (priv->selection, "selection-changed",
-                      G_CALLBACK (query_view_selection_changed), qview);
-    g_signal_connect (priv->view, "activate", G_CALLBACK (query_view_activated), qview);
+    g_signal_connect_object (priv->selection, "selection-changed",
+                             G_CALLBACK (query_view_selection_changed), qview, 0);
+    g_signal_connect_object (priv->view, "activate",
+                             G_CALLBACK (query_view_activated), qview, 0);
 
     priv->component_id = gnc_register_gui_component ("gnc-query-view-cm-class",
                                                       gnc_query_view_refresh_handler,
@@ -586,8 +587,16 @@ gnc_query_view_dispose (GObject *object)
     GNCQueryView *qview = GNC_QUERY_VIEW (object);
     GNCQueryViewPrivate *priv = GNC_QUERY_VIEW_GET_PRIVATE (qview);
 
+    if (priv->selection)
+        g_signal_handlers_disconnect_by_func (priv->selection,
+                                              query_view_selection_changed, qview);
     if (priv->view)
+    {
+        g_signal_handlers_disconnect_by_func (priv->view, query_view_activated, qview);
         gnc_column_view_unbind_grid_line_preferences (priv->view);
+        gtk_column_view_set_model (priv->view, NULL);
+        priv->view = NULL;
+    }
     if (priv->component_id > 0)
     {
         gnc_unregister_gui_component (priv->component_id);
@@ -598,7 +607,8 @@ gnc_query_view_dispose (GObject *object)
         qof_query_destroy (qview->query);
         qview->query = NULL;
     }
-    gtk_sort_list_model_set_sorter (priv->sorted_rows, NULL);
+    if (priv->sorted_rows)
+        gtk_sort_list_model_set_sorter (priv->sorted_rows, NULL);
     g_clear_object (&priv->custom_sorter);
     g_clear_pointer (&priv->columns, g_ptr_array_unref);
     g_clear_object (&priv->selection);
@@ -863,12 +873,16 @@ gnc_query_view_set_selection_mode (GNCQueryView *qview, GtkSelectionMode mode)
         replacement = GTK_SELECTION_MODEL (selection);
     }
 
-    g_signal_connect (replacement, "selection-changed",
-                      G_CALLBACK (query_view_selection_changed), qview);
-    gtk_column_view_set_model (priv->view, replacement);
-    g_clear_object (&priv->selection);
+    g_signal_connect_object (replacement, "selection-changed",
+                             G_CALLBACK (query_view_selection_changed), qview, 0);
+    GtkSelectionModel *old_selection = g_steal_pointer (&priv->selection);
+    if (old_selection)
+        g_signal_handlers_disconnect_by_func (old_selection,
+                                              query_view_selection_changed, qview);
     priv->selection = replacement;
     priv->selection_mode = mode;
+    gtk_column_view_set_model (priv->view, replacement);
+    g_clear_object (&old_selection);
     for (GList *node = selected; node; node = node->next)
         gnc_query_view_select_entry (qview, node->data,
                                      mode == GTK_SELECTION_SINGLE);

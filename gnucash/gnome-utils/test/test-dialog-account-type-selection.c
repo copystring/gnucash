@@ -13,6 +13,7 @@
 #include "gnc-prefs-utils.h"
 #include "gnc-session.h"
 #include "gnc-tree-model-account-types.h"
+#include "qof.h"
 
 static void
 object_finalized (gpointer data, GObject *object)
@@ -140,10 +141,11 @@ main (int argc, char **argv)
 {
     int status;
 
-    g_setenv ("GNC_UNINSTALLED", "1", TRUE);
     g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
     g_test_init (&argc, &argv, NULL);
     gtk_init ();
+    qof_log_init_filename_special ("stderr");
+    qof_log_set_level ("gnc", (QofLogLevel)G_LOG_LEVEL_DEBUG);
     gnc_engine_init_static (argc, argv);
     gnc_prefs_init ();
     gnc_component_manager_init ();

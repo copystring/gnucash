@@ -1876,7 +1876,8 @@ loan_rev_prep (GtkWindow *window, gpointer user_data)
     g_clear_object (&ldd->revRows);
     ldd->revRows = g_list_store_new (loan_review_row_get_type ());
     ldd->revSelection = GTK_NO_SELECTION (gtk_no_selection_new (G_LIST_MODEL (g_object_ref (ldd->revRows))));
-    ldd->revView = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (ldd->revSelection)));
+    ldd->revView = GTK_COLUMN_VIEW (gtk_column_view_new
+        (GTK_SELECTION_MODEL (g_object_ref (ldd->revSelection))));
     gtk_column_view_set_show_row_separators (ldd->revView, gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_HORIZONTAL));
     gtk_column_view_set_show_column_separators (ldd->revView, gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_VERTICAL));
     loan_review_add_column (ldd, _("Date"), LOAN_COL_DATE);

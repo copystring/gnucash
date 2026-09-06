@@ -468,9 +468,9 @@ qif_account_picker_dialog_async (GtkWindow *parent, QIFImportWindow *qif_wind,
     gnc_restore_window_size (GNC_PREFS_GROUP, picker->window, parent);
 
     picker->rows = g_list_store_new (qif_account_picker_row_get_type ());
-    picker->selection = gtk_single_selection_new (G_LIST_MODEL (picker->rows));
+    picker->selection = gtk_single_selection_new (G_LIST_MODEL (g_object_ref (picker->rows)));
     picker->view = GTK_COLUMN_VIEW (gtk_column_view_new (
-        GTK_SELECTION_MODEL (picker->selection)));
+        GTK_SELECTION_MODEL (g_object_ref (picker->selection))));
     picker_add_column (picker, _("Account"), 0, TRUE);
     picker_add_column (picker, _("Placeholder?"), 1, FALSE);
     picker_add_column (picker, _("New?"), 2, FALSE);

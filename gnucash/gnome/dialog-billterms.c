@@ -1102,7 +1102,8 @@ gnc_ui_billterms_window_new (GtkWindow *parent, QofBook *book)
                       G_CALLBACK (billterms_window_key_press_cb), btw);
 
     btw->terms_model = g_list_store_new (G_TYPE_OBJECT);
-    btw->term_selection = gtk_single_selection_new (G_LIST_MODEL (btw->terms_model));
+    btw->term_selection = gtk_single_selection_new
+        (G_LIST_MODEL (g_object_ref (btw->terms_model)));
     gtk_single_selection_set_autoselect (btw->term_selection, TRUE);
     gtk_column_view_set_model (btw->terms_view,
                                GTK_SELECTION_MODEL (btw->term_selection));

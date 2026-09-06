@@ -24,7 +24,14 @@ typedef struct
     GtkSortType sort_order;
     gboolean synchronizing;
     guint restore_source;
+    struct _CommodityChildrenContext *children_context;
 } GncTreeViewCommodityPrivate;
+
+typedef struct _CommodityChildrenContext
+{
+    GWeakRef view;
+    gboolean disposed;
+} CommodityChildrenContext;
 typedef struct
 {
     GncTreeViewCommodity *view;
@@ -80,20 +87,33 @@ append_sorted_visible (GncTreeViewCommodityPrivate *p, GListStore *store, GListM
 static GListModel *
 create_children (gpointer item, gpointer user_data)
 {
-    GncTreeViewCommodity *view = GNC_TREE_VIEW_COMMODITY (user_data);
-    GncTreeViewCommodityPrivate *p = priv (view);
+    CommodityChildrenContext *context = user_data;
+    GncTreeViewCommodity *view;
+    GncTreeViewCommodityPrivate *p;
     GncTreeModelCommodityRow *row = GNC_TREE_MODEL_COMMODITY_ROW (item);
     GListModel *source = gnc_tree_model_commodity_row_get_children (row);
     GListStore *children;
-    if (!source || g_list_model_get_n_items (source) == 0) return NULL;
+    if (context->disposed || !source || g_list_model_get_n_items (source) == 0) return NULL;
+    view = g_weak_ref_get (&context->view);
+    if (!view) return NULL;
+    p = priv (view);
     children = g_list_store_new (GNC_TYPE_TREE_MODEL_COMMODITY_ROW);
     append_sorted_visible (p, children, source);
     if (g_list_model_get_n_items (G_LIST_MODEL (children)) == 0)
     {
         g_object_unref (children);
+        g_object_unref (view);
         return NULL;
     }
+    g_object_unref (view);
     return G_LIST_MODEL (children);
+}
+
+static void
+commodity_children_context_free (CommodityChildrenContext *context)
+{
+    g_weak_ref_clear (&context->view);
+    g_free (context);
 }
 static void
 rebuild_roots (GncTreeViewCommodity *view)
@@ -266,10 +286,28 @@ view_dispose (GObject *object)
 {
     GncTreeViewCommodity *view = GNC_TREE_VIEW_COMMODITY (object);
     GncTreeViewCommodityPrivate *p = priv (view);
-    if (p->restore_source) g_source_remove (p->restore_source);
+    GtkColumnView *column_view;
+    GDestroyNotify filter_destroy;
+    gpointer filter_data;
+    guint restore_source = p->restore_source;
+
     p->restore_source = 0;
-    if (p->filter_destroy) p->filter_destroy (p->filter_data);
-    p->filter_destroy = NULL;
+    if (restore_source) g_source_remove (restore_source);
+    if (p->children_context)
+        p->children_context->disposed = TRUE;
+    p->children_context = NULL;
+    if (p->selection)
+        g_signal_handlers_disconnect_by_func (p->selection, selection_changed, view);
+    if (p->model)
+        g_signal_handlers_disconnect_by_func (p->model, model_changed, view);
+    column_view = gnc_tree_view_get_column_view (GNC_TREE_VIEW (view));
+    if (column_view)
+        gtk_column_view_set_model (column_view, NULL);
+    filter_destroy = g_steal_pointer (&p->filter_destroy);
+    filter_data = g_steal_pointer (&p->filter_data);
+    p->ns_filter = NULL;
+    p->cm_filter = NULL;
+    if (filter_destroy) filter_destroy (filter_data);
     g_clear_pointer (&p->selected, g_hash_table_unref);
     g_clear_pointer (&p->expanded, g_hash_table_unref);
     g_clear_object (&p->selection);
@@ -300,9 +338,13 @@ gnc_tree_view_commodity_new (QofBook *book, const gchar *first_property_name, ..
     va_list args;
     p->model = gnc_tree_model_commodity_new (book, gnc_commodity_table_get_table (book));
     p->roots = g_list_store_new (GNC_TYPE_TREE_MODEL_COMMODITY_ROW);
+    p->children_context = g_new0 (CommodityChildrenContext, 1);
+    g_weak_ref_init (&p->children_context->view, view);
     rebuild_roots (view);
-    p->rows = gtk_tree_list_model_new (G_LIST_MODEL (p->roots), FALSE, FALSE, create_children, view, NULL);
-    p->selection = gtk_multi_selection_new (G_LIST_MODEL (p->rows));
+    p->rows = gtk_tree_list_model_new (g_object_ref (G_LIST_MODEL (p->roots)), FALSE, FALSE,
+                                       create_children, p->children_context,
+                                       (GDestroyNotify) commodity_children_context_free);
+    p->selection = gtk_multi_selection_new (g_object_ref (G_LIST_MODEL (p->rows)));
     gtk_column_view_set_model (gnc_tree_view_get_column_view (GNC_TREE_VIEW (view)), GTK_SELECTION_MODEL (p->selection));
     add_column (view, _("Namespace"), "namespace", GNC_TREE_MODEL_COMMODITY_COL_NAMESPACE, TRUE, FALSE, TRUE);
     add_column (view, _("Symbol"), "symbol", GNC_TREE_MODEL_COMMODITY_COL_MNEMONIC, FALSE, FALSE, TRUE);

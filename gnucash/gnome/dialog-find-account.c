@@ -526,7 +526,8 @@ gnc_find_account_dialog_create (GtkWidget *parent, FindAccountDialog *facc_dialo
 
     facc_dialog->view = GTK_COLUMN_VIEW (gtk_builder_get_object (builder, "treeview"));
     facc_dialog->rows = g_list_store_new (G_TYPE_OBJECT);
-    facc_dialog->selection = gtk_single_selection_new (G_LIST_MODEL (facc_dialog->rows));
+    facc_dialog->selection = gtk_single_selection_new
+        (G_LIST_MODEL (g_object_ref (facc_dialog->rows)));
     gtk_column_view_set_model (facc_dialog->view, GTK_SELECTION_MODEL (facc_dialog->selection));
     gtk_column_view_set_show_row_separators (facc_dialog->view,
         gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_GRID_LINES_HORIZONTAL));

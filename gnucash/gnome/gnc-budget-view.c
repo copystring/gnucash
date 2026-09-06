@@ -390,9 +390,9 @@ create_widget (GncBudgetView *view)
     const gchar *names[] = { _("Income"), _("Expenses"), _("Transfer"), _("Remaining to Budget") };
     for (guint n = 0; n < G_N_ELEMENTS (names); n++)
     { GtkStringObject *object = gtk_string_object_new (names[n]); g_list_store_append (priv->totals_rows, object); g_object_unref (object); }
-    GtkSelectionModel *selection = GTK_SELECTION_MODEL (gtk_no_selection_new (G_LIST_MODEL (priv->totals_rows)));
+    GtkSelectionModel *selection = GTK_SELECTION_MODEL (gtk_no_selection_new (
+        g_object_ref (G_LIST_MODEL (priv->totals_rows))));
     priv->totals_columns = GTK_COLUMN_VIEW (gtk_column_view_new (selection));
-    g_object_unref (selection);
     GtkListItemFactory *name_factory = gtk_signal_list_item_factory_new ();
     g_signal_connect (name_factory, "setup", G_CALLBACK (label_setup), NULL);
     g_signal_connect (name_factory, "bind", G_CALLBACK (total_name_bind), NULL);

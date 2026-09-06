@@ -193,8 +193,8 @@ static GtkWidget *
 create_selection_view (GtkStringList *list, GtkSingleSelection **selection_out,
                        const gchar *first_title)
 {
-    GtkSingleSelection *selection = gtk_single_selection_new (G_LIST_MODEL (list));
-    GtkWidget *view = gtk_column_view_new (GTK_SELECTION_MODEL (selection));
+    GtkSingleSelection *selection = gtk_single_selection_new (G_LIST_MODEL (g_object_ref (list)));
+    GtkWidget *view = gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (selection)));
     GtkListItemFactory *name_factory = gtk_signal_list_item_factory_new ();
     GtkListItemFactory *description_factory = gtk_signal_list_item_factory_new ();
     GtkColumnViewColumn *column;

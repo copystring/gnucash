@@ -2323,7 +2323,7 @@ GncFinishColumnView::GncFinishColumnView (GtkBuilder *builder)
     : m_view (GTK_COLUMN_VIEW (get_widget (builder, "transaction_view"))),
       m_rows (g_list_store_new (G_TYPE_OBJECT))
 {
-    auto selection = gtk_no_selection_new (G_LIST_MODEL (m_rows));
+    auto selection = gtk_no_selection_new (G_LIST_MODEL (g_object_ref (m_rows)));
     gtk_column_view_set_model (m_view, GTK_SELECTION_MODEL (selection));
     g_object_unref (selection);
 

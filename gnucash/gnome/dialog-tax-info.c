@@ -1356,7 +1356,7 @@ GtkSelectionModel *account_selection;
             (gtk_builder_get_object (builder, "txf_category_view"));
         ti_dialog->txf_model = g_list_store_new (G_TYPE_OBJECT);
         ti_dialog->txf_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new
-            (G_LIST_MODEL (ti_dialog->txf_model)));
+            (G_LIST_MODEL (g_object_ref (ti_dialog->txf_model))));
         gtk_single_selection_set_autoselect (ti_dialog->txf_selection, FALSE);
         gtk_column_view_set_model (GTK_COLUMN_VIEW (ti_dialog->txf_category_view),
                                    GTK_SELECTION_MODEL (ti_dialog->txf_selection));

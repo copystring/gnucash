@@ -236,13 +236,12 @@ gnc_sx_list_view_new (GncSxInstanceModel *sx_instances)
 
     name_column = sx_list_append_text_column (view, _("Name"), SX_LIST_COLUMN_NAME, TRUE, TRUE);
     enabled_factory = gtk_signal_list_item_factory_new ();
+    g_signal_connect (enabled_factory, "setup", G_CALLBACK (sx_list_enabled_setup), NULL);
+    g_signal_connect (enabled_factory, "bind", G_CALLBACK (sx_list_enabled_bind), data->adapter);
     data->enabled_column = gtk_column_view_column_new
         (C_("Single-character short column-title form of 'Enabled'", "E"), enabled_factory);
     gtk_column_view_column_set_resizable (data->enabled_column, TRUE);
     gtk_column_view_append_column (view, data->enabled_column);
-    g_signal_connect (enabled_factory, "setup", G_CALLBACK (sx_list_enabled_setup), NULL);
-    g_signal_connect (enabled_factory, "bind", G_CALLBACK (sx_list_enabled_bind), data->adapter);
-    g_object_unref (enabled_factory);
     sx_list_append_text_column (view, _("Frequency"), SX_LIST_COLUMN_FREQUENCY, TRUE, TRUE);
     sx_list_append_text_column (view, _("Postponed"), SX_LIST_COLUMN_POSTPONED, FALSE, FALSE);
     sx_list_append_text_column (view, _("Last Occur"), SX_LIST_COLUMN_LAST_OCCUR, FALSE, TRUE);

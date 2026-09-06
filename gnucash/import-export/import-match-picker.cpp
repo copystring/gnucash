@@ -443,10 +443,10 @@ init_match_picker_gui (GtkWidget *parent, GNCImportMatchPicker *matcher)
 
     matcher->downloaded_store = g_list_store_new (G_TYPE_OBJECT);
     matcher->match_store = g_list_store_new (G_TYPE_OBJECT);
-    matcher->downloaded_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new (G_LIST_MODEL (matcher->downloaded_store)));
-    matcher->match_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new (G_LIST_MODEL (matcher->match_store)));
-    matcher->downloaded_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (matcher->downloaded_selection)));
-    matcher->match_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (matcher->match_selection)));
+    matcher->downloaded_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new (G_LIST_MODEL (g_object_ref (matcher->downloaded_store))));
+    matcher->match_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new (G_LIST_MODEL (g_object_ref (matcher->match_store))));
+    matcher->downloaded_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (matcher->downloaded_selection))));
+    matcher->match_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (matcher->match_selection))));
 
     gtk_column_view_set_reorderable (matcher->downloaded_view, TRUE);
     gtk_column_view_set_reorderable (matcher->match_view, TRUE);

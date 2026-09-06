@@ -1788,13 +1788,13 @@ gxi_edit_encodings_clicked_cb (GtkButton *button, GncXmlImportData *data)
     gtk_box_append (GTK_BOX (selected_box), gtk_label_new (_("Selected encodings")));
 
     roots = gxi_system_encoding_model_new ();
-    tree = gtk_tree_list_model_new (G_LIST_MODEL (roots), FALSE, FALSE,
+    tree = gtk_tree_list_model_new (G_LIST_MODEL (g_object_ref (roots)), FALSE, FALSE,
                                     gxi_system_encoding_children_cb, NULL, NULL);
-    data->available_selection = gtk_single_selection_new (G_LIST_MODEL (tree));
+    data->available_selection = gtk_single_selection_new (G_LIST_MODEL (g_object_ref (tree)));
     tree_factory = GTK_SIGNAL_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
     g_signal_connect (tree_factory, "setup", G_CALLBACK (gxi_tree_item_setup_cb), NULL);
     g_signal_connect (tree_factory, "bind", G_CALLBACK (gxi_tree_item_bind_cb), NULL);
-    view = gtk_list_view_new (GTK_SELECTION_MODEL (data->available_selection),
+    view = gtk_list_view_new (GTK_SELECTION_MODEL (g_object_ref (data->available_selection)),
                               GTK_LIST_ITEM_FACTORY (tree_factory));
     g_signal_connect (view, "activate", G_CALLBACK (gxi_available_encoding_activated_cb), data);
     gtk_widget_set_vexpand (view, TRUE);
@@ -1811,7 +1811,6 @@ gxi_edit_encodings_clicked_cb (GtkButton *button, GncXmlImportData *data)
             gtk_tree_list_row_set_expanded (row, TRUE);
         g_object_unref (row);
     }
-    g_object_unref (tree_factory);
     g_object_unref (tree);
     g_object_unref (roots);
 
@@ -1819,11 +1818,11 @@ gxi_edit_encodings_clicked_cb (GtkButton *button, GncXmlImportData *data)
     for (iter = data->encodings; iter; iter = iter->next)
         gxi_append_selected_encoding (data, GPOINTER_TO_UINT (iter->data));
     data->selected_selection = gtk_single_selection_new (
-        G_LIST_MODEL (data->selected_encodings));
+        G_LIST_MODEL (g_object_ref (data->selected_encodings)));
     string_factory = GTK_SIGNAL_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
     g_signal_connect (string_factory, "setup", G_CALLBACK (gxi_string_item_setup_cb), NULL);
     g_signal_connect (string_factory, "bind", G_CALLBACK (gxi_string_item_bind_cb), NULL);
-    view = gtk_list_view_new (GTK_SELECTION_MODEL (data->selected_selection),
+    view = gtk_list_view_new (GTK_SELECTION_MODEL (g_object_ref (data->selected_selection)),
                               GTK_LIST_ITEM_FACTORY (string_factory));
     g_signal_connect (view, "activate", G_CALLBACK (gxi_selected_encoding_activated_cb), data);
     gtk_widget_set_vexpand (view, TRUE);
@@ -1833,8 +1832,6 @@ gxi_edit_encodings_clicked_cb (GtkButton *button, GncXmlImportData *data)
         gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), view);
         gtk_box_append (GTK_BOX (selected_box), scrolled);
     }
-    g_object_unref (string_factory);
-
     entry_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     data->custom_enc_entry = GTK_ENTRY (gtk_entry_new ());
     gtk_widget_set_hexpand (GTK_WIDGET (data->custom_enc_entry), TRUE);

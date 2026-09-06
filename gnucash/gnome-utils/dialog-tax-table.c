@@ -1032,7 +1032,7 @@ if (!book) return NULL;
      * exposing mutable engine pointers as model properties. */
     ttw->tables_model = g_list_store_new (G_TYPE_OBJECT);
     ttw->tables_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new
-        (G_LIST_MODEL (ttw->tables_model)));
+        (G_LIST_MODEL (g_object_ref (ttw->tables_model))));
     gtk_single_selection_set_autoselect (ttw->tables_selection, FALSE);
     gtk_column_view_set_model (GTK_COLUMN_VIEW (ttw->names_view),
                                GTK_SELECTION_MODEL (ttw->tables_selection));
@@ -1043,7 +1043,7 @@ if (!book) return NULL;
 
     ttw->entries_model = g_list_store_new (G_TYPE_OBJECT);
     ttw->entries_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new
-        (G_LIST_MODEL (ttw->entries_model)));
+        (G_LIST_MODEL (g_object_ref (ttw->entries_model))));
     gtk_single_selection_set_autoselect (ttw->entries_selection, FALSE);
     gtk_column_view_set_model (GTK_COLUMN_VIEW (ttw->entries_view),
                                GTK_SELECTION_MODEL (ttw->entries_selection));

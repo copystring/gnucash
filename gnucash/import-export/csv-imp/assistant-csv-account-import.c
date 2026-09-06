@@ -782,7 +782,7 @@ csv_import_assistant_create (CsvImportInfo *info)
 
     /* The preview shares the parsed GTK4 row model with the importer. */
     info->store = g_list_store_new (G_TYPE_OBJECT);
-    selection = gtk_no_selection_new (G_LIST_MODEL (info->store));
+    selection = gtk_no_selection_new (G_LIST_MODEL (g_object_ref (info->store)));
     info->preview_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
 #define CREATE_COLUMN(description,column_id) \
   mnemonic_desc = mnemonic_escape (_(description)); \

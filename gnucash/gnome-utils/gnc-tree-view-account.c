@@ -41,11 +41,18 @@ typedef struct
     gnc_tree_view_account_edited_func edited_cb;
 } AccountColumn;
 
+typedef struct
+{
+    GWeakRef view;
+    gboolean disposed;
+} AccountChildrenContext;
+
 struct _GncTreeViewAccount
 {
     GtkBox parent_instance;
     GncTreeModelAccount *account_model;
     GtkTreeListModel *rows;
+    AccountChildrenContext *children_context;
     GtkSelectionModel *selection;
     GtkColumnView *column_view;
     GtkSelectionMode selection_mode;
@@ -104,11 +111,30 @@ account_at (GncTreeViewAccount *view, guint position)
 static GListModel *
 create_children_cb (gpointer item, gpointer user_data)
 {
-    GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT (user_data);
+    AccountChildrenContext *context = user_data;
+    GncTreeViewAccount *view;
     Account *account = GNC_ACCOUNT (item);
-    if (gnc_account_n_children (account) == 0)
+
+    if (context->disposed)
         return NULL;
-    return gnc_tree_model_account_create_children (view->account_model, account);
+    view = g_weak_ref_get (&context->view);
+    if (!view)
+        return NULL;
+    if (gnc_account_n_children (account) == 0)
+    {
+        g_object_unref (view);
+        return NULL;
+    }
+    GListModel *children = gnc_tree_model_account_create_children (view->account_model, account);
+    g_object_unref (view);
+    return children;
+}
+
+static void
+account_children_context_free (AccountChildrenContext *context)
+{
+    g_weak_ref_clear (&context->view);
+    g_free (context);
 }
 
 static void
@@ -500,12 +526,36 @@ static void
 view_dispose (GObject *object)
 {
     GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT (object);
-    if (view->restore_source)
-        g_source_remove (view->restore_source);
+    GDestroyNotify selection_filter_destroy;
+    gpointer selection_filter_data;
+    guint restore_source;
+
+    restore_source = view->restore_source;
+    view->restore_source = 0;
+    if (restore_source)
+        g_source_remove (restore_source);
+    if (view->children_context)
+        view->children_context->disposed = TRUE;
+    view->children_context = NULL;
+    if (view->selection)
+        g_signal_handlers_disconnect_by_func (view->selection, selection_changed, view);
+    if (view->account_model)
+    {
+        g_signal_handlers_disconnect_by_func (view->account_model, model_rebuilding, view);
+        g_signal_handlers_disconnect_by_func (view->account_model, model_changed, view);
+    }
     if (view->column_view)
+    {
+        g_signal_handlers_disconnect_by_func (view->column_view, account_activated, view);
         gnc_column_view_unbind_grid_line_preferences (view->column_view);
-    if (view->selection_filter_destroy)
-        view->selection_filter_destroy (view->selection_filter_data);
+        gtk_column_view_set_model (view->column_view, NULL);
+        view->column_view = NULL;
+    }
+    selection_filter_destroy = g_steal_pointer (&view->selection_filter_destroy);
+    selection_filter_data = g_steal_pointer (&view->selection_filter_data);
+    view->selection_filter = NULL;
+    if (selection_filter_destroy)
+        selection_filter_destroy (selection_filter_data);
     g_clear_pointer (&view->selected, g_hash_table_destroy);
     g_clear_pointer (&view->expanded, g_hash_table_destroy);
     g_clear_pointer (&view->state_section, g_free);
@@ -539,22 +589,31 @@ new_with_model (Account *root, gboolean show_root)
 {
     GncTreeViewAccount *view = g_object_new (GNC_TYPE_TREE_VIEW_ACCOUNT, NULL);
     view->account_model = gnc_tree_model_account_new (root, show_root);
+    view->children_context = g_new0 (AccountChildrenContext, 1);
+    g_weak_ref_init (&view->children_context->view, view);
     view->rows = gtk_tree_list_model_new (
-        gnc_tree_model_account_get_roots (view->account_model), FALSE, FALSE,
-        create_children_cb, view, NULL);
+        g_object_ref (gnc_tree_model_account_get_roots (view->account_model)),
+        FALSE, FALSE,
+        create_children_cb, view->children_context,
+        (GDestroyNotify) account_children_context_free);
     view->selection = GTK_SELECTION_MODEL (gtk_single_selection_new (
-        G_LIST_MODEL (view->rows)));
-    view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (view->selection));
+        g_object_ref (G_LIST_MODEL (view->rows))));
+    view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (
+        g_object_ref (view->selection)));
     gnc_column_view_bind_grid_line_preferences (view->column_view);
     gtk_column_view_set_reorderable (view->column_view, TRUE);
     gtk_widget_set_hexpand (GTK_WIDGET (view->column_view), TRUE);
     gtk_widget_set_vexpand (GTK_WIDGET (view->column_view), TRUE);
     gtk_box_append (GTK_BOX (view), GTK_WIDGET (view->column_view));
     add_default_columns (view);
-    g_signal_connect (view->selection, "selection-changed", G_CALLBACK (selection_changed), view);
-    g_signal_connect (view->column_view, "activate", G_CALLBACK (account_activated), view);
-    g_signal_connect (view->account_model, "rebuilding", G_CALLBACK (model_rebuilding), view);
-    g_signal_connect (view->account_model, "changed", G_CALLBACK (model_changed), view);
+    g_signal_connect_object (view->selection, "selection-changed",
+                             G_CALLBACK (selection_changed), view, 0);
+    g_signal_connect_object (view->column_view, "activate",
+                             G_CALLBACK (account_activated), view, 0);
+    g_signal_connect_object (view->account_model, "rebuilding",
+                             G_CALLBACK (model_rebuilding), view, 0);
+    g_signal_connect_object (view->account_model, "changed",
+                             G_CALLBACK (model_changed), view, 0);
     return GTK_WIDGET (view);
 }
 
@@ -576,17 +635,24 @@ gnc_tree_view_account_set_selection_mode (GncTreeViewAccount *view,
                                           GtkSelectionMode mode)
 {
     GtkSelectionModel *selection;
+    GtkSelectionModel *old_selection;
     g_return_if_fail (GNC_IS_TREE_VIEW_ACCOUNT (view));
     if (mode == view->selection_mode)
         return;
     selection = mode == GTK_SELECTION_MULTIPLE
-        ? GTK_SELECTION_MODEL (gtk_multi_selection_new (G_LIST_MODEL (view->rows)))
-        : GTK_SELECTION_MODEL (gtk_single_selection_new (G_LIST_MODEL (view->rows)));
-    g_signal_connect (selection, "selection-changed", G_CALLBACK (selection_changed), view);
-    gtk_column_view_set_model (view->column_view, selection);
-    g_clear_object (&view->selection);
+        ? GTK_SELECTION_MODEL (gtk_multi_selection_new (
+            g_object_ref (G_LIST_MODEL (view->rows))))
+        : GTK_SELECTION_MODEL (gtk_single_selection_new (
+            g_object_ref (G_LIST_MODEL (view->rows))));
+    g_signal_connect_object (selection, "selection-changed",
+                             G_CALLBACK (selection_changed), view, 0);
+    old_selection = g_steal_pointer (&view->selection);
+    if (old_selection)
+        g_signal_handlers_disconnect_by_func (old_selection, selection_changed, view);
     view->selection = selection;
     view->selection_mode = mode;
+    gtk_column_view_set_model (view->column_view, selection);
+    g_clear_object (&old_selection);
     schedule_restore (view);
 }
 

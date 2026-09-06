@@ -246,12 +246,22 @@ static void
 gnc_tree_view_owner_dispose (GObject *object)
 {
     GncTreeViewOwner *view = GNC_TREE_VIEW_OWNER (object);
-    if (view->filter_destroy)
-        view->filter_destroy (view->filter_data);
+    GDestroyNotify filter_destroy;
+    gpointer filter_data;
+
     if (view->column_view)
+    {
         gnc_column_view_unbind_grid_line_preferences (view->column_view);
-    view->filter_destroy = NULL;
+        gtk_column_view_set_model (view->column_view, NULL);
+        view->column_view = NULL;
+    }
+    if (view->filter)
+        gtk_custom_filter_set_filter_func (view->filter, NULL, NULL, NULL);
+    filter_destroy = g_steal_pointer (&view->filter_destroy);
+    filter_data = g_steal_pointer (&view->filter_data);
     view->filter_fn = NULL;
+    if (filter_destroy)
+        filter_destroy (filter_data);
     g_clear_object (&view->selection);
     g_clear_object (&view->sorted);
     g_clear_object (&view->filtered);
@@ -287,10 +297,10 @@ gnc_tree_view_owner_new (GncOwnerType owner_type)
     view->filter = gtk_custom_filter_new (owner_filter_cb, view, NULL);
     view->filtered = gtk_filter_list_model_new (
         g_object_ref (gnc_tree_model_owner_get_model (view->owner_model)),
-        GTK_FILTER (view->filter));
-    view->sorted = gtk_sort_list_model_new (G_LIST_MODEL (view->filtered),
-        gtk_column_view_get_sorter (view->column_view));
-    view->selection = gtk_single_selection_new (G_LIST_MODEL (view->sorted));
+        GTK_FILTER (g_object_ref (view->filter)));
+    view->sorted = gtk_sort_list_model_new (g_object_ref (G_LIST_MODEL (view->filtered)),
+        g_object_ref (gtk_column_view_get_sorter (view->column_view)));
+    view->selection = gtk_single_selection_new (g_object_ref (G_LIST_MODEL (view->sorted)));
     gtk_single_selection_set_autoselect (view->selection, FALSE);
     gtk_column_view_set_model (view->column_view, GTK_SELECTION_MODEL (view->selection));
     for (guint i = 0; i <= OWNER_COL_ACTIVE; i++)

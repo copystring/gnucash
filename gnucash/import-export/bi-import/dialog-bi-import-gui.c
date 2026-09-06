@@ -304,7 +304,7 @@ gnc_plugin_bi_import_showGUI (GtkWindow *parent)
 
     /* The preview and import logic share one GTK4 list model. */
     gui->store = g_list_store_new (G_TYPE_OBJECT);
-    selection = gtk_no_selection_new (G_LIST_MODEL (gui->store));
+    selection = gtk_no_selection_new (G_LIST_MODEL (g_object_ref (gui->store)));
     gui->preview_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (selection)));
     bi_import_preview_add_column (gui->preview_view, _("ID"), ID);
     bi_import_preview_add_column (gui->preview_view, _("Date Opened"), DATE_OPENED);
