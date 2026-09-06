@@ -3662,7 +3662,7 @@ gnc_builder_connect_signals_full (builder, gnc_builder_connect_full_func, iw);
         gtk_widget_set_visible (GTK_WIDGET(regWidget), TRUE);
 
         frame = GTK_WIDGET (gtk_builder_get_object (builder, "ledger_frame"));
-        gtk_box_prepend (GTK_BOX(frame), GTK_WIDGET(regWidget));
+        gtk_frame_set_child (GTK_FRAME(frame), GTK_WIDGET(regWidget));
 
         iw->reg = GNUCASH_REGISTER (regWidget);
         window = gnc_plugin_page_get_window(iw->page);

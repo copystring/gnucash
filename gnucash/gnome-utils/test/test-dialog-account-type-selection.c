@@ -168,6 +168,31 @@ test_account_builder_roots_include_color_dialogs (void)
     }
 }
 
+static void
+test_account_builder_container_types (void)
+{
+    GtkBuilder *builder = gtk_builder_new ();
+    static const gchar *boxes[] = {
+        "commodity_hbox",
+        "higher_balance_limit_hbox",
+        "lower_balance_limit_hbox",
+        "opening_balance_box",
+        "opening_balance_date_box",
+    };
+
+    g_assert_true (gnc_builder_add_from_file (builder, "dialog-account.glade",
+                                               "account_dialog"));
+    for (guint index = 0; index < G_N_ELEMENTS (boxes); index++)
+        g_assert_true (GTK_IS_BOX (gtk_builder_get_object (builder, boxes[index])));
+    g_assert_true (GTK_IS_SCROLLED_WINDOW (gtk_builder_get_object
+                                            (builder, "parent_scroll")));
+    g_assert_true (GTK_IS_SCROLLED_WINDOW (gtk_builder_get_object
+                                            (builder, "transfer_account_scroll")));
+    gtk_window_destroy (GTK_WINDOW (gtk_builder_get_object (builder,
+                                                             "account_dialog")));
+    g_object_unref (builder);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -186,6 +211,8 @@ main (int argc, char **argv)
                      test_account_type_selection_owns_model_items);
     g_test_add_func ("/gnome-utils/dialog-account/builder-color-dialog-roots",
                      test_account_builder_roots_include_color_dialogs);
+    g_test_add_func ("/gnome-utils/dialog-account/builder-container-types",
+                     test_account_builder_container_types);
     status = g_test_run ();
 
     gnc_component_manager_shutdown ();

@@ -775,9 +775,11 @@ gnc_finish_ok (AccountWindow *aw)
         Account *account;
 
         /* Drop the old parent_tree so we can update it with an up to date one */
-        gtk_box_remove (GTK_BOX(aw->parent_scroll), GTK_WIDGET(aw->parent_tree));
+        aw_clear_selection_handler (aw);
+        gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (aw->parent_scroll), NULL);
         aw->parent_tree = gnc_tree_view_account_new (TRUE);
-        gtk_box_prepend (GTK_BOX(aw->parent_scroll), GTK_WIDGET(aw->parent_tree));
+        gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (aw->parent_scroll),
+                                       GTK_WIDGET (aw->parent_tree));
         gtk_widget_set_visible (GTK_WIDGET(aw->parent_tree), TRUE);
 
         aw_connect_selection_changed (aw);
@@ -1787,7 +1789,8 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     aw->parent_scroll = GTK_WIDGET(gtk_builder_get_object (builder, "parent_scroll"));
 
     aw->parent_tree = gnc_tree_view_account_new (TRUE);
-    gtk_box_prepend (GTK_BOX(aw->parent_scroll), GTK_WIDGET(aw->parent_tree));
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (aw->parent_scroll),
+                                   GTK_WIDGET (aw->parent_tree));
     gtk_widget_set_visible (GTK_WIDGET(aw->parent_tree), TRUE);
     aw_connect_selection_changed (aw);
 
@@ -1853,7 +1856,8 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     gnc_tree_view_account_set_selection_filter (
         GNC_TREE_VIEW_ACCOUNT (aw->transfer_tree), account_commodity_filter, aw, NULL);
 
-    gtk_box_prepend (GTK_BOX(box), GTK_WIDGET(aw->transfer_tree));
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (box),
+                                   GTK_WIDGET (aw->transfer_tree));
     gtk_widget_set_visible (GTK_WIDGET(aw->transfer_tree), TRUE);
 
     label = GTK_WIDGET(gtk_builder_get_object (builder, "parent_label"));
