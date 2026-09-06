@@ -759,7 +759,6 @@ search_dropdown_get_param (GtkDropDown *drop_down)
         return NULL;
 
     param = g_object_get_qdata (item, search_param_quark);
-    g_object_unref (item);
     return param;
 }
 

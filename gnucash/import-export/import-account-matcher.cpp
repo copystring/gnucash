@@ -149,7 +149,6 @@ picker_selected_account (AccountPicker *picker)
     if (!item)
         return nullptr;
     auto account = account_row_get (item);
-    g_object_unref (item);
     return account;
 }
 

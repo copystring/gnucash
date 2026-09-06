@@ -803,7 +803,6 @@ qif_file_selection_changed (GtkSelectionModel *selection, guint position,
         wind->selected_file = SCM_BOOL_F;
     scm_gc_protect_object (wind->selected_file);
     gtk_widget_set_sensitive (wind->unload_file_btn, row != NULL);
-    g_clear_object (&row);
     (void)selection;
     (void)position;
     (void)n_items;
@@ -1498,7 +1497,6 @@ gnc_ui_qif_import_duplicate_new_select_cb (GtkSelectionModel *selection,
         wind->selected_transaction = row->index;
         refresh_old_transactions (wind, -1);
     }
-    g_clear_object (&row);
     (void)selection;
     (void)position;
     (void)n_items;
@@ -1519,7 +1517,6 @@ gnc_ui_qif_import_duplicate_old_select_cb (GtkSelectionModel *selection,
 
     if (row)
         refresh_old_transactions (wind, row->index);
-    g_clear_object (&row);
     (void)selection;
     (void)position;
     (void)n_items;

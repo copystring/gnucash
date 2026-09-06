@@ -1493,6 +1493,7 @@ gxi_tree_item_bind_cb (GtkSignalListItemFactory *factory,
     label = GTK_LABEL (gtk_tree_expander_get_child (expander));
     gtk_label_set_text (label, gtk_string_object_get_string (item));
     gtk_tree_expander_set_list_row (expander, row);
+    g_object_unref (item);
 }
 
 static GQuark
@@ -1507,8 +1508,10 @@ gxi_available_encoding (GncXmlImportData *data)
         return 0;
     row = GTK_TREE_LIST_ROW (selected);
     item = gtk_tree_list_row_get_item (row);
-    return GPOINTER_TO_UINT (g_object_get_data (item,
-                                                 "gnc-xml-encoding-quark"));
+    GQuark encoding = GPOINTER_TO_UINT (g_object_get_data (item,
+                                                            "gnc-xml-encoding-quark"));
+    g_object_unref (item);
+    return encoding;
 }
 
 static GQuark

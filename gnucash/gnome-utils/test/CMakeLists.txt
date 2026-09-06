@@ -83,11 +83,27 @@ set (test_gnc_account_type_list_SOURCES
 gnc_add_test (test-gnc-account-type-list "${test_gnc_account_type_list_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_dialog_account_type_selection_SOURCES
+  test-dialog-account-type-selection.c
+)
+
+gnc_add_test (test-dialog-account-type-selection
+  "${test_dialog_account_type_selection_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
 set (test_gnc_tree_view_SOURCES
   test-gnc-tree-view.c
 )
 
 gnc_add_test (test-gnc-tree-view "${test_gnc_tree_view_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
+set (test_tree_view_row_ownership_SOURCES
+  test-tree-view-row-ownership.c
+)
+
+gnc_add_test (test-tree-view-row-ownership
+  "${test_tree_view_row_ownership_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
 set (test_gnc_register_input_SOURCES
@@ -192,7 +208,9 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_session_load_executor_SOURCES}
   test-gnc-session-load-executor-no-assert.c
   ${test_gnc_account_type_list_SOURCES}
+  ${test_dialog_account_type_selection_SOURCES}
   ${test_gnc_tree_view_SOURCES}
+  ${test_tree_view_row_ownership_SOURCES}
   ${test_gnc_register_input_SOURCES}
   ${test_gnc_statusbar_SOURCES}
   ${test_gnc_toolbar_SOURCES}

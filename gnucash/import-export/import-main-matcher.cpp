@@ -259,8 +259,6 @@ matcher_row_at (GNCImportMainMatcher *info, guint position)
     if (!tree_row)
         return {};
     auto item = G_OBJECT (gtk_tree_list_row_get_item (tree_row));
-    if (item)
-        g_object_ref (item);
     g_object_unref (tree_row);
     return GObjectPtr { item };
 }
@@ -1805,7 +1803,8 @@ matcher_text_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer u
 {
     auto column = GPOINTER_TO_INT (user_data);
     auto tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    auto row = matcher_row_get (gtk_tree_list_row_get_item (tree_row));
+    auto object = G_OBJECT (gtk_tree_list_row_get_item (tree_row));
+    auto row = matcher_row_get (object);
     auto child = gtk_list_item_get_child (item);
     auto label = column == DOWNLOADED_COL_DATE_TXT
         ? GTK_LABEL (gtk_tree_expander_get_child (GTK_TREE_EXPANDER (child)))
@@ -1823,6 +1822,7 @@ matcher_text_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer u
         gtk_widget_set_tooltip_text (GTK_WIDGET (label), nullptr);
     if (column == DOWNLOADED_COL_DATE_TXT)
         gtk_tree_expander_set_list_row (GTK_TREE_EXPANDER (child), tree_row);
+    g_object_unref (object);
     (void)factory;
 }
 
@@ -1873,7 +1873,8 @@ matcher_toggle_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer
     g_signal_handler_block (button, binding->changed_id);
     gtk_check_button_set_active (button, active);
     g_signal_handler_unblock (button, binding->changed_id);
-    g_object_set_data (G_OBJECT (button), "gnc-import-matcher-row", object);
+    g_object_set_data_full (G_OBJECT (button), "gnc-import-matcher-row", object,
+                            g_object_unref);
     gtk_widget_set_visible (GTK_WIDGET (button), row->enabled && !row->detail);
     gtk_widget_set_sensitive (GTK_WIDGET (button), row->enabled && !row->detail);
     matcher_apply_row_style (GTK_WIDGET (button), row);
@@ -1900,13 +1901,15 @@ static void
 matcher_info_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
     auto tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    auto row = matcher_row_get (gtk_tree_list_row_get_item (tree_row));
+    auto object = G_OBJECT (gtk_tree_list_row_get_item (tree_row));
+    auto row = matcher_row_get (object);
     auto box = GTK_BOX (gtk_list_item_get_child (item));
     auto image = GTK_IMAGE (gtk_widget_get_first_child (GTK_WIDGET (box)));
     auto label = GTK_LABEL (gtk_widget_get_next_sibling (GTK_WIDGET (image)));
     gtk_image_set_from_paintable (image, row->confidence ? GDK_PAINTABLE (row->confidence) : nullptr);
     gtk_label_set_text (label, row->action_info);
     matcher_apply_row_style (GTK_WIDGET (box), row);
+    g_object_unref (object);
     (void)factory;
     (void)user_data;
 }

@@ -335,14 +335,12 @@ imexporter_changed (GtkSelectionModel *selection, guint, guint, gpointer data)
         else
         {
             gtk_widget_set_sensitive (imexd->ok_button, TRUE);
-            g_object_unref (item);
             return;
         }
 
         if (profile_count == 1)
             gtk_single_selection_set_selected (imexd->profile_selection, 0);
         g_list_free (profiles);
-        g_object_unref (item);
         return;
     }
 }
@@ -446,7 +444,6 @@ selection_get_name (GtkSingleSelection *selection)
 {
     GtkStringObject *item = gtk_single_selection_get_selected_item (selection);
     char *name = item ? g_strdup (gtk_string_object_get_string (item)) : NULL;
-    g_clear_object (&item);
     return name;
 }
 

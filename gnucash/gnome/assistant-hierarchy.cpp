@@ -1155,7 +1155,6 @@ hierarchy_category_selection_changed (GtkSelectionModel *selection, guint positi
     auto row = item ? static_cast<HierarchyCategoryRow*>(item) : nullptr;
 
     hierarchy_set_preview (data, row ? row->account_set : nullptr);
-    g_clear_object (&item);
     (void)selection;
     (void)position;
     (void)n_items;

@@ -188,7 +188,6 @@ custom_report_selected_guid (CustomReportDialog *crd, GncGUID *guid)
     if (!row)
         return FALSE;
     *guid = row->guid;
-    g_object_unref (row);
     return TRUE;
 }
 

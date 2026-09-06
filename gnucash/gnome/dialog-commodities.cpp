@@ -138,6 +138,16 @@ commodity_manager_row_get (gpointer object)
         g_object_get_qdata (G_OBJECT (object), commodity_manager_row_get_quark ())) : nullptr;
 }
 
+static CommodityManagerRow *
+commodity_manager_tree_row_get (GtkTreeListRow *tree_row)
+{
+    auto item = tree_row ? gtk_tree_list_row_get_item (tree_row) : nullptr;
+    auto row = commodity_manager_row_get (item);
+
+    g_clear_object (&item);
+    return row;
+}
+
 static void
 commodity_manager_row_set_text (CommodityManagerRow *row, CommodityManagerColumn column,
                                 const char *value)
@@ -247,7 +257,7 @@ commodity_manager_list_item_row (GtkListItem *list_item)
 {
     const auto tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (list_item));
 
-    return tree_row ? commodity_manager_row_get (gtk_tree_list_row_get_item (tree_row)) : nullptr;
+    return commodity_manager_tree_row_get (tree_row);
 }
 
 static void
@@ -295,8 +305,7 @@ commodity_manager_namespace_item_bind (GtkListItemFactory *factory, GtkListItem 
                                        gpointer user_data)
 {
     const auto tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (list_item));
-    const auto row = tree_row ? commodity_manager_row_get (
-        gtk_tree_list_row_get_item (tree_row)) : nullptr;
+    const auto row = commodity_manager_tree_row_get (tree_row);
     const auto expander = GTK_TREE_EXPANDER (gtk_list_item_get_child (list_item));
     const auto label = GTK_LABEL (gtk_tree_expander_get_child (expander));
 
@@ -480,8 +489,7 @@ commodity_manager_selected_row (CommoditiesDialog *cd)
     CommodityManagerRow *row = nullptr;
 
     if (item && GTK_IS_TREE_LIST_ROW (item))
-        row = commodity_manager_row_get (gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (item)));
-    g_clear_object (&item);
+        row = commodity_manager_tree_row_get (GTK_TREE_LIST_ROW (item));
     return row;
 }
 
@@ -549,7 +557,7 @@ commodity_manager_capture_view_state (CommoditiesDialog *cd)
          ++position)
     {
         auto tree_row = gtk_tree_list_model_get_row (cd->commodity_tree_model, position);
-        auto row = tree_row ? commodity_manager_row_get (gtk_tree_list_row_get_item (tree_row)) : nullptr;
+        auto row = commodity_manager_tree_row_get (tree_row);
 
         if (tree_row && gtk_tree_list_row_get_depth (tree_row) == 0 && row &&
             row->is_namespace && gtk_tree_list_row_get_expanded (tree_row))
@@ -574,7 +582,7 @@ commodity_manager_apply_expansion (CommoditiesDialog *cd, const CommodityManager
          ++position)
     {
         auto tree_row = gtk_tree_list_model_get_row (cd->commodity_tree_model, position);
-        auto row = tree_row ? commodity_manager_row_get (gtk_tree_list_row_get_item (tree_row)) : nullptr;
+        auto row = commodity_manager_tree_row_get (tree_row);
 
         if (tree_row && gtk_tree_list_row_get_depth (tree_row) == 0 && row && row->is_namespace)
             gtk_tree_list_row_set_expanded (tree_row,
@@ -595,7 +603,7 @@ commodity_manager_select_namespace (CommoditiesDialog *cd, const char *namespace
          ++position)
     {
         auto tree_row = gtk_tree_list_model_get_row (cd->commodity_tree_model, position);
-        auto row = tree_row ? commodity_manager_row_get (gtk_tree_list_row_get_item (tree_row)) : nullptr;
+        auto row = commodity_manager_tree_row_get (tree_row);
 
         if (row && row->is_namespace && g_strcmp0 (row->namespace_name, namespace_name) == 0)
         {
@@ -623,7 +631,7 @@ commodity_manager_select_commodity (CommoditiesDialog *cd, gnc_commodity *commod
          ++position)
     {
         auto tree_row = gtk_tree_list_model_get_row (cd->commodity_tree_model, position);
-        auto row = tree_row ? commodity_manager_row_get (gtk_tree_list_row_get_item (tree_row)) : nullptr;
+        auto row = commodity_manager_tree_row_get (tree_row);
 
         if (row && row->is_namespace && g_strcmp0 (row->namespace_name, namespace_name) == 0)
         {
@@ -639,7 +647,7 @@ commodity_manager_select_commodity (CommoditiesDialog *cd, gnc_commodity *commod
          ++position)
     {
         auto tree_row = gtk_tree_list_model_get_row (cd->commodity_tree_model, position);
-        auto row = tree_row ? commodity_manager_row_get (gtk_tree_list_row_get_item (tree_row)) : nullptr;
+        auto row = commodity_manager_tree_row_get (tree_row);
 
         if (row && !row->is_namespace && guid_equal (&row->commodity_guid, &guid))
         {
@@ -1180,7 +1188,7 @@ commodity_manager_row_activated_cb (GtkColumnView *view, guint position, Commodi
 {
     auto tree_row = cd && cd->commodity_tree_model
         ? gtk_tree_list_model_get_row (cd->commodity_tree_model, position) : nullptr;
-    auto row = tree_row ? commodity_manager_row_get (gtk_tree_list_row_get_item (tree_row)) : nullptr;
+    auto row = commodity_manager_tree_row_get (tree_row);
 
     if (row && row->is_namespace)
         gtk_tree_list_row_set_expanded (tree_row, !gtk_tree_list_row_get_expanded (tree_row));

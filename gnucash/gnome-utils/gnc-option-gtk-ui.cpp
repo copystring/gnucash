@@ -891,8 +891,9 @@ account_list_get_account (gpointer item)
     if (!GTK_IS_TREE_LIST_ROW (item))
         return nullptr;
     auto account = gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (item));
-
-    return GNC_IS_ACCOUNT (account) ? GNC_ACCOUNT (account) : nullptr;
+    auto result = GNC_IS_ACCOUNT (account) ? GNC_ACCOUNT (account) : nullptr;
+    g_clear_object (&account);
+    return result;
 }
 
 static gboolean

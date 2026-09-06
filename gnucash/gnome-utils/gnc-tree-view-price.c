@@ -46,7 +46,12 @@ priv (GncTreeViewPrice *view)
 static GncTreeModelPriceRow *
 row_from_item (gpointer item)
 {
-    return GTK_IS_TREE_LIST_ROW (item)? GNC_TREE_MODEL_PRICE_ROW (gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (item))): NULL;
+    if (!GTK_IS_TREE_LIST_ROW (item))
+        return NULL;
+    GObject *row_item = gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (item));
+    GncTreeModelPriceRow *row = GNC_TREE_MODEL_PRICE_ROW (row_item);
+    g_clear_object (&row_item);
+    return row;
 }
 static gboolean
 row_visible (GncTreeViewPricePrivate *p, GncTreeModelPriceRow *row)

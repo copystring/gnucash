@@ -138,11 +138,16 @@ imap_filter_match (gpointer item, gpointer user_data)
 {
     ImapDialog *dialog = user_data;
     GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (item);
-    ImapRow *row = imap_row_get (gtk_tree_list_row_get_item (tree_row));
+    GObject *row_item = gtk_tree_list_row_get_item (tree_row);
+    ImapRow *row = imap_row_get (row_item);
+    gboolean matches;
     if (!dialog->filter_text || !*dialog->filter_text || !row || !row->match_string)
-        return TRUE;
-    return g_strrstr (row->match_string, dialog->filter_text) != NULL ||
-           (row->map_full_acc && g_strrstr (row->map_full_acc, dialog->filter_text) != NULL);
+        matches = TRUE;
+    else
+        matches = g_strrstr (row->match_string, dialog->filter_text) != NULL ||
+            (row->map_full_acc && g_strrstr (row->map_full_acc, dialog->filter_text) != NULL);
+    g_object_unref (row_item);
+    return matches;
 }
 
 static void
@@ -213,10 +218,12 @@ imap_apply_filter (ImapDialog *dialog, gboolean expand_matches)
         for (i = 0; i < roots->len; i++)
         {
             GtkTreeListRow *tree_row = g_ptr_array_index (roots, i);
-            ImapRow *row = imap_row_get (gtk_tree_list_row_get_item (tree_row));
+            GObject *row_item = gtk_tree_list_row_get_item (tree_row);
+            ImapRow *row = imap_row_get (row_item);
 
             gtk_tree_list_row_set_expanded (tree_row,
                                             imap_root_matches_filter (row, dialog->filter_text));
+            g_object_unref (row_item);
         }
     g_ptr_array_unref (roots);
     gtk_filter_changed (GTK_FILTER (dialog->filter), GTK_FILTER_CHANGE_DIFFERENT);
@@ -255,8 +262,14 @@ delete_row_info (ImapDialog *dialog, ImapRow *row, guint depth)
         delete_info_nbayes (row->source_account, row->head, row->category, row->match_string, depth);
 }
 
-typedef struct { ImapRow *row; guint depth; } ImapSelectedRow;
-static void imap_selected_row_free (gpointer data) { g_free (data); }
+typedef struct { GObject *row_item; guint depth; } ImapSelectedRow;
+static void
+imap_selected_row_free (gpointer data)
+{
+    ImapSelectedRow *selected = data;
+    g_clear_object (&selected->row_item);
+    g_free (selected);
+}
 
 static GPtrArray *
 imap_selected_rows (ImapDialog *dialog)
@@ -273,6 +286,7 @@ imap_selected_rows (ImapDialog *dialog)
         do
         {
             GtkTreeListRow *tree_row;
+            GObject *row_item;
             ImapRow *row;
             guint depth;
 
@@ -280,17 +294,20 @@ imap_selected_rows (ImapDialog *dialog)
             if (!tree_row)
                 continue;
 
-            row = imap_row_get (gtk_tree_list_row_get_item (tree_row));
+            row_item = gtk_tree_list_row_get_item (tree_row);
+            row = imap_row_get (row_item);
             depth = gtk_tree_list_row_get_depth (tree_row);
             if (imap_row_is_mapping (row))
             {
                 ImapSelectedRow *selected = g_new (ImapSelectedRow, 1);
 
-                selected->row = row;
+                selected->row_item = row_item;
                 selected->depth = depth + 1;
                 g_ptr_array_add (rows, selected);
+                row_item = NULL;
             }
 
+            g_clear_object (&row_item);
             g_object_unref (tree_row);
         } while (gtk_bitset_iter_next (&iter, &position));
 
@@ -316,9 +333,11 @@ imap_selection_changed_cb (GtkSelectionModel *selection, guint position,
         if (!tree_row)
             continue;
 
-        row = imap_row_get (gtk_tree_list_row_get_item (tree_row));
+        GObject *row_item = gtk_tree_list_row_get_item (tree_row);
+        row = imap_row_get (row_item);
         if (!imap_row_is_mapping (row))
             gtk_selection_model_unselect_item (selection, i);
+        g_object_unref (row_item);
         g_object_unref (tree_row);
     }
 }
@@ -342,7 +361,7 @@ imap_delete_selected (ImapDialog *dialog)
     for (i = 0; i < rows->len; i++)
     {
         ImapSelectedRow *selected = g_ptr_array_index (rows, i);
-        delete_row_info (dialog, selected->row, selected->depth);
+        delete_row_info (dialog, imap_row_get (selected->row_item), selected->depth);
     }
     gnc_resume_gui_refresh ();
     g_ptr_array_unref (rows);
@@ -367,7 +386,9 @@ imap_remove_invalid_maps (ImapDialog *dialog)
         ImapRow *row = imap_row_get (object);
         if (imap_row_is_invalid (row, 1))
         {
-            ImapSelectedRow *selected = g_new (ImapSelectedRow, 1); selected->row = row; selected->depth = 1;
+            ImapSelectedRow *selected = g_new (ImapSelectedRow, 1);
+            selected->row_item = g_object_ref (object);
+            selected->depth = 1;
             g_ptr_array_add (invalid, selected);
         }
         if (row && row->children)
@@ -377,7 +398,9 @@ imap_remove_invalid_maps (ImapDialog *dialog)
                 ImapRow *child = imap_row_get (child_object);
                 if (imap_row_is_invalid (child, 2))
                 {
-                    ImapSelectedRow *selected = g_new (ImapSelectedRow, 1); selected->row = child; selected->depth = 2;
+                    ImapSelectedRow *selected = g_new (ImapSelectedRow, 1);
+                    selected->row_item = g_object_ref (child_object);
+                    selected->depth = 2;
                     g_ptr_array_add (invalid, selected);
                 }
                 g_object_unref (child_object);
@@ -391,7 +414,7 @@ imap_remove_invalid_maps (ImapDialog *dialog)
     for (i = 0; i < invalid->len; i++)
     {
         ImapSelectedRow *selected = g_ptr_array_index (invalid, i);
-        delete_row_info (dialog, selected->row, selected->depth);
+        delete_row_info (dialog, imap_row_get (selected->row_item), selected->depth);
     }
     gnc_resume_gui_refresh (); g_ptr_array_unref (invalid); get_account_info (dialog);
 }
@@ -474,10 +497,12 @@ static void
 imap_cell_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
     guint column = GPOINTER_TO_UINT (user_data); GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    ImapRow *row = imap_row_get (gtk_tree_list_row_get_item (tree_row)); GtkWidget *child = gtk_list_item_get_child (item);
+    GObject *row_item = gtk_tree_list_row_get_item (tree_row);
+    ImapRow *row = imap_row_get (row_item); GtkWidget *child = gtk_list_item_get_child (item);
     GtkLabel *label = column == 0 ? GTK_LABEL (gtk_tree_expander_get_child (GTK_TREE_EXPANDER (child))) : GTK_LABEL (child);
     gtk_label_set_text (label, imap_text (row, column));
     if (column == 0) gtk_tree_expander_set_list_row (GTK_TREE_EXPANDER (child), tree_row);
+    g_object_unref (row_item);
     (void)factory;
 }
 

@@ -1531,7 +1531,6 @@ gnc_account_type_dropdown_changed_cb (GtkDropDown *dropdown, gpointer data)
     item = GNC_ACCOUNT_TYPE_ITEM (gtk_drop_down_get_selected_item (dropdown));
     aw->type = item ? gnc_account_type_item_get_account_type (item) :
                ACCT_TYPE_INVALID;
-    g_clear_object (&item);
     gnc_account_type_update (aw);
 }
 

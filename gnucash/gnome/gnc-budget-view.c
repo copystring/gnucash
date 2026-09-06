@@ -60,7 +60,12 @@ static Account *
 account_from_list_item (GtkListItem *item)
 {
     GtkTreeListRow *row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    return row ? GNC_ACCOUNT (gtk_tree_list_row_get_item (row)) : NULL;
+    if (!row)
+        return NULL;
+    GObject *row_item = gtk_tree_list_row_get_item (row);
+    Account *account = GNC_ACCOUNT (row_item);
+    g_clear_object (&row_item);
+    return account;
 }
 
 static gchar *

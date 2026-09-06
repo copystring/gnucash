@@ -361,7 +361,12 @@ static GncSxSlrRow*
 slr_get_list_item_row (GtkListItem *item)
 {
     GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    return tree_row ? GNC_SX_SLR_ROW (gtk_tree_list_row_get_item (tree_row)) : NULL;
+    if (!tree_row)
+        return NULL;
+    GObject *row_item = gtk_tree_list_row_get_item (tree_row);
+    GncSxSlrRow *row = GNC_SX_SLR_ROW (row_item);
+    g_object_unref (row_item);
+    return row;
 }
 
 static void
@@ -379,11 +384,13 @@ static void
 slr_name_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
     GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    GncSxSlrRow *row = GNC_SX_SLR_ROW (gtk_tree_list_row_get_item (tree_row));
+    GObject *row_item = gtk_tree_list_row_get_item (tree_row);
+    GncSxSlrRow *row = GNC_SX_SLR_ROW (row_item);
     GtkTreeExpander *expander = GTK_TREE_EXPANDER (gtk_list_item_get_child (item));
     GtkWidget *label = gtk_tree_expander_get_child (expander);
     gtk_tree_expander_set_list_row (expander, tree_row);
     gtk_label_set_text (GTK_LABEL (label), row->name);
+    g_object_unref (row_item);
 }
 
 static gboolean
@@ -541,16 +548,19 @@ slr_select_first_unbound (GncSxSinceLastRunDialog *dialog, GncSxVariableNeeded *
     {
         GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (g_list_model_get_item
                                                        (G_LIST_MODEL (dialog->tree_model), position));
-        GncSxSlrRow *row = GNC_SX_SLR_ROW (gtk_tree_list_row_get_item (tree_row));
+        GObject *row_item = gtk_tree_list_row_get_item (tree_row);
+        GncSxSlrRow *row = GNC_SX_SLR_ROW (row_item);
         if (row->kind == SLR_ROW_VARIABLE && row->instance == needed->instance &&
             row->variable == needed->variable)
         {
             gtk_single_selection_set_selected (dialog->selection, position);
             gtk_column_view_scroll_to (dialog->instance_view, position, NULL,
                                        GTK_LIST_SCROLL_FOCUS, NULL);
+            g_object_unref (row_item);
             g_object_unref (tree_row);
             return;
         }
+        g_object_unref (row_item);
         g_object_unref (tree_row);
     }
 }

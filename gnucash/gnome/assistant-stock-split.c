@@ -255,7 +255,6 @@ stock_split_selection_changed_cb (GtkSelectionModel *selection,
     row = object ? (StockSplitRow *)object : NULL;
     stock_split_set_selected_account (info, row ? row->account : NULL);
     stock_split_update_navigation (info);
-    g_clear_object (&object);
     (void)selection;
     (void)position;
     (void)n_items;

@@ -207,7 +207,6 @@ gnc_find_account_dialog_jump_to (FindAccountDialog *facc_dialog)
     object = gtk_single_selection_get_selected_item (facc_dialog->selection);
     row = find_account_row_get (object);
     jump_to_account (facc_dialog, row ? row->account : NULL);
-    g_clear_object (&object);
 }
 
 static void

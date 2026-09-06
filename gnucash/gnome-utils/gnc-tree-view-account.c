@@ -83,7 +83,9 @@ account_from_row (gpointer item)
     if (!GTK_IS_TREE_LIST_ROW (item))
         return NULL;
     account = gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (item));
-    return GNC_IS_ACCOUNT (account) ? GNC_ACCOUNT (account) : NULL;
+    Account *result = GNC_IS_ACCOUNT (account) ? GNC_ACCOUNT (account) : NULL;
+    g_clear_object (&account);
+    return result;
 }
 
 static Account *
