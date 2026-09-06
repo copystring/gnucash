@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <interface>
   <requires lib="gtk" version="4.10" />
-  <object class="GtkFontDialog" id="checkprinting_font_dialog">
-  </object>
   <object class="GtkAdjustment" id="atm_fee_adj">
     <property name="upper">1000</property>
     <property name="step-increment">0.01</property>
@@ -1903,7 +1901,9 @@ many months before the current month</property>
                     </child>
                     <child>
                       <object class="GtkFontDialogButton" id="pref/dialogs.checkprinting/default-font">
-                        <property name="dialog">checkprinting_font_dialog</property>
+                        <property name="dialog">
+                          <object class="GtkFontDialog"/>
+                        </property>
                         <property name="level">font</property>
                         <property name="focusable">1</property>
                         <property name="receives-default">1</property>

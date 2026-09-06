@@ -8,6 +8,7 @@
 
 #include "Account.h"
 #include "dialog-account.h"
+#include "dialog-utils.h"
 #include "gnc-component-manager.h"
 #include "gnc-engine.h"
 #include "gnc-prefs-utils.h"
@@ -136,6 +137,37 @@ test_account_type_selection_owns_model_items (void)
     gnc_clear_current_session ();
 }
 
+static void
+test_account_builder_roots_include_color_dialogs (void)
+{
+    static const struct
+    {
+        const gchar *root;
+        const gchar *button;
+    } roots[] = {
+        { "account_dialog", "color_entry_button" },
+        { "account_cascade_dialog", "color_button" },
+    };
+
+    for (guint index = 0; index < G_N_ELEMENTS (roots); index++)
+    {
+        GtkBuilder *builder = gtk_builder_new ();
+        GtkWindow *window;
+        GtkColorDialogButton *button;
+
+        g_assert_true (gnc_builder_add_from_file (builder, "dialog-account.glade",
+                                                   roots[index].root));
+        window = GTK_WINDOW (gtk_builder_get_object (builder, roots[index].root));
+        button = GTK_COLOR_DIALOG_BUTTON (gtk_builder_get_object
+                                          (builder, roots[index].button));
+        g_assert_nonnull (window);
+        g_assert_nonnull (button);
+        g_assert_nonnull (gtk_color_dialog_button_get_dialog (button));
+        gtk_window_destroy (window);
+        g_object_unref (builder);
+    }
+}
+
 int
 main (int argc, char **argv)
 {
@@ -152,6 +184,8 @@ main (int argc, char **argv)
 
     g_test_add_func ("/gnome-utils/dialog-account/type-selection-ownership",
                      test_account_type_selection_owns_model_items);
+    g_test_add_func ("/gnome-utils/dialog-account/builder-color-dialog-roots",
+                     test_account_builder_roots_include_color_dialogs);
     status = g_test_run ();
 
     gnc_component_manager_shutdown ();
