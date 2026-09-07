@@ -118,10 +118,10 @@ gnc_period_select_get_selected_period (GncPeriodSelect *period)
     guint selected;
 
     selected = gtk_drop_down_get_selected (period->selector);
-    if (selected == GTK_INVALID_LIST_POSITION)
+    if (selected == GTK_INVALID_LIST_POSITION || selected == 0)
         return -1;
 
-    return (GncAccountingPeriod)selected;
+    return (GncAccountingPeriod)(selected - 1);
 }
 
 
@@ -133,10 +133,10 @@ gnc_period_select_update_fiscal_periods (GncPeriodSelect *period)
     gint i;
 
     n_items = g_list_model_get_n_items (G_LIST_MODEL (period->selector_model));
-    if (n_items > GNC_ACCOUNTING_PERIOD_CYEAR_LAST)
+    if (n_items > GNC_ACCOUNTING_PERIOD_CYEAR_LAST + 1)
         gtk_string_list_splice (period->selector_model,
-                                GNC_ACCOUNTING_PERIOD_CYEAR_LAST,
-                                n_items - GNC_ACCOUNTING_PERIOD_CYEAR_LAST,
+                                GNC_ACCOUNTING_PERIOD_CYEAR_LAST + 1,
+                                n_items - GNC_ACCOUNTING_PERIOD_CYEAR_LAST - 1,
                                 NULL);
 
     if (!period->fy_end)
@@ -221,7 +221,8 @@ gnc_period_select_dropdown_selected (GtkDropDown *drop_down,
     if (selected == GTK_INVALID_LIST_POSITION)
         return;
 
-    g_object_set (G_OBJECT (period), "active", (gint)selected, NULL);
+    g_object_set (G_OBJECT (period), "active",
+                  selected == 0 ? -1 : (gint)selected - 1, NULL);
 }
 
 
@@ -250,8 +251,8 @@ gnc_period_sample_new_date_format (gpointer prefs, gchar *pref,
 /************************************************************/
 
 /*  Set an item in the GncPeriodSelect to be the active one.
- *  This will first update the internal GtkCombobox (blocking
- *  its "changed" callback to prevent an infinite loop).
+ *  This will first update the internal GtkDropDown (blocking
+ *  its "notify::selected" callback to prevent an infinite loop).
  *  Then it will update the sample label and finally it will
  *  emit a "changed" signal of it's own for other objects
  *  listening for this signal.
@@ -262,15 +263,16 @@ gnc_period_select_set_active_internal (GncPeriodSelect *period,
 {
     g_return_if_fail(period != NULL);
     g_return_if_fail(GNC_IS_PERIOD_SELECT(period));
-    g_return_if_fail(which >= 0);
+    g_return_if_fail(which >= -1);
     g_return_if_fail(which <  GNC_ACCOUNTING_PERIOD_LAST);
 
     g_signal_handlers_block_by_func (period->selector,
                                      G_CALLBACK (gnc_period_select_dropdown_selected), period);
-    if ((guint)which < g_list_model_get_n_items (G_LIST_MODEL (period->selector_model)))
-        gtk_drop_down_set_selected (period->selector, which);
+    if (which >= 0 && (guint)which + 1 <
+        g_list_model_get_n_items (G_LIST_MODEL (period->selector_model)))
+        gtk_drop_down_set_selected (period->selector, which + 1);
     else
-        gtk_drop_down_set_selected (period->selector, GTK_INVALID_LIST_POSITION);
+        gtk_drop_down_set_selected (period->selector, 0);
     g_signal_handlers_unblock_by_func (period->selector,
                                        G_CALLBACK (gnc_period_select_dropdown_selected), period);
 
@@ -326,9 +328,9 @@ gnc_period_select_set_fy_end (GncPeriodSelect *period, const GDate *fy_end)
     gnc_period_select_update_fiscal_periods (period);
     if (active >= 0 &&
         (active < GNC_ACCOUNTING_PERIOD_CYEAR_LAST || period->fy_end))
-        gtk_drop_down_set_selected (period->selector, active);
+        gtk_drop_down_set_selected (period->selector, active + 1);
     else
-        gtk_drop_down_set_selected (period->selector, GTK_INVALID_LIST_POSITION);
+        gtk_drop_down_set_selected (period->selector, 0);
 
     g_signal_handlers_unblock_by_func (period->selector,
                                        G_CALLBACK (gnc_period_select_dropdown_selected), period);
@@ -646,9 +648,12 @@ gnc_period_select_new (gboolean starting_labels)
 
     period = g_object_new(GNC_TYPE_PERIOD_SELECT, NULL);
 
-    /* Set up the model and all current-year labels before creating the widget.
-     * The selector starts with no active item; retain that public contract. */
+    /* Position 0 is an intentionally neutral placeholder. GtkDropDown selects
+     * the first item of a nonempty model, while GncPeriodSelect's public
+     * contract starts with no active accounting period. All period indices are
+     * translated at this widget boundary. */
     period->selector_model = gtk_string_list_new (NULL);
+    gtk_string_list_append (period->selector_model, "");
     period->start = starting_labels;
     for (i = 0; i < GNC_ACCOUNTING_PERIOD_CYEAR_LAST; i++)
     {
@@ -658,7 +663,7 @@ gnc_period_select_new (gboolean starting_labels)
 
     period->selector = gnc_gtk_drop_down_new (
         G_LIST_MODEL (g_object_ref (period->selector_model)), NULL);
-    gtk_drop_down_set_selected (period->selector, GTK_INVALID_LIST_POSITION);
+    gtk_drop_down_set_selected (period->selector, 0);
 
     /* Add the internal widgets to the box. */
     gtk_box_append (GTK_BOX (period), GTK_WIDGET (period->selector));

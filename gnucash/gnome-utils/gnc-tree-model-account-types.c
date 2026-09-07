@@ -144,8 +144,8 @@ account_type_item_compare (gconstpointer left, gconstpointer right,
     return g_utf8_collate (left_item->name, right_item->name);
 }
 
-GListModel *
-gnc_account_type_list_new (guint32 types)
+static GListModel *
+account_type_list_new (guint32 types, gboolean with_placeholder)
 {
     GListStore *store = g_list_store_new (GNC_TYPE_ACCOUNT_TYPE_ITEM);
 
@@ -161,7 +161,27 @@ gnc_account_type_list_new (guint32 types)
         g_object_unref (item);
     }
 
+    if (with_placeholder && types != 0)
+    {
+        GncAccountTypeItem *item = account_type_item_new (ACCT_TYPE_NONE);
+
+        g_list_store_insert (store, 0, item);
+        g_object_unref (item);
+    }
+
     return G_LIST_MODEL (store);
+}
+
+GListModel *
+gnc_account_type_list_new (guint32 types)
+{
+    return account_type_list_new (types, FALSE);
+}
+
+GListModel *
+gnc_account_type_list_new_with_placeholder (guint32 types)
+{
+    return account_type_list_new (types, TRUE);
 }
 
 GNCAccountType

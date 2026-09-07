@@ -1403,6 +1403,14 @@ account_type_dropdown_set_model (AccountWindow *aw, guint32 types)
     GListModel *model = gnc_account_type_list_new (types);
     guint selected = account_type_dropdown_find (model, aw->type);
 
+    if (selected == GTK_INVALID_LIST_POSITION &&
+        g_list_model_get_n_items (model) != 0)
+    {
+        g_object_unref (model);
+        model = gnc_account_type_list_new_with_placeholder (types);
+        selected = 0;
+    }
+
     aw->updating_type_dropdown = TRUE;
     gtk_drop_down_set_model (GTK_DROP_DOWN (aw->type_combo), model);
     gtk_drop_down_set_selected (GTK_DROP_DOWN (aw->type_combo), selected);

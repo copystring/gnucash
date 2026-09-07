@@ -14,6 +14,7 @@
 #include "gnc-prefs-utils.h"
 #include "gnc-session.h"
 #include "gnc-tree-model-account-types.h"
+#include "gnc-tree-view-account.h"
 #include "qof.h"
 
 static void
@@ -55,6 +56,43 @@ find_account_type_dropdown (GtkWidget *widget)
             return dropdown;
     }
     return NULL;
+}
+
+static GncTreeViewAccount *
+find_account_parent_view (GtkWidget *widget, Account *selected_account)
+{
+    if (GNC_IS_TREE_VIEW_ACCOUNT (widget) &&
+        gnc_tree_view_account_get_selected_account (
+            GNC_TREE_VIEW_ACCOUNT (widget)) == selected_account)
+        return GNC_TREE_VIEW_ACCOUNT (widget);
+
+    for (GtkWidget *child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+    {
+        GncTreeViewAccount *view = find_account_parent_view (child,
+                                                              selected_account);
+
+        if (view)
+            return view;
+    }
+    return NULL;
+}
+
+static guint
+find_account_type_position (GListModel *model, GNCAccountType type)
+{
+    for (guint position = 0; position < g_list_model_get_n_items (model);
+         position++)
+    {
+        GncAccountTypeItem *item = GNC_ACCOUNT_TYPE_ITEM (
+            g_list_model_get_item (model, position));
+        gboolean found = gnc_account_type_item_get_account_type (item) == type;
+
+        g_object_unref (item);
+        if (found)
+            return position;
+    }
+    return GTK_INVALID_LIST_POSITION;
 }
 
 static GtkWindow *
@@ -122,9 +160,9 @@ test_account_type_selection_owns_model_items (void)
             g_assert_false (item_finalized[index]);
         }
 
-    gtk_drop_down_set_selected (dropdown, GTK_INVALID_LIST_POSITION);
-    g_assert_null (gtk_drop_down_get_selected_item (dropdown));
     g_list_store_remove_all (model);
+    g_assert_cmpuint (g_list_model_get_n_items (G_LIST_MODEL (model)), ==, 0);
+    g_assert_null (gtk_drop_down_get_selected_item (dropdown));
 
     g_object_weak_ref (G_OBJECT (window), object_finalized, &dialog_finalized);
     gtk_window_destroy (window);
@@ -135,6 +173,86 @@ test_account_type_selection_owns_model_items (void)
     g_assert_true (item_finalized[1]);
 
     gnc_clear_current_session ();
+}
+
+static void
+test_account_type_parent_change (gboolean choose_income)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root;
+    Account *income;
+    GList *valid_types = NULL;
+    GtkWindow *window;
+    GtkDropDown *dropdown;
+    GncTreeViewAccount *parent_view;
+    GListModel *model;
+    GNCAccountType expected = choose_income ? ACCT_TYPE_INCOME : ACCT_TYPE_BANK;
+    guint position;
+    GncAccountTypeItem *item;
+
+    gnc_set_current_session (session);
+    gnc_account_create_root (book);
+    root = gnc_book_get_root_account (book);
+    income = xaccMallocAccount (book);
+    xaccAccountSetName (income, "Income parent");
+    xaccAccountSetType (income, ACCT_TYPE_INCOME);
+    gnc_account_append_child (root, income);
+    valid_types = g_list_append (valid_types, GINT_TO_POINTER (ACCT_TYPE_BANK));
+    valid_types = g_list_append (valid_types, GINT_TO_POINTER (ACCT_TYPE_INCOME));
+    gnc_ui_new_account_with_types_and_commodity (NULL, book, valid_types, NULL);
+    g_list_free (valid_types);
+
+    window = find_account_window ();
+    g_assert_nonnull (window);
+    dropdown = find_account_type_dropdown (GTK_WIDGET (window));
+    parent_view = find_account_parent_view (GTK_WIDGET (window), root);
+    g_assert_nonnull (dropdown);
+    g_assert_nonnull (parent_view);
+    model = gtk_drop_down_get_model (dropdown);
+    position = find_account_type_position (model, ACCT_TYPE_BANK);
+    g_assert_cmpuint (position, !=, GTK_INVALID_LIST_POSITION);
+    gtk_drop_down_set_selected (dropdown, position);
+    gnc_tree_view_account_set_selected_account (parent_view, income);
+    drain_main_context ();
+
+    model = gtk_drop_down_get_model (dropdown);
+    position = find_account_type_position (model, ACCT_TYPE_NONE);
+    g_assert_cmpuint (position, ==, 0);
+    item = GNC_ACCOUNT_TYPE_ITEM (gtk_drop_down_get_selected_item (dropdown));
+    g_assert_nonnull (item);
+    g_assert_cmpint (gnc_account_type_item_get_account_type (item), ==,
+                     ACCT_TYPE_NONE);
+
+    if (choose_income)
+    {
+        position = find_account_type_position (model, ACCT_TYPE_INCOME);
+        g_assert_cmpuint (position, !=, GTK_INVALID_LIST_POSITION);
+        gtk_drop_down_set_selected (dropdown, position);
+    }
+
+    gnc_tree_view_account_set_selected_account (parent_view, root);
+    drain_main_context ();
+    item = GNC_ACCOUNT_TYPE_ITEM (gtk_drop_down_get_selected_item (dropdown));
+    g_assert_nonnull (item);
+    g_assert_cmpint (gnc_account_type_item_get_account_type (item), ==, expected);
+
+    gtk_window_destroy (window);
+    g_object_unref (window);
+    drain_main_context ();
+    gnc_clear_current_session ();
+}
+
+static void
+test_account_type_parent_change_restores_preferred (void)
+{
+    test_account_type_parent_change (FALSE);
+}
+
+static void
+test_account_type_parent_change_keeps_user_choice (void)
+{
+    test_account_type_parent_change (TRUE);
 }
 
 static void
@@ -209,6 +327,10 @@ main (int argc, char **argv)
 
     g_test_add_func ("/gnome-utils/dialog-account/type-selection-ownership",
                      test_account_type_selection_owns_model_items);
+    g_test_add_func ("/gnome-utils/dialog-account/type-selection/parent-change/restores-preferred",
+                     test_account_type_parent_change_restores_preferred);
+    g_test_add_func ("/gnome-utils/dialog-account/type-selection/parent-change/keeps-user-choice",
+                     test_account_type_parent_change_keeps_user_choice);
     g_test_add_func ("/gnome-utils/dialog-account/builder-color-dialog-roots",
                      test_account_builder_roots_include_color_dialogs);
     g_test_add_func ("/gnome-utils/dialog-account/builder-container-types",

@@ -30,6 +30,14 @@ G_DECLARE_FINAL_TYPE (GncAccountTypeItem, gnc_account_type_item, GNC,
  */
 GListModel *gnc_account_type_list_new (guint32 types);
 
+/*
+ * Return a newly allocated list with a neutral ACCT_TYPE_NONE item followed
+ * by exactly the account types selected by @types. If @types is empty, return
+ * an empty list. The neutral item represents no user selection and cannot be
+ * saved as an account type.
+ */
+GListModel *gnc_account_type_list_new_with_placeholder (guint32 types);
+
 GNCAccountType gnc_account_type_item_get_account_type (GncAccountTypeItem *item);
 const gchar *gnc_account_type_item_get_name (GncAccountTypeItem *item);
 gboolean gnc_account_type_item_get_selected (GncAccountTypeItem *item);

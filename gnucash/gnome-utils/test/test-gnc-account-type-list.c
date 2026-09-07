@@ -60,11 +60,44 @@ test_account_type_list (void)
     g_object_unref (model);
 }
 
+static void
+test_account_type_list_with_placeholder (void)
+{
+    guint32 types = (1u << ACCT_TYPE_BANK) | (1u << ACCT_TYPE_INCOME);
+    GListModel *model = gnc_account_type_list_new_with_placeholder (types);
+    GncAccountTypeItem *item;
+
+    g_assert_cmpuint (g_list_model_get_n_items (model), ==, 3);
+    item = GNC_ACCOUNT_TYPE_ITEM (g_list_model_get_item (model, 0));
+    g_assert_cmpint (gnc_account_type_item_get_account_type (item), ==,
+                     ACCT_TYPE_NONE);
+    g_assert_cmpstr (gnc_account_type_item_get_name (item), ==, "");
+    g_object_unref (item);
+
+    for (guint position = 1; position < g_list_model_get_n_items (model);
+         position++)
+    {
+        GNCAccountType type;
+
+        item = GNC_ACCOUNT_TYPE_ITEM (g_list_model_get_item (model, position));
+        type = gnc_account_type_item_get_account_type (item);
+        g_assert_true (type == ACCT_TYPE_BANK || type == ACCT_TYPE_INCOME);
+        g_object_unref (item);
+    }
+    g_object_unref (model);
+
+    model = gnc_account_type_list_new_with_placeholder (0);
+    g_assert_cmpuint (g_list_model_get_n_items (model), ==, 0);
+    g_object_unref (model);
+}
+
 int
 main (int argc, char **argv)
 {
     g_test_init (&argc, &argv, NULL);
     g_test_add_func ("/gnome-utils/account-type-list", test_account_type_list);
+    g_test_add_func ("/gnome-utils/account-type-list/with-placeholder",
+                     test_account_type_list_with_placeholder);
 
     return g_test_run ();
 }
