@@ -58,10 +58,13 @@ struct MatchRow
 
 struct _transpickerdialog
 {
+    /* GTK owns the window. Signal-source child widgets are weakly observed. */
     GtkWidget *transaction_matcher;
     GtkColumnView *downloaded_view;
     GtkColumnView *match_view;
     GtkCheckButton *reconciled_chk;
+    GtkButton *cancel_button;
+    GtkButton *ok_button;
     GListStore *downloaded_store;
     GListStore *match_store;
     GtkSingleSelection *downloaded_selection;
@@ -76,7 +79,55 @@ struct _transpickerdialog
     GNCImportMatchPickerDoneCB done_cb;
     gpointer user_data;
     gboolean finished;
+    gboolean destroyed;
+    gboolean signals_disconnected;
 };
+
+static void
+match_picker_disconnect_signals (GNCImportMatchPicker *matcher)
+{
+    if (!matcher || matcher->signals_disconnected)
+        return;
+    matcher->signals_disconnected = TRUE;
+
+    if (matcher->transaction_matcher)
+        g_signal_handlers_disconnect_by_data (matcher->transaction_matcher, matcher);
+    if (matcher->downloaded_selection)
+        g_signal_handlers_disconnect_by_data (matcher->downloaded_selection, matcher);
+    if (matcher->match_selection)
+        g_signal_handlers_disconnect_by_data (matcher->match_selection, matcher);
+    /* During an external window dispose, finalized children have already
+     * cleared these weak pointers; externally retained children remain safe
+     * to disconnect. */
+    if (matcher->match_view)
+    {
+        g_signal_handlers_disconnect_by_data (matcher->match_view, matcher);
+        g_object_remove_weak_pointer (G_OBJECT (matcher->match_view),
+                                      reinterpret_cast<gpointer *> (&matcher->match_view));
+        matcher->match_view = nullptr;
+    }
+    if (matcher->reconciled_chk)
+    {
+        g_signal_handlers_disconnect_by_data (matcher->reconciled_chk, matcher);
+        g_object_remove_weak_pointer (G_OBJECT (matcher->reconciled_chk),
+                                      reinterpret_cast<gpointer *> (&matcher->reconciled_chk));
+        matcher->reconciled_chk = nullptr;
+    }
+    if (matcher->cancel_button)
+    {
+        g_signal_handlers_disconnect_by_data (matcher->cancel_button, matcher);
+        g_object_remove_weak_pointer (G_OBJECT (matcher->cancel_button),
+                                      reinterpret_cast<gpointer *> (&matcher->cancel_button));
+        matcher->cancel_button = nullptr;
+    }
+    if (matcher->ok_button)
+    {
+        g_signal_handlers_disconnect_by_data (matcher->ok_button, matcher);
+        g_object_remove_weak_pointer (G_OBJECT (matcher->ok_button),
+                                      reinterpret_cast<gpointer *> (&matcher->ok_button));
+        matcher->ok_button = nullptr;
+    }
+}
 
 static GObject*
 downloaded_row_new (std::string account, std::string date, std::string amount,
@@ -242,6 +293,7 @@ match_picker_finish (GNCImportMatchPicker *matcher, gint response)
     if (!matcher || matcher->finished)
         return;
     matcher->finished = TRUE;
+    match_picker_disconnect_signals (matcher);
 
     if (response == GTK_RESPONSE_OK && matcher->selected_match_info != matcher->old_match_info)
     {
@@ -257,8 +309,11 @@ match_picker_finish (GNCImportMatchPicker *matcher, gint response)
                                                  TRUE);
     }
 
-    gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW (matcher->transaction_matcher));
-    gtk_window_destroy (GTK_WINDOW (matcher->transaction_matcher));
+    if (!matcher->destroyed)
+    {
+        gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW (matcher->transaction_matcher));
+        gtk_window_destroy (GTK_WINDOW (matcher->transaction_matcher));
+    }
 
     auto done_cb = matcher->done_cb;
     auto transaction_info = matcher->transaction_info;
@@ -287,6 +342,16 @@ match_picker_close_request_cb (GtkWindow *window, GNCImportMatchPicker *matcher)
     (void)window;
     match_picker_finish (matcher, GTK_RESPONSE_CANCEL);
     return TRUE;
+}
+
+static void
+match_picker_destroyed_cb (GtkWidget *window, GNCImportMatchPicker *matcher)
+{
+    if (!matcher || matcher->finished)
+        return;
+    matcher->destroyed = TRUE;
+    match_picker_finish (matcher, GTK_RESPONSE_CANCEL);
+    (void)window;
 }
 
 static void
@@ -440,10 +505,17 @@ init_match_picker_gui (GtkWidget *parent, GNCImportMatchPicker *matcher)
     auto downloaded_scroller = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder, "download_view"));
     auto match_scroller = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder, "matched_view"));
     matcher->reconciled_chk = GTK_CHECK_BUTTON (gtk_builder_get_object (builder, "hide_reconciled_check1"));
-    auto cancel_button = GTK_BUTTON (gtk_builder_get_object (builder, "cancel_button1"));
-    auto ok_button = GTK_BUTTON (gtk_builder_get_object (builder, "ok_button1"));
+    matcher->cancel_button = GTK_BUTTON (gtk_builder_get_object (builder, "cancel_button1"));
+    matcher->ok_button = GTK_BUTTON (gtk_builder_get_object (builder, "ok_button1"));
     g_return_if_fail (matcher->transaction_matcher && downloaded_scroller && match_scroller &&
-                      matcher->reconciled_chk && cancel_button && ok_button);
+                      matcher->reconciled_chk && matcher->cancel_button && matcher->ok_button);
+
+    g_object_add_weak_pointer (G_OBJECT (matcher->reconciled_chk),
+                               reinterpret_cast<gpointer *> (&matcher->reconciled_chk));
+    g_object_add_weak_pointer (G_OBJECT (matcher->cancel_button),
+                               reinterpret_cast<gpointer *> (&matcher->cancel_button));
+    g_object_add_weak_pointer (G_OBJECT (matcher->ok_button),
+                               reinterpret_cast<gpointer *> (&matcher->ok_button));
 
     matcher->downloaded_store = g_list_store_new (G_TYPE_OBJECT);
     matcher->match_store = g_list_store_new (G_TYPE_OBJECT);
@@ -451,6 +523,8 @@ init_match_picker_gui (GtkWidget *parent, GNCImportMatchPicker *matcher)
     matcher->match_selection = gnc_import_single_selection_new (G_LIST_MODEL (matcher->match_store));
     matcher->downloaded_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (matcher->downloaded_selection))));
     matcher->match_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (matcher->match_selection))));
+    g_object_add_weak_pointer (G_OBJECT (matcher->match_view),
+                               reinterpret_cast<gpointer *> (&matcher->match_view));
 
     gtk_column_view_set_reorderable (matcher->downloaded_view, TRUE);
     gtk_column_view_set_reorderable (matcher->match_view, TRUE);
@@ -490,13 +564,20 @@ init_match_picker_gui (GtkWidget *parent, GNCImportMatchPicker *matcher)
                       G_CALLBACK (match_selection_changed_cb), matcher);
     g_signal_connect (matcher->match_view, "activate", G_CALLBACK (match_transaction_activated_cb), matcher);
     g_signal_connect (matcher->reconciled_chk, "toggled", G_CALLBACK (match_show_reconciled_changed_cb), matcher);
-    g_object_set_data (G_OBJECT (cancel_button), "response", GINT_TO_POINTER (GTK_RESPONSE_CANCEL));
-    g_object_set_data (G_OBJECT (ok_button), "response", GINT_TO_POINTER (GTK_RESPONSE_OK));
-    g_signal_connect (cancel_button, "clicked", G_CALLBACK (match_picker_button_clicked_cb), matcher);
-    g_signal_connect (ok_button, "clicked", G_CALLBACK (match_picker_button_clicked_cb), matcher);
+    g_object_set_data (G_OBJECT (matcher->cancel_button), "response",
+                       GINT_TO_POINTER (GTK_RESPONSE_CANCEL));
+    g_object_set_data (G_OBJECT (matcher->ok_button), "response",
+                       GINT_TO_POINTER (GTK_RESPONSE_OK));
+    g_signal_connect (matcher->cancel_button, "clicked",
+                      G_CALLBACK (match_picker_button_clicked_cb), matcher);
+    g_signal_connect (matcher->ok_button, "clicked",
+                      G_CALLBACK (match_picker_button_clicked_cb), matcher);
     g_signal_connect (matcher->transaction_matcher, "close-request",
                       G_CALLBACK (match_picker_close_request_cb), matcher);
-    gtk_window_set_default_widget (GTK_WINDOW (matcher->transaction_matcher), GTK_WIDGET (ok_button));
+    g_signal_connect (matcher->transaction_matcher, "destroy",
+                      G_CALLBACK (match_picker_destroyed_cb), matcher);
+    gtk_window_set_default_widget (GTK_WINDOW (matcher->transaction_matcher),
+                                   GTK_WIDGET (matcher->ok_button));
     gnc_restore_window_size (GNC_PREFS_GROUP, GTK_WINDOW (matcher->transaction_matcher),
                              parent ? GTK_WINDOW (parent) : nullptr);
     g_object_unref (builder);

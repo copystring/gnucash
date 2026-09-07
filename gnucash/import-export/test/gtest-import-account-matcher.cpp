@@ -179,6 +179,17 @@ find_buildable_window (const gchar *buildable_id)
     return nullptr;
 }
 
+static gboolean
+weak_ref_was_finalized (GWeakRef *weak_ref)
+{
+    auto object = G_OBJECT (g_weak_ref_get (weak_ref));
+    auto finalized = object == nullptr;
+
+    g_clear_object (&object);
+    g_weak_ref_clear (weak_ref);
+    return finalized;
+}
+
 struct TestTransaction
 {
     Transaction *transaction;
@@ -406,26 +417,36 @@ TEST_F(ImportMatcherTest, account_picker_without_default_stays_unselected)
     auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
         GTK_WIDGET (window), "account_tree_sw"));
     auto ok_button = find_buildable_widget (GTK_WIDGET (window), "okbutton");
+    auto cancel_button = find_buildable_widget (GTK_WIDGET (window), "cancelbutton");
     ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
     ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
+    ASSERT_TRUE (GTK_IS_BUTTON (cancel_button));
     auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
     ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
     auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (view));
     ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+    g_object_ref (selection);
+    GWeakRef selection_ref;
+    GWeakRef window_ref;
+    g_weak_ref_init (&selection_ref, G_OBJECT (selection));
+    g_weak_ref_init (&window_ref, G_OBJECT (window));
 
     EXPECT_EQ (gtk_single_selection_get_selected (selection),
                GTK_INVALID_LIST_POSITION);
     EXPECT_FALSE (gtk_widget_get_sensitive (ok_button));
 
-    /* Exercise the real finish callback even though an insensitive button
-     * cannot be activated through the UI. */
-    g_signal_emit_by_name (ok_button, "clicked");
+    g_signal_emit_by_name (cancel_button, "clicked");
     EXPECT_EQ (result.calls, 1u);
     EXPECT_FALSE (result.accepted);
     EXPECT_EQ (result.account, nullptr);
     EXPECT_EQ (xaccAccountGetOnlineID (m_assets), nullptr);
     EXPECT_STREQ (xaccAccountGetOnlineID (m_bank), "Bank");
     g_object_unref (window);
+    EXPECT_TRUE (weak_ref_was_finalized (&window_ref));
+    gtk_single_selection_set_selected (selection, 0);
+    EXPECT_EQ (result.calls, 1u);
+    g_object_unref (selection);
+    EXPECT_TRUE (weak_ref_was_finalized (&selection_ref));
 }
 
 TEST_F(ImportMatcherTest, account_picker_preserves_valid_default)
@@ -448,6 +469,11 @@ TEST_F(ImportMatcherTest, account_picker_preserves_valid_default)
     ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
     auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (view));
     ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+    g_object_ref (selection);
+    GWeakRef selection_ref;
+    GWeakRef window_ref;
+    g_weak_ref_init (&selection_ref, G_OBJECT (selection));
+    g_weak_ref_init (&window_ref, G_OBJECT (window));
 
     EXPECT_NE (gtk_single_selection_get_selected (selection),
                GTK_INVALID_LIST_POSITION);
@@ -459,6 +485,73 @@ TEST_F(ImportMatcherTest, account_picker_preserves_valid_default)
     EXPECT_EQ (result.account, m_bank);
     EXPECT_STREQ (xaccAccountGetOnlineID (m_bank), "Bank");
     g_object_unref (window);
+    EXPECT_TRUE (weak_ref_was_finalized (&window_ref));
+    gtk_single_selection_set_selected (selection, GTK_INVALID_LIST_POSITION);
+    EXPECT_EQ (result.calls, 1u);
+    g_object_unref (selection);
+    EXPECT_TRUE (weak_ref_was_finalized (&selection_ref));
+}
+
+TEST_F(ImportMatcherTest, account_picker_no_mutation_preserves_online_id)
+{
+    AccountSelectionResult result;
+    constexpr auto unmatched_id = "selection-regression-no-mutation";
+
+    ASSERT_STREQ (xaccAccountGetOnlineID (m_bank), "Bank");
+    gnc_import_select_account_async_no_mutation (
+        nullptr, unmatched_id, TRUE, "Existing default account", m_currency,
+        ACCT_TYPE_NONE, m_bank, account_selected, &result);
+
+    auto window = find_buildable_window ("account_picker_dialog");
+    ASSERT_NE (window, nullptr);
+    auto ok_button = find_buildable_widget (GTK_WIDGET (window), "okbutton");
+    ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
+    EXPECT_TRUE (gtk_widget_get_sensitive (ok_button));
+    g_signal_emit_by_name (ok_button, "clicked");
+
+    EXPECT_EQ (result.calls, 1u);
+    EXPECT_TRUE (result.accepted);
+    EXPECT_EQ (result.account, m_bank);
+    EXPECT_STREQ (xaccAccountGetOnlineID (m_bank), "Bank");
+    g_object_unref (window);
+    EXPECT_EQ (result.calls, 1u);
+}
+
+TEST_F(ImportMatcherTest, account_picker_external_destroy_finishes_once)
+{
+    AccountSelectionResult result;
+
+    gnc_import_select_account_async (
+        nullptr, "selection-regression-external-destroy", TRUE,
+        "Externally destroyed picker", m_currency, ACCT_TYPE_NONE, nullptr,
+        account_selected, &result);
+
+    auto window = find_buildable_window ("account_picker_dialog");
+    ASSERT_NE (window, nullptr);
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "account_tree_sw"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (view));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+    g_object_ref (selection);
+    GWeakRef selection_ref;
+    GWeakRef window_ref;
+    g_weak_ref_init (&selection_ref, G_OBJECT (selection));
+    g_weak_ref_init (&window_ref, G_OBJECT (window));
+
+    gtk_window_destroy (window);
+    EXPECT_EQ (result.calls, 0u);
+    g_object_unref (window);
+
+    EXPECT_TRUE (weak_ref_was_finalized (&window_ref));
+    EXPECT_EQ (result.calls, 1u);
+    EXPECT_FALSE (result.accepted);
+    gtk_single_selection_set_selected (selection, 0);
+    EXPECT_EQ (result.calls, 1u);
+    g_object_unref (selection);
+    EXPECT_TRUE (weak_ref_was_finalized (&selection_ref));
 }
 
 TEST_F(ImportMatcherTest, match_picker_does_not_select_first_visible_match)
@@ -496,11 +589,31 @@ TEST_F(ImportMatcherTest, match_picker_does_not_select_first_visible_match)
     ASSERT_NE (window, nullptr);
     auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
         GTK_WIDGET (window), "matched_view"));
+    auto downloaded_scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "download_view"));
     ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (downloaded_scroller));
     auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    auto downloaded_view = GTK_COLUMN_VIEW (
+        gtk_scrolled_window_get_child (downloaded_scroller));
     ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (downloaded_view));
     auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (view));
+    auto downloaded_selection = GTK_SINGLE_SELECTION (
+        gtk_column_view_get_model (downloaded_view));
     ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (downloaded_selection));
+    auto ok_button = gtk_window_get_default_widget (window);
+    ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
+    g_object_ref (selection);
+    g_object_ref (downloaded_selection);
+    GWeakRef selection_ref;
+    GWeakRef downloaded_selection_ref;
+    GWeakRef window_ref;
+    g_weak_ref_init (&selection_ref, G_OBJECT (selection));
+    g_weak_ref_init (&downloaded_selection_ref,
+                     G_OBJECT (downloaded_selection));
+    g_weak_ref_init (&window_ref, G_OBJECT (window));
     EXPECT_EQ (g_list_model_get_n_items (G_LIST_MODEL (selection)), 1u);
     EXPECT_EQ (gtk_single_selection_get_selected (selection),
                GTK_INVALID_LIST_POSITION);
@@ -511,8 +624,6 @@ TEST_F(ImportMatcherTest, match_picker_does_not_select_first_visible_match)
     EXPECT_EQ (gnc_import_PendingMatches_get_match_type (
                    pending_matches, visible_match), GNCImportPending_NONE);
 
-    auto ok_button = gtk_window_get_default_widget (window);
-    ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
     g_signal_emit_by_name (ok_button, "clicked");
 
     EXPECT_EQ (result.calls, 1u);
@@ -525,6 +636,79 @@ TEST_F(ImportMatcherTest, match_picker_does_not_select_first_visible_match)
     gnc_prefs_set_bool (prefs_group, display_reconciled,
                         previous_display_reconciled);
     g_object_unref (window);
+    EXPECT_TRUE (weak_ref_was_finalized (&window_ref));
+    gtk_single_selection_set_selected (selection, 0);
+    gtk_single_selection_set_selected (downloaded_selection,
+                                       GTK_INVALID_LIST_POSITION);
+    EXPECT_EQ (result.calls, 1u);
+    g_object_unref (downloaded_selection);
+    g_object_unref (selection);
+    EXPECT_TRUE (weak_ref_was_finalized (&downloaded_selection_ref));
+    EXPECT_TRUE (weak_ref_was_finalized (&selection_ref));
+    gnc_import_PendingMatches_delete (pending_matches);
+    gnc_import_TransInfo_delete (trans_info);
+}
+
+TEST_F(ImportMatcherTest, match_picker_external_destroy_finishes_once)
+{
+    auto imported = create_test_transaction (m_book, m_bank, m_currency,
+                                             100, NREC, TRUE);
+    auto candidate = create_test_transaction (m_book, m_bank, m_currency,
+                                              100, NREC, FALSE);
+    auto trans_info = gnc_import_TransInfo_new (imported.transaction, m_bank);
+    split_find_match (trans_info, candidate.split, 0, 4, 14, 0.0);
+    auto pending_matches = gnc_import_PendingMatches_new ();
+    MatchPickerResult result;
+
+    gnc_import_match_picker_run (nullptr, trans_info, pending_matches,
+                                 match_picker_done, &result);
+
+    auto window = find_buildable_window ("match_picker_dialog");
+    ASSERT_NE (window, nullptr);
+    auto match_scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "matched_view"));
+    auto downloaded_scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "download_view"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (match_scroller));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (downloaded_scroller));
+    auto match_view = GTK_COLUMN_VIEW (
+        gtk_scrolled_window_get_child (match_scroller));
+    auto downloaded_view = GTK_COLUMN_VIEW (
+        gtk_scrolled_window_get_child (downloaded_scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (match_view));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (downloaded_view));
+    auto match_selection = GTK_SINGLE_SELECTION (
+        gtk_column_view_get_model (match_view));
+    auto downloaded_selection = GTK_SINGLE_SELECTION (
+        gtk_column_view_get_model (downloaded_view));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (match_selection));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (downloaded_selection));
+    ASSERT_GT (g_list_model_get_n_items (G_LIST_MODEL (match_selection)), 0u);
+    ASSERT_GT (g_list_model_get_n_items (G_LIST_MODEL (downloaded_selection)), 0u);
+    g_object_ref (match_selection);
+    g_object_ref (downloaded_selection);
+    GWeakRef match_selection_ref;
+    GWeakRef downloaded_selection_ref;
+    GWeakRef window_ref;
+    g_weak_ref_init (&match_selection_ref, G_OBJECT (match_selection));
+    g_weak_ref_init (&downloaded_selection_ref,
+                     G_OBJECT (downloaded_selection));
+    g_weak_ref_init (&window_ref, G_OBJECT (window));
+
+    gtk_window_destroy (window);
+    EXPECT_EQ (result.calls, 0u);
+    g_object_unref (window);
+
+    EXPECT_TRUE (weak_ref_was_finalized (&window_ref));
+    EXPECT_EQ (result.calls, 1u);
+    gtk_single_selection_set_selected (match_selection, 0);
+    gtk_single_selection_set_selected (downloaded_selection,
+                                       GTK_INVALID_LIST_POSITION);
+    EXPECT_EQ (result.calls, 1u);
+    g_object_unref (downloaded_selection);
+    g_object_unref (match_selection);
+    EXPECT_TRUE (weak_ref_was_finalized (&downloaded_selection_ref));
+    EXPECT_TRUE (weak_ref_was_finalized (&match_selection_ref));
     gnc_import_PendingMatches_delete (pending_matches);
     gnc_import_TransInfo_delete (trans_info);
 }

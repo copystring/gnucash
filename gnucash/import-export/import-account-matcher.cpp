@@ -32,8 +32,11 @@ typedef struct
 
 struct AccountPicker
 {
+    /* GTK owns the window. Signal-source child widgets are weakly observed. */
     GtkWindow *window;
     GtkButton *ok_button;
+    GtkButton *cancel_button;
+    GtkButton *new_button;
     GtkWidget *warning_box;
     GtkLabel *warning;
     GtkScrolledWindow *scroller;
@@ -51,6 +54,7 @@ struct AccountPicker
     gboolean finished;
     gboolean creating_account;
     gboolean destroyed;
+    gboolean signals_disconnected;
 };
 
 static GQuark account_row_quark = 0;
@@ -154,6 +158,50 @@ picker_selected_account (AccountPicker *picker)
 }
 
 static void
+picker_disconnect_signals (AccountPicker *picker)
+{
+    if (!picker || picker->signals_disconnected)
+        return;
+    picker->signals_disconnected = TRUE;
+
+    if (picker->window)
+        g_signal_handlers_disconnect_by_data (picker->window, picker);
+    if (picker->selection)
+        g_signal_handlers_disconnect_by_data (picker->selection, picker);
+    /* During an external window dispose, finalized children have already
+     * cleared these weak pointers; externally retained children remain safe
+     * to disconnect. */
+    if (picker->view)
+    {
+        g_signal_handlers_disconnect_by_data (picker->view, picker);
+        g_object_remove_weak_pointer (G_OBJECT (picker->view),
+                                      reinterpret_cast<gpointer *> (&picker->view));
+        picker->view = nullptr;
+    }
+    if (picker->ok_button)
+    {
+        g_signal_handlers_disconnect_by_data (picker->ok_button, picker);
+        g_object_remove_weak_pointer (G_OBJECT (picker->ok_button),
+                                      reinterpret_cast<gpointer *> (&picker->ok_button));
+        picker->ok_button = nullptr;
+    }
+    if (picker->cancel_button)
+    {
+        g_signal_handlers_disconnect_by_data (picker->cancel_button, picker);
+        g_object_remove_weak_pointer (G_OBJECT (picker->cancel_button),
+                                      reinterpret_cast<gpointer *> (&picker->cancel_button));
+        picker->cancel_button = nullptr;
+    }
+    if (picker->new_button)
+    {
+        g_signal_handlers_disconnect_by_data (picker->new_button, picker);
+        g_object_remove_weak_pointer (G_OBJECT (picker->new_button),
+                                      reinterpret_cast<gpointer *> (&picker->new_button));
+        picker->new_button = nullptr;
+    }
+}
+
+static void
 picker_selection_changed (GtkSelectionModel *selection, guint position, guint n_items,
                           AccountPicker *picker)
 {
@@ -190,6 +238,7 @@ picker_finish (AccountPicker *picker, gboolean accepted)
         !gnc_session_operation_context_is_current (picker->operation_context))
         accepted = FALSE;
     picker->finished = TRUE;
+    picker_disconnect_signals (picker);
     auto account = accepted ? picker_selected_account (picker) : nullptr;
     if (account && xaccAccountGetPlaceholder (account))
         account = nullptr;
@@ -209,7 +258,7 @@ picker_finish (AccountPicker *picker, gboolean accepted)
     {
         gnc_save_window_size (GNC_PREFS_GROUP, picker->window);
         gtk_window_destroy (picker->window);
-        g_object_unref (picker->window);
+        picker->window = nullptr;
     }
     g_clear_object (&picker->selection);
     g_clear_object (&picker->rows);
@@ -240,11 +289,8 @@ picker_destroyed (GtkWidget *window, AccountPicker *picker)
     if (!picker || picker->finished)
         return;
     picker->destroyed = TRUE;
-    if (picker->window)
-    {
-        g_object_unref (picker->window);
-        picker->window = nullptr;
-    }
+    picker_disconnect_signals (picker);
+    picker->window = nullptr;
     if (!picker->creating_account)
         picker_finish (picker, FALSE);
     (void)window;
@@ -399,10 +445,16 @@ gnc_import_select_account_async_internal (GtkWidget *parent, const gchar *online
     picker->warning_box = GTK_WIDGET (gtk_builder_get_object (builder, "warning_hbox"));
     picker->warning = GTK_LABEL (gtk_builder_get_object (builder, "warning_label"));
     picker->scroller = GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder, "account_tree_sw"));
-    auto new_button = GTK_BUTTON (gtk_builder_get_object (builder, "newbutton"));
-    auto cancel_button = GTK_BUTTON (gtk_builder_get_object (builder, "cancelbutton"));
-    g_return_if_fail (picker->window && picker->ok_button && picker->scroller && new_button && cancel_button);
-    g_object_ref (picker->window);
+    picker->new_button = GTK_BUTTON (gtk_builder_get_object (builder, "newbutton"));
+    picker->cancel_button = GTK_BUTTON (gtk_builder_get_object (builder, "cancelbutton"));
+    g_return_if_fail (picker->window && picker->ok_button && picker->scroller &&
+                      picker->new_button && picker->cancel_button);
+    g_object_add_weak_pointer (G_OBJECT (picker->ok_button),
+                               reinterpret_cast<gpointer *> (&picker->ok_button));
+    g_object_add_weak_pointer (G_OBJECT (picker->cancel_button),
+                               reinterpret_cast<gpointer *> (&picker->cancel_button));
+    g_object_add_weak_pointer (G_OBJECT (picker->new_button),
+                               reinterpret_cast<gpointer *> (&picker->new_button));
     g_object_unref (builder);
     if (parent)
         gtk_window_set_transient_for (picker->window, GTK_WINDOW (parent));
@@ -411,6 +463,8 @@ gnc_import_select_account_async_internal (GtkWidget *parent, const gchar *online
     picker->rows = g_list_store_new (G_TYPE_OBJECT);
     picker->selection = gnc_import_single_selection_new (G_LIST_MODEL (picker->rows));
     picker->view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (picker->selection))));
+    g_object_add_weak_pointer (G_OBJECT (picker->view),
+                               reinterpret_cast<gpointer *> (&picker->view));
     picker_add_column (picker, _("Account"), TRUE);
     picker_add_column (picker, _("Account ID"), FALSE);
     gtk_scrolled_window_set_child (picker->scroller, GTK_WIDGET (picker->view));
@@ -420,8 +474,8 @@ gnc_import_select_account_async_internal (GtkWidget *parent, const gchar *online
     g_signal_connect (picker->window, "close-request", G_CALLBACK (picker_close_request), picker);
     g_signal_connect (picker->window, "destroy", G_CALLBACK (picker_destroyed), picker);
     g_signal_connect (picker->ok_button, "clicked", G_CALLBACK (picker_ok_clicked), picker);
-    g_signal_connect (cancel_button, "clicked", G_CALLBACK (picker_cancel_clicked), picker);
-    g_signal_connect (new_button, "clicked", G_CALLBACK (picker_add_account), picker);
+    g_signal_connect (picker->cancel_button, "clicked", G_CALLBACK (picker_cancel_clicked), picker);
+    g_signal_connect (picker->new_button, "clicked", G_CALLBACK (picker_add_account), picker);
     picker_selection_changed (GTK_SELECTION_MODEL (picker->selection), 0, 0, picker);
     gtk_window_set_default_widget (picker->window, GTK_WIDGET (picker->ok_button));
     gtk_window_present (picker->window);
