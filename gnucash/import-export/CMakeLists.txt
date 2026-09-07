@@ -38,6 +38,7 @@ set (generic_import_noinst_HEADERS
   import-backend.h
   import-commodity-matcher.h
   import-operation-teardown.h
+  import-selection-model.h
   import-main-matcher.h
   import-match-picker.h
   import-pending-matches.h

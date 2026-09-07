@@ -43,6 +43,7 @@
 #include "dialog-utils.h"
 #include "gnc-amount-edit.h"
 #include "gnc-ui.h"
+#include "import-selection-model.h"
 
 /* This static indicates the debugging module that this .o belongs to.  */
 static QofLogModule log_module = G_LOG_DOMAIN;
@@ -532,7 +533,7 @@ gnc_ab_trans_dialog_new(GtkWidget *parent, GNC_AB_ACCOUNT_SPEC *ab_acc,
     /* Fill list for choosing a transaction template */
     td->template_store = g_list_store_new (GTK_TYPE_STRING_OBJECT);
     g_list_foreach (templates, gnc_ab_trans_dialog_fill_templ_helper, td->template_store);
-    td->template_selection = gtk_single_selection_new (G_LIST_MODEL (g_object_ref (td->template_store)));
+    td->template_selection = gnc_import_single_selection_new (G_LIST_MODEL (td->template_store));
     td->template_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL
                                                                (g_object_ref (td->template_selection))));
     template_factory = gtk_signal_list_item_factory_new ();
@@ -1231,12 +1232,8 @@ template_name_dialog_accept_clicked (GtkButton *button, gpointer user_data)
         gnc_entry_get_text (GTK_ENTRY (info->td->purpose_entry)),
         gnc_entry_get_text (GTK_ENTRY (info->td->purpose_cont_entry)));
 
-    position = gtk_single_selection_get_selected (info->td->template_selection);
-    if (position != GTK_INVALID_LIST_POSITION)
-        position++;
-    else
-        position = g_list_model_get_n_items (G_LIST_MODEL (
-                                              info->td->template_store));
+    position = gnc_import_single_selection_get_insert_after_position (
+        info->td->template_selection);
     row = gnc_ab_trans_dialog_template_row_new (templ);
     g_list_store_insert (info->td->template_store, position, row);
     gtk_single_selection_set_selected (info->td->template_selection, position);

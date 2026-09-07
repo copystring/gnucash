@@ -527,8 +527,17 @@ transfer_account_model_rebuild (XferDialog *xferData, XferDirection direction)
     auto rows = g_list_store_new (transfer_account_row_get_type ());
     transfer_account_rows_append (rows, gnc_book_get_root_account (xferData->book),
                                   xferData->book, info);
-    auto selection = GTK_SINGLE_SELECTION (gtk_single_selection_new (G_LIST_MODEL (rows)));
+    /* The dialog keeps rows for rebuild and close paths; the selection model
+     * consumes its own reference. */
+    auto selection = GTK_SINGLE_SELECTION (gtk_single_selection_new
+                                           (G_LIST_MODEL (g_object_ref (rows))));
     gtk_single_selection_set_autoselect (selection, FALSE);
+
+    /* The previous selection can outlive the view when callers retain it.
+     * Disconnect its controller callback before replacing the view model. */
+    if (previous)
+        g_signal_handlers_disconnect_by_func
+            (previous, (gpointer)transfer_account_selection_changed_cb, xferData);
     gtk_column_view_set_model (view, GTK_SELECTION_MODEL (selection));
     g_signal_connect (selection, "selection-changed",
                       G_CALLBACK (transfer_account_selection_changed_cb), xferData);
@@ -1931,6 +1940,14 @@ gnc_xfer_dialog_close_cb(GtkWindow *window, gpointer data)
     if (xferData->desc_selection_source_id)
         g_source_remove (xferData->desc_selection_source_id);
 
+    if (xferData->from_account_selection)
+        g_signal_handlers_disconnect_by_func
+            (xferData->from_account_selection,
+             (gpointer)transfer_account_selection_changed_cb, xferData);
+    if (xferData->to_account_selection)
+        g_signal_handlers_disconnect_by_func
+            (xferData->to_account_selection,
+             (gpointer)transfer_account_selection_changed_cb, xferData);
     g_clear_object (&xferData->from_account_selection);
     g_clear_object (&xferData->from_account_rows);
     g_clear_object (&xferData->to_account_selection);

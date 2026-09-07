@@ -903,7 +903,9 @@ hierarchy_account_cell_bind (GtkListItemFactory *factory, GtkListItem *list_item
 {
     auto factory_data = static_cast<HierarchyAccountFactoryData*>(user_data);
     GtkTreeListRow *tree_row = nullptr;
-    auto row = hierarchy_list_item_get_account_row (list_item, &tree_row);
+    g_autoptr(GObject) row_object = G_OBJECT
+        (hierarchy_list_item_get_account_row (list_item, &tree_row));
+    auto row = reinterpret_cast<HierarchyAccountRow*>(row_object);
     auto account = hierarchy_account_row_get_account (row);
     auto child = gtk_list_item_get_child (list_item);
     GtkWidget *editable = child;

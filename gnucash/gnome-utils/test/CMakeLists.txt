@@ -218,6 +218,15 @@ set (test_doclink_view_SOURCES
 gnc_add_test (test-doclink-view "${test_doclink_view_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_dialog_transfer_model_lifecycle_SOURCES
+  test-dialog-transfer-model-lifecycle.c
+)
+
+gnc_add_test (test-dialog-transfer-model-lifecycle
+  "${test_dialog_transfer_model_lifecycle_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
+
 set (test_gnc_scrub_job_runner_SOURCES
   test-gnc-scrub-job-runner.c
 )
@@ -251,5 +260,6 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_period_select_SOURCES}
   ${test_gnc_currency_edit_SOURCES}
   ${test_doclink_view_SOURCES}
+  ${test_dialog_transfer_model_lifecycle_SOURCES}
   ${test_gnc_scrub_job_runner_SOURCES}
 )

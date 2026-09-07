@@ -252,12 +252,16 @@ gnc_doclink_create_column_view (GtkWidget *sw, GListModel *model)
     GtkWidget *view = gtk_column_view_new (NULL);
 
     GtkSorter *sorter = g_object_ref (gtk_column_view_get_sorter (GTK_COLUMN_VIEW(view)));
-    GtkSortListModel *sort_model = gtk_sort_list_model_new (G_LIST_MODEL(model), sorter);
+    /* The caller retains the source model for document reload and teardown.
+     * GtkSortListModel consumes the reference supplied here. */
+    GtkSortListModel *sort_model = gtk_sort_list_model_new
+        (G_LIST_MODEL (g_object_ref (model)), sorter);
 
     GtkSingleSelection *selection = gtk_single_selection_new (G_LIST_MODEL(sort_model));
     gtk_single_selection_set_autoselect (selection, TRUE);
 
     gtk_column_view_set_model (GTK_COLUMN_VIEW(view), GTK_SELECTION_MODEL(selection));
+    g_object_unref (selection);
 
 
     GtkListItemFactory *factory_date = gtk_signal_list_item_factory_new ();

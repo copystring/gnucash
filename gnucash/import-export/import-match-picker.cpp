@@ -19,6 +19,7 @@
 #include <string>
 
 #include "import-match-picker.h"
+#include "import-selection-model.h"
 #include "qof.h"
 #include "gnc-ui-util.h"
 #include "gnc-gtk-utils.h"
@@ -246,11 +247,14 @@ match_picker_finish (GNCImportMatchPicker *matcher, gint response)
     {
         gnc_import_TransInfo_set_selected_match_info (matcher->transaction_info,
                                                        matcher->selected_match_info, TRUE);
-        gnc_import_PendingMatches_remove_match (matcher->pending_matches,
-                                                matcher->old_match_info,
-                                                matcher->old_selected_manually);
-        gnc_import_PendingMatches_add_match (matcher->pending_matches,
-                                             matcher->selected_match_info, TRUE);
+        if (matcher->old_match_info)
+            gnc_import_PendingMatches_remove_match (matcher->pending_matches,
+                                                    matcher->old_match_info,
+                                                    matcher->old_selected_manually);
+        if (matcher->selected_match_info)
+            gnc_import_PendingMatches_add_match (matcher->pending_matches,
+                                                 matcher->selected_match_info,
+                                                 TRUE);
     }
 
     gnc_save_window_size (GNC_PREFS_GROUP, GTK_WINDOW (matcher->transaction_matcher));
@@ -443,8 +447,8 @@ init_match_picker_gui (GtkWidget *parent, GNCImportMatchPicker *matcher)
 
     matcher->downloaded_store = g_list_store_new (G_TYPE_OBJECT);
     matcher->match_store = g_list_store_new (G_TYPE_OBJECT);
-    matcher->downloaded_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new (G_LIST_MODEL (g_object_ref (matcher->downloaded_store))));
-    matcher->match_selection = GTK_SINGLE_SELECTION (gtk_single_selection_new (G_LIST_MODEL (g_object_ref (matcher->match_store))));
+    matcher->downloaded_selection = gnc_import_single_selection_new (G_LIST_MODEL (matcher->downloaded_store));
+    matcher->match_selection = gnc_import_single_selection_new (G_LIST_MODEL (matcher->match_store));
     matcher->downloaded_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (matcher->downloaded_selection))));
     matcher->match_view = GTK_COLUMN_VIEW (gtk_column_view_new (GTK_SELECTION_MODEL (g_object_ref (matcher->match_selection))));
 

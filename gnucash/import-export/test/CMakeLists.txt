@@ -18,6 +18,11 @@ gnc_add_test(test-import-pending-matches test-import-pending-matches.cpp
   GENERIC_IMPORT_TEST_INCLUDE_DIRS GENERIC_IMPORT_TEST_LIBS
 )
 
+set(IMPORT_SELECTION_MODEL_TEST_LIBS PkgConfig::GTK4)
+gnc_add_test(test-import-selection-model test-import-selection-model.c
+  GENERIC_IMPORT_TEST_INCLUDE_DIRS IMPORT_SELECTION_MODEL_TEST_LIBS
+)
+
 set(GTEST_IMPORT_PARSE_LIBS gnc-generic-import gnc-test-engine test-core gtest)
 gnc_add_test(test-gnc-import-parse gtest-import-parse.cpp
   GENERIC_IMPORT_TEST_INCLUDE_DIRS GTEST_IMPORT_PARSE_LIBS
@@ -39,7 +44,8 @@ set(IMPORT_ACCOUNT_MATCHER_TEST_SOURCES
 
 set(IMPORT_ACCOUNT_MATCHER_TEST_LIBS gnc-generic-import gnc-engine test-core gtest)
 gnc_add_test(test-import-account-matcher "${IMPORT_ACCOUNT_MATCHER_TEST_SOURCES}"
-  IMPORT_ACCOUNT_MATCHER_TEST_INCLUDE_DIRS IMPORT_ACCOUNT_MATCHER_TEST_LIBS)
+  IMPORT_ACCOUNT_MATCHER_TEST_INCLUDE_DIRS IMPORT_ACCOUNT_MATCHER_TEST_LIBS
+  "GSETTINGS_BACKEND=memory")
 
 set(gtest_import_backend_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common # for config.h
@@ -99,5 +105,6 @@ set_dist_list(test_generic_import_DIST
     test-import-parse.c
     gtest-import-parse.cpp
     test-import-pending-matches.cpp
+    test-import-selection-model.c
     gtest-import-account-matcher.cpp
     gtest-import-backend.cpp)

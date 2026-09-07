@@ -31,10 +31,16 @@
 #include <import-account-matcher.h>
 #include <import-backend.h>
 #include <import-main-matcher.h>
+#include <import-match-picker.h>
 #include <import-operation-teardown.h>
+#include <import-pending-matches.h>
 #include <gnc-ofx-import-teardown.h>
+#include <gnc-prefs.h>
+#include <gnc-prefs-utils.h>
 #include <gnc-session.h>
 #include <gnc-ui-util.h>
+#include <gnc-commodity.h>
+#include <gnc-engine.h>
 #include <qofbook.h>
 #include <Account.h>
 #include <Transaction.h>
@@ -53,13 +59,25 @@ protected:
     {
         gtk_init ();
         ASSERT_TRUE (gtk_is_initialized ());
+        gnc_engine_init_static (0, nullptr);
+        gnc_prefs_init ();
         g_log_set_always_fatal (static_cast<GLogLevelFlags> (
             G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL));
     }
 
-    ImportMatcherTest() :
-        m_book{gnc_get_current_book()}, m_root{gnc_account_create_root(m_book)}
+    static void TearDownTestSuite ()
     {
+        gnc_prefs_remove_registered ();
+        gnc_engine_shutdown ();
+    }
+
+    ImportMatcherTest() :
+        m_book{gnc_get_current_book()}, m_root{gnc_account_create_root(m_book)},
+        m_currency{gnc_commodity_table_lookup (
+            gnc_commodity_table_get_table (m_book),
+            GNC_COMMODITY_NS_CURRENCY, "USD")}
+    {
+        g_assert_nonnull (m_currency);
         auto create_account = [this](Account* parent, GNCAccountType type,
                                      const char* name,
                                      const char* online)->Account* {
@@ -67,6 +85,7 @@ protected:
             xaccAccountBeginEdit(account);
             xaccAccountSetType(account, type);
             xaccAccountSetName(account, name);
+            xaccAccountSetCommodity(account, m_currency);
             xaccAccountBeginEdit(parent);
             gnc_account_append_child(parent, account);
             if (online)
@@ -75,12 +94,12 @@ protected:
             xaccAccountCommitEdit(account);
             return account;
         };
-        auto assets = create_account(m_root, ACCT_TYPE_ASSET,
-                                     "Assets", nullptr);
+        m_assets = create_account(m_root, ACCT_TYPE_ASSET,
+                                  "Assets", nullptr);
         auto expenses = create_account(m_root, ACCT_TYPE_EXPENSE,
                                        "Expenses", nullptr);
-        create_account(assets, ACCT_TYPE_BANK, "Bank", "Bank");
-        auto broker = create_account(assets, ACCT_TYPE_ASSET,
+        m_bank = create_account(m_assets, ACCT_TYPE_BANK, "Bank", "Bank");
+        auto broker = create_account(m_assets, ACCT_TYPE_ASSET,
                                      "Broker", "Broker");
         auto stocks = create_account(broker, ACCT_TYPE_STOCK,
                                      "Stocks", "BrokerStocks");
@@ -102,12 +121,16 @@ protected:
 
     QofBook* m_book;
     Account* m_root;
+    gnc_commodity* m_currency;
+    Account* m_assets;
+    Account* m_bank;
 };
 
 struct AccountSelectionResult
 {
     Account *account {nullptr};
     gboolean accepted {FALSE};
+    guint calls {0};
 };
 
 static void
@@ -117,6 +140,101 @@ account_selected (Account *account, gboolean accepted, gpointer user_data)
 
     result->account = account;
     result->accepted = accepted;
+    result->calls++;
+}
+
+static GtkWidget *
+find_buildable_widget (GtkWidget *widget, const gchar *buildable_id)
+{
+    if (GTK_IS_BUILDABLE (widget) &&
+        g_strcmp0 (gtk_buildable_get_buildable_id (GTK_BUILDABLE (widget)),
+                   buildable_id) == 0)
+        return widget;
+
+    for (auto child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+    {
+        auto result = find_buildable_widget (child, buildable_id);
+
+        if (result)
+            return result;
+    }
+    return nullptr;
+}
+
+static GtkWindow *
+find_buildable_window (const gchar *buildable_id)
+{
+    auto windows = gtk_window_get_toplevels ();
+
+    for (guint position = 0;
+         position < g_list_model_get_n_items (windows); position++)
+    {
+        auto window = GTK_WINDOW (g_list_model_get_item (windows, position));
+
+        if (g_strcmp0 (gtk_buildable_get_buildable_id (GTK_BUILDABLE (window)),
+                       buildable_id) == 0)
+            return window;
+        g_object_unref (window);
+    }
+    return nullptr;
+}
+
+struct TestTransaction
+{
+    Transaction *transaction;
+    Split *split;
+};
+
+static TestTransaction
+create_test_transaction (QofBook *book, Account *account,
+                         gnc_commodity *currency, gint64 amount,
+                         char reconcile, gboolean leave_open)
+{
+    auto transaction = xaccMallocTransaction (book);
+    auto split = xaccMallocSplit (book);
+    auto value = gnc_numeric_create (amount, 1);
+
+    xaccTransBeginEdit (transaction);
+    xaccTransSetCurrency (transaction, currency);
+    xaccTransSetDatePostedSecsNormalized (transaction, 1000);
+    xaccTransSetDescription (transaction, "selection regression");
+    xaccSplitSetParent (split, transaction);
+    xaccSplitSetAccount (split, account);
+    xaccSplitSetAmount (split, value);
+    xaccSplitSetValue (split, value);
+    xaccSplitSetReconcile (split, reconcile);
+    if (!leave_open)
+        xaccTransCommitEdit (transaction);
+    return { transaction, split };
+}
+
+static GNCImportMatchInfo *
+find_match_for_split (GNCImportTransInfo *info, Split *split)
+{
+    for (auto node = gnc_import_TransInfo_get_match_list (info); node;
+         node = g_list_next (node))
+    {
+        auto match = static_cast<GNCImportMatchInfo*> (node->data);
+
+        if (gnc_import_MatchInfo_get_split (match) == split)
+            return match;
+    }
+    return nullptr;
+}
+
+struct MatchPickerResult
+{
+    guint calls {0};
+};
+
+static void
+match_picker_done (GNCImportTransInfo *info, gpointer user_data)
+{
+    auto result = static_cast<MatchPickerResult*> (user_data);
+
+    result->calls++;
+    (void)info;
 }
 
 struct OfxLifecycleMetrics
@@ -271,6 +389,145 @@ TEST_F(ImportMatcherTest, test_async_unmatched_without_prompt)
                                     account_selected, &result);
     EXPECT_FALSE(result.accepted);
     EXPECT_EQ(nullptr, result.account);
+}
+
+TEST_F(ImportMatcherTest, account_picker_without_default_stays_unselected)
+{
+    AccountSelectionResult result;
+    constexpr auto unmatched_id = "selection-regression-unmatched";
+
+    ASSERT_EQ (xaccAccountGetOnlineID (m_assets), nullptr);
+    gnc_import_select_account_async (nullptr, unmatched_id, TRUE,
+                                     "Unmatched account", m_currency,
+                                     ACCT_TYPE_NONE, nullptr,
+                                     account_selected, &result);
+
+    auto window = find_buildable_window ("account_picker_dialog");
+    ASSERT_NE (window, nullptr);
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "account_tree_sw"));
+    auto ok_button = find_buildable_widget (GTK_WIDGET (window), "okbutton");
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (view));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+
+    EXPECT_EQ (gtk_single_selection_get_selected (selection),
+               GTK_INVALID_LIST_POSITION);
+    EXPECT_FALSE (gtk_widget_get_sensitive (ok_button));
+
+    /* Exercise the real finish callback even though an insensitive button
+     * cannot be activated through the UI. */
+    g_signal_emit_by_name (ok_button, "clicked");
+    EXPECT_EQ (result.calls, 1u);
+    EXPECT_FALSE (result.accepted);
+    EXPECT_EQ (result.account, nullptr);
+    EXPECT_EQ (xaccAccountGetOnlineID (m_assets), nullptr);
+    EXPECT_STREQ (xaccAccountGetOnlineID (m_bank), "Bank");
+    g_object_unref (window);
+}
+
+TEST_F(ImportMatcherTest, account_picker_preserves_valid_default)
+{
+    AccountSelectionResult result;
+
+    gnc_import_select_account_async (nullptr, nullptr, TRUE,
+                                     "Existing default account", m_currency,
+                                     ACCT_TYPE_NONE, m_bank,
+                                     account_selected, &result);
+
+    auto window = find_buildable_window ("account_picker_dialog");
+    ASSERT_NE (window, nullptr);
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "account_tree_sw"));
+    auto ok_button = find_buildable_widget (GTK_WIDGET (window), "okbutton");
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (view));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+
+    EXPECT_NE (gtk_single_selection_get_selected (selection),
+               GTK_INVALID_LIST_POSITION);
+    EXPECT_TRUE (gtk_widget_get_sensitive (ok_button));
+    g_signal_emit_by_name (ok_button, "clicked");
+
+    EXPECT_EQ (result.calls, 1u);
+    EXPECT_TRUE (result.accepted);
+    EXPECT_EQ (result.account, m_bank);
+    EXPECT_STREQ (xaccAccountGetOnlineID (m_bank), "Bank");
+    g_object_unref (window);
+}
+
+TEST_F(ImportMatcherTest, match_picker_does_not_select_first_visible_match)
+{
+    constexpr auto prefs_group = "dialogs.import.generic.match-picker";
+    constexpr auto display_reconciled = "display-reconciled";
+    auto previous_display_reconciled = gnc_prefs_get_bool (
+        prefs_group, display_reconciled);
+    auto imported = create_test_transaction (m_book, m_bank, m_currency,
+                                             100, NREC, TRUE);
+    auto visible = create_test_transaction (m_book, m_bank, m_currency,
+                                            100, NREC, FALSE);
+    auto hidden = create_test_transaction (m_book, m_bank, m_currency,
+                                           100, YREC, FALSE);
+    auto trans_info = gnc_import_TransInfo_new (imported.transaction, m_bank);
+
+    /* split_find_match prepends: add the hidden selection last so that the
+     * first displayed row is the other candidate after filtering. */
+    split_find_match (trans_info, visible.split, 0, 4, 14, 0.0);
+    split_find_match (trans_info, hidden.split, 0, 4, 14, 0.0);
+    auto visible_match = find_match_for_split (trans_info, visible.split);
+    auto hidden_match = find_match_for_split (trans_info, hidden.split);
+    ASSERT_NE (visible_match, nullptr);
+    ASSERT_NE (hidden_match, nullptr);
+    gnc_import_TransInfo_set_selected_match_info (trans_info, hidden_match, TRUE);
+    auto pending_matches = gnc_import_PendingMatches_new ();
+    gnc_import_PendingMatches_add_match (pending_matches, hidden_match, TRUE);
+    gnc_prefs_set_bool (prefs_group, display_reconciled, FALSE);
+    MatchPickerResult result;
+
+    gnc_import_match_picker_run (nullptr, trans_info, pending_matches,
+                                 match_picker_done, &result);
+
+    auto window = find_buildable_window ("match_picker_dialog");
+    ASSERT_NE (window, nullptr);
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "matched_view"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (view));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+    EXPECT_EQ (g_list_model_get_n_items (G_LIST_MODEL (selection)), 1u);
+    EXPECT_EQ (gtk_single_selection_get_selected (selection),
+               GTK_INVALID_LIST_POSITION);
+    EXPECT_EQ (gnc_import_TransInfo_get_selected_match (trans_info),
+               hidden_match);
+    EXPECT_EQ (gnc_import_PendingMatches_get_match_type (
+                   pending_matches, hidden_match), GNCImportPending_MANUAL);
+    EXPECT_EQ (gnc_import_PendingMatches_get_match_type (
+                   pending_matches, visible_match), GNCImportPending_NONE);
+
+    auto ok_button = gtk_window_get_default_widget (window);
+    ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
+    g_signal_emit_by_name (ok_button, "clicked");
+
+    EXPECT_EQ (result.calls, 1u);
+    EXPECT_EQ (gnc_import_TransInfo_get_selected_match (trans_info), nullptr);
+    EXPECT_EQ (gnc_import_PendingMatches_get_match_type (
+                   pending_matches, hidden_match), GNCImportPending_NONE);
+    EXPECT_EQ (gnc_import_PendingMatches_get_match_type (
+                   pending_matches, visible_match), GNCImportPending_NONE);
+
+    gnc_prefs_set_bool (prefs_group, display_reconciled,
+                        previous_display_reconciled);
+    g_object_unref (window);
+    gnc_import_PendingMatches_delete (pending_matches);
+    gnc_import_TransInfo_delete (trans_info);
 }
 
 TEST_F(ImportMatcherTest, matcher_then_ofx_cancel_coalesces_and_cleans_once)

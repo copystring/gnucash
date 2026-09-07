@@ -39,6 +39,41 @@ doclink_item_new (const gchar *icon_name)
 }
 
 static void
+object_finalized (gpointer data, GObject *where_the_object_was)
+{
+    gboolean *finalized = data;
+
+    *finalized = TRUE;
+    (void)where_the_object_was;
+}
+
+static void
+test_view_releases_selection_but_not_source_model (void)
+{
+    GListStore *model = g_list_store_new (DOCLINKVIEW_TYPE_ITEM);
+    GtkWidget *scroller = gtk_scrolled_window_new ();
+    GtkWidget *view;
+    GtkSelectionModel *selection;
+    gboolean model_finalized = FALSE;
+    gboolean selection_finalized = FALSE;
+
+    g_object_ref_sink (scroller);
+    g_object_weak_ref (G_OBJECT (model), object_finalized, &model_finalized);
+    view = gnc_doclink_create_column_view (scroller, G_LIST_MODEL (model));
+    selection = gtk_column_view_get_model (GTK_COLUMN_VIEW (view));
+    g_assert_nonnull (selection);
+    g_object_weak_ref (G_OBJECT (selection), object_finalized, &selection_finalized);
+
+    /* The view owns the selection chain, while its caller still owns model. */
+    g_object_unref (scroller);
+    g_assert_true (selection_finalized);
+    g_assert_false (model_finalized);
+
+    g_object_unref (model);
+    g_assert_true (model_finalized);
+}
+
+static void
 test_relative_icon_is_cleared_on_rebind (void)
 {
     GListStore *model = g_list_store_new (DOCLINKVIEW_TYPE_ITEM);
@@ -109,5 +144,7 @@ main (int argc, char **argv)
                      test_relative_icon_is_cleared_on_rebind);
     g_test_add_func ("/gnome-utils/doclink-view/get-selected-item",
                      test_get_selected_item);
+    g_test_add_func ("/gnome-utils/doclink-view/source-model-lifetime",
+                     test_view_releases_selection_but_not_source_model);
     return g_test_run ();
 }
