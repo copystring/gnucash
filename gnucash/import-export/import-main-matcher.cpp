@@ -595,105 +595,16 @@ gnc_gen_trans_list_show_accounts_column (GNCImportMainMatcher *info)
     }
 }
 
-// This returns the transaction ID of the first match candidate in match_list
-static const GncGUID*
-get_top_trans_match_id (GList* match_list)
-{
-    if (!match_list || !match_list->data) return NULL;
-    auto match_info = static_cast<GNCImportMatchInfo *>(match_list->data);
-    Transaction *trans = match_info->trans;
-    return xaccTransGetGUID (trans);
-}
-
-// This returns the transaction score of the first match candidate in match_list
-static gint
-get_top_trans_match_score (GList* match_list)
-{
-    if (!match_list || !match_list->data) return 0;
-    auto match_info = static_cast<GNCImportMatchInfo *>(match_list->data);
-    return match_info->probability;
-}
-
-/* This function finds the top matching register transaction for the imported transaction pointed to by iter
- * It then goes through the list of all other imported transactions and creates a list of the ones that
- * have the same register transaction as their top match (i.e., are in conflict). It finds the best of them
- * (match-score-wise) and returns the rest as a list. The imported transactions in that list will get their
- * top match modified. */
-static GList*
-get_conflict_list (GNCImportMainMatcher *info, GNCImportTransInfo *best_import,
-                   GncGUID* id, gint best_match)
-{
-    GList* conflicts = g_list_prepend (NULL, best_import);
-
-    for (auto& object : matcher_root_rows (info))
-    {
-        gint match_score = 0;
-        auto trans_info = matcher_row_get (object.get ())->trans_info;
-        GncGUID id2;
-        // Get the ID of the top matching trans for this imported trans.
-        GList* register_iter = gnc_import_TransInfo_get_match_list (trans_info);
-        if (!register_iter || !register_iter->data)
-            continue;
-
-        id2 = *get_top_trans_match_id (register_iter);
-        if (!guid_equal (id, &id2))
-            continue;
-
-        // Conflict. Get the match score, add this transaction to our list.
-        match_score = get_top_trans_match_score (register_iter);
-        conflicts = g_list_prepend (conflicts, trans_info);
-
-        if (match_score > best_match)
-        {
-            // Keep track of the imported transaction with the best score.
-            best_match = match_score;
-            best_import = trans_info;
-        }
-    }
-
-    // Remove the best match from the list of conflicts, as it will keep its match
-    conflicts = g_list_remove (conflicts, best_import);
-    return conflicts;
-}
-
-static void
-remove_top_matches (GList* conflicts)
-{
-    for (GList* iter = conflicts; iter && iter->data; iter=iter->next)
-        gnc_import_TransInfo_remove_top_match (static_cast<GNCImportTransInfo*>(iter->data));
-}
-
 static void
 resolve_conflicts (GNCImportMainMatcher *info)
 {
-    /* A greedy conflict resolution. Find all imported trans that vie for the same
-     * register trans. Assign the reg trans to the imported trans with the best match.
-     * Loop over the imported transactions */
-    bool changed;
-    do
-    {
-        changed = false;
-        for (auto& object : matcher_root_rows (info))
-        {
-            auto trans_info = matcher_row_get (object.get ())->trans_info;
-            auto match_list = gnc_import_TransInfo_get_match_list (trans_info);
-            if (!match_list || !match_list->data)
-                continue;
-
-            GncGUID id = *get_top_trans_match_id (match_list);
-            auto best_match = get_top_trans_match_score (match_list);
-            GList *conflicts = get_conflict_list (info, trans_info, &id, best_match);
-
-            if (!conflicts)
-                continue;
-            remove_top_matches (conflicts);
-            g_list_free (conflicts);
-            changed = true;
-            break;
-        }
-        /* Every pass removes at least one candidate, so this terminates. */
-    }
-    while (changed);
+    GList *trans_infos = nullptr;
+    for (auto& object : matcher_root_rows (info))
+        trans_infos = g_list_prepend (
+            trans_infos, matcher_row_get (object.get ())->trans_info);
+    trans_infos = g_list_reverse (trans_infos);
+    gnc_import_TransInfo_resolve_conflicts (trans_infos);
+    g_list_free (trans_infos);
 
     // Refresh all
     for (auto& object : matcher_root_rows (info))

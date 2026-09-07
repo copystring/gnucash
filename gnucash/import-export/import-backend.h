@@ -192,6 +192,12 @@ GList *gnc_import_TransInfo_get_match_list (const GNCImportTransInfo *info);
 /** Remove the first match in the list of possible matches  */
 void gnc_import_TransInfo_remove_top_match (GNCImportTransInfo *info);
 
+/** Resolve conflicts between imported transactions that currently select the
+ * same existing transaction. Each GNCImportTransInfo must occur at most once
+ * in @a trans_infos. The highest-probability import keeps the shared match;
+ * the others advance to their next possible match until no conflicts remain. */
+void gnc_import_TransInfo_resolve_conflicts (GList *trans_infos);
+
 /** Returns the transaction of this TransInfo. */
 Transaction *gnc_import_TransInfo_get_trans (const GNCImportTransInfo *info);
 
