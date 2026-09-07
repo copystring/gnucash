@@ -12,11 +12,14 @@
 #include "gnc-pricedb.h"
 #include "gnc-session.h"
 #include "gnc-query-view.h"
+#include "search-param.h"
 #include "gnc-tree-view-account.h"
 #include "gnc-tree-view-commodity.h"
 #include "gnc-tree-view-owner.h"
 #include "gnc-tree-view-price.h"
 #include "qof.h"
+#include "qofquery-p.h"
+#include "Split.h"
 
 static void
 object_finalized (gpointer data, GObject *object)
@@ -346,6 +349,116 @@ test_query_selection_switch_disconnects_old_model (void)
     g_assert_true (finalized);
 }
 
+static void
+assert_query_primary_sort (GNCQueryView *view, gboolean increasing)
+{
+    QofQuerySort *primary = NULL;
+
+    qof_query_get_sorts (view->query, &primary, NULL, NULL);
+    g_assert_nonnull (primary);
+    g_assert_cmpint (qof_query_sort_get_increasing (primary), ==, increasing);
+}
+
+static void
+test_query_native_column_sorting (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    GNCSearchParamSimple *memo_param = gnc_search_param_simple_new ();
+    GNCSearchParamSimple *amount_param = gnc_search_param_simple_new ();
+    GNCSearchParamSimple *passive_param = gnc_search_param_simple_new ();
+    GSList *path = NULL;
+    GList *params = NULL;
+    Query *query = qof_query_create_for (GNC_ID_SPLIT);
+    GtkWidget *widget;
+    GNCQueryView *view;
+    GtkColumnView *column_view;
+    GListModel *columns;
+    GtkColumnViewColumn *memo_column;
+    GtkColumnViewColumn *amount_column;
+    GtkColumnViewColumn *passive_column;
+    GtkSorter *view_sorter;
+
+    gnc_set_current_session (session);
+    qof_query_set_book (query, book);
+
+    path = g_slist_append (path, (gpointer)SPLIT_MEMO);
+    gnc_search_param_set_param_path (memo_param, GNC_ID_SPLIT, path);
+    g_slist_free (path);
+    gnc_search_param_set_title (GNC_SEARCH_PARAM (memo_param), "Memo");
+
+    path = g_slist_append (NULL, (gpointer)SPLIT_AMOUNT);
+    gnc_search_param_set_param_path (amount_param, GNC_ID_SPLIT, path);
+    g_slist_free (path);
+    gnc_search_param_set_title (GNC_SEARCH_PARAM (amount_param), "Amount");
+
+    path = g_slist_append (NULL, (gpointer)SPLIT_MEMO);
+    gnc_search_param_set_param_path (passive_param, GNC_ID_SPLIT, path);
+    g_slist_free (path);
+    gnc_search_param_set_title (GNC_SEARCH_PARAM (passive_param), "Passive");
+    gnc_search_param_set_passive (GNC_SEARCH_PARAM (passive_param), TRUE);
+
+    params = g_list_append (params, memo_param);
+    params = g_list_append (params, amount_param);
+    params = g_list_append (params, passive_param);
+    widget = gnc_query_view_new (params, query);
+    g_object_ref_sink (widget);
+    view = GNC_QUERY_VIEW (widget);
+    column_view = find_column_view (widget);
+    g_assert_nonnull (column_view);
+    g_assert_null (gtk_column_view_get_header_factory (column_view));
+
+    columns = gtk_column_view_get_columns (column_view);
+    memo_column = g_list_model_get_item (columns, 0);
+    amount_column = g_list_model_get_item (columns, 1);
+    passive_column = g_list_model_get_item (columns, 2);
+    g_assert_nonnull (gtk_column_view_column_get_sorter (memo_column));
+    g_assert_nonnull (gtk_column_view_column_get_sorter (amount_column));
+    g_assert_null (gtk_column_view_column_get_sorter (passive_column));
+    g_assert_cmpint (gtk_sorter_compare
+                     (gtk_column_view_column_get_sorter (memo_column),
+                      memo_param, amount_param), ==, GTK_ORDERING_EQUAL);
+
+    gtk_column_view_sort_by_column (column_view, memo_column,
+                                    GTK_SORT_ASCENDING);
+    g_assert_cmpint (view->sort_column, ==, 0);
+    g_assert_true (view->increasing);
+    assert_query_primary_sort (view, TRUE);
+    gtk_column_view_sort_by_column (column_view, memo_column,
+                                    GTK_SORT_DESCENDING);
+    g_assert_false (view->increasing);
+    assert_query_primary_sort (view, FALSE);
+
+    gnc_query_view_set_numerics (view, FALSE, TRUE);
+    gtk_column_view_sort_by_column (column_view, amount_column,
+                                    GTK_SORT_ASCENDING);
+    g_assert_cmpint (view->sort_column, ==, 1);
+    g_assert_true (view->increasing);
+    assert_query_primary_sort (view, FALSE);
+
+    gnc_query_sort_order (view, 1, GTK_SORT_ASCENDING);
+    view_sorter = g_object_ref (gtk_column_view_get_sorter (column_view));
+    g_assert_true (gtk_column_view_sorter_get_primary_sort_column
+                   (GTK_COLUMN_VIEW_SORTER (view_sorter)) == memo_column);
+    g_assert_cmpint (gtk_column_view_sorter_get_primary_sort_order
+                     (GTK_COLUMN_VIEW_SORTER (view_sorter)), ==,
+                     GTK_SORT_ASCENDING);
+    g_assert_true (view->increasing);
+    assert_query_primary_sort (view, TRUE);
+
+    g_object_run_dispose (G_OBJECT (widget));
+    g_object_run_dispose (G_OBJECT (widget));
+    gtk_sorter_changed (view_sorter, GTK_SORTER_CHANGE_DIFFERENT);
+    g_object_unref (view_sorter);
+    g_object_unref (memo_column);
+    g_object_unref (amount_column);
+    g_object_unref (passive_column);
+    g_object_unref (widget);
+    qof_query_destroy (query);
+    g_list_free_full (params, g_object_unref);
+    gnc_clear_current_session ();
+}
+
 int
 main (int argc, char **argv)
 {
@@ -370,6 +483,8 @@ main (int argc, char **argv)
                      test_owner_selection_survives_view_dispose);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/query",
                      test_query_selection_switch_disconnects_old_model);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/query-native-sorting",
+                     test_query_native_column_sorting);
     status = g_test_run ();
 
     gnc_component_manager_shutdown ();
