@@ -135,6 +135,7 @@ day_selected (GtkCalendar *calendar, GNCDateEdit *gde)
 {
     time64 t;
     GDateTime *date;
+
     gde->in_selected_handler = TRUE;
     date = gtk_calendar_get_date (calendar);
     t = gnc_dmy2time64 (g_date_time_get_day_of_month (date),
@@ -146,9 +147,16 @@ day_selected (GtkCalendar *calendar, GNCDateEdit *gde)
 }
 
 static void
-day_selected_double_click (GtkCalendar *calendar, GNCDateEdit *gde)
+calendar_released (GtkGestureClick *gesture, gint n_press,
+                  gdouble x, gdouble y, GNCDateEdit *gde)
 {
-    gnc_date_edit_popdown (gde);
+    (void)gesture;
+
+    /* Run after GtkCalendar's own press handler selected the day. The
+     * documented day-number CSS class excludes its header and week labels. */
+    if (gnc_gtk_calendar_double_clicks_day (GTK_CALENDAR (gde->calendar),
+                                            n_press, x, y))
+        gnc_date_edit_popdown (gde);
 }
 
 static gboolean
@@ -593,6 +601,7 @@ create_children (GNCDateEdit *gde)
     GtkStringList *time_model;
     GtkEventController *key_controller;
     GtkEventController *focus_controller;
+    GtkGesture *click_gesture;
 
     /* Create the text entry area. */
     gde->date_entry  = gtk_entry_new ();
@@ -665,6 +674,8 @@ create_children (GNCDateEdit *gde)
                       G_CALLBACK (gnc_date_edit_popup_closed), gde);
 
     key_controller = gtk_event_controller_key_new ();
+    gtk_event_controller_set_static_name (key_controller,
+                                          "gnc-date-edit-popup-key");
     gtk_widget_add_controller (gde->cal_popup, key_controller);
     g_signal_connect (key_controller, "key-pressed",
                       G_CALLBACK (key_pressed_popup), gde);
@@ -678,9 +689,11 @@ create_children (GNCDateEdit *gde)
     gtk_calendar_set_show_heading (GTK_CALENDAR (gde->calendar), TRUE);
     g_signal_connect (G_OBJECT (gde->calendar), "day-selected",
 		      G_CALLBACK (day_selected), gde);
-    g_signal_connect (G_OBJECT (gde->calendar),
-                      "activate",
-                      G_CALLBACK  (day_selected_double_click), gde);
+    click_gesture = gtk_gesture_click_new ();
+    gtk_event_controller_set_static_name (GTK_EVENT_CONTROLLER (click_gesture),
+                                          "gnc-date-edit-calendar-double-click");
+    g_signal_connect (click_gesture, "released", G_CALLBACK (calendar_released), gde);
+    gtk_widget_add_controller (gde->calendar, GTK_EVENT_CONTROLLER (click_gesture));
     gtk_frame_set_child (GTK_FRAME(frame), gde->calendar);
     gtk_widget_set_visible (GTK_WIDGET(gde->calendar), TRUE);
 }

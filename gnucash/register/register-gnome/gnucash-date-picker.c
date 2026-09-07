@@ -145,13 +145,19 @@ gnc_date_picker_class_init (GNCDatePickerClass *date_picker_class)
 static void
 day_selected (GtkCalendar *calendar, GNCDatePicker *gdp)
 {
+    (void)calendar;
+
     g_signal_emit (gdp, gnc_date_picker_signals [DATE_SELECTED], 0);
 }
 
 static void
-day_selected_double_click (GtkCalendar *calendar, GNCDatePicker *gdp)
+calendar_released (GtkGestureClick *gesture, gint n_press,
+                  gdouble x, gdouble y, GNCDatePicker *gdp)
 {
-    g_signal_emit (gdp, gnc_date_picker_signals [DATE_PICKED], 0);
+    (void)gesture;
+
+    if (gnc_gtk_calendar_double_clicks_day (gdp->calendar, n_press, x, y))
+        g_signal_emit (gdp, gnc_date_picker_signals [DATE_PICKED], 0);
 }
 
 
@@ -161,6 +167,7 @@ gnc_date_picker_new (void)
     GtkWidget *calendar;
     GNCDatePicker *date_picker;
     GtkEventController *key_controller;
+    GtkGesture *click_gesture;
 
     date_picker = g_object_new (GNC_TYPE_DATE_PICKER,
                                 "homogeneous", FALSE,
@@ -172,6 +179,7 @@ gnc_date_picker_new (void)
     gtk_box_append (GTK_BOX (date_picker), calendar);
 
     key_controller = gtk_event_controller_key_new ();
+    gtk_event_controller_set_static_name (key_controller, "gnc-date-picker-key");
     g_signal_connect (key_controller, "key-pressed",
                       G_CALLBACK (gnc_date_picker_key_pressed), date_picker);
     gtk_widget_add_controller (calendar, key_controller);
@@ -179,9 +187,12 @@ gnc_date_picker_new (void)
                       G_CALLBACK (day_selected),
                       date_picker);
 
-    g_signal_connect (calendar, "activate",
-                      G_CALLBACK (day_selected_double_click),
+    click_gesture = gtk_gesture_click_new ();
+    gtk_event_controller_set_static_name (GTK_EVENT_CONTROLLER (click_gesture),
+                                          "gnc-date-picker-calendar-double-click");
+    g_signal_connect (click_gesture, "released", G_CALLBACK (calendar_released),
                       date_picker);
+    gtk_widget_add_controller (calendar, GTK_EVENT_CONTROLLER (click_gesture));
 
     return GTK_WIDGET(date_picker);
 }

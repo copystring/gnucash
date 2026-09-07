@@ -64,6 +64,27 @@ void gnc_box_prepend_full (GtkBox *box, GtkWidget *child, gboolean expand,
 void gnc_widget_set_all_margins (GtkWidget *widget, gint margin);
 
 /**
+ * Returns whether a double-click landed on a selectable GtkCalendar day.
+ * GtkCalendar exposes day labels through its documented "day-number" CSS
+ * class; headers, weekday names and week numbers deliberately do not match.
+ */
+static inline gboolean
+gnc_gtk_calendar_double_clicks_day (GtkCalendar *calendar, gint n_press,
+                                    gdouble x, gdouble y)
+{
+    GtkWidget *target;
+
+    g_return_val_if_fail (GTK_IS_CALENDAR (calendar), FALSE);
+
+    if (n_press != 2)
+        return FALSE;
+
+    target = gtk_widget_pick (GTK_WIDGET (calendar), x, y, GTK_PICK_DEFAULT);
+    return target && gtk_widget_has_css_class (target, "day-number") &&
+           gtk_widget_is_sensitive (target);
+}
+
+/**
  * Reserve enough horizontal space for the widest text displayed by a
  * GtkDropDown. The reservation follows the current theme, font and scale;
  * it is refreshed when the drop-down's model, expression or selection
