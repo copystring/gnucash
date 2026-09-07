@@ -158,7 +158,7 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
     g_assert_cmpuint (g_list_model_get_n_items (G_LIST_MODEL (selection)), >, 0);
 
     tree_row = GTK_TREE_LIST_ROW (g_list_model_get_item (G_LIST_MODEL (selection), 0));
-    account_row = gtk_tree_list_row_get_item (tree_row);
+    account_row = G_OBJECT (gtk_tree_list_row_get_item (tree_row));
     g_assert_nonnull (account_row);
     g_object_weak_ref (account_row, object_finalized, &row_finalized);
     g_object_unref (account_row);
