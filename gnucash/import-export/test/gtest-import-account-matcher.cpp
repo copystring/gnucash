@@ -72,7 +72,8 @@ protected:
     }
 
     ImportMatcherTest() :
-        m_book{gnc_get_current_book()}, m_root{gnc_account_create_root(m_book)},
+        m_book{gnc_get_current_book()},
+        m_root{gnc_book_get_root_account(m_book)},
         m_currency{gnc_commodity_table_lookup (
             gnc_commodity_table_get_table (m_book),
             GNC_COMMODITY_NS_CURRENCY, "USD")}
@@ -114,8 +115,6 @@ protected:
    }
     ~ImportMatcherTest()
     {
-        xaccAccountBeginEdit(m_root);
-        xaccAccountDestroy(m_root); //It does the commit
         gnc_clear_current_session();
     }
 

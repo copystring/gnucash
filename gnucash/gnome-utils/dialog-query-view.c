@@ -31,6 +31,7 @@
 #include "qof.h"
 
 #include "dialog-utils.h"
+#include "gnc-gtk-utils.h"
 #include "gnc-component-manager.h"
 
 #include "dialog-query-view.h"
@@ -243,7 +244,7 @@ gnc_dialog_query_view_new (GtkWindow *parent, GList *param_list, Query *q, const
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW (scrolled_window),
                                    GTK_POLICY_AUTOMATIC,
                                    GTK_POLICY_AUTOMATIC);
-    gnc_box_set_all_margins (GTK_BOX(scrolled_window), 5);
+    gnc_widget_set_all_margins (scrolled_window, 5);
 
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(scrolled_window),
                                    GTK_WIDGET(dqv->qview));

@@ -268,7 +268,7 @@ create_option_widget<GncOptionUIType::TEXT> (GncOption& option, GtkGrid *page_bo
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window),
                                    GTK_POLICY_NEVER,
                                    GTK_POLICY_AUTOMATIC);
-    gnc_box_set_all_margins (GTK_BOX(scrolled_window), 2);
+    gnc_widget_set_all_margins (scrolled_window, 2);
     auto frame = gtk_frame_new(NULL);
     gtk_frame_set_child (GTK_FRAME(frame), GTK_WIDGET(scrolled_window));
 
@@ -1400,7 +1400,7 @@ create_account_widget (GncOption& option, char *name)
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled_window),
                                     GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled_window), view);
-    gnc_box_set_all_margins (GTK_BOX (scrolled_window), 5);
+    gnc_widget_set_all_margins (scrolled_window, 5);
 
     gtk_frame_set_child (GTK_FRAME (root), vbox);
     gtk_box_append (GTK_BOX (vbox), search_entry);
