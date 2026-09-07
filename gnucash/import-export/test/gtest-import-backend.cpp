@@ -407,12 +407,12 @@ TEST_F(ImportBackendTest, ResolveConflictsKeepsSingleCandidate)
 
     auto trans_info = gnc_import_TransInfo_new (m_trans, m_import_acc);
     split_find_match (trans_info, existing_split, 0, 4, 14, 0.0);
-    ASSERT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (trans_info)), 1);
+    ASSERT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (trans_info)), 1u);
     GList *imports = g_list_append (nullptr, trans_info);
 
     gnc_import_TransInfo_resolve_conflicts (imports);
 
-    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (trans_info)), 1);
+    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (trans_info)), 1u);
     g_list_free (imports);
     gnc_import_TransInfo_delete (trans_info);
     existing_split->free();
@@ -489,7 +489,7 @@ TEST_F(ImportBackendTest, ResolveConflictsKeepsLaterHigherScoringImport)
     gnc_import_TransInfo_resolve_conflicts (imports);
 
     EXPECT_EQ (gnc_import_TransInfo_get_match_list (lower), nullptr);
-    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (higher)), 1);
+    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (higher)), 1u);
     g_list_free (imports);
     gnc_import_TransInfo_delete (lower);
     gnc_import_TransInfo_delete (higher);
@@ -512,7 +512,7 @@ TEST_F(ImportBackendTest, ResolveConflictsKeepsEarlierHigherScoringImport)
 
     gnc_import_TransInfo_resolve_conflicts (imports);
 
-    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (higher.info)), 1);
+    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (higher.info)), 1u);
     EXPECT_EQ (gnc_import_TransInfo_get_match_list (lower.info), nullptr);
     g_list_free (imports);
 }
@@ -536,7 +536,7 @@ TEST_F(ImportBackendTest, ResolveConflictsKeepsEarlierImportOnTie)
 
     gnc_import_TransInfo_resolve_conflicts (imports);
 
-    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (first.info)), 1);
+    EXPECT_EQ (g_list_length (gnc_import_TransInfo_get_match_list (first.info)), 1u);
     EXPECT_EQ (gnc_import_TransInfo_get_match_list (second.info), nullptr);
     g_list_free (imports);
 }
@@ -556,7 +556,7 @@ TEST_F(ImportBackendTest, ResolveConflictsRestartsForExposedNextMatch)
     first_winner.add_match (first_existing);
     second_winner.add_match (second_existing);
     ASSERT_EQ (g_list_length (
-                   gnc_import_TransInfo_get_match_list (two_matches.info)), 2);
+                   gnc_import_TransInfo_get_match_list (two_matches.info)), 2u);
     GList *imports = nullptr;
     imports = g_list_append (imports, two_matches.info);
     imports = g_list_append (imports, first_winner.info);
@@ -566,9 +566,9 @@ TEST_F(ImportBackendTest, ResolveConflictsRestartsForExposedNextMatch)
 
     EXPECT_EQ (gnc_import_TransInfo_get_match_list (two_matches.info), nullptr);
     EXPECT_EQ (g_list_length (
-                   gnc_import_TransInfo_get_match_list (first_winner.info)), 1);
+                   gnc_import_TransInfo_get_match_list (first_winner.info)), 1u);
     EXPECT_EQ (g_list_length (
-                   gnc_import_TransInfo_get_match_list (second_winner.info)), 1);
+                   gnc_import_TransInfo_get_match_list (second_winner.info)), 1u);
     g_list_free (imports);
 }
 
