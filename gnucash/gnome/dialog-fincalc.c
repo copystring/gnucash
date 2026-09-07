@@ -290,7 +290,7 @@ fincalc_save_window_size (FinCalcDialog *fcd)
     }
 }
 
-/* Release the component and the explicit window reference after destruction. */
+/* Release the component and clear the borrowed window after destruction. */
 static void
 fincalc_dialog_destroy (G_GNUC_UNUSED GtkWidget *window, gpointer user_data)
 {
@@ -302,7 +302,7 @@ fincalc_dialog_destroy (G_GNUC_UNUSED GtkWidget *window, gpointer user_data)
     fincalc_save_window_size (fcd);
     fcd->window_destroyed = TRUE;
     gnc_unregister_gui_component_by_data (DIALOG_FINCALC_CM_CLASS, fcd);
-    g_clear_object (&fcd->window);
+    fcd->window = NULL;
     g_free (fcd);
 }
 
@@ -553,7 +553,7 @@ close_handler (gpointer user_data)
 {
     FinCalcDialog *fcd = user_data;
 
-    if (!fcd || fcd->window_destroyed)
+    if (!fcd || fcd->window_destroyed || !fcd->window)
         return;
 
     fcd->closing = TRUE;
@@ -681,8 +681,8 @@ gnc_ui_fincalc_dialog_create (GtkWindow *parent)
     gnc_builder_add_from_file (builder, "dialog-fincalc.ui", "periods_model");
     gnc_builder_add_from_file (builder, "dialog-fincalc.ui", "financial_calculator_window");
 
-    fcd->window = GTK_WINDOW (g_object_ref
-        (gtk_builder_get_object (builder, "financial_calculator_window")));
+    fcd->window = GTK_WINDOW (gtk_builder_get_object
+        (builder, "financial_calculator_window"));
 
     // Set the name for this dialog so it can be easily manipulated with css
     gtk_widget_set_name (GTK_WIDGET (fcd->window), "gnc-id-financial-calc");

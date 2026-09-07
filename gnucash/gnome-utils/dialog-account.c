@@ -1367,7 +1367,7 @@ gnc_account_window_destroy_cb (GtkWidget *object, gpointer data)
     }
 
     gnc_session_operation_context_unref (aw->operation_context);
-    g_clear_object (&aw->dialog);
+    aw->dialog = NULL;
     g_free (aw);
     LEAVE(" ");
 }
@@ -1737,8 +1737,10 @@ gnc_account_window_create (GtkWindow *parent, AccountWindow *aw)
     builder = gtk_builder_new ();
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_dialog");
 
+    /* GtkWindow owns the toplevel lifetime. AccountWindow observes it only;
+     * retaining it here would prevent the destroy signal from releasing the
+     * AccountWindow and create a reference cycle. */
     aw->dialog = GTK_WINDOW (gtk_builder_get_object (builder, "account_dialog"));
-    g_object_ref (aw->dialog);
     awo = G_OBJECT(aw->dialog);
 
     if (parent)
