@@ -21,7 +21,8 @@ endmacro()
 
 add_gnome_test(test-dialog-date-close test-dialog-date-close.c)
 add_gnome_test(test-dialog-lot-viewer-scrub test-dialog-lot-viewer-scrub.c)
-add_gnome_test(test-assistant-hierarchy-ownership test-assistant-hierarchy-ownership.cpp)
+gnc_add_test_with_guile(test-assistant-hierarchy-ownership
+  test-assistant-hierarchy-ownership.cpp GNOME_TEST_INCLUDE_DIRS GNOME_TEST_LIBS)
 set_property(TEST test-assistant-hierarchy-ownership APPEND PROPERTY ENVIRONMENT
   GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
 
