@@ -465,6 +465,28 @@ gnc_date_edit_finalize (GObject *object)
 }
 
 static void
+disconnect_widget_callbacks (GtkWidget *widget, GNCDateEdit *gde)
+{
+    GListModel *controllers;
+
+    if (!widget)
+        return;
+
+    g_signal_handlers_disconnect_by_data (widget, gde);
+
+    controllers = gtk_widget_observe_controllers (widget);
+    for (guint index = 0; index < g_list_model_get_n_items (controllers); index++)
+    {
+        GtkEventController *controller =
+            g_list_model_get_item (controllers, index);
+
+        g_signal_handlers_disconnect_by_data (controller, gde);
+        g_object_unref (controller);
+    }
+    g_object_unref (controllers);
+}
+
+static void
 gnc_date_edit_dispose (GObject *object)
 {
     GNCDateEdit *gde;
@@ -474,20 +496,38 @@ gnc_date_edit_dispose (GObject *object)
 
     gde = GNC_DATE_EDIT (object);
 
-    if (gde->disposed)
-        return;
+    if (!gde->disposed)
+    {
+        gde->disposed = TRUE;
 
-    gde->disposed = TRUE;
+        /* External references can keep child widgets and their controllers alive
+         * beyond this editor. Disconnect all callbacks that borrow @gde first. */
+        disconnect_widget_callbacks (gde->date_entry, gde);
+        disconnect_widget_callbacks (gde->date_button, gde);
+        disconnect_widget_callbacks (gde->time_combo, gde);
+        disconnect_widget_callbacks (gde->cal_popup, gde);
+        disconnect_widget_callbacks (gde->calendar, gde);
 
-    /* Only explicitly destroy the toplevel elements */
+        /* The popover was attached manually, so it isn't a GtkBox child for the
+         * parent dispose to remove. Detach it before its toggle-button parent is
+         * finalized, while held external references remain valid. */
+        if (gde->cal_popup)
+            gtk_widget_unparent (gde->cal_popup);
 
-    gde->date_entry = NULL;
+        gde->date_entry = NULL;
 
-    gde->date_button = NULL;
+        gde->date_button = NULL;
 
-    gde->time_entry = NULL;
+        gde->time_entry = NULL;
 
-    gde->time_combo = NULL;
+        gde->time_combo = NULL;
+
+        gde->cal_popup = NULL;
+
+        gde->calendar = NULL;
+
+        gde->cal_label = NULL;
+    }
 
     G_OBJECT_CLASS (gnc_date_edit_parent_class)->dispose (object);
 }

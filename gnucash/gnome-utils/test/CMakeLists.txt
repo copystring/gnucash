@@ -83,6 +83,15 @@ set (test_gnc_account_type_list_SOURCES
 gnc_add_test (test-gnc-account-type-list "${test_gnc_account_type_list_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_gnc_account_sel_lifecycle_SOURCES
+  test-gnc-account-sel-lifecycle.c
+)
+
+gnc_add_test (test-gnc-account-sel-lifecycle
+  "${test_gnc_account_sel_lifecycle_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
+
 set (test_dialog_account_type_selection_SOURCES
   test-dialog-account-type-selection.c
 )
@@ -218,6 +227,7 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_session_load_executor_SOURCES}
   test-gnc-session-load-executor-no-assert.c
   ${test_gnc_account_type_list_SOURCES}
+  ${test_gnc_account_sel_lifecycle_SOURCES}
   ${test_dialog_account_type_selection_SOURCES}
   ${test_gnc_tree_view_SOURCES}
   ${test_tree_view_row_ownership_SOURCES}

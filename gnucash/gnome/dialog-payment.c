@@ -120,6 +120,7 @@ struct _payment_window
     GtkFilterListModel *post_account_filtered;
     GtkSingleSelection *post_account_selection;
     GtkCustomFilter  * post_account_filter;
+    GtkListView      * post_account_view;
     GtkWidget        * commodity_label;
     GtkWidget   * print_check;
 
@@ -369,7 +370,6 @@ static void
 payment_post_account_setup (PaymentWindow *pw, GtkBox *box)
 {
     GtkListItemFactory *factory;
-    GtkWidget *list;
     GtkWidget *scroller;
 
     pw->post_combo = gtk_entry_new ();
@@ -387,13 +387,15 @@ payment_post_account_setup (PaymentWindow *pw, GtkBox *box)
     factory = GTK_LIST_ITEM_FACTORY (gtk_signal_list_item_factory_new ());
     g_signal_connect (factory, "setup", G_CALLBACK (payment_post_account_item_setup_cb), NULL);
     g_signal_connect (factory, "bind", G_CALLBACK (payment_post_account_item_bind_cb), NULL);
-    list = gtk_list_view_new (
-        GTK_SELECTION_MODEL (g_object_ref (pw->post_account_selection)), factory);
-    g_signal_connect (list, "activate", G_CALLBACK (payment_post_account_activated_cb), pw);
+    pw->post_account_view = GTK_LIST_VIEW (gtk_list_view_new (
+        GTK_SELECTION_MODEL (g_object_ref (pw->post_account_selection)), factory));
+    g_signal_connect (pw->post_account_view, "activate",
+                      G_CALLBACK (payment_post_account_activated_cb), pw);
 
     scroller = gtk_scrolled_window_new ();
     gtk_widget_set_size_request (scroller, 360, 240);
-    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), list);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller),
+                                   GTK_WIDGET (pw->post_account_view));
 
     pw->post_popover = gtk_popover_new ();
     gtk_widget_set_parent (pw->post_popover, pw->post_combo);
@@ -1445,6 +1447,29 @@ gnc_payment_window_destroy_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
     {
         g_list_free_full (pw->tx_info->lots, g_free);
         g_free (pw->tx_info);
+    }
+    if (pw->post_combo)
+    {
+        g_signal_handlers_disconnect_by_data (pw->post_combo, pw);
+        pw->post_combo = NULL;
+    }
+    if (pw->post_account_view)
+    {
+        g_signal_handlers_disconnect_by_data (pw->post_account_view, pw);
+        gtk_list_view_set_model (pw->post_account_view, NULL);
+        pw->post_account_view = NULL;
+    }
+    if (pw->post_account_filter)
+        gtk_custom_filter_set_filter_func (pw->post_account_filter, NULL, NULL, NULL);
+    if (pw->docs_list_selection)
+        g_signal_handlers_disconnect_by_data (pw->docs_list_selection, pw);
+    if (pw->docs_list_view)
+        gtk_column_view_set_model (pw->docs_list_view, NULL);
+    if (pw->post_popover)
+    {
+        gtk_popover_popdown (GTK_POPOVER (pw->post_popover));
+        gtk_widget_unparent (pw->post_popover);
+        pw->post_popover = NULL;
     }
     g_clear_object (&pw->docs_list_selection);
     g_clear_object (&pw->docs_list_sorted);

@@ -959,6 +959,30 @@ gnc_account_sel_finalize (GObject *object)
 }
 
 static void
+disconnect_callbacks_recursive (GtkWidget *widget, gpointer data)
+{
+    GtkWidget *child;
+
+    if (!widget)
+        return;
+    g_signal_handlers_disconnect_by_data (widget, data);
+    for (child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        disconnect_callbacks_recursive (child, data);
+}
+
+static void
+unparent_popover (GtkPopover **popover)
+{
+    GtkPopover *current = g_steal_pointer (popover);
+
+    if (!current)
+        return;
+    gtk_popover_popdown (current);
+    gtk_widget_unparent (GTK_WIDGET (current));
+}
+
+static void
 gnc_account_sel_dispose (GObject *object)
 {
     GNCAccountSel *gas = GNC_ACCOUNT_SEL (object);
@@ -966,9 +990,20 @@ gnc_account_sel_dispose (GObject *object)
     if (gas->refresh_source_id)
         g_source_remove (gas->refresh_source_id);
     gas->refresh_source_id = 0;
-    if (gas->items_changed_id)
+    if (gas->store && gas->items_changed_id)
         g_signal_handler_disconnect (gas->store, gas->items_changed_id);
     gas->items_changed_id = 0;
+
+    disconnect_callbacks_recursive (GTK_WIDGET (gas), gas);
+    disconnect_callbacks_recursive (GTK_WIDGET (gas->match_popover), gas);
+    disconnect_callbacks_recursive (GTK_WIDGET (gas->visibility_popover), gas);
+    unparent_popover (&gas->match_popover);
+    unparent_popover (&gas->visibility_popover);
+    gas->entry = NULL;
+    gas->match_view = NULL;
+    gas->newAccountButton = NULL;
+    gas->selected_account = NULL;
+    gas->default_new_commodity = NULL;
     g_clear_object (&gas->match_selection);
     g_clear_object (&gas->matches);
     g_clear_object (&gas->store);

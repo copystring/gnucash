@@ -1521,7 +1521,9 @@ gnc_account_type_update (AccountWindow *aw)
 }
 
 static void
-gnc_account_type_dropdown_changed_cb (GtkDropDown *dropdown, gpointer data)
+gnc_account_type_dropdown_changed_cb (GtkDropDown *dropdown,
+                                      GParamSpec *pspec,
+                                      gpointer data)
 {
     AccountWindow *aw = data;
     GncAccountTypeItem *item;
@@ -1534,6 +1536,8 @@ gnc_account_type_dropdown_changed_cb (GtkDropDown *dropdown, gpointer data)
     aw->type = item ? gnc_account_type_item_get_account_type (item) :
                ACCT_TYPE_INVALID;
     gnc_account_type_update (aw);
+
+    (void)pspec;
 }
 
 static void
