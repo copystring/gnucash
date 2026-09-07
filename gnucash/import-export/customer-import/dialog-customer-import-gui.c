@@ -201,7 +201,6 @@ gnc_plugin_customer_import_showGUI(GtkWindow *parent)
     gui->component_id = NO_COMPONENT;
 
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(gui));
     gnc_builder_add_from_file (builder, "dialog-customer-import-gui.glade", "customer_import_dialog");
     gui->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "customer_import_dialog"));
     g_object_set_data (G_OBJECT (gui->dialog), "gnc-customer-import-gui", gui);

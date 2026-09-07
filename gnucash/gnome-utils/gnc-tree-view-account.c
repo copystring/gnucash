@@ -1119,7 +1119,6 @@ account_filter_dialog_create (AccountFilterDialog *fd, GncPluginPage *page)
     gchar *title;
     if (fd->dialog) { gtk_window_present (GTK_WINDOW (fd->dialog)); return; }
     builder = gtk_builder_new ();
-    gtk_builder_set_current_object (builder, G_OBJECT (fd));
     gnc_builder_add_from_file (builder, "dialog-account.glade", "account_filter_by_dialog");
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "account_filter_by_dialog"));
     g_object_ref (dialog);

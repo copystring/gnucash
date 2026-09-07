@@ -821,7 +821,6 @@ gnc_order_new_window (GtkWindow *parent, QofBook *bookp, OrderDialogType type,
 
     /* Find the dialog */
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(ow));
     gnc_builder_add_from_file (builder, "dialog-order.glade", "order_entry_dialog");
     ow->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "order_entry_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(ow->dialog), parent);
@@ -951,7 +950,6 @@ gnc_order_window_new_order (GtkWindow *parent, QofBook *bookp, GncOwner *owner)
 
     /* Find the dialog */
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(ow));
     gnc_builder_add_from_file (builder, "dialog-order.glade", "new_order_dialog");
 
     ow->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "new_order_dialog"));

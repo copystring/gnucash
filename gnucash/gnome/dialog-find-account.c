@@ -484,8 +484,6 @@ gnc_find_account_dialog_create (GtkWidget *parent, FindAccountDialog *facc_dialo
 
     ENTER(" ");
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(facc_dialog));
-
     gnc_builder_add_from_file (builder, "dialog-find-account.glade", "find_account_window");
 
     window = GTK_WIDGET(gtk_builder_get_object (builder, "find_account_window"));

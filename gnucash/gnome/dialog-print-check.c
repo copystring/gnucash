@@ -1615,7 +1615,6 @@ gnc_ui_print_check_dialog_create(GtkWidget *parent, GList *splits, Account* acco
     pcd->caller_window = parent ? GTK_WINDOW (parent) : NULL;
     pcd->splits = g_list_copy (splits);
     pcd->account = account;
-    gtk_builder_set_current_object (builder, G_OBJECT (pcd));
     for (guint i = 1; i <= 24; i++)
     {
         gchar *id = g_strdup_printf ("adjustment%u", i);

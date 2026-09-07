@@ -548,7 +548,6 @@ gnc_customer_new_window (GtkWindow *parent, QofBook *bookp, GncCustomer *cust)
 
     /* Find the dialog */
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(cw));
     gnc_builder_add_from_file (builder, "dialog-customer.glade", "customer_dialog");
     cw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "customer_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(cw->dialog), parent);

@@ -120,7 +120,6 @@ gnc_split_assign_owner_async (GtkWindow *parent, Split *split,
         gncOwnerInitCustomer (&dco->owner, NULL);
 
     builder = gtk_builder_new ();
-    gtk_builder_set_current_object (builder, G_OBJECT (dco));
     gnc_builder_add_from_file (builder, "dialog-choose-owner.glade", "choose_owner_dialog");
     dco->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "choose_owner_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW (dco->dialog), parent);

@@ -541,7 +541,6 @@ csv_tximp_account_match_view_activated_cb (GtkColumnView *view, guint position,
 CsvImpTransAssist::CsvImpTransAssist ()
 {
     auto builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(this));
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "start_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "end_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "csv_transaction_assistant");

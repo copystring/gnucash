@@ -444,7 +444,6 @@ owner_filter_dialog_create (OwnerFilterDialog *fd, GncPluginPage *page)
         return;
     }
     builder = gtk_builder_new ();
-    gtk_builder_set_current_object (builder, G_OBJECT (fd));
     gnc_builder_add_from_file (builder, "gnc-tree-view-owner.glade", "filter_by_dialog");
     fd->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "filter_by_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW (fd->dialog),

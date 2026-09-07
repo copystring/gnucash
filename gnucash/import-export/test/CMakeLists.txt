@@ -45,7 +45,8 @@ set(IMPORT_ACCOUNT_MATCHER_TEST_SOURCES
 set(IMPORT_ACCOUNT_MATCHER_TEST_LIBS gnc-generic-import gnc-engine test-core gtest)
 gnc_add_test(test-import-account-matcher "${IMPORT_ACCOUNT_MATCHER_TEST_SOURCES}"
   IMPORT_ACCOUNT_MATCHER_TEST_INCLUDE_DIRS IMPORT_ACCOUNT_MATCHER_TEST_LIBS
-  "GSETTINGS_BACKEND=memory")
+  "GSETTINGS_BACKEND=memory"
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
 
 set(gtest_import_backend_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common # for config.h

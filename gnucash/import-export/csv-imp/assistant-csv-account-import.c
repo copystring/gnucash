@@ -716,7 +716,6 @@ csv_import_assistant_create (CsvImportInfo *info)
     gchar *mnemonic_desc = NULL;
 
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(info));
     gnc_builder_add_from_file  (builder, "assistant-csv-account-import.glade", "num_hrows_adj");
     gnc_builder_add_from_file  (builder, "assistant-csv-account-import.glade", "csv_account_import_assistant");
     info->assistant = GTK_WIDGET(gtk_builder_get_object (builder, "csv_account_import_assistant"));

@@ -1019,7 +1019,6 @@ csv_export_assistant_create (CsvExportInfo *info)
     GncImportAssistant *assistant;
 
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(info));
     gnc_builder_add_from_file  (builder , "assistant-csv-export.glade", "csv_export_assistant");
     info->assistant = GTK_WIDGET(gtk_builder_get_object (builder, "csv_export_assistant"));
     assistant = gnc_import_assistant_new (

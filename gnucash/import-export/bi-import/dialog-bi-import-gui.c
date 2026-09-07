@@ -281,7 +281,6 @@ gnc_plugin_bi_import_showGUI (GtkWindow *parent)
     gui->open_mode = "ALL";
 
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(gui));
     gnc_builder_add_from_file (builder, "dialog-bi-import-gui.glade", "bi_import_dialog");
     gui->dialog = GTK_WIDGET(gtk_builder_get_object (builder, "bi_import_dialog"));
     g_object_set_data (G_OBJECT (gui->dialog), "gnc-bi-import-gui", gui);

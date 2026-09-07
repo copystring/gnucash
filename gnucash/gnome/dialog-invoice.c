@@ -3452,7 +3452,6 @@ gnc_invoice_create_page (InvoiceWindow *iw, gpointer page)
 
     /* Find the dialog */
     iw->builder = builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(iw));
 gnc_builder_add_from_file (builder, "dialog-invoice.glade", "invoice_entry_vbox");
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "invoice_entry_vbox"));
 
@@ -3800,7 +3799,6 @@ gnc_invoice_window_new_invoice (GtkWindow *parent, InvoiceDialogType dialog_type
 
     /* Find the glade page layout */
     iw->builder = builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(iw));
 gnc_builder_add_from_file (builder, "dialog-invoice.glade", "new_invoice_dialog");
     iw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "new_invoice_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(iw->dialog), parent);

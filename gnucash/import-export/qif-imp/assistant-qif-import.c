@@ -4102,7 +4102,6 @@ gnc_ui_qif_import_assistant_make (QIFImportWindow *qif_win)
     GtkWidget         *box;
 
     builder = gtk_builder_new ();
-    gtk_builder_set_current_object (builder, G_OBJECT(qif_win));
     gnc_builder_add_from_file (builder, "assistant-qif-import.glade", "date_format_model");
     gnc_builder_add_from_file (builder, "assistant-qif-import.glade", "qif_import_assistant");
 

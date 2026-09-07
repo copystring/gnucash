@@ -810,7 +810,6 @@ gnc_sx_create_from_trans( GtkWindow *parent, Transaction *trans )
     GtkWidget *dialog;
 
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(sxfti));
     gnc_builder_add_from_file  (builder , "dialog-sx.ui", "freq_liststore");
 
     gnc_builder_add_from_file  (builder , "dialog-sx.ui", "sx_from_real_trans_dialog");

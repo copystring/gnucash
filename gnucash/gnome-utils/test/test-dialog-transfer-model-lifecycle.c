@@ -116,6 +116,7 @@ test_transfer_account_models_rebuild_and_close (void)
     GtkSelectionModel *old_to_selection;
     GtkSelectionModel *current_first_selection;
     GtkSelectionModel *current_second_selection;
+    gboolean window_finalized = FALSE;
     gboolean old_from_finalized = FALSE;
     gboolean old_to_finalized = FALSE;
     gboolean current_first_finalized = FALSE;
@@ -139,6 +140,7 @@ test_transfer_account_models_rebuild_and_close (void)
     g_assert_nonnull (dialog);
     window = find_transfer_window ();
     g_assert_nonnull (window);
+    g_object_weak_ref (G_OBJECT (window), object_finalized, &window_finalized);
     hold_transfer_selections (window, &first_selection, &second_selection);
     g_object_unref (window);
 
@@ -178,6 +180,7 @@ test_transfer_account_models_rebuild_and_close (void)
 
     gnc_xfer_dialog_close (dialog);
 
+    g_assert_true (window_finalized);
     g_assert_cmpuint (find_dialog_handler (old_from_selection, dialog), ==, 0);
     g_assert_cmpuint (find_dialog_handler (old_to_selection, dialog), ==, 0);
     g_assert_cmpuint (find_dialog_handler (current_first_selection, dialog), ==, 0);

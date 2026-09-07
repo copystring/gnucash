@@ -1952,7 +1952,14 @@ gnc_xfer_dialog_close_cb(GtkWindow *window, gpointer data)
     g_clear_object (&xferData->from_account_rows);
     g_clear_object (&xferData->to_account_selection);
     g_clear_object (&xferData->to_account_rows);
+
+    /* GtkBuilder retains the objects it constructed, including this window.
+     * Steal its qdata ownership before destroying the window so the builder
+     * cannot keep the window alive through a reference cycle. */
+    auto builder = static_cast<GtkBuilder *> (g_object_steal_data
+                                              (G_OBJECT (window), "builder"));
     gtk_window_destroy (window);
+    g_clear_object (&builder);
     if (finished_cb)
         finished_cb (completed, finished_user_data);
 
@@ -2165,7 +2172,6 @@ gnc_xfer_dialog_create(GtkWidget *parent, XferDialog *xferData)
         xferData->curr_xfer_table = table;
 
         edit = gnc_amount_edit_new();
-        gtk_builder_set_current_object (builder, G_OBJECT(xferData));
         gnc_amount_edit_set_print_info(GNC_AMOUNT_EDIT(edit),
                                        gnc_default_print_info (FALSE));
         hbox = GTK_WIDGET(gtk_builder_get_object (builder, "price_hbox"));

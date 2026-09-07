@@ -1667,7 +1667,6 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
 
     /* Open and read the Glade File */
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(pw));
     gnc_builder_add_from_file (builder, "dialog-payment.glade", "payment_dialog");
     pw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "payment_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(pw->dialog), parent);

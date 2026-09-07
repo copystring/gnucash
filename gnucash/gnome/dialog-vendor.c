@@ -398,7 +398,6 @@ gnc_vendor_new_window (GtkWindow *parent, QofBook *bookp, GncVendor *vendor)
 
     /* Find the dialog */
     builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(vw));
     gnc_builder_add_from_file (builder, "dialog-vendor.glade", "vendor_dialog");
     vw->dialog = GTK_WIDGET (gtk_builder_get_object (builder, "vendor_dialog"));
     gtk_window_set_transient_for (GTK_WINDOW(vw->dialog), parent);

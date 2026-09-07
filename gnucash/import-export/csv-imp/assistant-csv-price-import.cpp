@@ -537,7 +537,6 @@ CsvImpPriceAssist::settings_confirmation_cb (GtkWindow *parent, gint response,
 CsvImpPriceAssist::CsvImpPriceAssist ()
 {
     auto builder = gtk_builder_new();
-    gtk_builder_set_current_object (builder, G_OBJECT(this));
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "start_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "end_row_adj");
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "CSV Price Assistant");
