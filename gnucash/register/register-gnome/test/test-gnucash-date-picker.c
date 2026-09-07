@@ -115,25 +115,6 @@ widget_center (GtkWidget *widget, GtkWidget *ancestor, double *x, double *y)
 }
 
 static void
-allocate_picker (GtkWidget *picker)
-{
-    int minimum_width;
-    int natural_width;
-    int minimum_height;
-    int natural_height;
-
-    gtk_widget_measure (picker, GTK_ORIENTATION_HORIZONTAL, -1,
-                        &minimum_width, &natural_width, NULL, NULL);
-    natural_width = MAX (natural_width, minimum_width);
-    gtk_widget_measure (picker, GTK_ORIENTATION_VERTICAL,
-                        MAX (natural_width, 360),
-                        &minimum_height, &natural_height, NULL, NULL);
-    natural_height = MAX (natural_height, minimum_height);
-    gtk_widget_allocate (picker, MAX (natural_width, 360),
-                         MAX (natural_height, 280), -1, NULL);
-}
-
-static void
 date_selected (GNCDatePicker *picker, PickerSignals *signals)
 {
     (void)picker;
@@ -157,6 +138,7 @@ cancelled (GNCDatePicker *picker, PickerSignals *signals)
 static void
 test_calendar_selection_click_and_keys (void)
 {
+    GtkWindow *window = GTK_WINDOW (gtk_window_new ());
     GNCDatePicker *picker = GNC_DATE_PICKER (gnc_date_picker_new ());
     GtkEventController *click_controller;
     GtkEventController *key_controller;
@@ -168,6 +150,7 @@ test_calendar_selection_click_and_keys (void)
     gboolean handled = FALSE;
     double x, y;
 
+    g_object_ref_sink (window);
     g_object_ref_sink (picker);
 
     g_assert_cmpuint (g_signal_lookup ("activate", GTK_TYPE_CALENDAR), ==, 0);
@@ -177,8 +160,11 @@ test_calendar_selection_click_and_keys (void)
                       &signals);
     g_signal_connect (picker, "cancelled", G_CALLBACK (cancelled), &signals);
 
-    gtk_widget_set_visible (GTK_WIDGET (picker), TRUE);
-    allocate_picker (GTK_WIDGET (picker));
+    gtk_calendar_set_show_week_numbers (picker->calendar, TRUE);
+    gtk_window_set_default_size (window, 360, 280);
+    gtk_window_set_child (window, GTK_WIDGET (picker));
+    gtk_window_present (window);
+    gtk_test_widget_wait_for_draw (GTK_WIDGET (picker));
 
     click_controller = find_controller (GTK_WIDGET (picker->calendar),
                                         "gnc-date-picker-calendar-double-click");
@@ -188,8 +174,6 @@ test_calendar_selection_click_and_keys (void)
                                             "day-number");
     day_name = find_widget_with_css_class (GTK_WIDGET (picker->calendar),
                                            "day-name");
-    gtk_calendar_set_show_week_numbers (picker->calendar, TRUE);
-    allocate_picker (GTK_WIDGET (picker));
     week_number = find_widget_with_css_class (GTK_WIDGET (picker->calendar),
                                               "week-number");
     header_button = find_widget_of_type (GTK_WIDGET (picker->calendar),
@@ -237,7 +221,9 @@ test_calendar_selection_click_and_keys (void)
 
     g_object_unref (key_controller);
     g_object_unref (click_controller);
+    gtk_window_destroy (window);
     g_object_unref (picker);
+    g_object_unref (window);
 }
 
 int
