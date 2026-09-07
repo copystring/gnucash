@@ -225,7 +225,7 @@ aw_clear_selection_handler (AccountWindow *aw)
 {
     if (aw->selection && aw->handler_id)
         g_signal_handler_disconnect (aw->selection, aw->handler_id);
-    aw->selection = NULL;
+    g_clear_object (&aw->selection);
     aw->handler_id = 0;
 }
 
@@ -233,8 +233,9 @@ static void
 aw_connect_selection_changed (AccountWindow *aw)
 {
     aw_clear_selection_handler (aw);
-    aw->selection = G_OBJECT (gnc_tree_view_account_get_selection_model (
-        GNC_TREE_VIEW_ACCOUNT (aw->parent_tree)));
+    aw->selection = G_OBJECT (g_object_ref (
+        gnc_tree_view_account_get_selection_model (
+            GNC_TREE_VIEW_ACCOUNT (aw->parent_tree))));
     aw->handler_id = g_signal_connect (aw->selection, "selection-changed",
                                        G_CALLBACK (account_parent_selection_changed_cb), aw);
 }
