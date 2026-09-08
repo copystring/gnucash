@@ -643,15 +643,28 @@ TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants
     {
         auto parent = gtk_widget_get_parent (cell);
         ASSERT_NE (parent, nullptr);
+        GtkBorder padding;
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+        gtk_style_context_get_padding (gtk_widget_get_style_context (parent),
+                                       &padding);
+        G_GNUC_END_IGNORE_DEPRECATIONS
+        EXPECT_EQ (padding.left, 0);
+        EXPECT_EQ (padding.right, 0);
+        EXPECT_EQ (padding.top, 0);
+        EXPECT_EQ (padding.bottom, 0);
+        EXPECT_EQ (gtk_widget_get_overflow (parent), GTK_OVERFLOW_HIDDEN);
         graphene_rect_t cell_bounds;
         ASSERT_TRUE (gtk_widget_compute_bounds (cell, parent, &cell_bounds));
-        /* GtkWidget::width/height are the parent's content (client) size;
-         * compute_bounds(parent, view) also includes its native CSS border.
-         * The factory child must fill the client area, while the border may
-         * transform to fractional coordinates in an ancestor's space. */
-        EXPECT_EQ (std::lround (cell_bounds.size.width),
+        /* The factory cell must cover the parent's clipped client area.
+         * A larger minimum/CSS border box is valid as long as no inner edge
+         * is left uncovered. */
+        EXPECT_LE (std::ceil (cell_bounds.origin.x), 0.0);
+        EXPECT_LE (std::ceil (cell_bounds.origin.y), 0.0);
+        EXPECT_GE (std::floor (cell_bounds.origin.x +
+                               cell_bounds.size.width),
                    gtk_widget_get_width (parent));
-        EXPECT_EQ (std::lround (cell_bounds.size.height),
+        EXPECT_GE (std::floor (cell_bounds.origin.y +
+                               cell_bounds.size.height),
                    gtk_widget_get_height (parent));
         if (!first_height)
             first_height = static_cast<int> (cell_bounds.size.height);
