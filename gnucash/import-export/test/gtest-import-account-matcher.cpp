@@ -525,6 +525,34 @@ add_open_transaction (QofBook *book, OfxLifecyclePayload *payload)
     return transaction;
 }
 
+static bool
+wait_for_ofx_cleanup (OfxLifecycleMetrics *metrics, GApplication *application)
+{
+    gboolean deadline_reached = FALSE;
+    auto wakeup = g_timeout_source_new (1000);
+    g_source_set_callback (wakeup, +[](gpointer data) {
+        *static_cast<gboolean*> (data) = TRUE;
+        return G_SOURCE_REMOVE;
+    }, &deadline_reached, nullptr);
+    if (!g_source_attach (wakeup, nullptr))
+    {
+        g_source_destroy (wakeup);
+        g_source_unref (wakeup);
+        g_signal_emit_by_name (application, "shutdown");
+        return false;
+    }
+    const auto deadline = g_get_monotonic_time () + G_TIME_SPAN_SECOND;
+    while (metrics->metadata_cleanup_calls == 0 && !deadline_reached &&
+           g_get_monotonic_time () < deadline)
+        g_main_context_iteration (nullptr, TRUE);
+    const auto completed = metrics->metadata_cleanup_calls != 0;
+    g_source_destroy (wakeup);
+    g_source_unref (wakeup);
+    if (!completed)
+        g_signal_emit_by_name (application, "shutdown");
+    return completed;
+}
+
 static void
 run_matcher_ofx_cancel_order (QofBook *book, gboolean matcher_first)
 {
@@ -559,9 +587,11 @@ run_matcher_ofx_cancel_order (QofBook *book, gboolean matcher_first)
     EXPECT_EQ (metrics.metadata_cleanup_calls, 0u);
 
     qof_session_operation_lease_release (save_lease);
-    for (guint turn = 0;
-         turn < 16 && metrics.metadata_cleanup_calls == 0; ++turn)
-        g_main_context_iteration (nullptr, TRUE);
+    if (!wait_for_ofx_cleanup (&metrics, application))
+    {
+        g_object_unref (application);
+        FAIL () << "OFX cleanup did not complete before its deadline";
+    }
 
     EXPECT_EQ (metrics.metadata_cleanup_calls, 1u);
     EXPECT_EQ (metrics.payload_destroy_calls, 1u);
