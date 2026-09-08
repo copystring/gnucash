@@ -187,14 +187,14 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
 }
 
 static void
-run_tests_with_guile (void*, int argc, char **argv)
+run_tests_with_guile (void*, int, char **)
 {
     int status;
 
     gtk_init ();
     qof_log_init_filename_special ("stderr");
     qof_log_set_level ("gnc", static_cast<QofLogLevel>(G_LOG_LEVEL_DEBUG));
-    gnc_engine_init_static (argc, argv);
+    gnc_engine_init (0, nullptr);
     gnc_prefs_init ();
     gnc_component_manager_init ();
     scm_c_use_module ("gnucash reports");
