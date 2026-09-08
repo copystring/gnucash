@@ -33,8 +33,12 @@
 typedef struct
 {
     GMainLoop *loop;
-    gboolean changed;
+    Account *expected;
+    gboolean emitted;
+    gboolean barrier_completed;
     gboolean timed_out;
+    guint barrier_source;
+    guint timeout_source;
 } SelectionWait;
 
 static GtkWidget *
@@ -57,42 +61,76 @@ static gboolean
 selection_wait_timeout (gpointer user_data)
 {
     SelectionWait *wait = user_data;
+    wait->timeout_source = 0;
     wait->timed_out = TRUE;
     g_main_loop_quit (wait->loop);
     return G_SOURCE_REMOVE;
 }
 
 static void
-selection_changed (GtkSelectionModel *model, guint position, guint n_items,
-                   gpointer user_data)
+account_selected (GncPluginPage *page, Account *account, gpointer user_data)
 {
     SelectionWait *wait = user_data;
-    wait->changed = TRUE;
+
+    if (account == wait->expected)
+        wait->emitted = TRUE;
+    (void)page;
+}
+
+static gboolean
+selection_wait_barrier (gpointer user_data)
+{
+    SelectionWait *wait = user_data;
+
+    wait->barrier_source = 0;
+    wait->barrier_completed = TRUE;
     g_main_loop_quit (wait->loop);
-    (void)model;
-    (void)position;
-    (void)n_items;
+    return G_SOURCE_REMOVE;
 }
 
 static void
-set_account_and_wait (GncTreeViewAccount *view, Account *account)
+set_account_and_wait (const gchar *phase, GncPluginPage *page,
+                      GncTreeViewAccount *view, Account *account)
 {
-    GtkSelectionModel *selection =
-        gnc_tree_view_account_get_selection_model (view);
-    SelectionWait wait = { g_main_loop_new (NULL, FALSE), FALSE, FALSE };
-    gulong handler = g_signal_connect (selection, "selection-changed",
-                                       G_CALLBACK (selection_changed), &wait);
-    guint timeout = g_timeout_add (1000, selection_wait_timeout, &wait);
+    Account *before = gnc_tree_view_account_get_selected_account (view);
+    SelectionWait wait = { 0 };
+    gulong handler;
+
+    g_test_message ("%s: selecting %s; previous selection %s", phase,
+                    account ? xaccAccountGetName (account) : "(none)",
+                    before ? xaccAccountGetName (before) : "(none)");
+    g_assert_true (before != account);
+    wait.loop = g_main_loop_new (NULL, FALSE);
+    wait.expected = account;
+    handler = g_signal_connect (page, "account_selected",
+                                G_CALLBACK (account_selected), &wait);
 
     gnc_tree_view_account_set_selected_account (view, account);
+    /* Product selection restore runs at DEFAULT_IDLE. This one-shot lower
+     * priority barrier observes its completed account_selected emission. */
+    wait.barrier_source = g_idle_add_full (G_PRIORITY_LOW,
+                                           selection_wait_barrier, &wait,
+                                           NULL);
+    wait.timeout_source = g_timeout_add_seconds (60, selection_wait_timeout,
+                                                  &wait);
     g_main_loop_run (wait.loop);
 
-    if (!wait.timed_out)
-        g_source_remove (timeout);
-    g_signal_handler_disconnect (selection, handler);
+    if (wait.barrier_source)
+        g_source_remove (wait.barrier_source);
+    if (wait.timeout_source)
+        g_source_remove (wait.timeout_source);
+    g_signal_handler_disconnect (page, handler);
     g_main_loop_unref (wait.loop);
+    g_test_message ("%s: barrier=%d emission=%d selection=%s", phase,
+                    wait.barrier_completed, wait.emitted,
+                    gnc_tree_view_account_get_selected_account (view)
+                        ? xaccAccountGetName (
+                              gnc_tree_view_account_get_selected_account (view))
+                        : "(none)");
     g_assert_false (wait.timed_out);
-    g_assert_true (wait.changed);
+    g_assert_true (wait.barrier_completed);
+    g_assert_true (wait.emitted);
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == account);
 }
 
 static gboolean
@@ -161,31 +199,37 @@ test_inactive_account_restore_does_not_override_online_actions (void)
     window = g_object_ref_sink (gnc_main_window_new ());
     active_page = gnc_plugin_page_account_tree_new ();
     inactive_page = gnc_plugin_page_account_tree_new ();
+    g_assert_true (active_page != inactive_page);
     gnc_main_window_open_page (window, active_page);
     gnc_main_window_open_page (window, inactive_page);
     active_view = account_view (active_page);
     inactive_view = account_view (inactive_page);
+    g_assert_true (active_view != inactive_view);
 
     /* Establish the inactive page's capability state before selecting the
      * authoritative active page. A non-NULL account stays visible but is
      * disabled when its AqBanking identifiers are absent. */
-    set_account_and_wait (inactive_view, offline);
+    set_account_and_wait ("initialize inactive page", inactive_page,
+                          inactive_view, offline);
     g_assert_false (action_enabled (window));
     g_assert_true (balance_menu_visible (window));
 
     gnc_main_window_display_page (active_page);
-    set_account_and_wait (active_view, online);
+    set_account_and_wait ("select active online account", active_page,
+                          active_view, online);
     g_assert_true (action_enabled (window));
     g_assert_true (balance_menu_visible (window));
 
     /* The deferred selection restore is the startup ordering edge: an
      * inactive page must not rewrite window-wide AqBanking state. */
-    set_account_and_wait (inactive_view, NULL);
+    set_account_and_wait ("late inactive clear", inactive_page,
+                          inactive_view, NULL);
     g_assert_true (gnc_main_window_get_current_page (window) == active_page);
     g_assert_true (action_enabled (window));
     g_assert_true (balance_menu_visible (window));
 
-    set_account_and_wait (inactive_view, offline);
+    set_account_and_wait ("late inactive offline selection", inactive_page,
+                          inactive_view, offline);
     g_assert_true (gnc_main_window_get_current_page (window) == active_page);
     g_assert_true (action_enabled (window));
     g_assert_true (balance_menu_visible (window));
@@ -194,11 +238,13 @@ test_inactive_account_restore_does_not_override_online_actions (void)
     g_assert_false (action_enabled (window));
     g_assert_true (balance_menu_visible (window));
 
-    set_account_and_wait (inactive_view, NULL);
+    set_account_and_wait ("clear active offline page", inactive_page,
+                          inactive_view, NULL);
     g_assert_false (action_enabled (window));
     g_assert_false (balance_menu_visible (window));
 
-    set_account_and_wait (inactive_view, offline);
+    set_account_and_wait ("restore active offline account", inactive_page,
+                          inactive_view, offline);
     g_assert_false (action_enabled (window));
     g_assert_true (balance_menu_visible (window));
 
