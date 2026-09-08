@@ -12,6 +12,7 @@
 
 #include <gtk/gtk.h>
 #include <qof.h>
+#include <stdio.h>
 
 #include "Account.h"
 #include "gnc-ab-kvp.h"
@@ -36,6 +37,13 @@ typedef struct
     gboolean changed;
     gboolean timed_out;
 } SelectionWait;
+
+static void
+diagnostic_phase (const gchar *phase)
+{
+    g_printerr ("test-aqbanking-page-selection: %s\n", phase);
+    fflush (stderr);
+}
 
 static GtkWidget *
 find_widget_of_type (GtkWidget *root, GType type)
@@ -152,17 +160,22 @@ test_inactive_account_restore_does_not_override_online_actions (void)
     GncTreeViewAccount *active_view;
     GncTreeViewAccount *inactive_view;
 
+    diagnostic_phase ("test body entered");
     gnc_set_current_session (session);
     root = gnc_account_create_root (book);
     online = new_account (book, root, "Online bank", TRUE);
     offline = new_account (book, root, "Offline bank", FALSE);
 
     gnc_plugin_aqbanking_create_plugin ();
+    diagnostic_phase ("creating main window");
     window = g_object_ref_sink (gnc_main_window_new ());
+    diagnostic_phase ("main window created; creating account-tree pages");
     active_page = gnc_plugin_page_account_tree_new ();
     inactive_page = gnc_plugin_page_account_tree_new ();
+    diagnostic_phase ("account-tree pages created; opening pages");
     gnc_main_window_open_page (window, active_page);
     gnc_main_window_open_page (window, inactive_page);
+    diagnostic_phase ("account-tree pages opened");
     active_view = account_view (active_page);
     inactive_view = account_view (inactive_page);
 
@@ -218,12 +231,20 @@ main (int argc, char **argv)
 
     g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
     g_setenv ("GNC_UNINSTALLED", "1", TRUE);
+    diagnostic_phase ("before g_test_init");
     g_test_init (&argc, &argv, NULL);
+    diagnostic_phase ("after g_test_init; before gtk_init");
     gtk_init ();
+    diagnostic_phase ("after gtk_init; before QOF logging");
     qof_log_init_filename_special ("stderr");
+    g_log_set_default_handler (g_log_default_handler, NULL);
+    diagnostic_phase ("after QOF logging; before engine init");
     gnc_engine_init_static (argc, argv);
+    diagnostic_phase ("after engine init; before preferences init");
     gnc_prefs_init ();
+    diagnostic_phase ("after preferences init; before component manager init");
     gnc_component_manager_init ();
+    diagnostic_phase ("after component manager init; before g_test_run");
 
     g_test_add_func ("/import-export/aqb/page-selection/inactive-restore",
                      test_inactive_account_restore_does_not_override_online_actions);
