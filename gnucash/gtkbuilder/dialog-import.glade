@@ -751,6 +751,7 @@
   </object>
   <object class="GtkBox" id="transaction_matcher_content">
     <property name="orientation">vertical</property>
+    <property name="spacing">6</property>
     <child>
       <object class="GtkLabel" id="heading_label">
         <property name="valign">center</property>
@@ -760,6 +761,7 @@
     </child>
     <child>
       <object class="GtkScrolledWindow" id="scrolledwindow25">
+        <property name="hexpand">1</property>
         <property name="vexpand">1</property>
         <property name="focusable">1</property>
         <property name="child">

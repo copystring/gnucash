@@ -45,6 +45,13 @@
 #include <Account.h>
 #include <Transaction.h>
 #include <gtk/gtk.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <iterator>
+#include <memory>
+#include <string>
 #include <vector>
 
 using AccountV = std::vector<const Account*>;
@@ -59,6 +66,30 @@ protected:
     {
         gtk_init ();
         ASSERT_TRUE (gtk_is_initialized ());
+        auto display = gdk_display_get_default ();
+        ASSERT_NE (display, nullptr);
+        for (const auto *name : {"gnucash-fallback.css", "gnucash.css"})
+        {
+            auto provider = gtk_css_provider_new ();
+            auto path = g_build_filename (GNC_IMPORT_MATCHER_TEST_SRCDIR,
+                                          "gnucash", name, nullptr);
+            ASSERT_TRUE (g_file_test (path, G_FILE_TEST_IS_REGULAR));
+            gboolean parse_error = FALSE;
+            g_signal_connect (provider, "parsing-error",
+                              G_CALLBACK (+[](GtkCssProvider*, GtkCssSection*,
+                                               const GError*, gpointer data) {
+                                  *static_cast<gboolean*> (data) = TRUE;
+                              }), &parse_error);
+            gtk_css_provider_load_from_path (provider, path);
+            ASSERT_FALSE (parse_error) << path;
+            gtk_style_context_add_provider_for_display (
+                display, GTK_STYLE_PROVIDER (provider),
+                g_str_has_suffix (name, "fallback.css")
+                    ? GTK_STYLE_PROVIDER_PRIORITY_FALLBACK
+                    : GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref (provider);
+            g_free (path);
+        }
         gnc_engine_init_static (0, nullptr);
         gnc_prefs_init ();
         g_log_set_always_fatal (static_cast<GLogLevelFlags> (
@@ -97,8 +128,8 @@ protected:
         };
         m_assets = create_account(m_root, ACCT_TYPE_ASSET,
                                   "Assets", nullptr);
-        auto expenses = create_account(m_root, ACCT_TYPE_EXPENSE,
-                                       "Expenses", nullptr);
+        m_expenses = create_account(m_root, ACCT_TYPE_EXPENSE,
+                                    "Expenses", nullptr);
         m_bank = create_account(m_assets, ACCT_TYPE_BANK, "Bank", "Bank");
         auto broker = create_account(m_assets, ACCT_TYPE_ASSET,
                                      "Broker", "Broker");
@@ -109,9 +140,9 @@ protected:
         create_account(stocks, ACCT_TYPE_STOCK, "HPE", "BrokerStocksHPE");
         create_account(broker, ACCT_TYPE_BANK, "Cash Management",
                        "BrokerCash Management");
-       create_account(expenses, ACCT_TYPE_EXPENSE, "Food", nullptr);
-        create_account(expenses, ACCT_TYPE_EXPENSE, "Gas", nullptr);
-        create_account(expenses, ACCT_TYPE_EXPENSE, "Rent", nullptr);
+       create_account(m_expenses, ACCT_TYPE_EXPENSE, "Food", nullptr);
+        create_account(m_expenses, ACCT_TYPE_EXPENSE, "Gas", nullptr);
+        create_account(m_expenses, ACCT_TYPE_EXPENSE, "Rent", nullptr);
    }
     ~ImportMatcherTest()
     {
@@ -123,6 +154,7 @@ protected:
     gnc_commodity* m_currency;
     Account* m_assets;
     Account* m_bank;
+    Account* m_expenses;
 };
 
 struct AccountSelectionResult
@@ -179,6 +211,168 @@ find_buildable_window (const gchar *buildable_id)
     return nullptr;
 }
 
+static void
+collect_widgets_with_class (GtkWidget *widget, const char *css_class,
+                            std::vector<GtkWidget*> &widgets)
+{
+    if (gtk_widget_has_css_class (widget, css_class))
+        widgets.push_back (widget);
+    for (auto child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        collect_widgets_with_class (child, css_class, widgets);
+}
+
+static bool
+spin_until_frame (GtkWidget *widget)
+{
+    gboolean frame_seen = FALSE;
+    auto tick_id = gtk_widget_add_tick_callback (
+        widget, +[](GtkWidget*, GdkFrameClock*, gpointer data) {
+            *static_cast<gboolean*> (data) = TRUE;
+            return G_SOURCE_REMOVE;
+        }, &frame_seen, nullptr);
+    const auto deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+    do
+    {
+        g_main_context_iteration (nullptr, FALSE);
+        if (frame_seen && gtk_widget_get_realized (widget) &&
+            gtk_widget_get_width (widget) > 1 &&
+            gtk_widget_get_height (widget) > 1)
+            return true;
+    }
+    while (g_get_monotonic_time () < deadline);
+    gtk_widget_remove_tick_callback (widget, tick_id);
+    return false;
+}
+
+static void
+drain_main_context_bounded ()
+{
+    const auto deadline = g_get_monotonic_time () + 250 * G_TIME_SPAN_MILLISECOND;
+    while (g_get_monotonic_time () < deadline &&
+           g_main_context_iteration (nullptr, FALSE))
+        ;
+}
+
+static GtkWidget *
+first_descendant_of_type (GtkWidget *widget, GType type)
+{
+    if (G_TYPE_CHECK_INSTANCE_TYPE (widget, type))
+        return widget;
+    for (auto child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        if (auto result = first_descendant_of_type (child, type))
+            return result;
+    return nullptr;
+}
+
+static GtkWidget *
+first_visible_action_cell (GtkWidget *view)
+{
+    std::vector<GtkWidget*> cells;
+    collect_widgets_with_class (view, "gnc-import-matcher-action-cell", cells);
+    auto found = std::find_if (cells.begin (), cells.end (),
+                              [](GtkWidget *cell) {
+        auto button = first_descendant_of_type (cell, GTK_TYPE_CHECK_BUTTON);
+        return gtk_widget_get_mapped (cell) && button &&
+               gtk_widget_get_visible (button);
+    });
+    return found == cells.end () ? nullptr : *found;
+}
+
+static bool
+widget_or_ancestor_has_state (GtkWidget *widget, GtkStateFlags state)
+{
+    for (auto current = widget; current;
+         current = gtk_widget_get_parent (current))
+        if (gtk_widget_get_state_flags (current) & state)
+            return true;
+    return false;
+}
+
+static bool
+save_matcher_snapshot (GtkWidget *widget, const char *path)
+{
+    auto paintable = gtk_widget_paintable_new (widget);
+    auto snapshot = gtk_snapshot_new ();
+    gdk_paintable_snapshot (GDK_PAINTABLE (paintable), snapshot,
+                            gtk_widget_get_width (widget),
+                            gtk_widget_get_height (widget));
+    auto node = gtk_snapshot_free_to_node (snapshot);
+    auto native = gtk_widget_get_native (widget);
+    auto renderer = native ? gtk_native_get_renderer (native) : nullptr;
+    GdkTexture *texture = nullptr;
+    if (node && renderer)
+    {
+        graphene_rect_t bounds;
+        graphene_rect_init (&bounds, 0.0f, 0.0f,
+                            static_cast<float> (gtk_widget_get_width (widget)),
+                            static_cast<float> (gtk_widget_get_height (widget)));
+        texture = gsk_renderer_render_texture (renderer, node, &bounds);
+    }
+    const auto saved = texture && gdk_texture_save_to_png (texture, path);
+    g_clear_object (&texture);
+    if (node)
+        gsk_render_node_unref (node);
+    g_object_unref (paintable);
+    return saved;
+}
+
+static bool
+rendered_pixel (GtkWidget *widget, GtkWidget *sample_widget, guint32 *pixel_out)
+{
+    g_return_val_if_fail (pixel_out, false);
+    auto paintable = gtk_widget_paintable_new (widget);
+    auto snapshot = gtk_snapshot_new ();
+    gdk_paintable_snapshot (GDK_PAINTABLE (paintable), snapshot,
+                            gtk_widget_get_width (widget),
+                            gtk_widget_get_height (widget));
+    auto node = gtk_snapshot_free_to_node (snapshot);
+    auto native = gtk_widget_get_native (widget);
+    auto renderer = native ? gtk_native_get_renderer (native) : nullptr;
+    graphene_rect_t sample_bounds;
+    if (!node || !renderer ||
+        !gtk_widget_compute_bounds (sample_widget, widget, &sample_bounds))
+    {
+        if (node)
+            gsk_render_node_unref (node);
+        g_object_unref (paintable);
+        return false;
+    }
+    graphene_rect_t bounds;
+    graphene_rect_init (&bounds, 0.0f, 0.0f,
+                        static_cast<float> (gtk_widget_get_width (widget)),
+                        static_cast<float> (gtk_widget_get_height (widget)));
+    auto texture = gsk_renderer_render_texture (renderer, node, &bounds);
+    if (!texture)
+    {
+        gsk_render_node_unref (node);
+        g_object_unref (paintable);
+        return false;
+    }
+    const auto width = gdk_texture_get_width (texture);
+    const auto height = gdk_texture_get_height (texture);
+    if (width <= 0 || height <= 0)
+    {
+        g_object_unref (texture);
+        gsk_render_node_unref (node);
+        g_object_unref (paintable);
+        return false;
+    }
+    std::vector<guchar> pixels (width * height * 4);
+    gdk_texture_download (texture, pixels.data (), width * 4);
+    auto x = std::clamp (static_cast<int> (sample_bounds.origin.x + 2),
+                         0, width - 1);
+    auto y = std::clamp (static_cast<int> (sample_bounds.origin.y +
+                                            sample_bounds.size.height / 2),
+                         0, height - 1);
+    std::memcpy (pixel_out, pixels.data () + (y * width + x) * 4, 4);
+    g_object_unref (texture);
+    gsk_render_node_unref (node);
+    g_object_unref (paintable);
+    return true;
+}
+
 static gboolean
 weak_ref_was_finalized (GWeakRef *weak_ref)
 {
@@ -217,6 +411,34 @@ create_test_transaction (QofBook *book, Account *account,
     if (!leave_open)
         xaccTransCommitEdit (transaction);
     return { transaction, split };
+}
+
+static Transaction *
+create_import_transaction (QofBook *book, Account *source, Account *destination,
+                           gnc_commodity *currency, gint64 amount,
+                           const char *description, const char *memo,
+                           bool balanced)
+{
+    auto transaction = xaccMallocTransaction (book);
+    auto source_split = xaccMallocSplit (book);
+    xaccTransBeginEdit (transaction);
+    xaccTransSetCurrency (transaction, currency);
+    xaccTransSetDatePostedSecsNormalized (transaction, 1000 + amount);
+    xaccTransSetDescription (transaction, description);
+    xaccSplitSetParent (source_split, transaction);
+    xaccSplitSetAccount (source_split, source);
+    xaccSplitSetMemo (source_split, memo);
+    xaccSplitSetAmount (source_split, gnc_numeric_create (amount, 1));
+    xaccSplitSetValue (source_split, gnc_numeric_create (amount, 1));
+    if (balanced)
+    {
+        auto destination_split = xaccMallocSplit (book);
+        xaccSplitSetParent (destination_split, transaction);
+        xaccSplitSetAccount (destination_split, destination);
+        xaccSplitSetAmount (destination_split, gnc_numeric_create (-amount, 1));
+        xaccSplitSetValue (destination_split, gnc_numeric_create (-amount, 1));
+    }
+    return transaction;
 }
 
 static GNCImportMatchInfo *
@@ -367,6 +589,189 @@ reconcile_continuation_called (GObject *source, gpointer user_data)
     auto metrics = static_cast<OfxLifecycleMetrics *> (user_data);
     metrics->reconcile_calls++;
     (void)source;
+}
+
+TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants)
+{
+    const std::string long_text (600, 'x');
+    using MatcherPtr = std::unique_ptr<GNCImportMainMatcher,
+                                       decltype (&gnc_gen_trans_list_delete)>;
+    MatcherPtr matcher {gnc_gen_trans_list_new (nullptr, "Synthetic import",
+                                                FALSE, 42, FALSE),
+                        gnc_gen_trans_list_delete};
+    ASSERT_NE (matcher, nullptr);
+    for (gint64 index = 1; index <= 36; ++index)
+    {
+        auto description = "Synthetic groceries transaction " +
+                           std::to_string (index);
+        auto memo = "Synthetic card memo " + std::to_string (index);
+        if (index >= 35)
+        {
+            description += " " + long_text;
+            memo += " " + long_text;
+        }
+        gnc_gen_trans_list_add_trans (
+            matcher.get (), create_import_transaction (
+                m_book, m_bank, m_expenses, m_currency, index,
+                description.c_str (), memo.c_str (), index % 2));
+    }
+
+    gnc_gen_trans_list_show_all (matcher.get ());
+    auto window = gnc_gen_trans_list_widget (matcher.get ());
+    ASSERT_TRUE (GTK_IS_WINDOW (window));
+    gtk_window_set_default_size (GTK_WINDOW (window), 960, 560);
+    gtk_window_present (GTK_WINDOW (window));
+    ASSERT_TRUE (spin_until_frame (window));
+
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        window, "scrolledwindow25"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = gtk_scrolled_window_get_child (scroller);
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+
+    std::vector<GtkWidget*> cells;
+    collect_widgets_with_class (view, "gnc-import-matcher-cell", cells);
+    ASSERT_GT (cells.size (), 8u);
+    int first_height = 0;
+    constexpr const char *status_classes[] = {
+        "gnc-class-intervention-required",
+        "gnc-class-intervention-probably-required",
+        "gnc-class-intervention-not-required",
+        "gnc-class-intervention-required-dark",
+        "gnc-class-intervention-probably-required-dark",
+        "gnc-class-intervention-not-required-dark"};
+    cells.erase (std::remove_if (cells.begin (), cells.end (),
+                                [](GtkWidget *cell) {
+                                    return !gtk_widget_get_mapped (cell) ||
+                                           gtk_widget_get_width (cell) <= 0 ||
+                                           gtk_widget_get_height (cell) <= 0;
+                                }), cells.end ());
+    ASSERT_GT (cells.size (), 8u);
+    for (auto cell : cells)
+    {
+        auto parent = gtk_widget_get_parent (cell);
+        ASSERT_NE (parent, nullptr);
+        graphene_rect_t cell_bounds;
+        graphene_rect_t parent_bounds;
+        ASSERT_TRUE (gtk_widget_compute_bounds (cell, view, &cell_bounds));
+        ASSERT_TRUE (gtk_widget_compute_bounds (parent, view, &parent_bounds));
+        EXPECT_LE (std::abs (cell_bounds.origin.x - parent_bounds.origin.x), 1.0);
+        EXPECT_LE (std::abs (cell_bounds.origin.y - parent_bounds.origin.y), 1.0);
+        EXPECT_LE (std::abs (cell_bounds.size.width - parent_bounds.size.width), 1.0);
+        EXPECT_LE (std::abs (cell_bounds.size.height - parent_bounds.size.height), 1.0);
+        if (!first_height)
+            first_height = static_cast<int> (cell_bounds.size.height);
+        EXPECT_LE (std::abs (cell_bounds.size.height - first_height), 1.0);
+        auto status_count = std::count_if (
+            std::begin (status_classes), std::end (status_classes),
+            [cell](const char *name) { return gtk_widget_has_css_class (cell, name); });
+        EXPECT_EQ (status_count, 1);
+        if (gtk_widget_has_css_class (cell, "gnc-import-matcher-action-cell"))
+        {
+            auto button = first_descendant_of_type (cell, GTK_TYPE_CHECK_BUTTON);
+            ASSERT_NE (button, nullptr);
+            graphene_rect_t bounds;
+            ASSERT_TRUE (gtk_widget_compute_bounds (button, cell, &bounds));
+            EXPECT_LE (std::abs (bounds.origin.x -
+                                 (gtk_widget_get_width (cell) -
+                                  bounds.size.width) / 2.0), 1.0);
+        }
+    }
+
+    int minimum = 0;
+    int natural = 0;
+    gtk_widget_measure (view, GTK_ORIENTATION_HORIZONTAL, -1,
+                        &minimum, &natural, nullptr, nullptr);
+    EXPECT_LT (natural, 2400);
+
+    auto selection = GTK_MULTI_SELECTION (
+        gtk_column_view_get_model (GTK_COLUMN_VIEW (view)));
+    ASSERT_TRUE (GTK_IS_MULTI_SELECTION (selection));
+    auto action_cell = first_visible_action_cell (view);
+    ASSERT_NE (action_cell, nullptr);
+    auto action = GTK_CHECK_BUTTON (first_descendant_of_type (
+        action_cell, GTK_TYPE_CHECK_BUTTON));
+    auto action_before = gtk_check_button_get_active (action);
+    auto status_class = [&status_classes] (GtkWidget *cell) -> const char* {
+        for (auto name : status_classes)
+            if (gtk_widget_has_css_class (cell, name))
+                return name;
+        return nullptr;
+    };
+    ASSERT_NE (status_class (action_cell), nullptr);
+    auto status_before = std::string {status_class (action_cell)};
+    guint32 pixel_before_selection = 0;
+    ASSERT_TRUE (rendered_pixel (view, action_cell,
+                                 &pixel_before_selection));
+    gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection), 0, TRUE);
+    ASSERT_TRUE (spin_until_frame (view));
+    EXPECT_EQ (gtk_check_button_get_active (action), action_before);
+    EXPECT_TRUE (widget_or_ancestor_has_state (action_cell,
+                                                GTK_STATE_FLAG_SELECTED));
+    guint32 pixel_after_selection = 0;
+    ASSERT_TRUE (rendered_pixel (view, action_cell,
+                                 &pixel_after_selection));
+    EXPECT_NE (pixel_after_selection, pixel_before_selection);
+    g_object_ref (action_cell);
+    g_object_ref (action);
+    gtk_check_button_set_active (action, !action_before);
+    drain_main_context_bounded ();
+    g_object_unref (action);
+    g_object_unref (action_cell);
+    action_cell = first_visible_action_cell (view);
+    ASSERT_NE (action_cell, nullptr);
+    action = GTK_CHECK_BUTTON (first_descendant_of_type (
+        action_cell, GTK_TYPE_CHECK_BUTTON));
+    ASSERT_NE (status_class (action_cell), nullptr);
+    EXPECT_NE (status_before, status_class (action_cell));
+    g_object_ref (action_cell);
+    g_object_ref (action);
+    gtk_check_button_set_active (action, action_before);
+    drain_main_context_bounded ();
+    g_object_unref (action);
+    g_object_unref (action_cell);
+    action_cell = first_visible_action_cell (view);
+    ASSERT_NE (action_cell, nullptr);
+    action = GTK_CHECK_BUTTON (first_descendant_of_type (
+        action_cell, GTK_TYPE_CHECK_BUTTON));
+    EXPECT_EQ (gtk_check_button_get_active (action), action_before);
+    ASSERT_NE (status_class (action_cell), nullptr);
+    EXPECT_EQ (status_before, status_class (action_cell));
+    EXPECT_TRUE (widget_or_ancestor_has_state (action_cell,
+                                                GTK_STATE_FLAG_SELECTED));
+
+    auto adjustment = gtk_scrolled_window_get_vadjustment (scroller);
+    auto top = gtk_adjustment_get_value (adjustment);
+    auto bottom = std::max (gtk_adjustment_get_lower (adjustment),
+                            gtk_adjustment_get_upper (adjustment) -
+                            gtk_adjustment_get_page_size (adjustment));
+    ASSERT_GT (bottom, top);
+    gtk_adjustment_set_value (adjustment, bottom);
+    ASSERT_TRUE (spin_until_frame (view));
+    EXPECT_GT (gtk_adjustment_get_value (adjustment), top);
+    gtk_adjustment_set_value (adjustment, gtk_adjustment_get_lower (adjustment));
+    ASSERT_TRUE (spin_until_frame (view));
+    EXPECT_LE (gtk_adjustment_get_value (adjustment), top);
+    cells.clear ();
+    collect_widgets_with_class (view, "gnc-import-matcher-cell", cells);
+    cells.erase (std::remove_if (cells.begin (), cells.end (),
+                                [](GtkWidget *cell) {
+                                    return !gtk_widget_get_mapped (cell) ||
+                                           gtk_widget_get_width (cell) <= 0 ||
+                                           gtk_widget_get_height (cell) <= 0;
+                                }), cells.end ());
+    ASSERT_GT (cells.size (), 8u);
+    for (auto cell : cells)
+        EXPECT_EQ (std::count_if (
+            std::begin (status_classes), std::end (status_classes),
+            [cell](const char *name) { return gtk_widget_has_css_class (cell, name); }), 1);
+
+    if (auto snapshot_path = g_getenv ("GNC_TEST_IMPORT_MATCHER_SNAPSHOT"))
+    {
+        ASSERT_TRUE (g_path_is_absolute (snapshot_path));
+        ASSERT_TRUE (spin_until_frame (window));
+        EXPECT_TRUE (save_matcher_snapshot (window, snapshot_path));
+    }
 }
 
 TEST_F(ImportMatcherTest, test_simple_match)

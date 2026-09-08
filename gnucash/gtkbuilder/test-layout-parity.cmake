@@ -316,6 +316,11 @@ foreach (entry IN LISTS alignment_invariants)
     require_widget_property("${relative_file}" "${object_id}" "${property_name}" "${expected_value}")
 endforeach()
 
+require_widget_property("dialog-import.glade" "transaction_matcher_content"
+                        "spacing" "6")
+require_widget_property("dialog-import.glade" "scrolledwindow25"
+                        "hexpand" "1|true")
+
 set(grid_invariants
     "dialog-price.ui|date_hbox|row|2"
     "dialog-price.ui|remove_namespace_label|row|3"

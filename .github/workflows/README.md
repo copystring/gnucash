@@ -3,6 +3,9 @@ GitHub Actions Continuous Integration Testing Workflows
 `ci-tests.yml` runs Ubuntu 26.04 build, distribution, and AddressSanitizer
 tests. `coverage.yml` collects C++ coverage on the same platform. These jobs
 exercise the Guile 2.2 configuration without optional AqBanking support.
+The Ubuntu job also saves an import matcher preview from the GTK regression
+test using synthetic transactions and the application stylesheets. This
+artifact supports visual review without opening a user's financial data.
 
 `linux-aqbanking-gtk4-preflight.yml` builds the pinned Gwenhywfar GTK4,
 libchipcard, and AqBanking sources before running the GnuCash distribution

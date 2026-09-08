@@ -36,6 +36,14 @@ jobs:
           ninja distcheck
         env:
           CTEST_OUTPUT_ON_FAILURE: On
+          GNC_TEST_IMPORT_MATCHER_SNAPSHOT: ${{ github.workspace }}/build/import-matcher-preview.png
+      - name: Upload import matcher preview
+        uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: import-matcher-preview
+          path: ${{ github.workspace }}/build/import-matcher-preview.png
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

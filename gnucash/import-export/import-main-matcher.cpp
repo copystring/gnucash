@@ -1695,17 +1695,37 @@ static void
 matcher_text_setup_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
     auto column = GPOINTER_TO_INT (user_data);
+    auto cell = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
     auto label = gtk_label_new (nullptr);
+    gtk_widget_add_css_class (cell, "gnc-import-matcher-cell");
+    gtk_widget_set_hexpand (cell, TRUE);
+    gtk_widget_set_valign (cell, GTK_ALIGN_FILL);
+    gtk_widget_set_hexpand (label, TRUE);
+    gtk_widget_set_valign (label, GTK_ALIGN_CENTER);
     gtk_label_set_xalign (GTK_LABEL (label), column == DOWNLOADED_COL_AMOUNT ? 1.0 : 0.0);
     gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    switch (column)
+    {
+    case DOWNLOADED_COL_DESCRIPTION:
+        gtk_label_set_max_width_chars (GTK_LABEL (label), 36);
+        break;
+    case DOWNLOADED_COL_ACCOUNT:
+    case DOWNLOADED_COL_MEMO:
+        gtk_label_set_max_width_chars (GTK_LABEL (label), 28);
+        break;
+    default:
+        break;
+    }
     if (column == DOWNLOADED_COL_DATE_TXT)
     {
         auto expander = GTK_TREE_EXPANDER (gtk_tree_expander_new ());
+        gtk_widget_set_hexpand (GTK_WIDGET (expander), TRUE);
         gtk_tree_expander_set_child (expander, label);
-        gtk_list_item_set_child (item, GTK_WIDGET (expander));
+        gtk_box_append (GTK_BOX (cell), GTK_WIDGET (expander));
     }
     else
-        gtk_list_item_set_child (item, label);
+        gtk_box_append (GTK_BOX (cell), label);
+    gtk_list_item_set_child (item, cell);
     (void)factory;
 }
 
@@ -1716,12 +1736,14 @@ matcher_text_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer u
     auto tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
     auto object = G_OBJECT (gtk_tree_list_row_get_item (tree_row));
     auto row = matcher_row_get (object);
-    auto child = gtk_list_item_get_child (item);
+    auto cell = gtk_list_item_get_child (item);
+    auto child = gtk_widget_get_first_child (cell);
     auto label = column == DOWNLOADED_COL_DATE_TXT
         ? GTK_LABEL (gtk_tree_expander_get_child (GTK_TREE_EXPANDER (child)))
         : GTK_LABEL (child);
     gtk_label_set_text (label, matcher_row_text (row, column));
-    matcher_apply_row_style (GTK_WIDGET (label), row);
+    matcher_apply_row_style (cell, row);
+    gtk_widget_remove_css_class (GTK_WIDGET (label), "gnc-class-edited-import-field");
     if (!row->detail && ((column == DOWNLOADED_COL_DESCRIPTION && g_strcmp0 (row->description, row->description_original)) ||
                          (column == DOWNLOADED_COL_MEMO && g_strcmp0 (row->memo, row->memo_original))))
         gtk_widget_add_css_class (GTK_WIDGET (label), "gnc-class-edited-import-field");
@@ -1729,6 +1751,8 @@ matcher_text_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer u
         gtk_widget_set_tooltip_text (GTK_WIDGET (label), row->description_original);
     else if (column == DOWNLOADED_COL_MEMO)
         gtk_widget_set_tooltip_text (GTK_WIDGET (label), row->memo_original);
+    else if (column == DOWNLOADED_COL_ACCOUNT)
+        gtk_widget_set_tooltip_text (GTK_WIDGET (label), matcher_row_text (row, column));
     else
         gtk_widget_set_tooltip_text (GTK_WIDGET (label), nullptr);
     if (column == DOWNLOADED_COL_DATE_TXT)
@@ -1743,6 +1767,12 @@ struct MatcherToggleBinding
     GNCImportAction action;
     gulong changed_id;
 };
+
+static void
+matcher_toggle_binding_free (gpointer data)
+{
+    delete static_cast<MatcherToggleBinding*> (data);
+}
 
 static void
 matcher_toggle_changed_cb (GtkCheckButton *button, MatcherToggleBinding *binding)
@@ -1765,16 +1795,27 @@ matcher_toggle_setup_cb (GtkListItemFactory *factory, GtkListItem *item, gpointe
     auto binding = new MatcherToggleBinding { static_cast<GNCImportMainMatcher*> (user_data),
                                                GNCImport_ADD, 0 };
     auto button = GTK_CHECK_BUTTON (gtk_check_button_new ());
+    auto cell = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class (cell, "gnc-import-matcher-cell");
+    gtk_widget_add_css_class (cell, "gnc-import-matcher-action-cell");
+    gtk_widget_set_hexpand (cell, TRUE);
+    gtk_widget_set_valign (cell, GTK_ALIGN_FILL);
+    gtk_widget_set_hexpand (GTK_WIDGET (button), TRUE);
+    gtk_widget_set_halign (GTK_WIDGET (button), GTK_ALIGN_CENTER);
+    gtk_widget_set_valign (GTK_WIDGET (button), GTK_ALIGN_CENTER);
     binding->action = static_cast<GNCImportAction> (GPOINTER_TO_INT (g_object_get_data (G_OBJECT (factory), "gnc-import-matcher-action")));
     binding->changed_id = g_signal_connect (button, "toggled", G_CALLBACK (matcher_toggle_changed_cb), binding);
-    g_object_set_data_full (G_OBJECT (button), "gnc-import-matcher-toggle", binding, g_free);
-    gtk_list_item_set_child (item, GTK_WIDGET (button));
+    g_object_set_data_full (G_OBJECT (button), "gnc-import-matcher-toggle", binding,
+                            matcher_toggle_binding_free);
+    gtk_box_append (GTK_BOX (cell), GTK_WIDGET (button));
+    gtk_list_item_set_child (item, cell);
 }
 
 static void
 matcher_toggle_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
-    auto button = GTK_CHECK_BUTTON (gtk_list_item_get_child (item));
+    auto cell = gtk_list_item_get_child (item);
+    auto button = GTK_CHECK_BUTTON (gtk_widget_get_first_child (cell));
     auto tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
     auto object = G_OBJECT (gtk_tree_list_row_get_item (tree_row));
     auto row = matcher_row_get (object);
@@ -1788,7 +1829,7 @@ matcher_toggle_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer
                             g_object_unref);
     gtk_widget_set_visible (GTK_WIDGET (button), row->enabled && !row->detail);
     gtk_widget_set_sensitive (GTK_WIDGET (button), row->enabled && !row->detail);
-    matcher_apply_row_style (GTK_WIDGET (button), row);
+    matcher_apply_row_style (cell, row);
     (void)factory;
     (void)user_data;
 }
@@ -1799,8 +1840,16 @@ matcher_info_setup_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer 
     auto box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     auto image = gtk_image_new ();
     auto label = gtk_label_new (nullptr);
+    gtk_widget_add_css_class (box, "gnc-import-matcher-cell");
+    gtk_widget_add_css_class (box, "gnc-import-matcher-info-cell");
+    gtk_widget_set_hexpand (box, TRUE);
+    gtk_widget_set_valign (box, GTK_ALIGN_FILL);
+    gtk_widget_set_valign (image, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand (label, TRUE);
+    gtk_widget_set_valign (label, GTK_ALIGN_CENTER);
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
     gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars (GTK_LABEL (label), 36);
     gtk_box_append (GTK_BOX (box), image);
     gtk_box_append (GTK_BOX (box), label);
     gtk_list_item_set_child (item, box);
@@ -1819,6 +1868,7 @@ matcher_info_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer u
     auto label = GTK_LABEL (gtk_widget_get_next_sibling (GTK_WIDGET (image)));
     gtk_image_set_from_paintable (image, row->confidence ? GDK_PAINTABLE (row->confidence) : nullptr);
     gtk_label_set_text (label, row->action_info);
+    gtk_widget_set_tooltip_text (GTK_WIDGET (label), row->action_info);
     matcher_apply_row_style (GTK_WIDGET (box), row);
     g_object_unref (object);
     (void)factory;
@@ -1833,6 +1883,8 @@ matcher_add_text_column (GNCImportMainMatcher *info, const gchar *title, gint co
     g_signal_connect (factory, "bind", G_CALLBACK (matcher_text_bind_cb), GINT_TO_POINTER (column));
     auto view_column = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_resizable (view_column, TRUE);
+    if (column == DOWNLOADED_COL_DESCRIPTION)
+        gtk_column_view_column_set_expand (view_column, TRUE);
     gtk_column_view_append_column (info->view, view_column);
     g_object_unref (view_column);
     return view_column;
@@ -1871,6 +1923,7 @@ gnc_gen_trans_init_view (GNCImportMainMatcher *info,
         G_LIST_MODEL (g_object_ref (info->tree_model)));
     info->view = GTK_COLUMN_VIEW (gtk_column_view_new (
         GTK_SELECTION_MODEL (g_object_ref (info->selection))));
+    gtk_widget_add_css_class (GTK_WIDGET (info->view), "gnc-import-matcher");
     gtk_column_view_set_reorderable (info->view, TRUE);
     gtk_column_view_set_enable_rubberband (info->view, TRUE);
 
@@ -1893,6 +1946,8 @@ gnc_gen_trans_init_view (GNCImportMainMatcher *info,
     g_signal_connect (info_factory, "setup", G_CALLBACK (matcher_info_setup_cb), nullptr);
     g_signal_connect (info_factory, "bind", G_CALLBACK (matcher_info_bind_cb), nullptr);
     auto info_column = gtk_column_view_column_new (_("Additional Comments"), info_factory);
+    gtk_column_view_column_set_expand (info_column, TRUE);
+    gtk_column_view_column_set_resizable (info_column, TRUE);
     gtk_column_view_append_column (info->view, info_column);
     g_object_unref (info_column);
 

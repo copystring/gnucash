@@ -98,6 +98,34 @@ dialog#GnuCash * text selection {
   background-color: rgb(27,106,203);
 }
 
+/* Import matcher cells carry their semantic status colour on a full-width
+ * factory container. Keep geometry separate from the colour classes in the
+ * fallback sheet so user CSS can continue to override those meanings. */
+columnview.gnc-import-matcher > listview > row > cell {
+  padding: 0;
+}
+
+columnview.gnc-import-matcher .gnc-import-matcher-cell {
+  min-height: 1.8em;
+  padding: 0.15em 0.4em;
+}
+
+columnview.gnc-import-matcher .gnc-import-matcher-action-cell {
+  min-width: 2.8em;
+  padding-left: 0.25em;
+  padding-right: 0.25em;
+}
+
+columnview.gnc-import-matcher .gnc-import-matcher-info-cell {
+  min-width: 10em;
+}
+
+/* Let the native selected background and foreground remain a pair instead
+ * of drawing the status fill underneath the selection's text colour. */
+columnview.gnc-import-matcher row:selected .gnc-import-matcher-cell {
+  background-color: transparent;
+}
+
 /* ==================================================================== */
 /* GTK4 UI Parity: compact sizing in the main application window        */
 /* ==================================================================== */
