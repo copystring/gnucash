@@ -2,6 +2,15 @@ set(test_aqb_SOURCES test-aqb.c test-kvp.c test-standing-orders.c)
 set(test_flicker_gui_SOURCES test-flicker-gui.c)
 set(test_gwen_gui_shutdown_SOURCES test-gwen-gui-shutdown.c
   ../gnc-gwen-gui.c)
+set(test_aqbanking_page_selection_SOURCES
+  test-aqbanking-page-selection.c
+  ${CMAKE_CURRENT_BINARY_DIR}/test-aqbanking-page-selection-gresources.c)
+
+gnc_generate_gresources(
+  BASE test-aqbanking-page-selection-gresources
+  RESOURCE_FILES
+    ${CMAKE_SOURCE_DIR}/gnucash/ui/gnc-main-window.ui
+    ${CMAKE_SOURCE_DIR}/gnucash/ui/gnc-plugin-page-account-tree.ui)
 
 set(test_aqb_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common
@@ -29,7 +38,8 @@ set(test_aqb_LIBS
 
 set_dist_list(test_aqb_DIST ${test_aqb_SOURCES} file-book.gnucash
   file-book-hbcislot.gnucash ${test_flicker_gui_SOURCES}
-  ${test_gwen_gui_shutdown_SOURCES} CMakeLists.txt )
+  ${test_gwen_gui_shutdown_SOURCES} test-aqbanking-page-selection.c
+  CMakeLists.txt )
 if(WITH_AQBANKING)
   gnc_add_test(test-aqb
     "${test_aqb_SOURCES}"
@@ -43,6 +53,11 @@ if(WITH_AQBANKING)
     "${test_gwen_gui_shutdown_SOURCES}"
     test_aqb_INCLUDE_DIRS
     test_aqb_LIBS)
+  gnc_add_test(test-aqbanking-page-selection
+    "${test_aqbanking_page_selection_SOURCES}"
+    test_aqb_INCLUDE_DIRS
+    test_aqb_LIBS
+    GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
   target_compile_definitions(test-gwen-gui-shutdown PRIVATE
     GNC_GWEN_GUI_TESTING
     G_LOG_DOMAIN="gnc.import.aqbanking")
