@@ -126,12 +126,15 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
     GtkWindow *window;
     GtkColumnView *final_view;
     GtkColumnView *category_view;
+    GtkWidget *book_options_page;
+    GtkWidget *book_options_notebook;
     GtkButton *next_button;
     GtkButton *select_all_button;
     GtkSelectionModel *selection = nullptr;
     GtkTreeListRow *tree_row;
     GObject *account_row;
     gboolean row_finalized = FALSE;
+    gboolean notebook_finalized = FALSE;
     gboolean categories_selected = FALSE;
 
     gnc_set_current_session (session);
@@ -143,14 +146,20 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
                                                           "final_account_view"));
     category_view = GTK_COLUMN_VIEW (find_buildable_widget (GTK_WIDGET (window),
                                                              "account_categories_view"));
+    book_options_page = find_buildable_widget (GTK_WIDGET (window), "book_options_page");
+    book_options_notebook = book_options_page
+        ? gtk_widget_get_first_child (book_options_page) : nullptr;
     next_button = GTK_BUTTON (find_buildable_widget (GTK_WIDGET (window),
                                                       "hierarchy_next"));
     select_all_button = GTK_BUTTON (find_buildable_widget (GTK_WIDGET (window),
                                                             "select_all_button"));
     g_assert_nonnull (final_view);
     g_assert_nonnull (category_view);
+    g_assert_true (GTK_IS_NOTEBOOK (book_options_notebook));
     g_assert_nonnull (next_button);
     g_assert_nonnull (select_all_button);
+    g_object_weak_ref (G_OBJECT (book_options_notebook), object_finalized,
+                       &notebook_finalized);
 
     for (guint page = 0; page < 8 && !gtk_column_view_get_model (final_view); page++)
     {
@@ -193,6 +202,7 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
     g_object_unref (selection);
     gtk_window_destroy (window);
     g_object_unref (window);
+    g_assert_true (wait_for_condition (boolean_is_true, &notebook_finalized));
     g_assert_true (wait_for_condition (boolean_is_true, &row_finalized));
 
     gnc_clear_current_session ();

@@ -151,6 +151,8 @@ struct hierarchy_data
     GtkWidget *next_button;
     GtkWidget *apply_button;
     GtkWidget *book_options_page;
+    /* Keep the reparented notebook alive until its option UI items are released. */
+    GtkWidget *book_options_notebook;
 
     GtkWidget *currency_selector;
     GtkWidget *currency_selector_label;
@@ -1511,12 +1513,22 @@ hierarchy_destroy_book_options (hierarchy_data *data)
 {
     auto optionwin = data->optionwin;
     auto options = data->options;
+    auto notebook = data->book_options_notebook;
 
     data->optionwin = nullptr;
     data->options = nullptr;
+    data->book_options_notebook = nullptr;
     delete optionwin;
+    if (notebook)
+    {
+        auto parent = gtk_widget_get_parent (notebook);
+
+        if (parent)
+            gtk_box_remove (GTK_BOX (parent), notebook);
+        g_object_unref (notebook);
+    }
     if (options)
-        gnc_option_db_destroy (options);
+        delete options;
 }
 
 static void
@@ -1644,11 +1656,10 @@ assistant_insert_book_options_page (hierarchy_data *data)
 
     options = data->optionwin->get_notebook ();
     parent = gtk_widget_get_parent (options);
-    g_object_ref (options);
+    data->book_options_notebook = GTK_WIDGET (g_object_ref (options));
     if (parent)
         gtk_box_remove (GTK_BOX (parent), options);
     gtk_box_append (GTK_BOX (data->book_options_page), options);
-    g_object_unref (options);
     gtk_widget_set_visible (options, TRUE);
 }
 
