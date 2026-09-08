@@ -27,6 +27,7 @@
 #include <glib/gstdio.h>
 #include <dialog-options.hpp>
 #include <gnc-optiondb.h>
+#include <gnc-optiondb-impl.hpp>
 #include <libguile.h>
 
 #include <config.h>
