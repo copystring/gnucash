@@ -701,24 +701,33 @@ hierarchy_list_item_get_account_row (GtkListItem *list_item,
 static const gchar *
 hierarchy_account_column_text (Account *account, HierarchyAccountColumn column)
 {
+    const gchar *text = "";
+
     if (!account)
-        return "";
+        return text;
 
     switch (column)
     {
     case HIERARCHY_ACCOUNT_COLUMN_NAME:
-        return xaccAccountGetName (account);
+        text = xaccAccountGetName (account);
+        break;
     case HIERARCHY_ACCOUNT_COLUMN_CODE:
-        return xaccAccountGetCode (account);
+        text = xaccAccountGetCode (account);
+        break;
     case HIERARCHY_ACCOUNT_COLUMN_DESCRIPTION:
-        return xaccAccountGetDescription (account);
+        text = xaccAccountGetDescription (account);
+        break;
     case HIERARCHY_ACCOUNT_COLUMN_NOTES:
-        return xaccAccountGetNotes (account);
+        text = xaccAccountGetNotes (account);
+        break;
     case HIERARCHY_ACCOUNT_COLUMN_TYPE:
-        return xaccAccountGetTypeStr (xaccAccountGetType (account));
+        text = xaccAccountGetTypeStr (xaccAccountGetType (account));
+        break;
     default:
-        return "";
+        break;
     }
+
+    return text ? text : "";
 }
 
 static gboolean
