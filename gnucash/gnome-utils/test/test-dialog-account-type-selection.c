@@ -203,6 +203,9 @@ test_account_type_parent_change (gboolean choose_income)
     gnc_ui_new_account_with_types_and_commodity (NULL, book, valid_types, NULL);
     g_list_free (valid_types);
 
+    /* The account tree applies the explicitly requested parent in its restore idle. */
+    drain_main_context ();
+
     window = find_account_window ();
     g_assert_nonnull (window);
     dropdown = find_account_type_dropdown (GTK_WIDGET (window));
