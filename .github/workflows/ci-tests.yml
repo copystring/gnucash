@@ -39,7 +39,7 @@ jobs:
           GNC_TEST_IMPORT_MATCHER_SNAPSHOT: ${{ github.workspace }}/build/import-matcher-preview.png
       - name: Upload import matcher preview
         uses: actions/upload-artifact@v7
-        if: success()
+        if: ${{ !cancelled() }}
         with:
           name: import-matcher-preview
           path: ${{ github.workspace }}/build/import-matcher-preview.png

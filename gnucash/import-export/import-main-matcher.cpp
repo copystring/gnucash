@@ -305,6 +305,22 @@ matcher_find_row (GNCImportMainMatcher *info, GNCImportTransInfo *trans_info)
 }
 
 static void
+matcher_select_object (GNCImportMainMatcher *info, GObject *row_object)
+{
+    auto count = g_list_model_get_n_items (G_LIST_MODEL (info->tree_model));
+    for (guint position = 0; position < count; ++position)
+    {
+        auto object = matcher_row_at (info, position);
+        if (object.get () == row_object)
+        {
+            gtk_selection_model_select_item (GTK_SELECTION_MODEL (info->selection),
+                                             position, TRUE);
+            return;
+        }
+    }
+}
+
+static void
 matcher_row_changed (GNCImportMainMatcher *info, GObject *row_object)
 {
     auto root_count = g_list_model_get_n_items (G_LIST_MODEL (info->rows));
@@ -315,7 +331,19 @@ matcher_row_changed (GNCImportMainMatcher *info, GObject *row_object)
         g_object_unref (current);
         if (matches)
         {
+            auto tree_row = gtk_tree_list_model_get_child_row (info->tree_model,
+                                                               position);
+            auto expanded = tree_row && gtk_tree_list_row_get_expanded (tree_row);
+            g_clear_object (&tree_row);
             g_list_model_items_changed (G_LIST_MODEL (info->rows), position, 1, 1);
+            if (expanded)
+            {
+                tree_row = gtk_tree_list_model_get_child_row (info->tree_model,
+                                                              position);
+                if (tree_row)
+                    gtk_tree_list_row_set_expanded (tree_row, TRUE);
+                g_clear_object (&tree_row);
+            }
             return;
         }
     }
@@ -1781,12 +1809,16 @@ matcher_toggle_changed_cb (GtkCheckButton *button, MatcherToggleBinding *binding
     auto row = matcher_row_get (object);
     if (!row || row->detail || !row->enabled)
         return;
-    if (gnc_import_TransInfo_get_action (row->trans_info) == binding->action &&
-        gnc_import_Settings_get_action_skip_enabled (binding->info->user_settings))
+    auto info = binding->info;
+    auto action = binding->action;
+    GObjectPtr row_object { G_OBJECT (g_object_ref (object)) };
+    if (gnc_import_TransInfo_get_action (row->trans_info) == action &&
+        gnc_import_Settings_get_action_skip_enabled (info->user_settings))
         gnc_import_TransInfo_set_action (row->trans_info, GNCImport_SKIP);
     else
-        gnc_import_TransInfo_set_action (row->trans_info, binding->action);
-    refresh_model_row (binding->info, object, row->trans_info);
+        gnc_import_TransInfo_set_action (row->trans_info, action);
+    refresh_model_row (info, row_object.get (), row->trans_info);
+    matcher_select_object (info, row_object.get ());
 }
 
 static void
@@ -2403,10 +2435,12 @@ refresh_model_row (GNCImportMainMatcher *gui,
     {
         gtk_column_view_column_set_visible (gui->account_column, TRUE);
         gtk_column_view_column_set_visible (gui->memo_column, TRUE);
-        matcher_set_all_expanded (gui, TRUE);
     }
     gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (gui->selection));
     matcher_row_changed (gui, row_object);
+    if (row->children && gtk_check_button_get_active (
+            GTK_CHECK_BUTTON (gui->show_matched_info)))
+        matcher_set_all_expanded (gui, TRUE);
     g_free (required);
     g_free (probably_required);
     g_free (not_required);

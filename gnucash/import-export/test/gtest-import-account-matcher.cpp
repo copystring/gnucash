@@ -245,15 +245,6 @@ spin_until_frame (GtkWidget *widget)
     return false;
 }
 
-static void
-drain_main_context_bounded ()
-{
-    const auto deadline = g_get_monotonic_time () + 250 * G_TIME_SPAN_MILLISECOND;
-    while (g_get_monotonic_time () < deadline &&
-           g_main_context_iteration (nullptr, FALSE))
-        ;
-}
-
 static GtkWidget *
 first_descendant_of_type (GtkWidget *widget, GType type)
 {
@@ -613,7 +604,8 @@ TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants
         gnc_gen_trans_list_add_trans (
             matcher.get (), create_import_transaction (
                 m_book, m_bank, m_expenses, m_currency, index,
-                description.c_str (), memo.c_str (), index % 2));
+                description.c_str (), memo.c_str (),
+                index <= 2 || index % 2));
     }
 
     gnc_gen_trans_list_show_all (matcher.get ());
@@ -652,13 +644,15 @@ TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants
         auto parent = gtk_widget_get_parent (cell);
         ASSERT_NE (parent, nullptr);
         graphene_rect_t cell_bounds;
-        graphene_rect_t parent_bounds;
-        ASSERT_TRUE (gtk_widget_compute_bounds (cell, view, &cell_bounds));
-        ASSERT_TRUE (gtk_widget_compute_bounds (parent, view, &parent_bounds));
-        EXPECT_LE (std::abs (cell_bounds.origin.x - parent_bounds.origin.x), 1.0);
-        EXPECT_LE (std::abs (cell_bounds.origin.y - parent_bounds.origin.y), 1.0);
-        EXPECT_LE (std::abs (cell_bounds.size.width - parent_bounds.size.width), 1.0);
-        EXPECT_LE (std::abs (cell_bounds.size.height - parent_bounds.size.height), 1.0);
+        ASSERT_TRUE (gtk_widget_compute_bounds (cell, parent, &cell_bounds));
+        /* GtkWidget::width/height are the parent's content (client) size;
+         * compute_bounds(parent, view) also includes its native CSS border.
+         * The factory child must fill the client area, while the border may
+         * transform to fractional coordinates in an ancestor's space. */
+        EXPECT_EQ (std::lround (cell_bounds.size.width),
+                   gtk_widget_get_width (parent));
+        EXPECT_EQ (std::lround (cell_bounds.size.height),
+                   gtk_widget_get_height (parent));
         if (!first_height)
             first_height = static_cast<int> (cell_bounds.size.height);
         EXPECT_LE (std::abs (cell_bounds.size.height - first_height), 1.0);
@@ -705,6 +699,8 @@ TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants
                                  &pixel_before_selection));
     gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection), 0, TRUE);
     ASSERT_TRUE (spin_until_frame (view));
+    EXPECT_TRUE (gtk_selection_model_is_selected (
+        GTK_SELECTION_MODEL (selection), 0));
     EXPECT_EQ (gtk_check_button_get_active (action), action_before);
     EXPECT_TRUE (widget_or_ancestor_has_state (action_cell,
                                                 GTK_STATE_FLAG_SELECTED));
@@ -712,14 +708,26 @@ TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants
     ASSERT_TRUE (rendered_pixel (view, action_cell,
                                  &pixel_after_selection));
     EXPECT_NE (pixel_after_selection, pixel_before_selection);
+    gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection), 1,
+                                     FALSE);
+    ASSERT_TRUE (spin_until_frame (view));
+    ASSERT_TRUE (gtk_selection_model_is_selected (
+        GTK_SELECTION_MODEL (selection), 0));
+    ASSERT_TRUE (gtk_selection_model_is_selected (
+        GTK_SELECTION_MODEL (selection), 1));
     g_object_ref (action_cell);
     g_object_ref (action);
     gtk_check_button_set_active (action, !action_before);
-    drain_main_context_bounded ();
+    auto rebound_after_disable = spin_until_frame (view);
     g_object_unref (action);
     g_object_unref (action_cell);
+    ASSERT_TRUE (rebound_after_disable);
     action_cell = first_visible_action_cell (view);
     ASSERT_NE (action_cell, nullptr);
+    EXPECT_TRUE (gtk_selection_model_is_selected (
+        GTK_SELECTION_MODEL (selection), 0));
+    EXPECT_FALSE (gtk_selection_model_is_selected (
+        GTK_SELECTION_MODEL (selection), 1));
     action = GTK_CHECK_BUTTON (first_descendant_of_type (
         action_cell, GTK_TYPE_CHECK_BUTTON));
     ASSERT_NE (status_class (action_cell), nullptr);
@@ -727,11 +735,14 @@ TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants
     g_object_ref (action_cell);
     g_object_ref (action);
     gtk_check_button_set_active (action, action_before);
-    drain_main_context_bounded ();
+    auto rebound_after_restore = spin_until_frame (view);
     g_object_unref (action);
     g_object_unref (action_cell);
+    ASSERT_TRUE (rebound_after_restore);
     action_cell = first_visible_action_cell (view);
     ASSERT_NE (action_cell, nullptr);
+    EXPECT_TRUE (gtk_selection_model_is_selected (
+        GTK_SELECTION_MODEL (selection), 0));
     action = GTK_CHECK_BUTTON (first_descendant_of_type (
         action_cell, GTK_TYPE_CHECK_BUTTON));
     EXPECT_EQ (gtk_check_button_get_active (action), action_before);
