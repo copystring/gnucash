@@ -195,6 +195,133 @@ test_account_lookup_releases_tree_item (void)
 }
 
 static void
+test_account_selection_modes_preserve_semantics (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root = gnc_account_create_root (book);
+    Account *first = xaccMallocAccount (book);
+    Account *second = xaccMallocAccount (book);
+    GtkWidget *widget;
+    GncTreeViewAccount *view;
+    GtkSelectionModel *selection;
+    GList *accounts = NULL;
+    GList *selected;
+
+    gnc_set_current_session (session);
+    xaccAccountSetName (first, "First account");
+    xaccAccountSetType (first, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, first);
+    xaccAccountSetName (second, "Second account");
+    xaccAccountSetType (second, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, second);
+    widget = gnc_tree_view_account_new_with_root (root, FALSE);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_ACCOUNT (widget);
+    drain_main_context ();
+
+    selection = gnc_tree_view_account_get_selection_model (view);
+    g_assert_true (GTK_IS_SINGLE_SELECTION (selection));
+    g_assert_false (gtk_single_selection_get_autoselect (
+                        GTK_SINGLE_SELECTION (selection)));
+    g_assert_true (gtk_single_selection_get_can_unselect (
+                       GTK_SINGLE_SELECTION (selection)));
+    g_assert_null (gnc_tree_view_account_get_selected_account (view));
+
+    gnc_tree_view_account_set_selected_account (view, second);
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_MULTIPLE);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_SINGLE);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+
+    gnc_tree_view_account_set_selected_account (view, first);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == first);
+
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_MULTIPLE);
+    drain_main_context ();
+    selection = gnc_tree_view_account_get_selection_model (view);
+    g_assert_true (GTK_IS_MULTI_SELECTION (selection));
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == first);
+
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_SINGLE);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == first);
+    gnc_tree_view_account_set_selected_account (view, NULL);
+    drain_main_context ();
+    g_assert_null (gnc_tree_view_account_get_selected_account (view));
+
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_BROWSE);
+    drain_main_context ();
+    selection = gnc_tree_view_account_get_selection_model (view);
+    g_assert_true (GTK_IS_SINGLE_SELECTION (selection));
+    g_assert_true (gtk_single_selection_get_autoselect (
+                       GTK_SINGLE_SELECTION (selection)));
+    g_assert_false (gtk_single_selection_get_can_unselect (
+                        GTK_SINGLE_SELECTION (selection)));
+    g_assert_nonnull (gnc_tree_view_account_get_selected_account (view));
+    gnc_tree_view_account_set_selected_account (view, second);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+    gnc_tree_view_account_set_selected_account (view, NULL);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_MULTIPLE);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_BROWSE);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+    gnc_tree_view_account_set_selected_account (view, NULL);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_SINGLE);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_NONE);
+    drain_main_context ();
+    g_assert_true (GTK_IS_NO_SELECTION (
+        gnc_tree_view_account_get_selection_model (view)));
+    g_assert_null (gnc_tree_view_account_get_selected_account (view));
+    gnc_tree_view_account_set_selected_account (view, first);
+    drain_main_context ();
+    g_assert_null (gnc_tree_view_account_get_selected_account (view));
+
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_MULTIPLE);
+    drain_main_context ();
+    selection = gnc_tree_view_account_get_selection_model (view);
+    g_assert_true (GTK_IS_MULTI_SELECTION (selection));
+    g_assert_null (gnc_tree_view_account_get_selected_account (view));
+    accounts = g_list_append (accounts, first);
+    accounts = g_list_append (accounts, second);
+    gnc_tree_view_account_set_selected_accounts (view, accounts, FALSE);
+    g_list_free (accounts);
+    drain_main_context ();
+    selected = gnc_tree_view_account_get_selected_accounts (view);
+    g_assert_cmpuint (g_list_length (selected), ==, 2);
+    g_list_free (selected);
+
+    /* The GTK4 model has no GTK3 anchor object. Keep a deterministic account
+     * from the existing selection instead of inventing an unrelated row. */
+    gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_SINGLE);
+    drain_main_context ();
+    selection = gnc_tree_view_account_get_selection_model (view);
+    g_assert_true (GTK_IS_SINGLE_SELECTION (selection));
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == first);
+    gnc_tree_view_account_set_selected_account (view, second);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
+
+    g_object_unref (widget);
+    gnc_clear_current_session ();
+}
+
+static void
 test_commodity_lookup_releases_tree_item (void)
 {
     QofSession *session = qof_session_new (qof_book_new ());
@@ -475,6 +602,8 @@ main (int argc, char **argv)
 
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account",
                      test_account_lookup_releases_tree_item);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-selection-modes",
+                     test_account_selection_modes_preserve_semantics);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity",
                      test_commodity_lookup_releases_tree_item);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/price",

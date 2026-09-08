@@ -584,6 +584,60 @@ gnc_tree_view_account_init (GncTreeViewAccount *view)
     view->selection_mode = GTK_SELECTION_SINGLE;
 }
 
+static GtkSelectionModel *
+selection_model_new (GListModel *model, GtkSelectionMode mode)
+{
+    /* GtkSingleSelection defaults implement BROWSE. SINGLE must be configured
+     * before attaching the model so it starts without an automatic selection. */
+    switch (mode)
+    {
+    case GTK_SELECTION_NONE:
+        return GTK_SELECTION_MODEL (gtk_no_selection_new (g_object_ref (model)));
+    case GTK_SELECTION_MULTIPLE:
+        return GTK_SELECTION_MODEL (gtk_multi_selection_new (g_object_ref (model)));
+    case GTK_SELECTION_BROWSE:
+        return GTK_SELECTION_MODEL (gtk_single_selection_new (g_object_ref (model)));
+    case GTK_SELECTION_SINGLE:
+    default:
+    {
+        GtkSingleSelection *selection = gtk_single_selection_new (NULL);
+
+        gtk_single_selection_set_autoselect (selection, FALSE);
+        gtk_single_selection_set_can_unselect (selection, TRUE);
+        gtk_single_selection_set_model (selection, model);
+        return GTK_SELECTION_MODEL (selection);
+    }
+    }
+}
+
+static void
+retain_one_selected (GncTreeViewAccount *view)
+{
+    Account *current = gnc_tree_view_account_get_selected_account (view);
+    gchar *retained = NULL;
+
+    if (g_hash_table_size (view->selected) <= 1)
+        return;
+    if (current && has_guid (view->selected, current))
+        retained = account_guid (current);
+    else
+    {
+        GHashTableIter iter;
+        gpointer key;
+
+        g_hash_table_iter_init (&iter, view->selected);
+        while (g_hash_table_iter_next (&iter, &key, NULL))
+            if (!retained || g_strcmp0 (key, retained) < 0)
+            {
+                g_free (retained);
+                retained = g_strdup (key);
+            }
+    }
+    g_hash_table_remove_all (view->selected);
+    if (retained)
+        g_hash_table_add (view->selected, retained);
+}
+
 static GtkWidget *
 new_with_model (Account *root, gboolean show_root)
 {
@@ -596,8 +650,8 @@ new_with_model (Account *root, gboolean show_root)
         FALSE, FALSE,
         create_children_cb, view->children_context,
         (GDestroyNotify) account_children_context_free);
-    view->selection = GTK_SELECTION_MODEL (gtk_single_selection_new (
-        g_object_ref (G_LIST_MODEL (view->rows))));
+    view->selection = selection_model_new (G_LIST_MODEL (view->rows),
+                                           view->selection_mode);
     view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (
         g_object_ref (view->selection)));
     gnc_column_view_bind_grid_line_preferences (view->column_view);
@@ -639,19 +693,38 @@ gnc_tree_view_account_set_selection_mode (GncTreeViewAccount *view,
     g_return_if_fail (GNC_IS_TREE_VIEW_ACCOUNT (view));
     if (mode == view->selection_mode)
         return;
-    selection = mode == GTK_SELECTION_MULTIPLE
-        ? GTK_SELECTION_MODEL (gtk_multi_selection_new (
-            g_object_ref (G_LIST_MODEL (view->rows))))
-        : GTK_SELECTION_MODEL (gtk_single_selection_new (
-            g_object_ref (G_LIST_MODEL (view->rows))));
-    g_signal_connect_object (selection, "selection-changed",
-                             G_CALLBACK (selection_changed), view, 0);
+    if (view->selection_mode == GTK_SELECTION_NONE)
+        g_hash_table_remove_all (view->selected);
+    if (view->selection_mode == GTK_SELECTION_BROWSE &&
+        mode != GTK_SELECTION_NONE &&
+        g_hash_table_size (view->selected) == 0)
+    {
+        Account *account = gnc_tree_view_account_get_selected_account (view);
+
+        if (account)
+            mark_selected (view, account, TRUE);
+    }
+    if (mode == GTK_SELECTION_NONE)
+        g_hash_table_remove_all (view->selected);
+    else if (mode != GTK_SELECTION_MULTIPLE)
+        retain_one_selected (view);
     old_selection = g_steal_pointer (&view->selection);
     if (old_selection)
         g_signal_handlers_disconnect_by_func (old_selection, selection_changed, view);
+    selection = selection_model_new (G_LIST_MODEL (view->rows), mode);
+    g_signal_connect_object (selection, "selection-changed",
+                             G_CALLBACK (selection_changed), view, 0);
     view->selection = selection;
     view->selection_mode = mode;
     gtk_column_view_set_model (view->column_view, selection);
+    if (mode == GTK_SELECTION_BROWSE &&
+        g_hash_table_size (view->selected) == 0)
+    {
+        Account *account = gnc_tree_view_account_get_selected_account (view);
+
+        if (account)
+            mark_selected (view, account, TRUE);
+    }
     g_clear_object (&old_selection);
     schedule_restore (view);
 }
@@ -874,6 +947,8 @@ gnc_tree_view_account_set_selected_account (GncTreeViewAccount *view, Account *a
 {
     g_return_if_fail (GNC_IS_TREE_VIEW_ACCOUNT (view));
     g_hash_table_remove_all (view->selected);
+    if (view->selection_mode == GTK_SELECTION_NONE)
+        return;
     if (account)
     {
         mark_selected (view, account, TRUE);
@@ -887,6 +962,8 @@ gnc_tree_view_account_set_selected_accounts (GncTreeViewAccount *view,
 {
     g_return_if_fail (GNC_IS_TREE_VIEW_ACCOUNT (view));
     g_hash_table_remove_all (view->selected);
+    if (view->selection_mode == GTK_SELECTION_NONE)
+        return;
     for (GList *node = accounts; node; node = node->next)
     {
         Account *account = GNC_ACCOUNT (node->data);
