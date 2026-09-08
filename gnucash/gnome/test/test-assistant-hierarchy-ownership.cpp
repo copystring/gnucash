@@ -27,26 +27,29 @@ object_finalized (gpointer data, GObject *object)
     (void)object;
 }
 
-static gboolean
-drain_main_context_until (gint64 deadline)
-{
-    constexpr guint max_iterations = 1000;
+using TestCondition = gboolean (*) (gpointer data);
 
-    for (guint iteration = 0; iteration < max_iterations; iteration++)
+static gboolean
+wait_for_condition (TestCondition condition, gpointer data)
+{
+    const gint64 deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+
+    while (g_get_monotonic_time () < deadline)
     {
-        if (!g_main_context_pending (NULL))
+        if (condition (data))
             return TRUE;
-        if (g_get_monotonic_time () >= deadline)
-            return FALSE;
-        g_main_context_iteration (NULL, FALSE);
+        if (g_main_context_pending (NULL))
+            g_main_context_iteration (NULL, FALSE);
+        else
+            g_usleep (1000);
     }
-    return !g_main_context_pending (NULL);
+    return condition (data);
 }
 
 static gboolean
-drain_main_context (void)
+boolean_is_true (gpointer data)
 {
-    return drain_main_context_until (g_get_monotonic_time () + G_TIME_SPAN_SECOND);
+    return *static_cast<gboolean*>(data);
 }
 
 static GtkWidget *
@@ -86,24 +89,33 @@ find_bound_expander (GtkWidget *widget, GtkTreeListRow *tree_row)
     return nullptr;
 }
 
+struct BoundExpanderData
+{
+    GtkColumnView *view;
+    GtkTreeListRow *tree_row;
+};
+
+static gboolean
+bound_expander_is_present (gpointer data)
+{
+    auto values = static_cast<BoundExpanderData*>(data);
+
+    return find_bound_expander (GTK_WIDGET (values->view), values->tree_row) != nullptr;
+}
+
+static gboolean
+bound_expander_is_absent (gpointer data)
+{
+    return !bound_expander_is_present (data);
+}
+
 static gboolean
 wait_for_bound_expander (GtkColumnView *view, GtkTreeListRow *tree_row)
 {
-    const gint64 deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+    BoundExpanderData data { view, tree_row };
 
     gtk_widget_queue_draw (GTK_WIDGET (view));
-    while (g_get_monotonic_time () < deadline)
-    {
-        if (!drain_main_context_until (deadline))
-            return FALSE;
-        if (find_bound_expander (GTK_WIDGET (view), tree_row))
-            return TRUE;
-        const gint64 remaining = deadline - g_get_monotonic_time ();
-
-        if (remaining > 0)
-            g_usleep (static_cast<gulong>(MIN (remaining, 10 * 1000)));
-    }
-    return FALSE;
+    return wait_for_condition (bound_expander_is_present, &data);
 }
 
 static void
@@ -149,11 +161,9 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
         {
             g_signal_emit_by_name (select_all_button, "clicked");
             categories_selected = TRUE;
-            g_assert_true (drain_main_context ());
         }
         g_assert_true (gtk_widget_get_sensitive (GTK_WIDGET (next_button)));
         g_signal_emit_by_name (next_button, "clicked");
-        g_assert_true (drain_main_context ());
     }
 
     selection = gtk_column_view_get_model (final_view);
@@ -170,8 +180,11 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
 
     for (guint recycle = 0; recycle < 4; recycle++)
     {
+        BoundExpanderData expander_data { final_view, tree_row };
+
         gtk_column_view_set_model (final_view, nullptr);
-        g_assert_true (drain_main_context ());
+        g_assert_null (gtk_column_view_get_model (final_view));
+        g_assert_true (wait_for_condition (bound_expander_is_absent, &expander_data));
         gtk_column_view_set_model (final_view, selection);
         g_assert_true (wait_for_bound_expander (final_view, tree_row));
     }
@@ -180,8 +193,7 @@ test_hierarchy_account_row_recycled_bind_is_released (void)
     g_object_unref (selection);
     gtk_window_destroy (window);
     g_object_unref (window);
-    g_assert_true (drain_main_context ());
-    g_assert_true (row_finalized);
+    g_assert_true (wait_for_condition (boolean_is_true, &row_finalized));
 
     gnc_clear_current_session ();
 }
