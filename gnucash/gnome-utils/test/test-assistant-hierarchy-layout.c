@@ -265,6 +265,7 @@ test_hierarchy_paned_survives_page_change (void)
     int small_allocation;
     int target_position;
     int position_before;
+    int initial_width;
 
     g_assert_nonnull (hierarchy_page);
     other_page = find_other_page (assistant.stack, hierarchy_page);
@@ -272,7 +273,9 @@ test_hierarchy_paned_survives_page_change (void)
     gtk_widget_measure (GTK_WIDGET (assistant.paned), GTK_ORIENTATION_HORIZONTAL,
                         -1, &minimum, &natural, NULL, NULL);
     g_assert_cmpint (natural, >=, minimum);
-    small_allocation = present_hierarchy_page (&assistant, 400, 550);
+    /* Leave room to move the divider even when translated text is wider. */
+    initial_width = MAX (natural + 200, 800);
+    small_allocation = present_hierarchy_page (&assistant, initial_width, 550);
     assert_paned_position_is_valid (assistant.paned);
 
     get_paned_position_bounds (assistant.paned, &min_position, &max_position);
@@ -284,7 +287,7 @@ test_hierarchy_paned_survives_page_change (void)
     g_assert_cmpint (gtk_paned_get_position (assistant.paned), ==, target_position);
     assert_paned_position_is_valid (assistant.paned);
 
-    gtk_window_set_default_size (assistant.window, MAX (natural + 200, 800), 550);
+    gtk_window_set_default_size (assistant.window, initial_width + 300, 550);
     gtk_window_present (assistant.window);
     g_assert_true (wait_for_paned_width (&assistant, small_allocation + 1));
     assert_paned_position_is_valid (assistant.paned);
