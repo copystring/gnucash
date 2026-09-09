@@ -507,6 +507,20 @@ GdkPixbuf* gen_probability_pixbuf(gint score_original, GNCImportSettings *settin
     return retval;
 }
 
+GtkPicture*
+gnc_import_match_score_picture_new (void)
+{
+    auto picture = GTK_PICTURE (gtk_picture_new ());
+
+    /* GtkImage fits a paintable into its icon-size square. GtkPicture retains
+     * the intrinsic geometry of the wide score bar instead. */
+    gtk_picture_set_can_shrink (picture, FALSE);
+    gtk_picture_set_content_fit (picture, GTK_CONTENT_FIT_SCALE_DOWN);
+    gtk_widget_set_halign (GTK_WIDGET (picture), GTK_ALIGN_START);
+    gtk_widget_set_valign (GTK_WIDGET (picture), GTK_ALIGN_CENTER);
+    return picture;
+}
+
 /*************************************************************************
  * MatchMap related functions (storing and retrieving)
  */

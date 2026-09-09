@@ -29,6 +29,7 @@
 #define IMPORT_BACKEND_H
 
 #include <gio/gio.h>
+#include <gtk/gtk.h>
 #include "Transaction.h"
 #include "import-settings.h"
 #include "gnc-session.h"
@@ -154,6 +155,11 @@ gnc_import_process_trans_item (Account *base_acc,
 GdkPixbuf* gen_probability_pixbuf (gint score,
                                    GNCImportSettings *settings,
                                    GtkWidget * widget);
+
+/** Creates a score-picture renderer that retains a probability pixbuf's
+ * intrinsic dimensions, left aligned and vertically centred without scaling
+ * the score bars to the cell's available space. */
+GtkPicture* gnc_import_match_score_picture_new (void);
 
 /*@}*/
 
@@ -309,5 +315,4 @@ gnc_import_MatchInfo_get_probability (const GNCImportMatchInfo * info);
 
 #endif
 /** @} */
-
 

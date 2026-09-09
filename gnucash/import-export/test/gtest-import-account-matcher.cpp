@@ -257,6 +257,17 @@ first_descendant_of_type (GtkWidget *widget, GType type)
     return nullptr;
 }
 
+static void
+collect_descendants_of_type (GtkWidget *widget, GType type,
+                             std::vector<GtkWidget*> &widgets)
+{
+    if (G_TYPE_CHECK_INSTANCE_TYPE (widget, type))
+        widgets.push_back (widget);
+    for (auto child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        collect_descendants_of_type (child, type, widgets);
+}
+
 static GtkWidget *
 first_visible_action_cell (GtkWidget *view)
 {
@@ -1104,6 +1115,98 @@ TEST_F(ImportMatcherTest, match_picker_does_not_select_first_visible_match)
     g_object_unref (selection);
     EXPECT_TRUE (weak_ref_was_finalized (&downloaded_selection_ref));
     EXPECT_TRUE (weak_ref_was_finalized (&selection_ref));
+    gnc_import_PendingMatches_delete (pending_matches);
+    gnc_import_TransInfo_delete (trans_info);
+}
+
+TEST_F(ImportMatcherTest, match_picker_score_picture_keeps_native_score_geometry)
+{
+    auto imported = create_test_transaction (m_book, m_bank, m_currency,
+                                              100, NREC, TRUE);
+    auto high_score = create_test_transaction (m_book, m_bank, m_currency,
+                                               100, NREC, FALSE);
+    auto low_score = create_test_transaction (m_book, m_bank, m_currency,
+                                              100, NREC, FALSE);
+    xaccTransBeginEdit (low_score.transaction);
+    xaccTransSetDescription (low_score.transaction, "different candidate");
+    xaccTransCommitEdit (low_score.transaction);
+    auto trans_info = gnc_import_TransInfo_new (imported.transaction, m_bank);
+    split_find_match (trans_info, high_score.split, 0, 4, 14, 0.0);
+    split_find_match (trans_info, low_score.split, 0, 4, 14, 0.0);
+    auto high_match = find_match_for_split (trans_info, high_score.split);
+    auto low_match = find_match_for_split (trans_info, low_score.split);
+    ASSERT_NE (high_match, nullptr);
+    ASSERT_NE (low_match, nullptr);
+    auto pending_matches = gnc_import_PendingMatches_new ();
+    MatchPickerResult result;
+
+    gnc_import_match_picker_run (nullptr, trans_info, pending_matches,
+                                 match_picker_done, &result);
+
+    auto window = find_buildable_window ("match_picker_dialog");
+    ASSERT_NE (window, nullptr);
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "matched_view"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    auto columns = gtk_column_view_get_columns (view);
+    auto confidence_column = GTK_COLUMN_VIEW_COLUMN (
+        g_list_model_get_item (columns, 0));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW_COLUMN (confidence_column));
+
+    /* Give the cell spare horizontal room. The picture must keep the score
+     * generator's natural dimensions instead of scaling into the column. */
+    gtk_column_view_column_set_fixed_width (confidence_column, 320);
+    gtk_window_present (window);
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+
+    std::vector<GtkWidget*> pictures;
+    collect_descendants_of_type (GTK_WIDGET (view), GTK_TYPE_PICTURE, pictures);
+    pictures.erase (std::remove_if (pictures.begin (), pictures.end (),
+                                    [] (GtkWidget *picture) {
+                                        return !gtk_widget_get_mapped (picture);
+                                    }), pictures.end ());
+    ASSERT_EQ (pictures.size (), 2u);
+
+    std::vector<int> expected_widths {
+        7 * gnc_import_MatchInfo_get_probability (high_match) + 1,
+        7 * gnc_import_MatchInfo_get_probability (low_match) + 1};
+    std::sort (expected_widths.begin (), expected_widths.end ());
+    std::vector<int> actual_widths;
+    for (auto picture_widget : pictures)
+    {
+        auto picture = GTK_PICTURE (picture_widget);
+        auto paintable = gtk_picture_get_paintable (picture);
+        ASSERT_NE (paintable, nullptr);
+        EXPECT_FALSE (gtk_picture_get_can_shrink (picture));
+        EXPECT_EQ (gtk_picture_get_content_fit (picture),
+                   GTK_CONTENT_FIT_SCALE_DOWN);
+        EXPECT_EQ (gtk_widget_get_halign (picture_widget), GTK_ALIGN_START);
+        EXPECT_EQ (gtk_widget_get_valign (picture_widget), GTK_ALIGN_CENTER);
+        const auto width = gdk_paintable_get_intrinsic_width (paintable);
+        const auto height = gdk_paintable_get_intrinsic_height (paintable);
+        EXPECT_EQ (height, 15);
+        EXPECT_EQ (gtk_widget_get_width (picture_widget), width);
+        EXPECT_EQ (gtk_widget_get_height (picture_widget), height);
+        actual_widths.push_back (width);
+    }
+    std::sort (actual_widths.begin (), actual_widths.end ());
+    EXPECT_EQ (actual_widths, expected_widths);
+
+    if (auto snapshot_path = g_getenv ("GNC_TEST_IMPORT_MATCH_PICKER_SNAPSHOT"))
+    {
+        ASSERT_TRUE (g_path_is_absolute (snapshot_path));
+        ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+        EXPECT_TRUE (save_matcher_snapshot (GTK_WIDGET (window), snapshot_path));
+    }
+
+    auto ok_button = gtk_window_get_default_widget (window);
+    ASSERT_TRUE (GTK_IS_BUTTON (ok_button));
+    g_signal_emit_by_name (ok_button, "clicked");
+    EXPECT_EQ (result.calls, 1u);
+    g_object_unref (confidence_column);
+    g_object_unref (window);
     gnc_import_PendingMatches_delete (pending_matches);
     gnc_import_TransInfo_delete (trans_info);
 }

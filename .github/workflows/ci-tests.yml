@@ -37,12 +37,20 @@ jobs:
         env:
           CTEST_OUTPUT_ON_FAILURE: On
           GNC_TEST_IMPORT_MATCHER_SNAPSHOT: ${{ github.workspace }}/build/import-matcher-preview.png
+          GNC_TEST_IMPORT_MATCH_PICKER_SNAPSHOT: ${{ github.workspace }}/build/import-match-picker-preview.png
       - name: Upload import matcher preview
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: import-matcher-preview
           path: ${{ github.workspace }}/build/import-matcher-preview.png
+          if-no-files-found: error
+      - name: Upload import match picker preview
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: import-match-picker-preview
+          path: ${{ github.workspace }}/build/import-match-picker-preview.png
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: failure()

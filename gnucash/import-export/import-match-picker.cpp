@@ -236,12 +236,12 @@ static void
 confidence_item_setup (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
     auto box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
-    auto image = gtk_image_new ();
+    auto picture = gnc_import_match_score_picture_new ();
     auto label = gtk_label_new (nullptr);
     (void)factory;
     (void)user_data;
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
-    gtk_box_append (GTK_BOX (box), image);
+    gtk_box_append (GTK_BOX (box), GTK_WIDGET (picture));
     gtk_box_append (GTK_BOX (box), label);
     gtk_list_item_set_child (item, box);
 }
@@ -251,25 +251,25 @@ confidence_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer u
 {
     auto row = match_row_get (G_OBJECT (gtk_list_item_get_item (item)));
     auto box = gtk_list_item_get_child (item);
-    auto image = GTK_IMAGE (gtk_widget_get_first_child (box));
-    auto label = GTK_LABEL (gtk_widget_get_next_sibling (GTK_WIDGET (image)));
+    auto picture = GTK_PICTURE (gtk_widget_get_first_child (box));
+    auto label = GTK_LABEL (gtk_widget_get_next_sibling (GTK_WIDGET (picture)));
     (void)factory;
     (void)user_data;
 
     gtk_label_set_text (label, row->confidence.c_str ());
     if (!row->confidence_pixbuf)
     {
-        gtk_image_clear (image);
+        gtk_picture_set_paintable (picture, nullptr);
         return;
     }
 
     auto texture = gnc_texture_new_from_pixbuf (row->confidence_pixbuf);
     if (!texture)
     {
-        gtk_image_clear (image);
+        gtk_picture_set_paintable (picture, nullptr);
         return;
     }
-    gtk_image_set_from_paintable (image, GDK_PAINTABLE (texture));
+    gtk_picture_set_paintable (picture, GDK_PAINTABLE (texture));
     g_object_unref (texture);
 }
 

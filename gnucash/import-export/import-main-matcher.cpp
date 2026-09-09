@@ -1870,19 +1870,18 @@ static void
 matcher_info_setup_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
     auto box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    auto image = gtk_image_new ();
+    auto picture = gnc_import_match_score_picture_new ();
     auto label = gtk_label_new (nullptr);
     gtk_widget_add_css_class (box, "gnc-import-matcher-cell");
     gtk_widget_add_css_class (box, "gnc-import-matcher-info-cell");
     gtk_widget_set_hexpand (box, TRUE);
     gtk_widget_set_valign (box, GTK_ALIGN_FILL);
-    gtk_widget_set_valign (image, GTK_ALIGN_CENTER);
     gtk_widget_set_hexpand (label, TRUE);
     gtk_widget_set_valign (label, GTK_ALIGN_CENTER);
     gtk_label_set_xalign (GTK_LABEL (label), 0.0);
     gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars (GTK_LABEL (label), 36);
-    gtk_box_append (GTK_BOX (box), image);
+    gtk_box_append (GTK_BOX (box), GTK_WIDGET (picture));
     gtk_box_append (GTK_BOX (box), label);
     gtk_list_item_set_child (item, box);
     (void)factory;
@@ -1896,9 +1895,9 @@ matcher_info_bind_cb (GtkListItemFactory *factory, GtkListItem *item, gpointer u
     auto object = G_OBJECT (gtk_tree_list_row_get_item (tree_row));
     auto row = matcher_row_get (object);
     auto box = GTK_BOX (gtk_list_item_get_child (item));
-    auto image = GTK_IMAGE (gtk_widget_get_first_child (GTK_WIDGET (box)));
-    auto label = GTK_LABEL (gtk_widget_get_next_sibling (GTK_WIDGET (image)));
-    gtk_image_set_from_paintable (image, row->confidence ? GDK_PAINTABLE (row->confidence) : nullptr);
+    auto picture = GTK_PICTURE (gtk_widget_get_first_child (GTK_WIDGET (box)));
+    auto label = GTK_LABEL (gtk_widget_get_next_sibling (GTK_WIDGET (picture)));
+    gtk_picture_set_paintable (picture, row->confidence ? GDK_PAINTABLE (row->confidence) : nullptr);
     gtk_label_set_text (label, row->action_info);
     gtk_widget_set_tooltip_text (GTK_WIDGET (label), row->action_info);
     matcher_apply_row_style (GTK_WIDGET (box), row);
