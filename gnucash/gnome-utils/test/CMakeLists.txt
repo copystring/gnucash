@@ -251,6 +251,13 @@ gnc_add_test (test-assistant-hierarchy-layout
   "${test_assistant_hierarchy_layout_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_pixmap_option_SOURCES
+  test-pixmap-option.cpp
+)
+
+gnc_add_test (test-pixmap-option "${test_pixmap_option_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+
 
 set_dist_list(test_gnome_utils_DIST
   CMakeLists.txt
@@ -281,4 +288,5 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_scrub_job_runner_SOURCES}
   ${test_book_options_dialog_lifecycle_SOURCES}
   ${test_assistant_hierarchy_layout_SOURCES}
+  ${test_pixmap_option_SOURCES}
 )

@@ -24,6 +24,7 @@
 #include <gnc-option-impl.hpp>
 #include "gnc-option-gtk-ui.hpp"
 #include <config.h>  // for scanf format string
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -1875,11 +1876,11 @@ static constexpr const char* s_pixmap_path_data{"gnc-pixmap-path"};
 static constexpr const char* s_pixmap_entry_data{"gnc-pixmap-entry"};
 static constexpr const char* s_pixmap_picture_data{"gnc-pixmap-image"};
 static constexpr const char* s_pixmap_option_data{"gnc-pixmap-option"};
+static constexpr int s_pixmap_preview_size{128};
 
 struct PixmapOpenContext
 {
     GWeakRef root;
-    GncOption *option;
     GtkFileDialog *dialog;
 };
 
@@ -1889,6 +1890,21 @@ pixmap_open_context_free (PixmapOpenContext *context)
     g_clear_object (&context->dialog);
     g_weak_ref_clear (&context->root);
     g_free (context);
+}
+
+static GncOption *
+pixmap_get_option (GtkWidget *root)
+{
+    return root ? static_cast<GncOption *> (
+        g_object_get_data (G_OBJECT (root), s_pixmap_option_data)) : nullptr;
+}
+
+static gboolean
+pixmap_dialog_error_is_cancelled (const GError *error)
+{
+    return error && (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
+                     g_error_matches (error, GTK_DIALOG_ERROR,
+                                      GTK_DIALOG_ERROR_DISMISSED));
 }
 
 static void
@@ -1902,15 +1918,29 @@ pixmap_set_path (GtkWidget *root, const char *path)
     g_object_set_data_full (G_OBJECT (root), s_pixmap_path_data,
                             g_strdup (path), g_free);
     gtk_editable_set_text (GTK_EDITABLE (entry), path ? path : "");
-    if (path && *path)
-    {
-        auto file = g_file_new_for_path (path);
+    gtk_picture_set_paintable (picture, nullptr);
 
-        gtk_picture_set_file (picture, file);
-        g_object_unref (file);
+    if (!path || !*path)
+        return;
+
+    GError *error = nullptr;
+    auto pixbuf = gdk_pixbuf_new_from_file_at_size (path,
+                                                  s_pixmap_preview_size,
+                                                  s_pixmap_preview_size,
+                                                  &error);
+    if (!pixbuf)
+    {
+        PERR ("Unable to load image preview '%s': %s", path,
+              error ? error->message : "unknown error");
+        g_clear_error (&error);
+        return;
     }
-    else
-        gtk_picture_set_file (picture, nullptr);
+
+    auto texture = gnc_texture_new_from_pixbuf (pixbuf);
+    if (texture)
+        gtk_picture_set_paintable (picture, GDK_PAINTABLE (texture));
+    g_clear_object (&texture);
+    g_object_unref (pixbuf);
 }
 
 static void
@@ -1918,22 +1948,23 @@ pixmap_dialog_open_cb (GObject *source, GAsyncResult *result, gpointer user_data
 {
     auto context = static_cast<PixmapOpenContext *> (user_data);
     auto root = GTK_WIDGET (g_weak_ref_get (&context->root));
+    auto option = pixmap_get_option (root);
     GError *error = nullptr;
     auto file = gtk_file_dialog_open_finish (GTK_FILE_DIALOG (source), result, &error);
 
-    if (file && root)
+    if (file && root && option)
     {
         auto path = g_file_get_path (file);
         if (path)
         {
             pixmap_set_path (root, path);
-            gnc_option_changed_widget_cb (root, context->option);
+            gnc_option_changed_widget_cb (root, option);
             g_free (path);
         }
         else
             PERR ("Image selections must be local files.");
     }
-    else if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    else if (error && !pixmap_dialog_error_is_cancelled (error))
         PERR ("Unable to select an image file: %s", error->message);
 
     g_clear_error (&error);
@@ -1947,8 +1978,9 @@ static void
 pixmap_choose_clicked_cb (GtkButton *button, gpointer user_data)
 {
     auto root = GTK_WIDGET (user_data);
-    auto option = static_cast<GncOption *> (
-        g_object_get_data (G_OBJECT (root), s_pixmap_option_data));
+    auto option = pixmap_get_option (root);
+    if (!option)
+        return;
     auto dialog = gtk_file_dialog_new ();
     auto path = static_cast<const char *> (
         g_object_get_data (G_OBJECT (root), s_pixmap_path_data));
@@ -1963,7 +1995,6 @@ pixmap_choose_clicked_cb (GtkButton *button, gpointer user_data)
         g_object_unref (file);
     }
 
-    context->option = option;
     context->dialog = GTK_FILE_DIALOG (g_object_ref (dialog));
     g_weak_ref_init (&context->root, root);
     gtk_file_dialog_open (dialog, GTK_IS_WINDOW (window_root) ? GTK_WINDOW (window_root) : nullptr,
@@ -1975,8 +2006,9 @@ static void
 pixmap_clear_clicked_cb (GtkButton *button, gpointer user_data)
 {
     auto root = GTK_WIDGET (user_data);
-    auto option = static_cast<GncOption *> (
-        g_object_get_data (G_OBJECT (root), s_pixmap_option_data));
+    auto option = pixmap_get_option (root);
+    if (!option)
+        return;
 
     pixmap_set_path (root, nullptr);
     gnc_option_changed_widget_cb (root, option);
@@ -1987,6 +2019,15 @@ class GncGtkPixmapUIItem : public GncOptionGtkUIItem
 public:
     GncGtkPixmapUIItem(GtkWidget* widget) :
         GncOptionGtkUIItem{widget, GncOptionUIType::PIXMAP} {}
+    ~GncGtkPixmapUIItem() override
+    {
+        invalidate_root_option ();
+    }
+    void clear_ui_item() override
+    {
+        invalidate_root_option ();
+        GncOptionGtkUIItem::clear_ui_item ();
+    }
     void set_ui_item_from_option(GncOption& option) noexcept override
     {
         auto value = option.get_value<std::string> ();
@@ -1999,6 +2040,14 @@ public:
             g_object_get_data (G_OBJECT (get_widget ()), s_pixmap_path_data));
 
         option.set_value (std::string {path ? path : ""});
+    }
+private:
+    void invalidate_root_option ()
+    {
+        auto root = get_widget ();
+
+        if (root)
+            g_object_set_data (G_OBJECT (root), s_pixmap_option_data, nullptr);
     }
 };
 
@@ -2015,7 +2064,10 @@ create_option_widget<GncOptionUIType::PIXMAP> (GncOption& option,
     gtk_box_set_homogeneous (GTK_BOX (enclosing), FALSE);
     gtk_picture_set_can_shrink (picture, TRUE);
     gtk_picture_set_content_fit (picture, GTK_CONTENT_FIT_CONTAIN);
-    gtk_widget_set_size_request (GTK_WIDGET (picture), 128, 128);
+    gtk_widget_set_size_request (GTK_WIDGET (picture), s_pixmap_preview_size,
+                                 s_pixmap_preview_size);
+    gtk_widget_set_halign (GTK_WIDGET (picture), GTK_ALIGN_START);
+    gtk_widget_set_valign (GTK_WIDGET (picture), GTK_ALIGN_START);
     gtk_editable_set_editable (GTK_EDITABLE (entry), FALSE);
     gtk_widget_set_hexpand (entry, TRUE);
     gtk_widget_set_tooltip_text (choose, _("Select an image file."));
