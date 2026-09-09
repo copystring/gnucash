@@ -234,6 +234,15 @@ set (test_gnc_scrub_job_runner_SOURCES
 gnc_add_test (test-gnc-scrub-job-runner "${test_gnc_scrub_job_runner_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_book_options_dialog_lifecycle_SOURCES
+  test-book-options-dialog-lifecycle.cpp
+)
+
+gnc_add_test (test-book-options-dialog-lifecycle
+  "${test_book_options_dialog_lifecycle_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
+
 
 set_dist_list(test_gnome_utils_DIST
   CMakeLists.txt
@@ -262,4 +271,5 @@ set_dist_list(test_gnome_utils_DIST
   ${test_doclink_view_SOURCES}
   ${test_dialog_transfer_model_lifecycle_SOURCES}
   ${test_gnc_scrub_job_runner_SOURCES}
+  ${test_book_options_dialog_lifecycle_SOURCES}
 )

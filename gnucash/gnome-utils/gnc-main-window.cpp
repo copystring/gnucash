@@ -5312,7 +5312,7 @@ gnc_book_options_dialog_close_cb(GncOptionsDialog * optionwin,
     auto options{static_cast<GncOptionDB *>(user_data)};
 
     delete optionwin;
-    gnc_option_db_destroy(options);
+    delete options;
 }
 
 /** Calls gnc_book_option_num_field_source_change to initiate registered
@@ -5351,13 +5351,6 @@ show_handler (const char *class_name, gint component_id,
 GtkWidget *
 gnc_book_options_dialog_cb (gboolean modal, gchar *title, GtkWindow* parent)
 {
-    auto book = gnc_get_current_book ();
-
-    auto options = gnc_option_db_new();
-    gnc_option_db_book_options(options);
-    qof_book_load_options (book, gnc_option_db_load, options);
-    gnc_option_db_clean (options);
-
     /* Only allow one Book Options dialog if called from file->properties
        menu */
     if (gnc_forall_gui_components(DIALOG_BOOK_OPTIONS_CM_CLASS,
@@ -5365,6 +5358,13 @@ gnc_book_options_dialog_cb (gboolean modal, gchar *title, GtkWindow* parent)
     {
         return nullptr;
     }
+
+    auto book = gnc_get_current_book ();
+    auto options = gnc_option_db_new();
+    gnc_option_db_book_options(options);
+    qof_book_load_options (book, gnc_option_db_load, options);
+    gnc_option_db_clean (options);
+
     auto optionwin = new GncOptionsDialog (modal,
                                            (title ? title : _( "Book Options")),
                                            DIALOG_BOOK_OPTIONS_CM_CLASS, parent);
