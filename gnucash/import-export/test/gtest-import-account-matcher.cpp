@@ -211,6 +211,66 @@ find_buildable_window (const gchar *buildable_id)
     return nullptr;
 }
 
+static guint
+count_buildable_windows (const gchar *buildable_id)
+{
+    auto windows = gtk_window_get_toplevels ();
+    guint count = 0;
+
+    for (guint position = 0;
+         position < g_list_model_get_n_items (windows); ++position)
+    {
+        auto window = GTK_WINDOW (g_list_model_get_item (windows, position));
+        if (g_strcmp0 (gtk_buildable_get_buildable_id (GTK_BUILDABLE (window)),
+                       buildable_id) == 0)
+            ++count;
+        g_object_unref (window);
+    }
+    return count;
+}
+
+static GtkWidget *
+find_button_with_label (GtkWidget *widget, const char *label)
+{
+    if (GTK_IS_BUTTON (widget) &&
+        g_strcmp0 (gtk_button_get_label (GTK_BUTTON (widget)), label) == 0)
+        return widget;
+    for (auto child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+    {
+        if (auto result = find_button_with_label (child, label))
+            return result;
+    }
+    return nullptr;
+}
+
+static gboolean
+open_matcher_context_menu (GtkColumnView *view)
+{
+    auto model = gtk_column_view_get_model (view);
+    if (!GTK_IS_SELECTION_MODEL (model))
+        return FALSE;
+    gtk_selection_model_select_item (GTK_SELECTION_MODEL (model), 0, TRUE);
+    auto controllers = gtk_widget_observe_controllers (GTK_WIDGET (view));
+    for (guint position = 0;
+         position < g_list_model_get_n_items (controllers); ++position)
+    {
+        auto controller = G_OBJECT (g_list_model_get_item (controllers, position));
+        if (GTK_IS_EVENT_CONTROLLER_KEY (controller))
+        {
+            gboolean handled = FALSE;
+            g_signal_emit_by_name (controller, "key-pressed", GDK_KEY_F10,
+                                   0u, GDK_SHIFT_MASK, &handled);
+            g_object_unref (controller);
+            g_object_unref (controllers);
+            return handled;
+        }
+        g_object_unref (controller);
+    }
+    g_object_unref (controllers);
+    return FALSE;
+}
+
 static void
 collect_widgets_with_class (GtkWidget *widget, const char *css_class,
                             std::vector<GtkWidget*> &widgets)
@@ -839,6 +899,201 @@ TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants
     }
 }
 
+TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_account_picker_completion)
+{
+    auto window = GTK_WINDOW (gtk_window_new ());
+    g_object_ref (window);
+    auto page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child (window, page);
+    auto matcher = gnc_gen_trans_assist_new (GTK_WIDGET (window), page,
+                                             "Embedded matcher", FALSE, 42);
+    ASSERT_NE (matcher, nullptr);
+    gnc_gen_trans_list_add_trans (matcher, create_import_transaction (
+        m_book, m_bank, m_expenses, m_currency, 700,
+        "unbalanced account-picker lifetime", "", FALSE));
+    gtk_window_present (window);
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "scrolledwindow25"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    GWeakRef content_ref;
+    g_weak_ref_init (&content_ref, G_OBJECT (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+
+    /* Row activation is the product path for assigning an account to an
+     * unbalanced imported transaction. It opens the asynchronous picker. */
+    g_signal_emit_by_name (view, "activate", 0u);
+    auto picker = find_buildable_window ("account_picker_dialog");
+    ASSERT_NE (picker, nullptr);
+    auto picker_scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (picker), "account_tree_sw"));
+    auto accept = find_buildable_widget (GTK_WIDGET (picker), "okbutton");
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (picker_scroller));
+    ASSERT_TRUE (GTK_IS_BUTTON (accept));
+    auto picker_view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (picker_scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (picker_view));
+    auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (picker_view));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+    auto picker_model = gtk_single_selection_get_model (selection);
+    guint bank_position = GTK_INVALID_LIST_POSITION;
+    for (guint position = 0;
+         position < g_list_model_get_n_items (picker_model); ++position)
+    {
+        auto row = GTK_STRING_OBJECT (g_list_model_get_item (picker_model, position));
+        if (g_strcmp0 (gtk_string_object_get_string (row), "Assets:Bank") == 0)
+            bank_position = position;
+        g_object_unref (row);
+        if (bank_position != GTK_INVALID_LIST_POSITION)
+            break;
+    }
+    ASSERT_NE (bank_position, GTK_INVALID_LIST_POSITION);
+    gtk_single_selection_set_selected (selection, bank_position);
+
+    /* The parent assistant remains alive, so a window WeakRef alone would not
+     * protect the callback. The real picker completion must become a no-op. */
+    gnc_gen_trans_list_delete (matcher);
+    EXPECT_TRUE (GTK_IS_WINDOW (window));
+    EXPECT_TRUE (weak_ref_was_finalized (&content_ref));
+    gtk_window_set_default_size (window, 640, 420);
+    EXPECT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+    g_signal_emit_by_name (accept, "clicked");
+    g_object_unref (picker);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+}
+
+TEST_F(ImportMatcherTest, embedded_matcher_cancels_replaced_and_torn_down_match_picker)
+{
+    auto existing = create_test_transaction (m_book, m_bank, m_currency,
+                                             1, NREC, FALSE);
+    auto window = GTK_WINDOW (gtk_window_new ());
+    g_object_ref (window);
+    auto page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child (window, page);
+    auto matcher = gnc_gen_trans_assist_new (GTK_WIDGET (window), page,
+                                             "Embedded matcher", FALSE, 42);
+    ASSERT_NE (matcher, nullptr);
+    gnc_gen_trans_list_add_trans (matcher, create_import_transaction (
+        m_book, m_bank, m_expenses, m_currency, 1,
+        "matching picker lifetime", "", TRUE));
+    gnc_gen_trans_list_show_all (matcher);
+    gtk_window_present (window);
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "scrolledwindow25"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    GWeakRef content_ref;
+    g_weak_ref_init (&content_ref, G_OBJECT (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+
+    /* A matched row activates the product Match-Picker path. Opening it twice
+     * must consume the first borrowed-data picker before replacing it. */
+    g_signal_emit_by_name (view, "activate", 0u);
+    ASSERT_EQ (count_buildable_windows ("match_picker_dialog"), 1u);
+    g_signal_emit_by_name (view, "activate", 0u);
+    ASSERT_EQ (count_buildable_windows ("match_picker_dialog"), 1u);
+
+    gnc_gen_trans_list_delete (matcher);
+    EXPECT_EQ (count_buildable_windows ("match_picker_dialog"), 0u);
+    EXPECT_TRUE (weak_ref_was_finalized (&content_ref));
+    gtk_window_set_default_size (window, 640, 420);
+    EXPECT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+    gtk_window_destroy (window);
+    g_object_unref (window);
+    (void)existing;
+}
+
+TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_edit_fields_accept)
+{
+    auto window = GTK_WINDOW (gtk_window_new ());
+    g_object_ref (window);
+    auto page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child (window, page);
+    auto matcher = gnc_gen_trans_assist_new (GTK_WIDGET (window), page,
+                                             "Embedded matcher", FALSE, 42);
+    ASSERT_NE (matcher, nullptr);
+    gnc_gen_trans_list_add_trans (matcher, create_import_transaction (
+        m_book, m_bank, m_expenses, m_currency, 702,
+        "late edit-fields lifetime", "memo", TRUE));
+    gnc_gen_trans_list_show_all (matcher);
+    gtk_window_present (window);
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "scrolledwindow25"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    ASSERT_TRUE (open_matcher_context_menu (view));
+    auto edit = find_button_with_label (GTK_WIDGET (view),
+                                        "_Edit description, notes, or memo");
+    ASSERT_TRUE (GTK_IS_BUTTON (edit));
+    g_signal_emit_by_name (edit, "clicked");
+    auto dialog = find_buildable_window ("transaction_edit_dialog");
+    ASSERT_NE (dialog, nullptr);
+    auto accept = find_buildable_widget (GTK_WIDGET (dialog), "button2");
+    ASSERT_TRUE (GTK_IS_BUTTON (accept));
+
+    gnc_gen_trans_list_delete (matcher);
+    EXPECT_TRUE (GTK_IS_WINDOW (window));
+    g_signal_emit_by_name (accept, "clicked");
+    g_object_unref (dialog);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+}
+
+TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_price_dialog_accept)
+{
+    auto euro = gnc_commodity_table_lookup (
+        gnc_commodity_table_get_table (m_book), GNC_COMMODITY_NS_CURRENCY,
+        "EUR");
+    ASSERT_NE (euro, nullptr);
+    xaccAccountBeginEdit (m_expenses);
+    xaccAccountSetCommodity (m_expenses, euro);
+    xaccAccountCommitEdit (m_expenses);
+
+    auto window = GTK_WINDOW (gtk_window_new ());
+    g_object_ref (window);
+    auto page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child (window, page);
+    auto matcher = gnc_gen_trans_assist_new (GTK_WIDGET (window), page,
+                                             "Embedded matcher", FALSE, 42);
+    ASSERT_NE (matcher, nullptr);
+    gnc_gen_trans_list_add_trans (matcher, create_import_transaction (
+        m_book, m_bank, m_expenses, m_currency, 703,
+        "late price-dialog lifetime", "", TRUE));
+    gnc_gen_trans_list_show_all (matcher);
+    gtk_window_present (window);
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "scrolledwindow25"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    ASSERT_TRUE (open_matcher_context_menu (view));
+    auto price = find_button_with_label (GTK_WIDGET (view),
+                                         "Assign e_xchange rate");
+    ASSERT_TRUE (GTK_IS_BUTTON (price));
+    ASSERT_TRUE (gtk_widget_get_sensitive (price));
+    g_signal_emit_by_name (price, "clicked");
+    auto dialog = find_buildable_window ("transfer_dialog");
+    ASSERT_NE (dialog, nullptr);
+    auto accept = find_buildable_widget (GTK_WIDGET (dialog), "ok_button");
+    ASSERT_TRUE (GTK_IS_BUTTON (accept));
+
+    gnc_gen_trans_list_delete (matcher);
+    EXPECT_TRUE (GTK_IS_WINDOW (window));
+    g_signal_emit_by_name (accept, "clicked");
+    g_object_unref (dialog);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+}
+
 TEST_F(ImportMatcherTest, test_simple_match)
 {
     auto found = gnc_import_select_account(nullptr, "Bank", FALSE, nullptr,
@@ -869,6 +1124,28 @@ TEST_F(ImportMatcherTest, test_async_unmatched_without_prompt)
                                     account_selected, &result);
     EXPECT_FALSE(result.accepted);
     EXPECT_EQ(nullptr, result.account);
+}
+
+TEST_F(ImportMatcherTest, match_picker_can_be_cancelled_before_borrowed_data_is_released)
+{
+    auto imported = create_test_transaction (m_book, m_bank, m_currency,
+                                             701, NREC, TRUE);
+    auto trans_info = gnc_import_TransInfo_new (imported.transaction, m_bank);
+    auto pending_matches = gnc_import_PendingMatches_new ();
+    MatchPickerResult result;
+
+    auto picker = gnc_import_match_picker_run (nullptr, trans_info,
+                                                pending_matches,
+                                                match_picker_done, &result);
+    ASSERT_NE (picker, nullptr);
+    auto window = find_buildable_window ("match_picker_dialog");
+    ASSERT_NE (window, nullptr);
+
+    gnc_import_match_picker_cancel (picker);
+    EXPECT_EQ (result.calls, 1u);
+    g_object_unref (window);
+    gnc_import_PendingMatches_delete (pending_matches);
+    gnc_import_TransInfo_delete (trans_info);
 }
 
 TEST_F(ImportMatcherTest, account_picker_without_default_stays_unselected)

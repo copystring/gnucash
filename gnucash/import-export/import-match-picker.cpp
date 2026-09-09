@@ -583,12 +583,12 @@ init_match_picker_gui (GtkWidget *parent, GNCImportMatchPicker *matcher)
     g_object_unref (builder);
 }
 
-void
+GNCImportMatchPicker *
 gnc_import_match_picker_run (GtkWidget *parent, GNCImportTransInfo *transaction_info,
                              GNCImportPendingMatches *pending_matches,
                              GNCImportMatchPickerDoneCB done_cb, gpointer user_data)
 {
-    g_return_if_fail (transaction_info);
+    g_return_val_if_fail (transaction_info, nullptr);
     auto matcher = g_new0 (GNCImportMatchPicker, 1);
     matcher->pending_matches = pending_matches;
     matcher->transaction_info = transaction_info;
@@ -599,6 +599,13 @@ gnc_import_match_picker_run (GtkWidget *parent, GNCImportTransInfo *transaction_
     init_match_picker_gui (parent, matcher);
     downloaded_transaction_append (matcher, transaction_info);
     gtk_widget_set_visible (matcher->transaction_matcher, TRUE);
+    return matcher;
+}
+
+void
+gnc_import_match_picker_cancel (GNCImportMatchPicker *matcher)
+{
+    match_picker_finish (matcher, GTK_RESPONSE_CANCEL);
 }
 
 /** @} */
