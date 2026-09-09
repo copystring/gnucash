@@ -77,6 +77,7 @@
 #include "gnc-window.h"
 #include "gnc-prefs.h"
 #include "gnc-optiondb.h"
+#include "gnc-optiondb-impl.hpp"
 #include "gnc-autosave.h"
 #include "print-session.h"
 #ifdef HAVE_SYS_STAT_H
