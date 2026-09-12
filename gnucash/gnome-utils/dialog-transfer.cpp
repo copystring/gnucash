@@ -128,6 +128,14 @@ struct _xferDialog
 
     GtkWidget *fetch_button;
 
+    /* Widgets own these controllers. Keep borrowed pointers so their
+     * callbacks can be quiesced before a retained dialog disposes them after
+     * this structure has been released. */
+    GtkEventController *amount_focus_controller;
+    GtkEventController *price_focus_controller;
+    GtkEventController *to_amount_focus_controller;
+    GtkEventController *description_key_controller;
+
     QofBook *book;
     GNCPriceDB *pricedb;
 
@@ -209,6 +217,36 @@ static Account *gnc_transfer_dialog_get_selected_account (XferDialog *dialog,
 static void gnc_transfer_dialog_set_selected_account (XferDialog *dialog,
                                                       Account *account,
                                                       XferDirection direction);
+
+static void
+gnc_xfer_dialog_disconnect_widget_callbacks (GtkWidget *widget,
+                                             XferDialog *xferData)
+{
+    if (!widget)
+        return;
+    g_signal_handlers_disconnect_by_data (widget, xferData);
+    for (auto child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        gnc_xfer_dialog_disconnect_widget_callbacks (child, xferData);
+}
+
+static void
+gnc_xfer_dialog_quiesce_callbacks (XferDialog *xferData)
+{
+    if (!xferData)
+        return;
+
+    /* Builder callbacks are connected to widgets. The focus and key
+     * controllers below are separate GObjects and must be disconnected
+     * explicitly before window disposal can emit their late signals. */
+    gnc_xfer_dialog_disconnect_widget_callbacks (xferData->dialog, xferData);
+    for (auto controller : { xferData->amount_focus_controller,
+                             xferData->price_focus_controller,
+                             xferData->to_amount_focus_controller,
+                             xferData->description_key_controller })
+        if (controller)
+            g_signal_handlers_disconnect_by_data (controller, xferData);
+}
 
 extern "C"  {
 void gnc_xfer_description_insert_cb(GtkEditable *editable,
@@ -802,6 +840,7 @@ gnc_xfer_dialog_fill_tree_view (XferDialog *xferData,
     auto view = GTK_COLUMN_VIEW (gtk_column_view_new (nullptr));
     auto column = gtk_column_view_column_new (_("Account"), GTK_LIST_ITEM_FACTORY (factory));
     gtk_column_view_append_column (view, column);
+    g_object_unref (column);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroll_win), GTK_WIDGET (view));
     gtk_widget_set_tooltip_text (button, show_inc_exp_message);
     gtk_check_button_set_active (GTK_CHECK_BUTTON (button), FALSE);
@@ -1910,25 +1949,13 @@ gnc_xfer_dialog_close_cb(GtkWindow *window, gpointer data)
     auto finished_cb = xferData->finished_cb;
     auto finished_user_data = xferData->finished_user_data;
 
+    /* Detach widget and controller callbacks before the transaction callback
+     * and widget/model teardown can synchronously emit late signals. */
+    gnc_xfer_dialog_quiesce_callbacks (xferData);
+
     /* Notify transaction callback to unregister here */
     if (xferData->transaction_cb)
         xferData->transaction_cb(NULL, xferData->transaction_user_data);
-
-    auto entry = gnc_amount_edit_gtk_entry(GNC_AMOUNT_EDIT(xferData->amount_edit));
-    g_signal_handlers_disconnect_matched (G_OBJECT (entry), G_SIGNAL_MATCH_DATA,
-                                          0, 0, NULL, NULL, xferData);
-
-    entry = gnc_amount_edit_gtk_entry(GNC_AMOUNT_EDIT(xferData->price_edit));
-    g_signal_handlers_disconnect_matched (G_OBJECT (entry), G_SIGNAL_MATCH_DATA,
-                                          0, 0, NULL, NULL, xferData);
-
-    entry = gnc_amount_edit_gtk_entry(GNC_AMOUNT_EDIT(xferData->to_amount_edit));
-    g_signal_handlers_disconnect_matched (G_OBJECT (entry), G_SIGNAL_MATCH_DATA,
-                                          0, 0, NULL, NULL, xferData);
-
-    entry = xferData->description_entry;
-    g_signal_handlers_disconnect_matched (G_OBJECT (entry), G_SIGNAL_MATCH_DATA,
-                                          0, 0, NULL, NULL, xferData);
 
     DEBUG("unregister component");
     gnc_unregister_gui_component_by_data (DIALOG_TRANSFER_CM_CLASS, xferData);
@@ -2061,9 +2088,10 @@ gnc_xfer_dialog_create(GtkWidget *parent, XferDialog *xferData)
         entry = gnc_amount_edit_gtk_entry (GNC_AMOUNT_EDIT (amount));
         gtk_entry_set_activates_default (GTK_ENTRY(entry), TRUE);
 
-        GtkEventController *event_controller1 = gtk_event_controller_focus_new ();
-        gtk_widget_add_controller (GTK_WIDGET(entry), event_controller1);
-        g_signal_connect (G_OBJECT(event_controller1), "leave",
+        xferData->amount_focus_controller = gtk_event_controller_focus_new ();
+        gtk_widget_add_controller (GTK_WIDGET(entry),
+                                   xferData->amount_focus_controller);
+        g_signal_connect (G_OBJECT(xferData->amount_focus_controller), "leave",
                           G_CALLBACK(gnc_xfer_amount_update_cb), xferData);
 
         date = gnc_date_edit_new(time (NULL), FALSE, FALSE);
@@ -2085,10 +2113,11 @@ gnc_xfer_dialog_create(GtkWidget *parent, XferDialog *xferData)
         entry = GTK_WIDGET(gtk_builder_get_object (builder, "description_entry"));
         xferData->description_entry = entry;
 
-        GtkEventController *description_key_controller = gtk_event_controller_key_new ();
-        gtk_event_controller_set_propagation_phase (description_key_controller, GTK_PHASE_CAPTURE);
-        gtk_widget_add_controller (entry, description_key_controller);
-        g_signal_connect (description_key_controller, "key-pressed",
+        xferData->description_key_controller = gtk_event_controller_key_new ();
+        gtk_event_controller_set_propagation_phase (
+            xferData->description_key_controller, GTK_PHASE_CAPTURE);
+        gtk_widget_add_controller (entry, xferData->description_key_controller);
+        g_signal_connect (xferData->description_key_controller, "key-pressed",
                           G_CALLBACK (gnc_xfer_description_key_pressed_cb), xferData);
 
         entry = GTK_WIDGET(gtk_builder_get_object (builder, "notes_entry"));
@@ -2178,9 +2207,10 @@ gnc_xfer_dialog_create(GtkWidget *parent, XferDialog *xferData)
         xferData->price_edit = edit;
         entry = gnc_amount_edit_gtk_entry (GNC_AMOUNT_EDIT (edit));
 
-        GtkEventController *event_controller2 = gtk_event_controller_focus_new ();
-        gtk_widget_add_controller (GTK_WIDGET(entry), event_controller2);
-        g_signal_connect (G_OBJECT (event_controller2), "leave",
+        xferData->price_focus_controller = gtk_event_controller_focus_new ();
+        gtk_widget_add_controller (GTK_WIDGET(entry),
+                                   xferData->price_focus_controller);
+        g_signal_connect (G_OBJECT (xferData->price_focus_controller), "leave",
                           G_CALLBACK (gnc_xfer_price_update_cb), xferData);
         gtk_entry_set_activates_default(GTK_ENTRY (entry), TRUE);
 
@@ -2190,9 +2220,10 @@ gnc_xfer_dialog_create(GtkWidget *parent, XferDialog *xferData)
         xferData->to_amount_edit = edit;
         entry = gnc_amount_edit_gtk_entry (GNC_AMOUNT_EDIT (edit));
 
-        GtkEventController *event_controller3 = gtk_event_controller_focus_new ();
-        gtk_widget_add_controller (GTK_WIDGET(entry), event_controller3);
-        g_signal_connect (G_OBJECT (event_controller3), "leave",
+        xferData->to_amount_focus_controller = gtk_event_controller_focus_new ();
+        gtk_widget_add_controller (GTK_WIDGET(entry),
+                                   xferData->to_amount_focus_controller);
+        g_signal_connect (G_OBJECT (xferData->to_amount_focus_controller), "leave",
                           G_CALLBACK (gnc_xfer_to_amount_update_cb), xferData);
         gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
 

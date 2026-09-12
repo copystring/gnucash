@@ -1036,13 +1036,17 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_account_picker_completio
      * protect the callback. The real picker completion must become a no-op. */
     gnc_gen_trans_list_delete (matcher);
     EXPECT_TRUE (GTK_IS_WINDOW (window));
-    EXPECT_TRUE (weak_ref_was_finalized (&content_ref));
     gtk_window_set_default_size (window, 640, 420);
     EXPECT_TRUE (spin_until_frame (GTK_WIDGET (window)));
     g_signal_emit_by_name (accept, "clicked");
     EXPECT_TRUE (wait_until_buildable_window_closed ("account_picker_dialog"));
     g_object_unref (picker);
     EXPECT_TRUE (weak_ref_was_finalized (&picker_ref));
+    /* The asynchronous account-selection closure legitimately retains its
+     * selected rows while the picker is open. The matcher is already
+     * invalidated above; require its detached content to be released after
+     * the actual completion path has run. */
+    EXPECT_TRUE (wait_until_weak_ref_finalized (&content_ref));
     gtk_window_destroy (window);
     g_object_unref (window);
 }
@@ -1234,6 +1238,9 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_price_dialog_accept)
     EXPECT_TRUE (GTK_IS_WINDOW (window));
     g_signal_emit_by_name (accept, "clicked");
     EXPECT_TRUE (wait_until_buildable_window_closed ("transfer_dialog"));
+    /* Keep the toplevel reference until after the valid OK path. Its release
+     * disposes the price-entry focus controller, which must no longer retain
+     * a callback to the transfer dialog's freed state. */
     g_object_unref (dialog);
     EXPECT_TRUE (weak_ref_was_finalized (&dialog_ref));
     gtk_window_destroy (window);

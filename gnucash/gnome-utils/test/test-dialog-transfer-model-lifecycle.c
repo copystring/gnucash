@@ -80,11 +80,71 @@ hold_transfer_selections (GtkWindow *window, GtkSelectionModel **first,
     g_ptr_array_unref (views);
 }
 
+static void
+watch_transfer_columns (GtkWindow *window, gboolean finalized[2])
+{
+    GPtrArray *views = g_ptr_array_new ();
+
+    collect_account_views (GTK_WIDGET (window), views);
+    g_assert_cmpuint (views->len, ==, 2);
+    for (guint index = 0; index < views->len; index++)
+    {
+        GListModel *columns = gtk_column_view_get_columns (
+            GTK_COLUMN_VIEW (g_ptr_array_index (views, index)));
+        GObject *column;
+
+        g_assert_cmpuint (g_list_model_get_n_items (columns), ==, 1);
+        column = g_list_model_get_item (columns, 0);
+        g_object_weak_ref (column, object_finalized, &finalized[index]);
+        g_object_unref (column);
+    }
+    g_ptr_array_unref (views);
+}
+
 static gulong
 find_dialog_handler (GtkSelectionModel *selection, XferDialog *dialog)
 {
     return g_signal_handler_find (selection, G_SIGNAL_MATCH_DATA, 0, 0,
                                   NULL, NULL, dialog);
+}
+
+static void
+collect_dialog_controllers (GtkWidget *widget, XferDialog *dialog,
+                            GPtrArray *controllers)
+{
+    GListModel *observed = gtk_widget_observe_controllers (widget);
+
+    for (guint index = 0; index < g_list_model_get_n_items (observed); index++)
+    {
+        GtkEventController *controller = GTK_EVENT_CONTROLLER (
+            g_list_model_get_item (observed, index));
+
+        if (g_signal_handler_find (controller, G_SIGNAL_MATCH_DATA, 0, 0,
+                                   NULL, NULL, dialog))
+            g_ptr_array_add (controllers, controller);
+        else
+            g_object_unref (controller);
+    }
+    g_object_unref (observed);
+
+    for (GtkWidget *child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        collect_dialog_controllers (child, dialog, controllers);
+}
+
+static void
+emit_late_dialog_controller_signal (GtkEventController *controller)
+{
+    if (GTK_IS_EVENT_CONTROLLER_FOCUS (controller))
+        g_signal_emit_by_name (controller, "leave");
+    else
+    {
+        gboolean handled = FALSE;
+
+        g_assert_true (GTK_IS_EVENT_CONTROLLER_KEY (controller));
+        g_signal_emit_by_name (controller, "key-pressed", GDK_KEY_a, 0u,
+                               GDK_NO_MODIFIER_MASK, &handled);
+    }
 }
 
 static void
@@ -205,6 +265,83 @@ test_transfer_account_models_rebuild_and_close (void)
     gnc_clear_current_session ();
 }
 
+static void
+test_transfer_dialog_callbacks_quiesce_on_close (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    gnc_commodity_table *table;
+    gnc_commodity *commodity;
+    Account *root;
+    Account *account;
+    XferDialog *dialog;
+    GtkWindow *window;
+    GPtrArray *controllers;
+    guint focus_controllers = 0;
+    guint key_controllers = 0;
+    gboolean window_finalized = FALSE;
+    gboolean columns_finalized[2] = { FALSE, FALSE };
+
+    gnc_set_current_session (session);
+    gnc_account_create_root (book);
+    table = gnc_commodity_table_get_table (book);
+    commodity = gnc_commodity_table_lookup (table, GNC_COMMODITY_NS_CURRENCY,
+                                             "USD");
+    g_assert_nonnull (commodity);
+    root = gnc_book_get_root_account (book);
+    account = xaccMallocAccount (book);
+    xaccAccountBeginEdit (account);
+    xaccAccountSetName (account, "Transfer callback account");
+    xaccAccountSetType (account, ACCT_TYPE_BANK);
+    xaccAccountSetCommodity (account, commodity);
+    gnc_account_append_child (root, account);
+    xaccAccountCommitEdit (account);
+
+    dialog = gnc_xfer_dialog (NULL, account);
+    g_assert_nonnull (dialog);
+    window = find_transfer_window ();
+    g_assert_nonnull (window);
+    controllers = g_ptr_array_new_with_free_func (g_object_unref);
+    collect_dialog_controllers (GTK_WIDGET (window), dialog, controllers);
+    watch_transfer_columns (window, columns_finalized);
+    for (guint index = 0; index < controllers->len; index++)
+    {
+        GtkEventController *controller = g_ptr_array_index (controllers, index);
+
+        if (GTK_IS_EVENT_CONTROLLER_FOCUS (controller))
+            focus_controllers++;
+        else if (GTK_IS_EVENT_CONTROLLER_KEY (controller))
+            key_controllers++;
+        else
+            g_assert_not_reached ();
+    }
+    /* Three amount entries leave their focus controllers and the description
+     * entry owns the sole xferData-bound key controller. */
+    g_assert_cmpuint (focus_controllers, ==, 3);
+    g_assert_cmpuint (key_controllers, ==, 1);
+    g_object_weak_ref (G_OBJECT (window), object_finalized, &window_finalized);
+
+    gnc_xfer_dialog_close (dialog);
+    for (guint index = 0; index < controllers->len; index++)
+        g_assert_cmpuint (g_signal_handler_find (
+                              g_ptr_array_index (controllers, index),
+                              G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, dialog),
+                          ==, 0);
+
+    /* This releases the externally retained toplevel and runs widget disposal.
+     * Keep controller references, then exercise every late signal after the
+     * xfer dialog has freed its state. */
+    g_object_unref (window);
+    g_assert_true (window_finalized);
+    g_assert_true (columns_finalized[0]);
+    g_assert_true (columns_finalized[1]);
+    for (guint index = 0; index < controllers->len; index++)
+        emit_late_dialog_controller_signal (g_ptr_array_index (controllers, index));
+    g_ptr_array_unref (controllers);
+
+    gnc_clear_current_session ();
+}
+
 int
 main (int argc, char **argv)
 {
@@ -219,6 +356,8 @@ main (int argc, char **argv)
 
     g_test_add_func ("/gnome-utils/dialog-transfer/account-model-lifecycle",
                      test_transfer_account_models_rebuild_and_close);
+    g_test_add_func ("/gnome-utils/dialog-transfer/callbacks-quiesce-on-close",
+                     test_transfer_dialog_callbacks_quiesce_on_close);
     status = g_test_run ();
 
     gnc_component_manager_shutdown ();
