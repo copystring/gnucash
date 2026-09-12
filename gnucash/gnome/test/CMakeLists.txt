@@ -92,6 +92,7 @@ set_dist_list(test_gnome_DIST
   test-budget-view-column-ownership.c
   test-plugin-page-budget-window-lifetime.c
   test-dialog-sx-since-last-run-ownership.c
+  test-sx-variable-fixture.h
   test-sx-variable-fixture.cpp
   test-assistant-hierarchy-ownership.cpp
   ${test_gnome_scheme_SOURCES}

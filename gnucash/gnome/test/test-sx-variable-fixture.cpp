@@ -11,6 +11,8 @@
 
 #include <memory>
 
+#include "test-sx-variable-fixture.h"
+
 #include "SX-ttinfo.hpp"
 #include "SchedXaction.hpp"
 #include "Account.h"

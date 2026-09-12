@@ -22,6 +22,7 @@
 #include "gnc-sx-instance-model.h"
 #include "qof.h"
 #include "test-engine-stuff.h"
+#include "test-sx-variable-fixture.h"
 
 #define SLR_COLUMN_COUNT 3
 
@@ -40,8 +41,6 @@ typedef struct
     gboolean closed;
     guint updates;
 } CloseOnSxUpdate;
-
-SchedXaction *add_daily_sx_with_variable (const gchar *name, const GDate *start);
 
 static void
 close_on_sx_update (GncSxInstanceModel *instances, SchedXaction *sx,
