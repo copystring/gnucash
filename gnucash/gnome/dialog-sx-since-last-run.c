@@ -97,8 +97,10 @@ struct _GncSxSlrTreeModelAdapter
     GncSxInstanceModel *instances;
     GListStore *roots;
     gboolean disposed;
+    gboolean closing;
     gboolean sort_by_date;
     gboolean sort_ascending;
+    guint refresh_source;
 };
 typedef struct _GncSxSlrTreeModelAdapterClass { GObjectClass parent_class; } GncSxSlrTreeModelAdapterClass;
 #define GNC_TYPE_SX_SLR_TREE_MODEL_ADAPTER (gnc_sx_slr_tree_model_adapter_get_type ())
@@ -116,8 +118,15 @@ struct _GncSxSinceLastRunDialog
     GtkColumnView *instance_view;
     GtkCheckButton *review_created_txns_toggle;
     GList *created_txns;
-    GtkColumnViewColumn *transaction_column;
+    gboolean shutting_down;
 };
+
+typedef struct
+{
+    grefcount ref_count;
+    GWeakRef item;
+    GWeakRef adapter;
+} SlrListItemBinding;
 
 G_GNUC_UNUSED static const gchar *instance_state_names[] =
 {
@@ -273,7 +282,7 @@ slr_rebuild (GncSxSlrTreeModelAdapter *adapter)
 {
     GList *schedules;
 
-    if (adapter->disposed)
+    if (adapter->disposed || adapter->closing)
         return;
     g_list_store_remove_all (adapter->roots);
     schedules = g_list_copy (gnc_sx_instance_model_get_sx_instances_list (adapter->instances));
@@ -305,21 +314,42 @@ slr_rebuild (GncSxSlrTreeModelAdapter *adapter)
 static void
 slr_adapter_added (GncSxInstanceModel *instances, SchedXaction *sx, gpointer user_data)
 {
-    slr_rebuild (GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data));
+    GncSxSlrTreeModelAdapter *adapter = GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data);
+
+    if (!adapter->closing)
+        slr_rebuild (adapter);
 }
 
 static void
 slr_adapter_updated (GncSxInstanceModel *instances, SchedXaction *sx, gpointer user_data)
 {
+    GncSxSlrTreeModelAdapter *adapter = GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data);
+
+    if (adapter->closing)
+        return;
     gnc_sx_instance_model_update_sx_instances (instances, sx);
-    slr_rebuild (GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data));
+    slr_rebuild (adapter);
 }
 
 static void
 slr_adapter_removing (GncSxInstanceModel *instances, SchedXaction *sx, gpointer user_data)
 {
+    GncSxSlrTreeModelAdapter *adapter = GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data);
+
+    if (adapter->closing)
+        return;
     gnc_sx_instance_model_remove_sx_instances (instances, sx);
-    slr_rebuild (GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data));
+    slr_rebuild (adapter);
+}
+
+static void
+slr_adapter_cancel_refresh (GncSxSlrTreeModelAdapter *adapter)
+{
+    guint refresh_source = adapter->refresh_source;
+
+    adapter->refresh_source = 0;
+    if (refresh_source)
+        g_source_remove (refresh_source);
 }
 
 static void
@@ -329,6 +359,7 @@ gnc_sx_slr_tree_model_adapter_dispose (GObject *object)
     if (adapter->disposed)
         return;
     adapter->disposed = TRUE;
+    slr_adapter_cancel_refresh (adapter);
     if (adapter->instances)
     {
         g_signal_handlers_disconnect_by_data (adapter->instances, adapter);
@@ -359,9 +390,9 @@ slr_adapter_new (GncSxInstanceModel *instances)
     adapter->sort_by_date = gnc_prefs_get_int (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_DEPTH) != 1;
     adapter->sort_ascending = gnc_prefs_get_bool (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_ASC);
     slr_rebuild (adapter);
-    g_signal_connect (instances, "added", G_CALLBACK (slr_adapter_added), adapter);
-    g_signal_connect (instances, "updated", G_CALLBACK (slr_adapter_updated), adapter);
-    g_signal_connect (instances, "removing", G_CALLBACK (slr_adapter_removing), adapter);
+    g_signal_connect_object (instances, "added", G_CALLBACK (slr_adapter_added), adapter, 0);
+    g_signal_connect_object (instances, "updated", G_CALLBACK (slr_adapter_updated), adapter, 0);
+    g_signal_connect_object (instances, "removing", G_CALLBACK (slr_adapter_removing), adapter, 0);
     return adapter;
 }
 
@@ -402,6 +433,48 @@ slr_get_list_item_row (GtkListItem *item)
     return row;
 }
 
+static GncSxInstance*
+slr_find_instance (GncSxInstanceModel *model, SchedXaction *sx, const GDate *date)
+{
+    for (GList *schedule_node = gnc_sx_instance_model_get_sx_instances_list (model);
+         schedule_node; schedule_node = schedule_node->next)
+    {
+        GncSxInstances *instances = schedule_node->data;
+
+        if (instances->sx != sx)
+            continue;
+        for (GList *instance_node = instances->instance_list;
+             instance_node; instance_node = instance_node->next)
+        {
+            GncSxInstance *instance = instance_node->data;
+
+            if (g_date_compare (&instance->date, date) == 0)
+                return instance;
+        }
+    }
+    return NULL;
+}
+
+static GncSxVariable*
+slr_find_variable (GncSxInstance *instance, const gchar *name)
+{
+    GList *variables = gnc_sx_instance_get_variables (instance);
+    GncSxVariable *match = NULL;
+
+    for (GList *node = variables; node; node = node->next)
+    {
+        GncSxVariable *variable = node->data;
+
+        if (g_strcmp0 (variable->name, name) == 0)
+        {
+            match = variable;
+            break;
+        }
+    }
+    g_list_free (variables);
+    return match;
+}
+
 static void
 slr_name_setup (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
@@ -429,25 +502,108 @@ slr_name_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer us
 static gboolean
 slr_refresh_idle (gpointer user_data)
 {
-    slr_refresh (GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data));
+    GncSxSlrTreeModelAdapter *adapter = GNC_SX_SLR_TREE_MODEL_ADAPTER (user_data);
+
+    adapter->refresh_source = 0;
+    if (!adapter->disposed && !adapter->closing)
+        slr_refresh (adapter);
     return G_SOURCE_REMOVE;
+}
+
+static void
+slr_schedule_refresh (GncSxSlrTreeModelAdapter *adapter)
+{
+    if (adapter->disposed || adapter->closing || adapter->refresh_source)
+        return;
+    adapter->refresh_source = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+                                                slr_refresh_idle,
+                                                g_object_ref (adapter),
+                                                g_object_unref);
+}
+
+static SlrListItemBinding*
+slr_list_item_binding_new (GtkListItem *item)
+{
+    SlrListItemBinding *binding = g_new0 (SlrListItemBinding, 1);
+
+    g_ref_count_init (&binding->ref_count);
+    g_weak_ref_init (&binding->item, item);
+    g_weak_ref_init (&binding->adapter, NULL);
+    return binding;
+}
+
+static SlrListItemBinding*
+slr_list_item_binding_ref (SlrListItemBinding *binding)
+{
+    g_ref_count_inc (&binding->ref_count);
+    return binding;
+}
+
+static void
+slr_list_item_binding_unref (SlrListItemBinding *binding)
+{
+    if (!g_ref_count_dec (&binding->ref_count))
+        return;
+    g_weak_ref_clear (&binding->item);
+    g_weak_ref_clear (&binding->adapter);
+    g_free (binding);
+}
+
+static void
+slr_list_item_binding_closure_notify (gpointer data, GClosure *closure)
+{
+    (void)closure;
+    slr_list_item_binding_unref (data);
+}
+
+static gboolean
+slr_list_item_binding_get (SlrListItemBinding *binding, GtkListItem **item,
+                           GncSxSlrTreeModelAdapter **adapter)
+{
+    *item = NULL;
+    *adapter = NULL;
+    if (!binding)
+        return FALSE;
+    *item = g_weak_ref_get (&binding->item);
+    *adapter = g_weak_ref_get (&binding->adapter);
+    if (!*item || !*adapter || (*adapter)->disposed || (*adapter)->closing)
+    {
+        g_clear_object (item);
+        g_clear_object (adapter);
+        return FALSE;
+    }
+    return TRUE;
 }
 
 static void
 slr_state_changed (GObject *dropdown, GParamSpec *pspec, gpointer user_data)
 {
-    GtkListItem *item = GTK_LIST_ITEM (user_data);
-    GncSxSlrRow *row = slr_get_list_item_row (item);
-    GncSxSlrTreeModelAdapter *adapter = g_object_get_data (G_OBJECT (item), "slr-adapter");
+    SlrListItemBinding *binding = user_data;
+    GtkListItem *item;
+    GncSxSlrTreeModelAdapter *adapter;
+    GncSxSlrRow *row;
     guint selected = gtk_drop_down_get_selected (GTK_DROP_DOWN (dropdown));
 
+    if (!slr_list_item_binding_get (binding, &item, &adapter))
+        return;
+    row = slr_get_list_item_row (item);
     if (!row || !adapter || row->kind != SLR_ROW_INSTANCE ||
         row->instance->state == SX_INSTANCE_STATE_CREATED || selected >= SX_INSTANCE_STATE_CREATED)
-        return;
+        goto out;
     if (selected == row->instance->state)
-        return;
-    gnc_sx_instance_model_change_instance_state (adapter->instances, row->instance, selected);
-    g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, slr_refresh_idle, g_object_ref (adapter), g_object_unref);
+        goto out;
+    {
+        GncSxInstanceModel *instances = g_object_ref (adapter->instances);
+
+        gnc_sx_instance_model_change_instance_state (instances, row->instance, selected);
+        g_object_unref (instances);
+    }
+    if (!adapter->closing)
+        slr_schedule_refresh (adapter);
+
+out:
+    g_object_unref (item);
+    g_object_unref (adapter);
 }
 
 static void
@@ -456,7 +612,13 @@ slr_state_setup (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer 
     const char *states[] = { _("Ignored"), _("Postponed"), _("To-Create"), _("Reminder"), NULL };
     GtkStringList *model = gtk_string_list_new (states);
     GtkWidget *dropdown = GTK_WIDGET (gnc_gtk_drop_down_new (G_LIST_MODEL (model), NULL));
-    g_signal_connect (dropdown, "notify::selected", G_CALLBACK (slr_state_changed), item);
+    SlrListItemBinding *binding = slr_list_item_binding_new (item);
+
+    g_object_set_data_full (G_OBJECT (item), "slr-list-item-binding", binding,
+                            (GDestroyNotify)slr_list_item_binding_unref);
+    g_signal_connect_data (dropdown, "notify::selected", G_CALLBACK (slr_state_changed),
+                           slr_list_item_binding_ref (binding),
+                           slr_list_item_binding_closure_notify, 0);
     gtk_list_item_set_child (item, dropdown);
 }
 
@@ -465,8 +627,11 @@ slr_state_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer u
 {
     GncSxSlrRow *row = slr_get_list_item_row (item);
     GtkWidget *dropdown = gtk_list_item_get_child (item);
-    g_object_set_data (G_OBJECT (item), "slr-adapter", user_data);
-    g_signal_handlers_block_by_func (dropdown, slr_state_changed, item);
+    SlrListItemBinding *binding = g_object_get_data (G_OBJECT (item), "slr-list-item-binding");
+
+    g_return_if_fail (binding);
+    g_weak_ref_set (&binding->adapter, user_data);
+    g_signal_handlers_block_by_func (dropdown, slr_state_changed, binding);
     gtk_widget_set_visible (dropdown, row->kind == SLR_ROW_INSTANCE);
     if (row->kind == SLR_ROW_INSTANCE)
     {
@@ -474,20 +639,33 @@ slr_state_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer u
         gtk_drop_down_set_selected (GTK_DROP_DOWN (dropdown),
                                      MIN ((guint)row->instance->state, SX_INSTANCE_STATE_CREATED - 1));
     }
-    g_signal_handlers_unblock_by_func (dropdown, slr_state_changed, item);
+    g_signal_handlers_unblock_by_func (dropdown, slr_state_changed, binding);
 }
 
 static void
-slr_variable_commit (GtkEntry *entry, GtkListItem *item)
+slr_state_unbind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
-    GncSxSlrRow *row = slr_get_list_item_row (item);
-    GncSxSlrTreeModelAdapter *adapter = g_object_get_data (G_OBJECT (item), "slr-adapter");
+    SlrListItemBinding *binding = g_object_get_data (G_OBJECT (item), "slr-list-item-binding");
+
+    if (binding)
+        g_weak_ref_set (&binding->adapter, NULL);
+}
+
+static void
+slr_variable_commit (GtkEntry *entry, SlrListItemBinding *binding)
+{
+    GtkListItem *item;
+    GncSxSlrTreeModelAdapter *adapter;
+    GncSxSlrRow *row;
     gnc_numeric value;
     char *end = NULL;
     const gchar *text;
 
-    if (!row || !adapter || row->kind != SLR_ROW_VARIABLE)
+    if (!slr_list_item_binding_get (binding, &item, &adapter))
         return;
+    row = slr_get_list_item_row (item);
+    if (!row || row->kind != SLR_ROW_VARIABLE)
+        goto out;
     text = gtk_editable_get_text (GTK_EDITABLE (entry));
     if (!xaccParseAmount (text, TRUE, &value, &end) || gnc_numeric_check (value) != GNC_ERROR_OK)
     {
@@ -495,7 +673,10 @@ slr_variable_commit (GtkEntry *entry, GtkListItem *item)
         if (*g_strstrip (copy) == '\0')
         {
             gnc_numeric invalid = gnc_numeric_error (GNC_ERROR_ARG);
-            gnc_sx_instance_model_set_variable (adapter->instances, row->instance, row->variable, &invalid);
+            GncSxInstanceModel *instances = g_object_ref (adapter->instances);
+
+            gnc_sx_instance_model_set_variable (instances, row->instance, row->variable, &invalid);
+            g_object_unref (instances);
         }
         else
         {
@@ -504,34 +685,66 @@ slr_variable_commit (GtkEntry *entry, GtkListItem *item)
                                       GTK_RESPONSE_CLOSE, TRUE, NULL, NULL);
         }
         g_free (copy);
-        return;
+        goto out;
     }
-    if (row->instance->state == SX_INSTANCE_STATE_REMINDER)
-        gnc_sx_instance_model_change_instance_state (adapter->instances, row->instance,
-                                                      SX_INSTANCE_STATE_TO_CREATE);
-    gnc_sx_instance_model_set_variable (adapter->instances, row->instance, row->variable, &value);
-    g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, slr_refresh_idle, g_object_ref (adapter), g_object_unref);
+    {
+        GncSxInstanceModel *instances = g_object_ref (adapter->instances);
+
+        if (row->instance->state == SX_INSTANCE_STATE_REMINDER)
+        {
+            SchedXaction *sx = row->instance->parent->sx;
+            GDate date = row->instance->date;
+            gchar *name = g_strdup (row->variable->name);
+            GncSxInstance *instance;
+            GncSxVariable *variable;
+
+            gnc_sx_instance_model_change_instance_state (instances, row->instance,
+                                                          SX_INSTANCE_STATE_TO_CREATE);
+            instance = adapter->closing ? NULL : slr_find_instance (instances, sx, &date);
+            variable = instance ? slr_find_variable (instance, name) : NULL;
+            if (variable)
+                gnc_sx_instance_model_set_variable (instances, instance, variable, &value);
+            g_free (name);
+        }
+        else
+            gnc_sx_instance_model_set_variable (instances, row->instance, row->variable, &value);
+        g_object_unref (instances);
+    }
+    if (!adapter->closing)
+        slr_schedule_refresh (adapter);
+
+out:
+    g_object_unref (item);
+    g_object_unref (adapter);
 }
 
 static void
 slr_value_activate (GtkEntry *entry, gpointer user_data)
 {
-    slr_variable_commit (entry, GTK_LIST_ITEM (user_data));
+    slr_variable_commit (entry, user_data);
 }
 
 static void
 slr_value_focus_changed (GObject *entry, GParamSpec *pspec, gpointer user_data)
 {
     if (!gtk_widget_has_focus (GTK_WIDGET (entry)))
-        slr_variable_commit (GTK_ENTRY (entry), GTK_LIST_ITEM (user_data));
+        slr_variable_commit (GTK_ENTRY (entry), user_data);
 }
 
 static void
 slr_value_setup (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data)
 {
     GtkWidget *entry = gtk_entry_new ();
-    g_signal_connect (entry, "activate", G_CALLBACK (slr_value_activate), item);
-    g_signal_connect (entry, "notify::has-focus", G_CALLBACK (slr_value_focus_changed), item);
+    SlrListItemBinding *binding = slr_list_item_binding_new (item);
+
+    g_object_set_data_full (G_OBJECT (item), "slr-list-item-binding", binding,
+                            (GDestroyNotify)slr_list_item_binding_unref);
+    g_signal_connect_data (entry, "activate", G_CALLBACK (slr_value_activate),
+                           slr_list_item_binding_ref (binding),
+                           slr_list_item_binding_closure_notify, 0);
+    g_signal_connect_data (entry, "notify::has-focus", G_CALLBACK (slr_value_focus_changed),
+                           slr_list_item_binding_ref (binding),
+                           slr_list_item_binding_closure_notify, 0);
     gtk_list_item_set_child (item, entry);
 }
 
@@ -541,9 +754,11 @@ slr_value_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer u
     GncSxSlrRow *row = slr_get_list_item_row (item);
     GtkWidget *entry = gtk_list_item_get_child (item);
     GString *value;
+    SlrListItemBinding *binding = g_object_get_data (G_OBJECT (item), "slr-list-item-binding");
 
-    g_object_set_data (G_OBJECT (item), "slr-adapter", user_data);
-    g_signal_handlers_block_by_func (entry, slr_value_focus_changed, item);
+    g_return_if_fail (binding);
+    g_weak_ref_set (&binding->adapter, user_data);
+    g_signal_handlers_block_by_func (entry, slr_value_focus_changed, binding);
     gtk_widget_set_visible (entry, row->kind == SLR_ROW_VARIABLE);
     if (row->kind == SLR_ROW_VARIABLE)
     {
@@ -556,21 +771,36 @@ slr_value_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer u
         else
             gtk_editable_set_text (GTK_EDITABLE (entry), _("(Need Value)"));
     }
-    g_signal_handlers_unblock_by_func (entry, slr_value_focus_changed, item);
+    g_signal_handlers_unblock_by_func (entry, slr_value_focus_changed, binding);
 }
 
-static GtkColumnViewColumn*
+static void
+slr_value_unbind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data)
+{
+    SlrListItemBinding *binding = g_object_get_data (G_OBJECT (item), "slr-list-item-binding");
+
+    if (binding)
+        g_weak_ref_set (&binding->adapter, NULL);
+}
+
+static void
 slr_append_column (GtkColumnView *view, const gchar *title,
-                   GCallback setup, GCallback bind, gpointer bind_data, gboolean expand)
+                   GCallback setup, GCallback bind, GCallback unbind,
+                   GObject *bind_data, gboolean expand)
 {
     GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
     GtkColumnViewColumn *column = gtk_column_view_column_new (title, factory);
     g_signal_connect (factory, "setup", setup, NULL);
-    g_signal_connect (factory, "bind", bind, bind_data);
+    if (bind_data)
+        g_signal_connect_object (factory, "bind", bind, bind_data, 0);
+    else
+        g_signal_connect (factory, "bind", bind, NULL);
+    if (unbind)
+        g_signal_connect (factory, "unbind", unbind, NULL);
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_column_set_expand (column, expand);
     gtk_column_view_append_column (view, column);
-    return column;
+    g_object_unref (column);
 }
 
 static void
@@ -670,12 +900,14 @@ since_last_run_dialog (GtkWindow *parent, GncSxInstanceModel *instances, GList *
         (dialog->instance_view, gnc_prefs_get_bool ("general", "grid-lines-horizontal"));
     gtk_column_view_set_show_column_separators
         (dialog->instance_view, gnc_prefs_get_bool ("general", "grid-lines-vertical"));
-    dialog->transaction_column = slr_append_column (dialog->instance_view, _("Transaction"),
-        G_CALLBACK (slr_name_setup), G_CALLBACK (slr_name_bind), NULL, TRUE);
+    slr_append_column (dialog->instance_view, _("Transaction"),
+                       G_CALLBACK (slr_name_setup), G_CALLBACK (slr_name_bind), NULL, NULL, TRUE);
     slr_append_column (dialog->instance_view, _("Status"), G_CALLBACK (slr_state_setup),
-                       G_CALLBACK (slr_state_bind), dialog->editing_model, FALSE);
+                       G_CALLBACK (slr_state_bind), G_CALLBACK (slr_state_unbind),
+                       G_OBJECT (dialog->editing_model), FALSE);
     slr_append_column (dialog->instance_view, _("Value"), G_CALLBACK (slr_value_setup),
-                       G_CALLBACK (slr_value_bind), dialog->editing_model, FALSE);
+                       G_CALLBACK (slr_value_bind), G_CALLBACK (slr_value_unbind),
+                       G_OBJECT (dialog->editing_model), FALSE);
     slr_expand_all (dialog->tree_model);
 
     gtk_window_set_transient_for (GTK_WINDOW (dialog->dialog), parent);
@@ -800,31 +1032,69 @@ show_created_transactions (GncSxSinceLastRunDialog *dialog, GList *guids)
 }
 
 static void
-slr_close_handler (gpointer user_data)
+slr_quiesce_view (GncSxSinceLastRunDialog *dialog)
 {
-    GncSxSinceLastRunDialog *dialog = user_data;
-    gnc_prefs_set_bool (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_ASC,
-                        dialog->editing_model->sort_ascending);
-    gnc_prefs_set_int (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_COL, 0);
-    gnc_prefs_set_int (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_DEPTH,
-                       dialog->editing_model->sort_by_date ? 2 : 1);
-    gnc_save_window_size (GNC_PREFS_GROUP_STARTUP, GTK_WINDOW (dialog->dialog));
-    gtk_window_destroy (GTK_WINDOW (dialog->dialog));
-    g_free (dialog);
+    /* The bound factories carry the adapter as callback data. Detach the
+     * model while it is still alive so GTK unbinds the real list items first. */
+    if (dialog->instance_view)
+        gtk_column_view_set_model (dialog->instance_view, NULL);
+}
+
+static void
+slr_disconnect_widget_callbacks (GtkWidget *widget, gpointer data)
+{
+    g_signal_handlers_disconnect_by_data (widget, data);
+    for (GtkWidget *child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        slr_disconnect_widget_callbacks (child, data);
+}
+
+static void
+slr_shutdown (GncSxSinceLastRunDialog *dialog)
+{
+    if (dialog->shutting_down)
+        return;
+    dialog->shutting_down = TRUE;
+    dialog->editing_model->closing = TRUE;
+    slr_disconnect_widget_callbacks (dialog->dialog, dialog);
+    slr_quiesce_view (dialog);
+    dialog->instance_view = NULL;
+    if (dialog->component_id)
+    {
+        gnc_unregister_gui_component (dialog->component_id);
+        dialog->component_id = 0;
+    }
+    slr_adapter_cancel_refresh (dialog->editing_model);
+    g_clear_object (&dialog->selection);
+    g_clear_object (&dialog->tree_model);
+    g_clear_object (&dialog->editing_model);
+    g_list_free (dialog->created_txns);
+    dialog->created_txns = NULL;
 }
 
 static void
 slr_destroy_cb (GtkWidget *object, gpointer user_data)
 {
     GncSxSinceLastRunDialog *dialog = user_data;
-    if (dialog->component_id)
-    {
-        gnc_unregister_gui_component (dialog->component_id);
-        dialog->component_id = 0;
-    }
-    g_clear_object (&dialog->selection);
-    g_clear_object (&dialog->tree_model);
-    g_clear_object (&dialog->editing_model);
-    g_list_free (dialog->created_txns);
-    dialog->created_txns = NULL;
+
+    slr_shutdown (dialog);
+    g_free (dialog);
+}
+
+static void
+slr_close_handler (gpointer user_data)
+{
+    GncSxSinceLastRunDialog *dialog = user_data;
+
+    if (dialog->shutting_down)
+        return;
+    gnc_prefs_set_bool (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_ASC,
+                        dialog->editing_model->sort_ascending);
+    gnc_prefs_set_int (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_COL, 0);
+    gnc_prefs_set_int (GNC_PREFS_GROUP_STARTUP, GNC_PREF_SLR_SORT_DEPTH,
+                       dialog->editing_model->sort_by_date ? 2 : 1);
+    gnc_save_window_size (GNC_PREFS_GROUP_STARTUP, GTK_WINDOW (dialog->dialog));
+    slr_shutdown (dialog);
+    gtk_window_destroy (GTK_WINDOW (dialog->dialog));
+    g_free (dialog);
 }

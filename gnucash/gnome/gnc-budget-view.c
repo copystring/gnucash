@@ -43,7 +43,12 @@ G_GNUC_UNUSED static QofLogModule log_module = GNC_MOD_BUDGET;
 #define BUDGET_GUID "Budget GncGUID"
 
 typedef struct GncBudgetViewPrivate GncBudgetViewPrivate;
-typedef struct { GncBudgetView *view; gint period; gboolean total; } BudgetColumnInfo;
+typedef struct
+{
+    GWeakRef view;
+    grefcount ref_count;
+    gint period;
+} BudgetColumnInfo;
 typedef void (*BudgetFactoryCallback) (GtkSignalListItemFactory *, GtkListItem *, gpointer);
 
 struct _GncBudgetView { GtkBox w; };
@@ -66,8 +71,10 @@ struct GncBudgetViewPrivate
     GList *period_columns;
     GList *totals_period_columns;
     GtkColumnViewColumn *total_column;
+    GtkColumnViewColumn *totals_total_column;
     Account *active_account;
     guint active_period;
+    gboolean disposing;
 };
 
 G_DEFINE_TYPE_WITH_PRIVATE (GncBudgetView, gnc_budget_view, GTK_TYPE_BOX)
@@ -77,6 +84,60 @@ enum { TOTALS_TYPE_INCOME, TOTALS_TYPE_EXPENSES, TOTALS_TYPE_ASSET_LIAB_EQ, TOTA
 
 static gnc_numeric gbv_get_accumulated_budget_amount (GncBudget *budget, Account *account, guint period);
 static void gnc_budget_view_refresh_totals (GncBudgetView *view);
+
+static BudgetColumnInfo *
+budget_column_info_new (GncBudgetView *view, gint period)
+{
+    BudgetColumnInfo *info = g_new0 (BudgetColumnInfo, 1);
+
+    g_weak_ref_init (&info->view, view);
+    g_ref_count_init (&info->ref_count);
+    info->period = period;
+    return info;
+}
+
+static BudgetColumnInfo *
+budget_column_info_ref (BudgetColumnInfo *info)
+{
+    g_ref_count_inc (&info->ref_count);
+    return info;
+}
+
+static void
+budget_column_info_unref (BudgetColumnInfo *info)
+{
+    if (!g_ref_count_dec (&info->ref_count))
+        return;
+
+    g_weak_ref_clear (&info->view);
+    g_free (info);
+}
+
+static void
+budget_column_info_closure_destroy (gpointer data, GClosure *closure)
+{
+    budget_column_info_unref (data);
+    (void)closure;
+}
+
+static GncBudgetView *
+budget_column_info_get_view (BudgetColumnInfo *info)
+{
+    GObject *object = g_weak_ref_get (&info->view);
+    GncBudgetView *view;
+
+    if (!object)
+        return NULL;
+
+    view = GNC_BUDGET_VIEW (object);
+
+    if (view && PRIV (view)->disposing)
+    {
+        g_object_unref (view);
+        return NULL;
+    }
+    return view;
+}
 
 static Account *
 account_from_list_item (GtkListItem *item)
@@ -202,23 +263,49 @@ budget_label_focus_enter (GtkEventControllerFocus *controller, gpointer data)
 {
     BudgetColumnInfo *info = data;
     GtkWidget *label = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
-    GncBudgetViewPrivate *priv = PRIV (info->view);
+    GncBudgetView *view = budget_column_info_get_view (info);
+
+    if (!view)
+        return;
+
+    if (info->period < 0)
+    {
+        g_object_unref (view);
+        return;
+    }
+
+    GncBudgetViewPrivate *priv = PRIV (view);
     priv->active_account = g_object_get_data (G_OBJECT (label), "gnc-budget-account");
-    priv->active_period = info->period;
+    priv->active_period = (guint)info->period;
+    g_object_unref (view);
 }
 
 static gboolean
 budget_label_key_pressed (GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer data)
 {
     BudgetColumnInfo *info = data;
+    GncBudgetView *view;
+    GncBudgetViewPrivate *priv;
+    gboolean handled = FALSE;
+
     if (keyval != GDK_KEY_Tab && keyval != GDK_KEY_ISO_Left_Tab && keyval != GDK_KEY_KP_Tab)
         return FALSE;
-    GncBudgetViewPrivate *priv = PRIV (info->view);
+
+    view = budget_column_info_get_view (info);
+    if (!view)
+        return FALSE;
+
+    priv = PRIV (view);
     guint periods = gnc_budget_get_num_periods (priv->budget);
-    if (!periods || !priv->active_account) return FALSE;
+    if (info->period < 0 || !periods || !priv->active_account)
+        goto out;
+
     gboolean backwards = (state & GDK_SHIFT_MASK) || keyval == GDK_KEY_ISO_Left_Tab;
     guint target_period = backwards ? (info->period + periods - 1) % periods : (info->period + 1) % periods;
     guint n = g_list_model_get_n_items (G_LIST_MODEL (gnc_tree_view_account_get_selection_model (priv->account_view)));
+    if (!n)
+        goto out;
+
     guint position = 0;
     for (; position < n; position++) if (gnc_tree_view_account_get_account_at (priv->account_view, position) == priv->active_account) break;
     if (target_period == (backwards ? periods - 1 : 0))
@@ -228,21 +315,38 @@ budget_label_key_pressed (GtkEventControllerKey *controller, guint keyval, guint
         gtk_column_view_scroll_to (priv->account_columns, position, column, GTK_LIST_SCROLL_FOCUS, NULL);
     priv->active_period = target_period;
     priv->active_account = gnc_tree_view_account_get_account_at (priv->account_view, position);
+    handled = TRUE;
+
+out:
+    g_object_unref (view);
     (void)controller; (void)keycode;
-    return TRUE;
+    return handled;
 }
 
 static void
 budget_label_editing_changed (GtkEditableLabel *label, GParamSpec *pspec, gpointer data)
 {
     BudgetColumnInfo *info = data;
+    GncBudgetView *view;
+    GncBudgetViewPrivate *priv;
+
     if (gtk_editable_label_get_editing (label)) return;
+
+    view = budget_column_info_get_view (info);
+    if (!view)
+        return;
+
     Account *account = g_object_get_data (G_OBJECT (label), "gnc-budget-account");
-    GncBudgetViewPrivate *priv = PRIV (info->view);
+    priv = PRIV (view);
     const gchar *text = gtk_editable_get_text (GTK_EDITABLE (label));
     gnc_numeric value = gnc_numeric_error (GNC_ERROR_ARG);
     if (!account || qof_book_is_readonly (gnc_get_current_book ()) ||
-        (!xaccParseAmount (text, TRUE, &value, NULL) && text && *text)) return;
+        (!xaccParseAmount (text, TRUE, &value, NULL) && text && *text))
+    {
+        g_object_unref (view);
+        return;
+    }
+
     if (!text || !*text)
         gnc_budget_unset_account_period_value (priv->budget, account, info->period);
     else
@@ -250,8 +354,8 @@ budget_label_editing_changed (GtkEditableLabel *label, GParamSpec *pspec, gpoint
         if (gnc_reverse_balance (account)) value = gnc_numeric_neg (value);
         gnc_budget_set_account_period_value (priv->budget, account, info->period, value);
     }
-    gnc_budget_view_refresh_totals (info->view);
-    gtk_widget_queue_draw (GTK_WIDGET (priv->account_columns));
+    gnc_budget_view_refresh_totals (view);
+    g_object_unref (view);
 }
 
 static void
@@ -262,11 +366,17 @@ period_setup (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer dat
     gtk_editable_set_alignment (GTK_EDITABLE (label), 1.0f);
     GtkEventController *key = gtk_event_controller_key_new ();
     gtk_widget_add_controller (label, key);
-    g_signal_connect (key, "key-pressed", G_CALLBACK (budget_label_key_pressed), info);
+    g_signal_connect_data (key, "key-pressed", G_CALLBACK (budget_label_key_pressed),
+                           budget_column_info_ref (info),
+                           budget_column_info_closure_destroy, 0);
     GtkEventController *focus = gtk_event_controller_focus_new ();
     gtk_widget_add_controller (label, focus);
-    g_signal_connect (focus, "enter", G_CALLBACK (budget_label_focus_enter), info);
-    g_signal_connect (label, "notify::editing", G_CALLBACK (budget_label_editing_changed), info);
+    g_signal_connect_data (focus, "enter", G_CALLBACK (budget_label_focus_enter),
+                           budget_column_info_ref (info),
+                           budget_column_info_closure_destroy, 0);
+    g_signal_connect_data (label, "notify::editing", G_CALLBACK (budget_label_editing_changed),
+                           budget_column_info_ref (info),
+                           budget_column_info_closure_destroy, 0);
     gtk_list_item_set_child (item, label);
     (void)factory;
 }
@@ -274,33 +384,82 @@ static void
 period_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer data)
 {
     BudgetColumnInfo *info = data;
+    GncBudgetView *view = budget_column_info_get_view (info);
+
+    if (!view)
+        return;
+
     Account *account = account_from_list_item (item);
     GtkWidget *label = gtk_list_item_get_child (item);
     g_object_set_data (G_OBJECT (label), "gnc-budget-account", account);
-    g_autofree gchar *text = period_text (info->view, account, info->period);
+    g_autofree gchar *text = period_text (view, account, info->period);
     gtk_editable_set_text (GTK_EDITABLE (label), text);
-    gtk_widget_set_tooltip_text (label, gnc_budget_get_account_period_note (PRIV (info->view)->budget, account, info->period));
+    gtk_widget_set_tooltip_text (label, gnc_budget_get_account_period_note (PRIV (view)->budget, account, info->period));
+    g_object_unref (view);
+    (void)factory;
+}
+
+static void
+period_unbind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer data)
+{
+    BudgetColumnInfo *info = data;
+    GtkWidget *label = gtk_list_item_get_child (item);
+    GncBudgetView *view;
+    Account *account;
+
+    if (!GTK_IS_EDITABLE_LABEL (label))
+        return;
+
+    /* A retained list item can still notify after its column has gone away.
+     * Retire the account/period binding before stopping an in-progress edit so
+     * that the notify handler cannot commit through an obsolete column. */
+    account = g_object_get_data (G_OBJECT (label), "gnc-budget-account");
+    g_object_set_data (G_OBJECT (label), "gnc-budget-account", NULL);
+    gtk_widget_set_tooltip_text (label, NULL);
+    view = budget_column_info_get_view (info);
+    if (view)
+    {
+        GncBudgetViewPrivate *priv = PRIV (view);
+
+        if (info->period >= 0 && priv->active_account == account &&
+            priv->active_period == (guint)info->period)
+            priv->active_account = NULL;
+        g_object_unref (view);
+    }
+    gtk_editable_label_stop_editing (GTK_EDITABLE_LABEL (label), FALSE);
     (void)factory;
 }
 static void
 total_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer data)
 {
     BudgetColumnInfo *info = data;
+    GncBudgetView *view = budget_column_info_get_view (info);
+
+    if (!view)
+        return;
+
     Account *account = account_from_list_item (item);
     GtkLabel *label = GTK_LABEL (gtk_list_item_get_child (item));
-    g_autofree gchar *text = total_text (info->view, account);
+    g_autofree gchar *text = total_text (view, account);
     gtk_label_set_text (label, text);
+    g_object_unref (view);
     (void)factory;
 }
 static void
 total_row_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer data)
 {
     BudgetColumnInfo *info = data;
+    GncBudgetView *view = budget_column_info_get_view (info);
+
+    if (!view)
+        return;
+
     gint kind = gtk_list_item_get_position (item);
-    gnc_numeric value = budget_total_for_kind (info->view, kind, info->period);
+    gnc_numeric value = budget_total_for_kind (view, kind, info->period);
     GNCPrintAmountInfo pinfo = gnc_commodity_print_info (gnc_default_currency (), info->period < 0);
     GtkLabel *label = GTK_LABEL (gtk_list_item_get_child (item));
     gtk_label_set_text (label, xaccPrintAmount (value, pinfo));
+    g_object_unref (view);
     (void)factory;
 }
 static void
@@ -311,11 +470,22 @@ total_name_bind (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer 
 { gtk_label_set_text (GTK_LABEL (gtk_list_item_get_child (item)), gtk_string_object_get_string (GTK_STRING_OBJECT (gtk_list_item_get_item (item)))); (void)factory; (void)data; }
 
 static GtkColumnViewColumn *
-new_column (const gchar *title, BudgetFactoryCallback setup, BudgetFactoryCallback bind, BudgetColumnInfo *info)
+new_column (const gchar *title, BudgetFactoryCallback setup, BudgetFactoryCallback bind,
+            BudgetFactoryCallback unbind, GncBudgetView *view, gint period)
 {
+    BudgetColumnInfo *info = budget_column_info_new (view, period);
     GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
-    g_signal_connect (factory, "setup", G_CALLBACK (setup), info);
-    g_signal_connect_data (factory, "bind", G_CALLBACK (bind), info, (GClosureNotify)g_free, 0);
+    g_signal_connect_data (factory, "setup", G_CALLBACK (setup),
+                           budget_column_info_ref (info),
+                           budget_column_info_closure_destroy, 0);
+    g_signal_connect_data (factory, "bind", G_CALLBACK (bind),
+                           budget_column_info_ref (info),
+                           budget_column_info_closure_destroy, 0);
+    if (unbind)
+        g_signal_connect_data (factory, "unbind", G_CALLBACK (unbind),
+                               budget_column_info_ref (info),
+                               budget_column_info_closure_destroy, 0);
+    budget_column_info_unref (info);
     GtkColumnViewColumn *column = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_resizable (column, TRUE);
     return column;
@@ -337,51 +507,126 @@ period_title (GncBudget *budget, guint period)
 }
 
 static void
-remove_columns (GtkColumnView *view, GList **columns)
+remove_columns (GncBudgetView *owner, GtkColumnView *view, GList **columns)
 {
-    for (GList *node = *columns; node; node = node->next)
-        gtk_column_view_remove_column (view, node->data);
-    g_list_free (*columns); *columns = NULL;
+    GList *removed_columns = g_steal_pointer (columns);
+
+    for (GList *node = removed_columns; node; node = node->next)
+    {
+        if (!PRIV (owner)->disposing)
+            gtk_column_view_remove_column (view, node->data);
+        g_object_unref (node->data);
+    }
+    g_list_free (removed_columns);
+}
+
+static void
+remove_column (GncBudgetView *owner, GtkColumnView *view,
+               GtkColumnViewColumn **column)
+{
+    GtkColumnViewColumn *removed_column = g_steal_pointer (column);
+
+    if (!removed_column)
+        return;
+
+    if (!PRIV (owner)->disposing)
+        gtk_column_view_remove_column (view, removed_column);
+    g_object_unref (removed_column);
 }
 
 static void
 create_columns (GncBudgetView *view)
 {
     GncBudgetViewPrivate *priv = PRIV (view);
-    remove_columns (priv->account_columns, &priv->period_columns);
-    remove_columns (priv->totals_columns, &priv->totals_period_columns);
-    if (priv->total_column) { gtk_column_view_remove_column (priv->account_columns, priv->total_column); priv->total_column = NULL; }
+    GtkColumnView *account_columns = NULL;
+    GtkColumnView *totals_columns = NULL;
+
+    g_object_ref (view);
+    if (priv->disposing)
+        goto out;
+
+    /* A columns observer can dispose the owner while a GTK mutation is still
+     * on the stack. Keep both child views alive until those calls return. */
+    account_columns = g_object_ref (priv->account_columns);
+    totals_columns = g_object_ref (priv->totals_columns);
+    remove_columns (view, account_columns, &priv->period_columns);
+    if (priv->disposing)
+        goto out;
+    remove_columns (view, totals_columns, &priv->totals_period_columns);
+    if (priv->disposing)
+        goto out;
+    remove_column (view, account_columns, &priv->total_column);
+    if (priv->disposing)
+        goto out;
+    remove_column (view, totals_columns, &priv->totals_total_column);
+    if (priv->disposing)
+        goto out;
+
     guint count = gnc_budget_get_num_periods (priv->budget);
     for (guint period = 0; period < count; period++)
     {
         g_autofree gchar *title = period_title (priv->budget, period);
-        BudgetColumnInfo *period_info = g_new0 (BudgetColumnInfo, 1); period_info->view = view; period_info->period = period;
-        GtkColumnViewColumn *column = new_column (title, period_setup, period_bind, period_info);
+        GtkColumnViewColumn *column = new_column (title, period_setup, period_bind,
+                                                   period_unbind, view, period);
         gtk_column_view_column_set_fixed_width (column, 125);
-        gtk_column_view_append_column (priv->account_columns, column);
+        gtk_column_view_append_column (account_columns, column);
+        if (priv->disposing)
+        {
+            g_object_unref (column);
+            goto out;
+        }
         priv->period_columns = g_list_append (priv->period_columns, column);
-        BudgetColumnInfo *total_info = g_new0 (BudgetColumnInfo, 1); total_info->view = view; total_info->period = period;
-        column = new_column ("", label_setup, total_row_bind, total_info);
+        column = new_column ("", label_setup, total_row_bind, NULL, view, period);
         gtk_column_view_column_set_fixed_width (column, 125);
-        gtk_column_view_append_column (priv->totals_columns, column);
+        gtk_column_view_append_column (totals_columns, column);
+        if (priv->disposing)
+        {
+            g_object_unref (column);
+            goto out;
+        }
         priv->totals_period_columns = g_list_append (priv->totals_period_columns, column);
     }
-    BudgetColumnInfo *total_info = g_new0 (BudgetColumnInfo, 1); total_info->view = view; total_info->period = -1;
-    priv->total_column = new_column (_("Total"), label_setup, total_bind, total_info);
-    gtk_column_view_column_set_fixed_width (priv->total_column, 125);
-    gtk_column_view_append_column (priv->account_columns, priv->total_column);
-    total_info = g_new0 (BudgetColumnInfo, 1); total_info->view = view; total_info->period = -1;
-    GtkColumnViewColumn *total_column = new_column ("", label_setup, total_row_bind, total_info);
+    GtkColumnViewColumn *total_column = new_column (_("Total"), label_setup, total_bind,
+                                                     NULL, view, -1);
     gtk_column_view_column_set_fixed_width (total_column, 125);
-    gtk_column_view_append_column (priv->totals_columns, total_column);
+    gtk_column_view_append_column (account_columns, total_column);
+    if (priv->disposing)
+    {
+        g_object_unref (total_column);
+        goto out;
+    }
+    priv->total_column = total_column;
+
+    total_column = new_column ("", label_setup, total_row_bind, NULL, view, -1);
+    gtk_column_view_column_set_fixed_width (total_column, 125);
+    gtk_column_view_append_column (totals_columns, total_column);
+    if (priv->disposing)
+    {
+        g_object_unref (total_column);
+        goto out;
+    }
+    priv->totals_total_column = total_column;
+
+out:
+    g_clear_object (&totals_columns);
+    g_clear_object (&account_columns);
+    g_object_unref (view);
 }
 
 static void
 account_activated (GncTreeViewAccount *tree, Account *account, GncBudgetView *view)
-{ g_signal_emit_by_name (view, "account-activated", account); (void)tree; }
+{
+    if (!PRIV (view)->disposing)
+        g_signal_emit_by_name (view, "account-activated", account);
+    (void)tree;
+}
 static void
 sync_totals_hadjustment (GtkAdjustment *adjustment, GncBudgetView *view)
-{ gtk_adjustment_set_value (PRIV (view)->account_hadjustment, gtk_adjustment_get_value (adjustment)); }
+{
+    if (!PRIV (view)->disposing)
+        gtk_adjustment_set_value (PRIV (view)->account_hadjustment,
+                                   gtk_adjustment_get_value (adjustment));
+}
 static void
 update_negative_pref (gpointer prefs, gchar *pref, gpointer data)
 { PRIV (data)->use_red_color = gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL, GNC_PREF_NEGATIVE_IN_RED); (void)prefs; (void)pref; }
@@ -406,7 +651,8 @@ create_widget (GncBudgetView *view)
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (accounts_scroll), GTK_WIDGET (priv->account_view));
     gtk_widget_set_vexpand (accounts_scroll, TRUE);
     priv->account_hadjustment = gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (accounts_scroll));
-    g_signal_connect (priv->account_view, "account-activated", G_CALLBACK (account_activated), view);
+    g_signal_connect_object (priv->account_view, "account-activated",
+                             G_CALLBACK (account_activated), view, 0);
 
     priv->totals_rows = g_list_store_new (GTK_TYPE_STRING_OBJECT);
     const gchar *names[] = { _("Income"), _("Expenses"), _("Transfer"), _("Remaining to Budget") };
@@ -421,10 +667,13 @@ create_widget (GncBudgetView *view)
     GtkColumnViewColumn *name_column = gtk_column_view_column_new ("", name_factory);
     gtk_column_view_column_set_fixed_width (name_column, 240);
     gtk_column_view_append_column (priv->totals_columns, name_column);
+    g_object_unref (name_column);
     priv->totals_scroll = gtk_scrolled_window_new ();
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (priv->totals_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (priv->totals_scroll), GTK_WIDGET (priv->totals_columns));
-    g_signal_connect (gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (priv->totals_scroll)), "value-changed", G_CALLBACK (sync_totals_hadjustment), view);
+    g_signal_connect_object (
+        gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (priv->totals_scroll)),
+        "value-changed", G_CALLBACK (sync_totals_hadjustment), view, 0);
     gtk_box_append (GTK_BOX (view), accounts_scroll);
     gtk_box_append (GTK_BOX (view), gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append (GTK_BOX (view), priv->totals_scroll);
@@ -446,17 +695,47 @@ gnc_budget_view_new (GncBudget *budget, AccountFilterDialog *fd)
     return view;
 }
 static void
+dispose (GObject *object)
+{
+    GncBudgetView *view = GNC_BUDGET_VIEW (object);
+    GncBudgetViewPrivate *priv = PRIV (view);
+
+    if (!priv->disposing)
+    {
+        priv->disposing = TRUE;
+        gnc_prefs_remove_cb_by_func (GNC_PREFS_GROUP_GENERAL,
+                                     GNC_PREF_NEGATIVE_IN_RED,
+                                     update_negative_pref, view);
+        remove_columns (view, priv->account_columns, &priv->period_columns);
+        remove_columns (view, priv->totals_columns, &priv->totals_period_columns);
+        remove_column (view, priv->account_columns, &priv->total_column);
+        remove_column (view, priv->totals_columns, &priv->totals_total_column);
+        g_clear_object (&priv->totals_rows);
+    }
+
+    G_OBJECT_CLASS (gnc_budget_view_parent_class)->dispose (object);
+}
+
+static void
 finalize (GObject *object)
 {
     GncBudgetView *view = GNC_BUDGET_VIEW (object);
     GncBudgetViewPrivate *priv = PRIV (view);
-    gnc_prefs_remove_cb_by_func (GNC_PREFS_GROUP_GENERAL, GNC_PREF_NEGATIVE_IN_RED, update_negative_pref, view);
-    g_list_free (priv->period_columns); g_list_free (priv->totals_period_columns);
-    g_clear_object (&priv->totals_rows);
+
+    g_assert_null (priv->period_columns);
+    g_assert_null (priv->totals_period_columns);
+    g_assert_null (priv->total_column);
+    g_assert_null (priv->totals_total_column);
+    g_assert_null (priv->totals_rows);
     G_OBJECT_CLASS (gnc_budget_view_parent_class)->finalize (object);
 }
 static void gnc_budget_view_class_init (GncBudgetViewClass *klass)
-{ G_OBJECT_CLASS (klass)->finalize = finalize; g_signal_new ("account-activated", GNC_TYPE_BUDGET_VIEW, G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, GNC_TYPE_ACCOUNT); }
+{
+    G_OBJECT_CLASS (klass)->dispose = dispose;
+    G_OBJECT_CLASS (klass)->finalize = finalize;
+    g_signal_new ("account-activated", GNC_TYPE_BUDGET_VIEW, G_SIGNAL_RUN_LAST,
+                  0, NULL, NULL, NULL, G_TYPE_NONE, 1, GNC_TYPE_ACCOUNT);
+}
 static void gnc_budget_view_init (GncBudgetView *view)
 { gtk_orientable_set_orientation (GTK_ORIENTABLE (view), GTK_ORIENTATION_VERTICAL); gtk_widget_set_name (GTK_WIDGET (view), "gnc-id-budget-page"); }
 
@@ -469,8 +748,30 @@ void gnc_budget_view_set_show_account_code (GncBudgetView *view, gboolean show) 
 gboolean gnc_budget_view_get_show_account_code (GncBudgetView *view) { return PRIV(view)->show_account_code; }
 void gnc_budget_view_set_show_account_description (GncBudgetView *view, gboolean show) { PRIV(view)->show_account_desc = show; gnc_tree_view_account_set_column_visible (PRIV(view)->account_view, "description", show); }
 gboolean gnc_budget_view_get_show_account_description (GncBudgetView *view) { return PRIV(view)->show_account_desc; }
-void gnc_budget_view_refresh (GncBudgetView *view) { create_columns (view); gnc_budget_view_refresh_totals (view); }
-static void gnc_budget_view_refresh_totals (GncBudgetView *view) { GncBudgetViewPrivate *priv = PRIV(view); gtk_widget_queue_draw (GTK_WIDGET(priv->totals_columns)); gtk_widget_queue_draw (GTK_WIDGET(priv->account_columns)); }
+void
+gnc_budget_view_refresh (GncBudgetView *view)
+{
+    if (PRIV (view)->disposing)
+        return;
+
+    g_object_ref (view);
+    create_columns (view);
+    if (!PRIV (view)->disposing)
+        gnc_budget_view_refresh_totals (view);
+    g_object_unref (view);
+}
+
+static void
+gnc_budget_view_refresh_totals (GncBudgetView *view)
+{
+    GncBudgetViewPrivate *priv = PRIV (view);
+
+    if (priv->disposing)
+        return;
+
+    gtk_widget_queue_draw (GTK_WIDGET (priv->totals_columns));
+    gtk_widget_queue_draw (GTK_WIDGET (priv->account_columns));
+}
 void gnc_budget_view_resized_cb (GObject *object, GParamSpec *pspec, gpointer data) { gnc_budget_view_refresh_totals (GNC_BUDGET_VIEW(data)); (void)object; (void)pspec; }
 void gnc_budget_view_save (GncBudgetView *view, GKeyFile *file, const gchar *group) { gnc_tree_view_account_save (PRIV(view)->account_view, PRIV(view)->fd, file, group); }
 gboolean gnc_budget_view_restore (GncBudgetView *view, GKeyFile *file, const gchar *group) { gnc_tree_view_account_restore (PRIV(view)->account_view, PRIV(view)->fd, file, group); return TRUE; }
