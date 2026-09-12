@@ -238,9 +238,20 @@ set (test_book_options_dialog_lifecycle_SOURCES
   test-book-options-dialog-lifecycle.cpp
 )
 
-gnc_add_test (test-book-options-dialog-lifecycle
+set (BOOK_OPTIONS_DIALOG_TEST_INCLUDE_DIRS
+  ${GNOME_UTILS_GUI_TEST_INCLUDE_DIRS}
+  ${CMAKE_SOURCE_DIR}/gnucash/gnome
+)
+
+set (BOOK_OPTIONS_DIALOG_TEST_LIBS
+  ${GNOME_UTILS_GUI_TEST_LIBS}
+  gnc-gnome
+  ${GUILE_LDFLAGS}
+)
+
+gnc_add_test_with_guile (test-book-options-dialog-lifecycle
   "${test_book_options_dialog_lifecycle_SOURCES}"
-  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  BOOK_OPTIONS_DIALOG_TEST_INCLUDE_DIRS BOOK_OPTIONS_DIALOG_TEST_LIBS
   GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
 
 set (test_assistant_hierarchy_layout_SOURCES

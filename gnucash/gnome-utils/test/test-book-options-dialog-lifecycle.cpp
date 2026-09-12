@@ -10,8 +10,12 @@
 #include <config.h>
 
 #include <gtk/gtk.h>
+#include <libguile.h>
+
+#include <cstdlib>
 
 #include "Account.h"
+#include "business-options-gnome.h"
 #include "gnc-component-manager.h"
 #include "gnc-engine.h"
 #include "gnc-main-window.h"
@@ -121,17 +125,18 @@ test_book_options_dialog_lifecycle (void)
     gnc_clear_current_session ();
 }
 
-int
-main (int argc, char **argv)
+static void
+run_tests_with_guile (void*, int, char **)
 {
     int status;
 
-    g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
-    g_test_init (&argc, &argv, NULL);
     gtk_init ();
-    gnc_engine_init_static (argc, argv);
+    gnc_engine_init (0, nullptr);
     gnc_prefs_init ();
     gnc_component_manager_init ();
+    scm_c_use_module ("gnucash reports");
+    scm_c_use_module ("gnucash report report-core");
+    gnc_business_options_gnome_initialize ();
 
     g_test_add_func ("/gnome-utils/book-options/dialog-lifecycle",
                      test_book_options_dialog_lifecycle);
@@ -140,5 +145,14 @@ main (int argc, char **argv)
     gnc_component_manager_shutdown ();
     gnc_prefs_remove_registered ();
     gnc_engine_shutdown ();
-    return status;
+    exit (status);
+}
+
+int
+main (int argc, char **argv)
+{
+    g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
+    g_test_init (&argc, &argv, NULL);
+    scm_boot_guile (argc, argv, run_tests_with_guile, nullptr);
+    return 0;
 }
