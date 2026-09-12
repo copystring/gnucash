@@ -77,6 +77,8 @@ struct _GncTreeViewAccount
     AccountChildrenContext *children_context;
     GtkSelectionModel *selection;
     GtkColumnView *column_view;
+    GtkSorter *view_sorter;
+    gulong view_sorter_changed_id;
     GtkSelectionMode selection_mode;
     GHashTable *selected;
     GHashTable *expanded;
@@ -439,25 +441,33 @@ account_column_sort_cb (gconstpointer first, gconstpointer second, gpointer user
     return result;
 }
 static void
-column_sort_changed (GtkColumnViewColumn *column, GParamSpec *pspec,
-                     AccountColumn *data)
+column_sort_changed (GtkSorter *sorter, GtkSorterChange change,
+                     GncTreeViewAccount *view)
 {
-    GncTreeViewAccount *view = account_column_get_view (data);
-    GtkSortType order = GTK_SORT_ASCENDING;
+    GtkColumnViewColumn *column;
+    AccountColumn *data;
+    GtkSortType order;
 
-    if (!view || view->disposing)
-    {
-        g_clear_object (&view);
-        return;
-    }
-    g_object_get (column, "sort-order", &order, NULL);
+    g_object_ref (view);
+    if (view->disposing)
+        goto cleanup;
+    column = gtk_column_view_sorter_get_primary_sort_column
+        (GTK_COLUMN_VIEW_SORTER (sorter));
+    if (!column)
+        goto cleanup;
+    data = g_object_get_data (G_OBJECT (column), "gnc-account-column");
+    if (!data)
+        goto cleanup;
+    order = gtk_column_view_sorter_get_primary_sort_order
+        (GTK_COLUMN_VIEW_SORTER (sorter));
     gnc_tree_model_account_set_sort_column (view->account_model,
                                             data->column, order);
+cleanup:
     g_object_unref (view);
-    (void)pspec;
+    (void)change;
 }
 
-static void
+static GtkColumnViewColumn *
 add_column (GncTreeViewAccount *view, const gchar *title, const gchar *name,
             GncTreeModelAccountColumn value_column, gboolean tree,
             gboolean toggle, gboolean visible)
@@ -491,20 +501,21 @@ add_column (GncTreeViewAccount *view, const gchar *title, const gchar *name,
     g_object_set_data_full (G_OBJECT (column), "gnc-account-column",
                             account_column_ref (data),
                             (GDestroyNotify)account_column_unref);
-    g_signal_connect_data (column, "notify::sort-order", G_CALLBACK (column_sort_changed),
-                           account_column_ref (data), account_column_closure_free, 0);
     gtk_column_view_append_column (view->column_view, column);
     g_object_unref (sorter);
     /* append_column keeps its own reference; release the creator reference. */
     g_object_unref (column);
     account_column_unref (data);
+    return column;
 }
 
 static void
 add_default_columns (GncTreeViewAccount *view)
 {
+    GtkColumnViewColumn *default_column;
+
 #define COLUMN(t, n, c, tree, toggle, shown) add_column (view, t, n, c, tree, toggle, shown)
-    COLUMN (_("Account Name"), "name", GNC_TREE_MODEL_ACCOUNT_COL_NAME, TRUE, FALSE, TRUE);
+    default_column = COLUMN (_("Account Name"), "name", GNC_TREE_MODEL_ACCOUNT_COL_NAME, TRUE, FALSE, TRUE);
     COLUMN (_("Type"), "type", GNC_TREE_MODEL_ACCOUNT_COL_TYPE, FALSE, FALSE, FALSE);
     COLUMN (_("Commodity"), "commodity", GNC_TREE_MODEL_ACCOUNT_COL_COMMODITY, FALSE, FALSE, FALSE);
     COLUMN (_("Account Code"), "account-code", GNC_TREE_MODEL_ACCOUNT_COL_CODE, FALSE, FALSE, FALSE);
@@ -534,46 +545,77 @@ add_default_columns (GncTreeViewAccount *view)
     COLUMN (C_("Column header for 'Placeholder'", "P"), "placeholder", GNC_TREE_MODEL_ACCOUNT_COL_PLACEHOLDER, FALSE, TRUE, FALSE);
     COLUMN (C_("Column header for 'Opening Balance'", "O"), "opening-balance", GNC_TREE_MODEL_ACCOUNT_COL_OPENING_BALANCE, FALSE, TRUE, FALSE);
 #undef COLUMN
+    gtk_column_view_sort_by_column (view->column_view, default_column,
+                                    GTK_SORT_ASCENDING);
+    view->view_sorter = g_object_ref (gtk_column_view_get_sorter
+                                     (view->column_view));
+    view->view_sorter_changed_id = g_signal_connect
+        (view->view_sorter, "changed", G_CALLBACK (column_sort_changed), view);
 }
 
 static gboolean
 restore_state_cb (gpointer user_data)
 {
     GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT (user_data);
+    GtkTreeListModel *rows;
+    GtkSelectionModel *selection;
+    GHashTable *selected;
+    GHashTable *expanded;
     guint count;
 
     view->restore_source = 0;
-    if (view->disposing)
+    if (view->disposing || !view->rows || !view->selection ||
+        !view->selected || !view->expanded)
         return G_SOURCE_REMOVE;
+    rows = g_object_ref (view->rows);
+    selection = g_object_ref (view->selection);
+    selected = g_hash_table_ref (view->selected);
+    expanded = g_hash_table_ref (view->expanded);
     view->synchronizing = TRUE;
     for (guint position = 0;
-         position < g_list_model_get_n_items (G_LIST_MODEL (view->rows));
+         !view->disposing &&
+         position < g_list_model_get_n_items (G_LIST_MODEL (rows));
          position++)
     {
-        GtkTreeListRow *row = gtk_tree_list_model_get_row (view->rows, position);
+        GtkTreeListRow *row = gtk_tree_list_model_get_row (rows, position);
         Account *account = account_from_row (row);
         if (account && gtk_tree_list_row_is_expandable (row))
-            gtk_tree_list_row_set_expanded (row, has_guid (view->expanded, account));
+            gtk_tree_list_row_set_expanded (row, has_guid (expanded, account));
         g_clear_object (&row);
     }
-    count = g_list_model_get_n_items (G_LIST_MODEL (view->rows));
-    gtk_selection_model_unselect_all (view->selection);
-    for (guint position = 0; position < count; position++)
+    count = g_list_model_get_n_items (G_LIST_MODEL (rows));
+    if (!view->disposing)
+        gtk_selection_model_unselect_all (selection);
+    for (guint position = 0; !view->disposing && position < count; position++)
     {
-        Account *account = account_at (view, position);
-        if (account && has_guid (view->selected, account))
-            gtk_selection_model_select_item (view->selection, position, FALSE);
+        GtkTreeListRow *row = gtk_tree_list_model_get_row (rows, position);
+        Account *account = account_from_row (row);
+
+        if (account && has_guid (selected, account))
+            gtk_selection_model_select_item (selection, position, FALSE);
+        g_clear_object (&row);
     }
-    view->synchronizing = FALSE;
-    view->rebuilding = FALSE;
+    g_hash_table_unref (expanded);
+    g_hash_table_unref (selected);
+    g_object_unref (selection);
+    g_object_unref (rows);
+    if (!view->disposing)
+    {
+        view->synchronizing = FALSE;
+        view->rebuilding = FALSE;
+    }
     return G_SOURCE_REMOVE;
 }
 
 static void
 schedule_restore (GncTreeViewAccount *view)
 {
-    if (!view->disposing && !view->restore_source)
-        view->restore_source = g_idle_add (restore_state_cb, view);
+    if (!view->disposing && view->rows && view->selection && view->selected &&
+        view->expanded && !view->restore_source)
+        view->restore_source = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+                                                restore_state_cb,
+                                                g_object_ref (view),
+                                                g_object_unref);
 }
 
 static void
@@ -640,6 +682,12 @@ view_dispose (GObject *object)
     guint restore_source;
 
     view->disposing = TRUE;
+    if (view->view_sorter && view->view_sorter_changed_id)
+    {
+        g_signal_handler_disconnect (view->view_sorter,
+                                     view->view_sorter_changed_id);
+        view->view_sorter_changed_id = 0;
+    }
     restore_source = view->restore_source;
     view->restore_source = 0;
     if (restore_source)
@@ -669,6 +717,7 @@ view_dispose (GObject *object)
     g_clear_object (&view->selection);
     g_clear_object (&view->rows);
     g_clear_object (&view->account_model);
+    g_clear_object (&view->view_sorter);
     G_OBJECT_CLASS (gnc_tree_view_account_parent_class)->dispose (object);
 }
 

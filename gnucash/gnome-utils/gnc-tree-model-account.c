@@ -115,10 +115,13 @@ append_children (GncTreeModelAccount *model, GListStore *store, Account *parent)
 static void
 rebuild (GncTreeModelAccount *model)
 {
+    /* Signal handlers may dispose the last view that owns this model. Keep the
+     * model alive until the complete rebuilding/changed transaction ends. */
+    g_object_ref (model);
     g_signal_emit (model, signals[MODEL_REBUILDING], 0);
     g_list_store_remove_all (model->roots);
     if (!model->root)
-        return;
+        goto cleanup;
     if (model->show_root)
     {
         if (account_is_visible (model, model->root))
@@ -127,6 +130,8 @@ rebuild (GncTreeModelAccount *model)
     else
         append_children (model, model->roots, model->root);
     g_signal_emit (model, signals[MODEL_CHANGED], 0);
+cleanup:
+    g_object_unref (model);
 }
 
 static void

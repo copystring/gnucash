@@ -46,6 +46,8 @@ typedef struct
     GDestroyNotify filter_destroy;
     GncTreeModelPriceColumn sort_column;
     GtkSortType sort_order;
+    GtkSorter *view_sorter;
+    gulong view_sorter_changed_id;
     guint restore_source;
     guint suspended;
     gboolean dirty;
@@ -113,12 +115,12 @@ compare_prices (GNCPrice *a, GNCPrice *b, GncTreeModelPriceColumn column)
     return gnc_numeric_compare (gnc_price_get_value (a), gnc_price_get_value (b));
 }
 static gint
-row_compare (gconstpointer left, gconstpointer right, gpointer data)
+row_compare_column (gconstpointer left, gconstpointer right,
+                    GncTreeModelPriceColumn column)
 {
-    GncTreeViewPricePrivate *p = data;
     GncTreeModelPriceRow *a = GNC_TREE_MODEL_PRICE_ROW ((gpointer)left), *b = GNC_TREE_MODEL_PRICE_ROW ((gpointer)right);
     gint result;
-    if (gnc_tree_model_price_row_get_kind (a) == GNC_TREE_MODEL_PRICE_ROW_PRICE && gnc_tree_model_price_row_get_kind (b) == GNC_TREE_MODEL_PRICE_ROW_PRICE) result = compare_prices (gnc_tree_model_price_row_get_price (a), gnc_tree_model_price_row_get_price (b), p->sort_column);
+    if (gnc_tree_model_price_row_get_kind (a) == GNC_TREE_MODEL_PRICE_ROW_PRICE && gnc_tree_model_price_row_get_kind (b) == GNC_TREE_MODEL_PRICE_ROW_PRICE) result = compare_prices (gnc_tree_model_price_row_get_price (a), gnc_tree_model_price_row_get_price (b), column);
     else
     {
         gchar *sa = gnc_tree_model_price_row_get_string (a, GNC_TREE_MODEL_PRICE_COL_COMMODITY);
@@ -127,6 +129,14 @@ row_compare (gconstpointer left, gconstpointer right, gpointer data)
         g_free (sa);
         g_free (sb);
     }
+    return result;
+}
+static gint
+row_compare (gconstpointer left, gconstpointer right, gpointer data)
+{
+    GncTreeViewPricePrivate *p = data;
+    gint result = row_compare_column (left, right, p->sort_column);
+
     return p->sort_order == GTK_SORT_DESCENDING? -result: result;
 }
 static void
@@ -404,32 +414,39 @@ sorter_cb (gconstpointer left, gconstpointer right, gpointer user_data)
         g_clear_object (&view);
         return GTK_ORDERING_EQUAL;
     }
-    result = row_compare (a, b, priv (view));
+    result = row_compare_column (a, b, column->column);
     g_object_unref (view);
     return result < 0? GTK_ORDERING_SMALLER: result > 0? GTK_ORDERING_LARGER: GTK_ORDERING_EQUAL;
 }
 static void
-sort_changed (GtkColumnViewColumn *column_view, GParamSpec *pspec, PriceColumn *column)
+sort_changed (GtkSorter *sorter, GtkSorterChange change,
+              GncTreeViewPrice *view)
 {
-    GncTreeViewPrice *view = price_column_get_view (column);
     GncTreeViewPricePrivate *p;
-    GtkSortType order = GTK_SORT_ASCENDING;
+    GtkColumnViewColumn *column_view;
+    PriceColumn *column;
 
-    if (!view || priv (view)->disposing)
-    {
-        g_clear_object (&view);
-        return;
-    }
+    g_object_ref (view);
+    if (priv (view)->disposing)
+        goto cleanup;
+    column_view = gtk_column_view_sorter_get_primary_sort_column
+        (GTK_COLUMN_VIEW_SORTER (sorter));
+    if (!column_view)
+        goto cleanup;
+    column = g_object_get_data (G_OBJECT (column_view), "gnc-price-column");
+    if (!column)
+        goto cleanup;
     p = priv (view);
-    g_object_get (column_view, "sort-order", &order, NULL);
     p->sort_column = column->column;
-    p->sort_order = order;
+    p->sort_order = gtk_column_view_sorter_get_primary_sort_order
+        (GTK_COLUMN_VIEW_SORTER (sorter));
     rebuild_roots (view);
     schedule_restore (view);
+cleanup:
     g_object_unref (view);
-    (void)pspec;
+    (void)change;
 }
-static void
+static GtkColumnViewColumn *
 add_column (GncTreeViewPrice *view, const gchar *title, const gchar *id, GncTreeModelPriceColumn value, gboolean tree, gboolean visible)
 {
     PriceColumn *data = g_new0 (PriceColumn, 1);
@@ -454,8 +471,6 @@ add_column (GncTreeViewPrice *view, const gchar *title, const gchar *id, GncTree
     sorter = gtk_custom_sorter_new (sorter_cb, price_column_ref (data),
                                     (GDestroyNotify)price_column_unref);
     gtk_column_view_column_set_sorter (column, GTK_SORTER (sorter));
-    g_signal_connect_data (column, "notify::sort-order", G_CALLBACK (sort_changed),
-                           price_column_ref (data), price_column_closure_free, 0);
     g_object_set_data_full (G_OBJECT (column), "gnc-price-column",
                             price_column_ref (data),
                             (GDestroyNotify)price_column_unref);
@@ -463,6 +478,7 @@ add_column (GncTreeViewPrice *view, const gchar *title, const gchar *id, GncTree
     g_object_unref (sorter);
     g_object_unref (column);
     price_column_unref (data);
+    return column;
 }
 static void
 view_dispose (GObject *object)
@@ -475,6 +491,12 @@ view_dispose (GObject *object)
     guint restore_source = p->restore_source;
 
     p->disposing = TRUE;
+    if (p->view_sorter && p->view_sorter_changed_id)
+    {
+        g_signal_handler_disconnect (p->view_sorter,
+                                     p->view_sorter_changed_id);
+        p->view_sorter_changed_id = 0;
+    }
     p->restore_source = 0;
     if (restore_source) g_source_remove (restore_source);
     if (p->children_context)
@@ -499,6 +521,7 @@ view_dispose (GObject *object)
     g_clear_object (&p->rows);
     g_clear_object (&p->roots);
     g_clear_object (&p->model);
+    g_clear_object (&p->view_sorter);
     G_OBJECT_CLASS (gnc_tree_view_price_parent_class)->dispose (object);
 }
 static void
@@ -520,6 +543,8 @@ gnc_tree_view_price_new (QofBook *book, const gchar *first_property_name, ...)
 {
     GncTreeViewPrice *view = g_object_new (GNC_TYPE_TREE_VIEW_PRICE, "name", "gnc-id-price-tree", NULL);
     GncTreeViewPricePrivate *p = priv (view);
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *default_column;
     va_list args;
     p->model = gnc_tree_model_price_new (book, gnc_pricedb_get_db (book));
     p->roots = g_list_store_new (GNC_TYPE_TREE_MODEL_PRICE_ROW);
@@ -530,8 +555,9 @@ gnc_tree_view_price_new (QofBook *book, const gchar *first_property_name, ...)
                                        create_children, p->children_context,
                                        (GDestroyNotify) price_children_context_free);
     p->selection = gtk_multi_selection_new (g_object_ref (G_LIST_MODEL (p->rows)));
-    gtk_column_view_set_model (gnc_tree_view_get_column_view (GNC_TREE_VIEW (view)), GTK_SELECTION_MODEL (p->selection));
-    add_column (view, _("Security"), "security", GNC_TREE_MODEL_PRICE_COL_COMMODITY, TRUE, TRUE);
+    column_view = gnc_tree_view_get_column_view (GNC_TREE_VIEW (view));
+    gtk_column_view_set_model (column_view, GTK_SELECTION_MODEL (p->selection));
+    default_column = add_column (view, _("Security"), "security", GNC_TREE_MODEL_PRICE_COL_COMMODITY, TRUE, TRUE);
     add_column (view, _("Currency"), "currency", GNC_TREE_MODEL_PRICE_COL_CURRENCY, FALSE, TRUE);
     add_column (view, _("Date"), "date", GNC_TREE_MODEL_PRICE_COL_DATE, FALSE, TRUE);
     add_column (view, _("Source"), "source", GNC_TREE_MODEL_PRICE_COL_SOURCE, FALSE, TRUE);
@@ -540,6 +566,11 @@ gnc_tree_view_price_new (QofBook *book, const gchar *first_property_name, ...)
     va_start (args, first_property_name);
     g_object_set_valist (G_OBJECT (view), first_property_name, args);
     va_end (args);
+    gtk_column_view_sort_by_column (column_view, default_column,
+                                    GTK_SORT_ASCENDING);
+    p->view_sorter = g_object_ref (gtk_column_view_get_sorter (column_view));
+    p->view_sorter_changed_id = g_signal_connect
+        (p->view_sorter, "changed", G_CALLBACK (sort_changed), view);
     g_signal_connect_object (p->selection, "selection-changed", G_CALLBACK (selection_changed), view, 0);
     g_signal_connect_object (p->model, "changed", G_CALLBACK (model_changed), view, 0);
     return GTK_WIDGET (view);

@@ -14,6 +14,8 @@
 #include "gnc-query-view.h"
 #include "search-param.h"
 #include "gnc-tree-view-account.h"
+#include "gnc-tree-model-commodity.h"
+#include "gnc-tree-model-price.h"
 #include "gnc-tree-view-commodity.h"
 #include "gnc-tree-view-owner.h"
 #include "gnc-tree-view-price.h"
@@ -169,6 +171,22 @@ dispose_view_on_selection_changed (GtkSelectionModel *selection, guint position,
 }
 
 static void
+dispose_view_on_items_changed (GListModel *model, guint position,
+                               guint removed, guint added,
+                               DisposeOnSelectionChange *context)
+{
+    if (!context->invoked)
+    {
+        context->invoked = TRUE;
+        g_object_run_dispose (context->view);
+    }
+    (void)model;
+    (void)position;
+    (void)removed;
+    (void)added;
+}
+
+static void
 watch_column_owners (GtkColumnView *column_view, guint expected_columns,
                      guint retained_index, gboolean *columns_finalized,
                      GtkListItemFactory **retained_factory,
@@ -252,6 +270,135 @@ selected_tree_row (GtkSelectionModel *selection)
                                       (G_LIST_MODEL (selection), position));
     g_assert_not_reached ();
     return NULL;
+}
+
+static GtkColumnViewColumn *
+column_by_id (GtkColumnView *view, const gchar *id)
+{
+    GListModel *columns = gtk_column_view_get_columns (view);
+
+    for (guint index = 0; index < g_list_model_get_n_items (columns); index++)
+    {
+        GtkColumnViewColumn *column = g_list_model_get_item (columns, index);
+
+        if (g_strcmp0 (gtk_column_view_column_get_id (column), id) == 0)
+            return column;
+        g_object_unref (column);
+    }
+    g_assert_not_reached ();
+    return NULL;
+}
+
+static void
+assert_selected_ancestors_expanded (GtkSelectionModel *selection,
+                                    guint expected_ancestors)
+{
+    GtkTreeListRow *row = selected_tree_row (selection);
+    guint ancestors = 0;
+
+    for (GtkTreeListRow *parent = gtk_tree_list_row_get_parent (row); parent;)
+    {
+        GtkTreeListRow *next;
+
+        g_assert_true (gtk_tree_list_row_get_expanded (parent));
+        ancestors++;
+        next = gtk_tree_list_row_get_parent (parent);
+        g_object_unref (parent);
+        parent = next;
+    }
+    g_object_unref (row);
+    g_assert_cmpuint (ancestors, ==, expected_ancestors);
+}
+
+static void
+assert_account_root_order (GtkSelectionModel *selection, Account *first,
+                           Account *second)
+{
+    guint first_position = G_MAXUINT;
+    guint second_position = G_MAXUINT;
+
+    for (guint position = 0;
+         position < g_list_model_get_n_items (G_LIST_MODEL (selection)); position++)
+    {
+        GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (g_list_model_get_item
+                                                       (G_LIST_MODEL (selection),
+                                                        position));
+        GObject *item;
+
+        if (gtk_tree_list_row_get_depth (tree_row) != 0)
+        {
+            g_object_unref (tree_row);
+            continue;
+        }
+        item = gtk_tree_list_row_get_item (tree_row);
+        if (item == G_OBJECT (first))
+            first_position = position;
+        else if (item == G_OBJECT (second))
+            second_position = position;
+        g_clear_object (&item);
+        g_object_unref (tree_row);
+    }
+    g_assert_cmpuint (first_position, !=, G_MAXUINT);
+    g_assert_cmpuint (second_position, !=, G_MAXUINT);
+    g_assert_cmpuint (first_position, <, second_position);
+}
+
+static void
+assert_commodity_order (GtkSelectionModel *selection, gnc_commodity *first,
+                        gnc_commodity *second)
+{
+    guint first_position = G_MAXUINT;
+    guint second_position = G_MAXUINT;
+
+    for (guint position = 0;
+         position < g_list_model_get_n_items (G_LIST_MODEL (selection)); position++)
+    {
+        GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (g_list_model_get_item
+                                                       (G_LIST_MODEL (selection),
+                                                        position));
+        GncTreeModelCommodityRow *row = GNC_TREE_MODEL_COMMODITY_ROW
+            (gtk_tree_list_row_get_item (tree_row));
+        gnc_commodity *commodity = gnc_tree_model_commodity_row_get_commodity (row);
+
+        if (commodity == first)
+            first_position = position;
+        else if (commodity == second)
+            second_position = position;
+        g_object_unref (row);
+        g_object_unref (tree_row);
+    }
+    g_assert_cmpuint (first_position, !=, G_MAXUINT);
+    g_assert_cmpuint (second_position, !=, G_MAXUINT);
+    g_assert_cmpuint (first_position, <, second_position);
+}
+
+static void
+assert_price_order (GtkSelectionModel *selection, GNCPrice *first,
+                    GNCPrice *second)
+{
+    guint first_position = G_MAXUINT;
+    guint second_position = G_MAXUINT;
+
+    for (guint position = 0;
+         position < g_list_model_get_n_items (G_LIST_MODEL (selection)); position++)
+    {
+        GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (g_list_model_get_item
+                                                       (G_LIST_MODEL (selection),
+                                                        position));
+        GncTreeModelPriceRow *row = GNC_TREE_MODEL_PRICE_ROW
+            (gtk_tree_list_row_get_item (tree_row));
+        GNCPrice *price = gnc_tree_model_price_row_get_price (row);
+
+        if (price == first)
+            first_position = position;
+        else if (price == second)
+            second_position = position;
+        g_object_unref (row);
+        g_object_unref (tree_row);
+    }
+    g_assert_cmpuint (first_position, !=, G_MAXUINT);
+    g_assert_cmpuint (second_position, !=, G_MAXUINT);
+    g_assert_cmpuint (first_position, <, second_position);
 }
 
 /* The view drops its selection model during dispose. Keeping the model alive
@@ -1000,6 +1147,354 @@ test_price_column_owners_outlive_disposed_view (void)
 }
 
 static void
+test_account_native_column_sorting (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root = gnc_account_create_root (book);
+    Account *by_code = xaccMallocAccount (book);
+    Account *by_name = xaccMallocAccount (book);
+    Account *selected = xaccMallocAccount (book);
+    GtkWidget *widget;
+    GncTreeViewAccount *view;
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *name_column;
+    GtkColumnViewColumn *code_column;
+    GtkSelectionModel *selection;
+    GtkSorter *view_sorter;
+
+    gnc_set_current_session (session);
+    xaccAccountSetName (by_code, "Zulu by name");
+    xaccAccountSetCode (by_code, "100");
+    xaccAccountSetType (by_code, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, by_code);
+    xaccAccountSetName (by_name, "Alpha by name");
+    xaccAccountSetCode (by_name, "900");
+    xaccAccountSetType (by_name, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, by_name);
+    xaccAccountSetName (selected, "Selected child");
+    xaccAccountSetType (selected, ACCT_TYPE_BANK);
+    gnc_account_append_child (by_code, selected);
+
+    widget = gnc_tree_view_account_new_with_root (root, FALSE);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_ACCOUNT (widget);
+    column_view = gnc_tree_view_account_get_column_view (view);
+    selection = gnc_tree_view_account_get_selection_model (view);
+    name_column = column_by_id (column_view, "name");
+    code_column = column_by_id (column_view, "account-code");
+    view_sorter = g_object_ref (gtk_column_view_get_sorter (column_view));
+    gnc_tree_view_account_set_selected_account (view, selected);
+    drain_main_context ();
+
+    gtk_column_view_sort_by_column (column_view, name_column,
+                                    GTK_SORT_ASCENDING);
+    drain_main_context ();
+    assert_account_root_order (selection, by_name, by_code);
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == selected);
+    assert_selected_ancestors_expanded (selection, 1);
+    gtk_column_view_sort_by_column (column_view, name_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    assert_account_root_order (selection, by_code, by_name);
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == selected);
+    assert_selected_ancestors_expanded (selection, 1);
+    gtk_column_view_sort_by_column (column_view, code_column,
+                                    GTK_SORT_ASCENDING);
+    drain_main_context ();
+    assert_account_root_order (selection, by_code, by_name);
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == selected);
+    assert_selected_ancestors_expanded (selection, 1);
+    gtk_column_view_sort_by_column (column_view, code_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    assert_account_root_order (selection, by_name, by_code);
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == selected);
+    assert_selected_ancestors_expanded (selection, 1);
+
+    g_object_unref (name_column);
+    g_object_unref (code_column);
+    g_object_run_dispose (G_OBJECT (widget));
+    g_object_run_dispose (G_OBJECT (widget));
+    gtk_sorter_changed (view_sorter, GTK_SORTER_CHANGE_DIFFERENT);
+    g_object_unref (view_sorter);
+    g_object_unref (widget);
+    gnc_clear_current_session ();
+}
+
+static void
+test_account_sort_rebuild_survives_dispose (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root = gnc_account_create_root (book);
+    Account *first = xaccMallocAccount (book);
+    Account *second = xaccMallocAccount (book);
+    GtkWidget *widget;
+    GncTreeViewAccount *view;
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *code_column;
+    GtkSelectionModel *selection;
+    GtkTreeListModel *rows;
+    GListModel *roots;
+    DisposeOnSelectionChange dispose_context;
+    gulong dispose_id;
+
+    gnc_set_current_session (session);
+    xaccAccountSetName (first, "Rebuild first");
+    xaccAccountSetCode (first, "100");
+    xaccAccountSetType (first, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, first);
+    xaccAccountSetName (second, "Rebuild second");
+    xaccAccountSetCode (second, "200");
+    xaccAccountSetType (second, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, second);
+    widget = gnc_tree_view_account_new_with_root (root, FALSE);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_ACCOUNT (widget);
+    column_view = g_object_ref (gnc_tree_view_account_get_column_view (view));
+    code_column = column_by_id (column_view, "account-code");
+    selection = gnc_tree_view_account_get_selection_model (view);
+    rows = GTK_TREE_LIST_MODEL (gtk_single_selection_get_model
+                                (GTK_SINGLE_SELECTION (selection)));
+    roots = g_object_ref (gtk_tree_list_model_get_model (rows));
+    dispose_context.view = G_OBJECT (widget);
+    dispose_context.invoked = FALSE;
+    dispose_id = g_signal_connect (roots, "items-changed",
+                                   G_CALLBACK (dispose_view_on_items_changed),
+                                   &dispose_context);
+
+    gtk_column_view_sort_by_column (column_view, code_column,
+                                    GTK_SORT_DESCENDING);
+    g_assert_true (dispose_context.invoked);
+    g_signal_handler_disconnect (roots, dispose_id);
+    g_object_run_dispose (G_OBJECT (widget));
+
+    g_object_unref (roots);
+    g_object_unref (code_column);
+    g_object_unref (column_view);
+    g_object_unref (widget);
+    gnc_clear_current_session ();
+}
+
+static void
+test_account_sort_restore_survives_dispose (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root = gnc_account_create_root (book);
+    Account *parent = xaccMallocAccount (book);
+    Account *selected = xaccMallocAccount (book);
+    Account *other = xaccMallocAccount (book);
+    GtkWidget *widget;
+    GncTreeViewAccount *view;
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *code_column;
+    GtkSelectionModel *selection;
+    DisposeOnSelectionChange dispose_context;
+    gulong dispose_id;
+
+    gnc_set_current_session (session);
+    xaccAccountSetName (parent, "Restore parent");
+    xaccAccountSetCode (parent, "100");
+    xaccAccountSetType (parent, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, parent);
+    xaccAccountSetName (selected, "Restore selected child");
+    xaccAccountSetType (selected, ACCT_TYPE_BANK);
+    gnc_account_append_child (parent, selected);
+    xaccAccountSetName (other, "Restore other");
+    xaccAccountSetCode (other, "200");
+    xaccAccountSetType (other, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, other);
+    widget = gnc_tree_view_account_new_with_root (root, FALSE);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_ACCOUNT (widget);
+    column_view = g_object_ref (gnc_tree_view_account_get_column_view (view));
+    code_column = column_by_id (column_view, "account-code");
+    selection = g_object_ref (gnc_tree_view_account_get_selection_model (view));
+    gnc_tree_view_account_set_selected_account (view, selected);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == selected);
+
+    gtk_column_view_sort_by_column (column_view, code_column,
+                                    GTK_SORT_DESCENDING);
+    dispose_context.view = G_OBJECT (widget);
+    dispose_context.invoked = FALSE;
+    dispose_id = g_signal_connect (selection, "selection-changed",
+                                   G_CALLBACK (dispose_view_on_selection_changed),
+                                   &dispose_context);
+    drain_main_context ();
+    g_assert_true (dispose_context.invoked);
+    g_signal_handler_disconnect (selection, dispose_id);
+    g_object_run_dispose (G_OBJECT (widget));
+
+    g_object_unref (selection);
+    g_object_unref (code_column);
+    g_object_unref (column_view);
+    g_object_unref (widget);
+    gnc_clear_current_session ();
+}
+
+static void
+test_commodity_native_column_sorting (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    gnc_commodity_table *table = gnc_commodity_table_get_table (book);
+    gnc_commodity *by_symbol;
+    gnc_commodity *by_name;
+    GtkWidget *widget;
+    GncTreeViewCommodity *view;
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *name_column;
+    GtkColumnViewColumn *symbol_column;
+    GtkSelectionModel *selection;
+    GtkSorter *view_sorter;
+
+    gnc_set_current_session (session);
+    by_symbol = gnc_commodity_new (book, "Zulu by name", "SORT-CONTRACT",
+                                   "AAA", "", 100);
+    by_name = gnc_commodity_new (book, "Alpha by name", "SORT-CONTRACT",
+                                 "ZZZ", "", 100);
+    gnc_commodity_table_insert (table, by_symbol);
+    gnc_commodity_table_insert (table, by_name);
+    widget = gnc_tree_view_commodity_new (book, NULL);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_COMMODITY (widget);
+    column_view = gnc_tree_view_commodity_get_column_view (view);
+    selection = gnc_tree_view_commodity_get_selection_model (view);
+    name_column = column_by_id (column_view, "name");
+    symbol_column = column_by_id (column_view, "symbol");
+    view_sorter = g_object_ref (gtk_column_view_get_sorter (column_view));
+    gnc_tree_view_commodity_select_commodity (view, by_symbol);
+    drain_main_context ();
+
+    gtk_column_view_sort_by_column (column_view, name_column,
+                                    GTK_SORT_ASCENDING);
+    drain_main_context ();
+    assert_commodity_order (selection, by_name, by_symbol);
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == by_symbol);
+    assert_selected_ancestors_expanded (selection, 1);
+    gtk_column_view_sort_by_column (column_view, name_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    assert_commodity_order (selection, by_symbol, by_name);
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == by_symbol);
+    assert_selected_ancestors_expanded (selection, 1);
+    gtk_column_view_sort_by_column (column_view, symbol_column,
+                                    GTK_SORT_ASCENDING);
+    drain_main_context ();
+    assert_commodity_order (selection, by_symbol, by_name);
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == by_symbol);
+    assert_selected_ancestors_expanded (selection, 1);
+    gtk_column_view_sort_by_column (column_view, symbol_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    assert_commodity_order (selection, by_name, by_symbol);
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == by_symbol);
+    assert_selected_ancestors_expanded (selection, 1);
+
+    g_object_unref (name_column);
+    g_object_unref (symbol_column);
+    g_object_run_dispose (G_OBJECT (widget));
+    g_object_run_dispose (G_OBJECT (widget));
+    gtk_sorter_changed (view_sorter, GTK_SORTER_CHANGE_DIFFERENT);
+    g_object_unref (view_sorter);
+    g_object_unref (widget);
+    gnc_clear_current_session ();
+}
+
+static void
+test_price_native_column_sorting (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    gnc_commodity_table *table = gnc_commodity_table_get_table (book);
+    gnc_commodity *currency;
+    gnc_commodity *security;
+    GNCPrice *older;
+    GNCPrice *newer;
+    GtkWidget *widget;
+    GncTreeViewPrice *view;
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *date_column;
+    GtkColumnViewColumn *value_column;
+    GtkSelectionModel *selection;
+    GtkSorter *view_sorter;
+
+    gnc_set_current_session (session);
+    currency = gnc_commodity_new (book, "Sort currency",
+                                  GNC_COMMODITY_NS_CURRENCY, "SOC", "", 100);
+    security = gnc_commodity_new (book, "Sort security", "SORT-CONTRACT",
+                                  "SOS", "", 1000);
+    gnc_commodity_table_insert (table, currency);
+    gnc_commodity_table_insert (table, security);
+    older = gnc_price_create (book);
+    gnc_price_begin_edit (older);
+    gnc_price_set_commodity (older, security);
+    gnc_price_set_currency (older, currency);
+    gnc_price_set_time64 (older, 1);
+    gnc_price_set_value (older, gnc_numeric_create (1, 1));
+    gnc_price_commit_edit (older);
+    g_assert_true (gnc_pricedb_add_price (gnc_pricedb_get_db (book), older));
+    newer = gnc_price_create (book);
+    gnc_price_begin_edit (newer);
+    gnc_price_set_commodity (newer, security);
+    gnc_price_set_currency (newer, currency);
+    gnc_price_set_time64 (newer, 86401);
+    gnc_price_set_value (newer, gnc_numeric_create (2, 1));
+    gnc_price_commit_edit (newer);
+    g_assert_true (gnc_pricedb_add_price (gnc_pricedb_get_db (book), newer));
+
+    widget = gnc_tree_view_price_new (book, NULL);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_PRICE (widget);
+    column_view = gnc_tree_view_price_get_column_view (view);
+    selection = gnc_tree_view_price_get_selection_model (view);
+    date_column = column_by_id (column_view, "date");
+    value_column = column_by_id (column_view, "price");
+    view_sorter = g_object_ref (gtk_column_view_get_sorter (column_view));
+    gnc_tree_view_price_set_selected_price (view, older);
+    drain_main_context ();
+
+    gtk_column_view_sort_by_column (column_view, date_column,
+                                    GTK_SORT_ASCENDING);
+    drain_main_context ();
+    assert_price_order (selection, newer, older);
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == older);
+    assert_selected_ancestors_expanded (selection, 2);
+    gtk_column_view_sort_by_column (column_view, date_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    assert_price_order (selection, older, newer);
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == older);
+    assert_selected_ancestors_expanded (selection, 2);
+    gtk_column_view_sort_by_column (column_view, value_column,
+                                    GTK_SORT_ASCENDING);
+    drain_main_context ();
+    assert_price_order (selection, older, newer);
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == older);
+    assert_selected_ancestors_expanded (selection, 2);
+    gtk_column_view_sort_by_column (column_view, value_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    assert_price_order (selection, newer, older);
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == older);
+    assert_selected_ancestors_expanded (selection, 2);
+
+    g_object_unref (date_column);
+    g_object_unref (value_column);
+    g_object_run_dispose (G_OBJECT (widget));
+    g_object_run_dispose (G_OBJECT (widget));
+    gtk_sorter_changed (view_sorter, GTK_SORTER_CHANGE_DIFFERENT);
+    g_object_unref (view_sorter);
+    g_object_unref (widget);
+    gnc_price_unref (older);
+    gnc_price_unref (newer);
+    gnc_clear_current_session ();
+}
+
+static void
 test_owner_selection_survives_view_dispose (void)
 {
     GtkWidget *widget = gnc_tree_view_owner_new (GNC_OWNER_CUSTOMER);
@@ -1182,14 +1677,24 @@ main (int argc, char **argv)
                      test_account_column_owners_outlive_disposed_view);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-selection-modes",
                      test_account_selection_modes_preserve_semantics);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-native-sorting",
+                     test_account_native_column_sorting);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-sort-rebuild-dispose",
+                     test_account_sort_rebuild_survives_dispose);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-sort-restore-dispose",
+                     test_account_sort_restore_survives_dispose);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity",
                      test_commodity_lookup_releases_tree_item);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity-column-owners",
                      test_commodity_column_owners_outlive_disposed_view);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity-native-sorting",
+                     test_commodity_native_column_sorting);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/price",
                      test_price_lookup_releases_tree_item);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/price-column-owners",
                      test_price_column_owners_outlive_disposed_view);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/price-native-sorting",
+                     test_price_native_column_sorting);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/owner",
                      test_owner_selection_survives_view_dispose);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/query",

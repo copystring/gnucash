@@ -44,6 +44,8 @@ typedef struct
     GDestroyNotify filter_destroy;
     GncTreeModelCommodityColumn sort_column;
     GtkSortType sort_order;
+    GtkSorter *view_sorter;
+    gulong view_sorter_changed_id;
     gboolean synchronizing;
     gboolean disposing;
     guint restore_source;
@@ -369,27 +371,35 @@ sort_cb (gconstpointer left, gconstpointer right, gpointer user_data)
     return result < 0? GTK_ORDERING_SMALLER: result > 0? GTK_ORDERING_LARGER: GTK_ORDERING_EQUAL;
 }
 static void
-sort_changed (GtkColumnViewColumn *column_view, GParamSpec *pspec, CommodityColumn *column)
+sort_changed (GtkSorter *sorter, GtkSorterChange change,
+              GncTreeViewCommodity *view)
 {
-    GncTreeViewCommodity *view = commodity_column_get_view (column);
     GncTreeViewCommodityPrivate *p;
-    GtkSortType order = GTK_SORT_ASCENDING;
+    GtkColumnViewColumn *column_view;
+    CommodityColumn *column;
 
-    if (!view || priv (view)->disposing)
-    {
-        g_clear_object (&view);
-        return;
-    }
-    g_object_get (column_view, "sort-order", &order, NULL);
+    g_object_ref (view);
+    if (priv (view)->disposing)
+        goto cleanup;
+    column_view = gtk_column_view_sorter_get_primary_sort_column
+        (GTK_COLUMN_VIEW_SORTER (sorter));
+    if (!column_view)
+        goto cleanup;
+    column = g_object_get_data (G_OBJECT (column_view),
+                                "gnc-commodity-column");
+    if (!column)
+        goto cleanup;
     p = priv (view);
     p->sort_column = column->column;
-    p->sort_order = order;
+    p->sort_order = gtk_column_view_sorter_get_primary_sort_order
+        (GTK_COLUMN_VIEW_SORTER (sorter));
     rebuild_roots (view);
     schedule_restore (view);
+cleanup:
     g_object_unref (view);
-    (void)pspec;
+    (void)change;
 }
-static void
+static GtkColumnViewColumn *
 add_column (GncTreeViewCommodity *view, const gchar *title, const gchar *id, GncTreeModelCommodityColumn value, gboolean tree, gboolean toggle, gboolean visible)
 {
     CommodityColumn *data = g_new0 (CommodityColumn, 1);
@@ -415,8 +425,6 @@ add_column (GncTreeViewCommodity *view, const gchar *title, const gchar *id, Gnc
     sorter = gtk_custom_sorter_new (sort_cb, commodity_column_ref (data),
                                     (GDestroyNotify)commodity_column_unref);
     gtk_column_view_column_set_sorter (column, GTK_SORTER (sorter));
-    g_signal_connect_data (column, "notify::sort-order", G_CALLBACK (sort_changed),
-                           commodity_column_ref (data), commodity_column_closure_free, 0);
     g_object_set_data_full (G_OBJECT (column), "gnc-commodity-column",
                             commodity_column_ref (data),
                             (GDestroyNotify)commodity_column_unref);
@@ -424,6 +432,7 @@ add_column (GncTreeViewCommodity *view, const gchar *title, const gchar *id, Gnc
     g_object_unref (sorter);
     g_object_unref (column);
     commodity_column_unref (data);
+    return column;
 }
 static void
 view_dispose (GObject *object)
@@ -436,6 +445,12 @@ view_dispose (GObject *object)
     guint restore_source = p->restore_source;
 
     p->disposing = TRUE;
+    if (p->view_sorter && p->view_sorter_changed_id)
+    {
+        g_signal_handler_disconnect (p->view_sorter,
+                                     p->view_sorter_changed_id);
+        p->view_sorter_changed_id = 0;
+    }
     p->restore_source = 0;
     if (restore_source) g_source_remove (restore_source);
     if (p->children_context)
@@ -459,6 +474,7 @@ view_dispose (GObject *object)
     g_clear_object (&p->rows);
     g_clear_object (&p->roots);
     g_clear_object (&p->model);
+    g_clear_object (&p->view_sorter);
     G_OBJECT_CLASS (gnc_tree_view_commodity_parent_class)->dispose (object);
 }
 static void
@@ -480,6 +496,8 @@ gnc_tree_view_commodity_new (QofBook *book, const gchar *first_property_name, ..
 {
     GncTreeViewCommodity *view = g_object_new (GNC_TYPE_TREE_VIEW_COMMODITY, "name", "gnc-id-commodity-tree", NULL);
     GncTreeViewCommodityPrivate *p = priv (view);
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *default_column;
     va_list args;
     p->model = gnc_tree_model_commodity_new (book, gnc_commodity_table_get_table (book));
     p->roots = g_list_store_new (GNC_TYPE_TREE_MODEL_COMMODITY_ROW);
@@ -490,10 +508,11 @@ gnc_tree_view_commodity_new (QofBook *book, const gchar *first_property_name, ..
                                        create_children, p->children_context,
                                        (GDestroyNotify) commodity_children_context_free);
     p->selection = gtk_multi_selection_new (g_object_ref (G_LIST_MODEL (p->rows)));
-    gtk_column_view_set_model (gnc_tree_view_get_column_view (GNC_TREE_VIEW (view)), GTK_SELECTION_MODEL (p->selection));
+    column_view = gnc_tree_view_get_column_view (GNC_TREE_VIEW (view));
+    gtk_column_view_set_model (column_view, GTK_SELECTION_MODEL (p->selection));
     add_column (view, _("Namespace"), "namespace", GNC_TREE_MODEL_COMMODITY_COL_NAMESPACE, TRUE, FALSE, TRUE);
     add_column (view, _("Symbol"), "symbol", GNC_TREE_MODEL_COMMODITY_COL_MNEMONIC, FALSE, FALSE, TRUE);
-    add_column (view, _("Name"), "name", GNC_TREE_MODEL_COMMODITY_COL_FULLNAME, FALSE, FALSE, TRUE);
+    default_column = add_column (view, _("Name"), "name", GNC_TREE_MODEL_COMMODITY_COL_FULLNAME, FALSE, FALSE, TRUE);
     add_column (view, _("Print Name"), "printname", GNC_TREE_MODEL_COMMODITY_COL_PRINTNAME, FALSE, FALSE, FALSE);
     add_column (view, _("Display symbol"), "user_symbol", GNC_TREE_MODEL_COMMODITY_COL_USER_SYMBOL, FALSE, FALSE, TRUE);
     add_column (view, _("Unique Name"), "uniquename", GNC_TREE_MODEL_COMMODITY_COL_UNIQUE_NAME, FALSE, FALSE, FALSE);
@@ -505,6 +524,11 @@ gnc_tree_view_commodity_new (QofBook *book, const gchar *first_property_name, ..
     va_start (args, first_property_name);
     g_object_set_valist (G_OBJECT (view), first_property_name, args);
     va_end (args);
+    gtk_column_view_sort_by_column (column_view, default_column,
+                                    GTK_SORT_ASCENDING);
+    p->view_sorter = g_object_ref (gtk_column_view_get_sorter (column_view));
+    p->view_sorter_changed_id = g_signal_connect
+        (p->view_sorter, "changed", G_CALLBACK (sort_changed), view);
     g_signal_connect_object (p->selection, "selection-changed", G_CALLBACK (selection_changed), view, 0);
     g_signal_connect_object (p->model, "changed", G_CALLBACK (model_changed), view, 0);
     return GTK_WIDGET (view);
