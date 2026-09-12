@@ -49,6 +49,7 @@
 #include "gnc-state.h"
 
 #include "assistant-csv-trans-import.h"
+#include "gnc-csv-preview-refresh.hpp"
 
 #include "import-account-matcher.h"
 #include "import-main-matcher.h"
@@ -194,6 +195,8 @@ public:
     void preview_handle_save_del_sensitivity (GtkComboBox* combo);
     void preview_split_column (int col, int offset);
     void preview_refresh_table ();
+    void preview_queue_refresh_table ();
+    static void preview_refresh_table_idle_cb (gpointer user_data);
     void preview_refresh ();
     void preview_validate_settings ();
 
@@ -218,6 +221,8 @@ private:
     void preview_style_column (uint32_t col_num, GtkTreeModel* model);
     /* helper function to check for a valid filename as opposed to a directory */
     bool check_for_valid_filename ();
+
+    CsvPreviewRefreshIdle preview_refresh_idle;
 
     GtkAssistant    *csv_imp_asst;
 
@@ -466,7 +471,8 @@ bool csv_tximp_acct_match_view_clicked_cb (GtkWidget *widget, GdkEventButton *ev
 /*******************************************************
  * Assistant Constructor
  *******************************************************/
-CsvImpTransAssist::CsvImpTransAssist ()
+CsvImpTransAssist::CsvImpTransAssist () :
+    preview_refresh_idle {preview_refresh_table_idle_cb, this}
 {
     auto builder = gtk_builder_new();
     gnc_builder_add_from_file  (builder , "assistant-csv-trans-import.glade", "start_row_adj");
@@ -695,6 +701,7 @@ CsvImpTransAssist::CsvImpTransAssist ()
  *******************************************************/
 CsvImpTransAssist::~CsvImpTransAssist ()
 {
+    preview_refresh_idle.cancel ();
     /* This function is safe to call on a null pointer */
     gnc_gen_trans_list_delete (gnc_csv_importer_gui);
     /* The call above frees gnc_csv_importer_gui but can't nullify it.
@@ -1156,11 +1163,18 @@ CsvImpTransAssist::preview_update_currency_format ()
     preview_refresh_table ();
 }
 
-static gboolean
-csv_imp_preview_queue_rebuild_table (CsvImpTransAssist *assist)
+void
+CsvImpTransAssist::preview_refresh_table_idle_cb (gpointer user_data)
 {
+    auto assist = static_cast<CsvImpTransAssist *> (user_data);
+
     assist->preview_refresh_table ();
-    return false;
+}
+
+void
+CsvImpTransAssist::preview_queue_refresh_table ()
+{
+    preview_refresh_idle.queue ();
 }
 
 /* Internally used enum to access the columns in the comboboxes
@@ -1199,7 +1213,7 @@ void CsvImpTransAssist::preview_update_col_type (GtkComboBox* cbox)
     /* Delay rebuilding our data table to avoid critical warnings due to
      * pending events still acting on them after this event is processed.
      */
-    g_idle_add ((GSourceFunc)csv_imp_preview_queue_rebuild_table, this);
+    preview_queue_refresh_table ();
 
 }
 
@@ -2063,7 +2077,7 @@ CsvImpTransAssist::assist_preview_page_prepare ()
         preview_refresh ();
 
         /* Load the data into the treeview. */
-        g_idle_add ((GSourceFunc)csv_imp_preview_queue_rebuild_table, this);
+        preview_queue_refresh_table ();
     }
 }
 void
