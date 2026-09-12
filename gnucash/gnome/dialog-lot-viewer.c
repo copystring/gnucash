@@ -524,6 +524,7 @@ append_lot_columns (GtkColumnView *view)
     {
         GtkColumnViewColumn *vc = lot_column_new (_ (titles[column]), column);
         gtk_column_view_append_column (view, vc);
+        g_object_unref (vc);
     }
 }
 static void
@@ -535,6 +536,7 @@ append_split_columns (GtkColumnView *view)
     {
         GtkColumnViewColumn *vc = split_column_new (_ (titles[column]), column);
         gtk_column_view_append_column (view, vc);
+        g_object_unref (vc);
     }
 }
 static GNCLot *

@@ -693,6 +693,18 @@ payment_document_column_new (const gchar *title, guint column, gint width)
     return view_column;
 }
 
+static void
+payment_document_append_column (GtkColumnView *view,
+                                const gchar *title, guint column, gint width)
+{
+    GtkColumnViewColumn *view_column = payment_document_column_new (title,
+                                                                     column,
+                                                                     width);
+
+    gtk_column_view_append_column (view, view_column);
+    g_object_unref (view_column);
+}
+
 static guint
 payment_document_selection_count (PaymentWindow *pw)
 {
@@ -1594,17 +1606,18 @@ payment_document_view_setup (PaymentWindow *pw, GtkBox *box)
 
     date_column = payment_document_column_new (_("Date"), PAYMENT_DOC_DATE, 95);
     gtk_column_view_append_column (pw->docs_list_view, date_column);
-    gtk_column_view_append_column (pw->docs_list_view,
-                                   payment_document_column_new (_("Number"), PAYMENT_DOC_NUMBER, 120));
-    gtk_column_view_append_column (pw->docs_list_view,
-                                   payment_document_column_new (_("Type"), PAYMENT_DOC_TYPE, 125));
-    gtk_column_view_append_column (pw->docs_list_view,
-                                   payment_document_column_new (_("Debit"), PAYMENT_DOC_DEBIT, 120));
-    gtk_column_view_append_column (pw->docs_list_view,
-                                   payment_document_column_new (_("Credit"), PAYMENT_DOC_CREDIT, 120));
+    payment_document_append_column (pw->docs_list_view, _("Number"),
+                                    PAYMENT_DOC_NUMBER, 120);
+    payment_document_append_column (pw->docs_list_view, _("Type"),
+                                    PAYMENT_DOC_TYPE, 125);
+    payment_document_append_column (pw->docs_list_view, _("Debit"),
+                                    PAYMENT_DOC_DEBIT, 120);
+    payment_document_append_column (pw->docs_list_view, _("Credit"),
+                                    PAYMENT_DOC_CREDIT, 120);
     gtk_sort_list_model_set_sorter (pw->docs_list_sorted,
                                     gtk_column_view_get_sorter (pw->docs_list_view));
     gtk_column_view_sort_by_column (pw->docs_list_view, date_column, GTK_SORT_ASCENDING);
+    g_object_unref (date_column);
     g_signal_connect (pw->docs_list_selection, "selection-changed",
                       G_CALLBACK (gnc_payment_dialog_document_selection_changed_cb), pw);
     gtk_box_append (box, GTK_WIDGET (pw->docs_list_view));

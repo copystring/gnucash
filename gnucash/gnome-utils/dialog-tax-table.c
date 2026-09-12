@@ -1036,8 +1036,9 @@ if (!book) return NULL;
     gtk_single_selection_set_autoselect (ttw->tables_selection, FALSE);
     gtk_column_view_set_model (GTK_COLUMN_VIEW (ttw->names_view),
                                GTK_SELECTION_MODEL (ttw->tables_selection));
-    gtk_column_view_append_column (GTK_COLUMN_VIEW (ttw->names_view),
-                                   tax_table_column_new ("", "tax-table-name"));
+    GtkColumnViewColumn *column = tax_table_column_new ("", "tax-table-name");
+    gtk_column_view_append_column (GTK_COLUMN_VIEW (ttw->names_view), column);
+    g_object_unref (column);
     g_signal_connect (ttw->tables_selection, "selection-changed",
                       G_CALLBACK (tax_table_selection_changed), ttw);
 
@@ -1047,10 +1048,12 @@ if (!book) return NULL;
     gtk_single_selection_set_autoselect (ttw->entries_selection, FALSE);
     gtk_column_view_set_model (GTK_COLUMN_VIEW (ttw->entries_view),
                                GTK_SELECTION_MODEL (ttw->entries_selection));
-    gtk_column_view_append_column (GTK_COLUMN_VIEW (ttw->entries_view),
-                                   tax_table_column_new (_("Account"), "tax-entry-name"));
-    gtk_column_view_append_column (GTK_COLUMN_VIEW (ttw->entries_view),
-                                   tax_table_column_new (_("Amount"), "tax-entry-amount"));
+    column = tax_table_column_new (_("Account"), "tax-entry-name");
+    gtk_column_view_append_column (GTK_COLUMN_VIEW (ttw->entries_view), column);
+    g_object_unref (column);
+    column = tax_table_column_new (_("Amount"), "tax-entry-amount");
+    gtk_column_view_append_column (GTK_COLUMN_VIEW (ttw->entries_view), column);
+    g_object_unref (column);
     g_signal_connect (ttw->entries_selection, "selection-changed",
                       G_CALLBACK (tax_table_entry_selection_changed), ttw);
     g_signal_connect (ttw->entries_view, "activate",
