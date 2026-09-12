@@ -87,10 +87,10 @@ TEST (CsvPreviewRefreshIdleTest, runs_a_deferred_refresh)
     state.idle = &idle;
 
     idle.queue ();
-    EXPECT_EQ (state.calls, 0);
+    EXPECT_EQ (0u, state.calls);
 
     run_until_idle_barrier ();
-    EXPECT_EQ (state.calls, 1);
+    EXPECT_EQ (1u, state.calls);
 }
 
 TEST (CsvPreviewRefreshIdleTest, cancel_is_idempotent_and_allows_a_new_request)
@@ -106,7 +106,7 @@ TEST (CsvPreviewRefreshIdleTest, cancel_is_idempotent_and_allows_a_new_request)
 
     run_until_idle_barrier ();
 
-    EXPECT_EQ (state.calls, 1);
+    EXPECT_EQ (1u, state.calls);
 }
 
 TEST (CsvPreviewRefreshIdleTest, destruction_before_the_main_loop_prevents_refresh)
@@ -120,7 +120,7 @@ TEST (CsvPreviewRefreshIdleTest, destruction_before_the_main_loop_prevents_refre
 
     run_until_idle_barrier ();
 
-    EXPECT_EQ (state.calls, 0);
+    EXPECT_EQ (0u, state.calls);
 }
 
 TEST (CsvPreviewRefreshIdleTest, coalesces_requests_and_preserves_a_requeue)
@@ -135,7 +135,7 @@ TEST (CsvPreviewRefreshIdleTest, coalesces_requests_and_preserves_a_requeue)
     state.requeue = true;
 
     run_until_idle_barrier ();
-    EXPECT_EQ (state.calls, 2);
+    EXPECT_EQ (2u, state.calls);
 }
 
 TEST (CsvPreviewRefreshIdleTest, allows_owner_destruction_from_the_refresh)
