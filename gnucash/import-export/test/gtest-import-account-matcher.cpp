@@ -166,6 +166,24 @@ struct AccountSelectionResult
     guint calls {0};
 };
 
+static guint
+account_picker_position (GtkSingleSelection *selection, Account *account)
+{
+    auto rows = gtk_single_selection_get_model (selection);
+    auto row_quark = g_quark_from_static_string ("gnc-import-account-picker-row");
+
+    for (guint position = 0;
+         position < g_list_model_get_n_items (rows); ++position)
+    {
+        auto row = G_OBJECT (g_list_model_get_item (rows, position));
+        auto row_account = static_cast<Account*> (g_object_get_qdata (row, row_quark));
+        g_object_unref (row);
+        if (row_account == account)
+            return position;
+    }
+    return GTK_INVALID_LIST_POSITION;
+}
+
 static void
 account_selected (Account *account, gboolean accepted, gpointer user_data)
 {
@@ -1008,18 +1026,7 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_account_picker_completio
     ASSERT_TRUE (GTK_IS_COLUMN_VIEW (picker_view));
     auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (picker_view));
     ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
-    auto picker_model = gtk_single_selection_get_model (selection);
-    guint bank_position = GTK_INVALID_LIST_POSITION;
-    for (guint position = 0;
-         position < g_list_model_get_n_items (picker_model); ++position)
-    {
-        auto row = GTK_STRING_OBJECT (g_list_model_get_item (picker_model, position));
-        if (g_strcmp0 (gtk_string_object_get_string (row), "Assets:Bank") == 0)
-            bank_position = position;
-        g_object_unref (row);
-        if (bank_position != GTK_INVALID_LIST_POSITION)
-            break;
-    }
+    auto bank_position = account_picker_position (selection, m_bank);
     ASSERT_NE (bank_position, GTK_INVALID_LIST_POSITION);
     gtk_single_selection_set_selected (selection, bank_position);
     GWeakRef picker_ref;
@@ -1197,18 +1204,7 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_price_dialog_accept)
     ASSERT_TRUE (GTK_IS_COLUMN_VIEW (picker_view));
     auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (picker_view));
     ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
-    auto picker_model = gtk_single_selection_get_model (selection);
-    guint expenses_position = GTK_INVALID_LIST_POSITION;
-    for (guint position = 0;
-         position < g_list_model_get_n_items (picker_model); ++position)
-    {
-        auto row = GTK_STRING_OBJECT (g_list_model_get_item (picker_model, position));
-        if (g_strcmp0 (gtk_string_object_get_string (row), "Expenses") == 0)
-            expenses_position = position;
-        g_object_unref (row);
-        if (expenses_position != GTK_INVALID_LIST_POSITION)
-            break;
-    }
+    auto expenses_position = account_picker_position (selection, m_expenses);
     ASSERT_NE (expenses_position, GTK_INVALID_LIST_POSITION);
     gtk_single_selection_set_selected (selection, expenses_position);
     g_signal_emit_by_name (picker_accept, "clicked");
