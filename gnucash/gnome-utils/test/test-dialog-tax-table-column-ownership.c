@@ -104,25 +104,34 @@ watch_columns_and_factories (GtkWindow *window, gboolean columns[3],
 static void
 test_tax_table_columns_release_on_close (void)
 {
-    QofSession *session = qof_session_new (qof_book_new ());
-    QofBook *book = qof_session_get_book (session);
+    QofSession *session;
+    QofBook *book;
     TaxTableWindow *tax_table;
     GtkWindow *window;
     gboolean window_finalized = FALSE;
     gboolean columns_finalized[3] = { FALSE, FALSE, FALSE };
     gboolean factories_finalized[3] = { FALSE, FALSE, FALSE };
 
+    g_test_message ("tax-table phase: before session setup");
+    session = qof_session_new (qof_book_new ());
+    book = qof_session_get_book (session);
     gnc_set_current_session (session);
+    g_test_message ("tax-table phase: before constructor");
     tax_table = gnc_ui_tax_table_window_new (NULL, book);
+    g_test_message ("tax-table phase: after constructor");
     g_assert_nonnull (tax_table);
     window = find_tax_table_window ();
+    g_test_message ("tax-table phase: after window lookup");
     g_assert_nonnull (window);
     g_assert_cmpuint (watch_columns_and_factories (window, columns_finalized,
                                                     factories_finalized), ==, 3);
+    g_test_message ("tax-table phase: after column watch");
 
     g_object_weak_ref (G_OBJECT (window), object_finalized, &window_finalized);
     gtk_window_destroy (window);
+    g_test_message ("tax-table phase: after destroy");
     g_object_unref (window);
+    g_test_message ("tax-table phase: after window unref");
     drain_main_context ();
     g_assert_true (window_finalized);
     for (guint index = 0; index < 3; index++)
@@ -141,6 +150,8 @@ main (int argc, char **argv)
     g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
     g_test_init (&argc, &argv, NULL);
     gtk_init ();
+    qof_log_init_filename_special ("stderr");
+    qof_log_set_level ("gnc", (QofLogLevel)G_LOG_LEVEL_DEBUG);
     gnc_engine_init_static (argc, argv);
     gnc_prefs_init ();
     gnc_component_manager_init ();
