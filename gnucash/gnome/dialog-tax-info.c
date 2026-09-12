@@ -1360,10 +1360,12 @@ GtkSelectionModel *account_selection;
         gtk_single_selection_set_autoselect (ti_dialog->txf_selection, FALSE);
         gtk_column_view_set_model (GTK_COLUMN_VIEW (ti_dialog->txf_category_view),
                                    GTK_SELECTION_MODEL (ti_dialog->txf_selection));
-        gtk_column_view_append_column (GTK_COLUMN_VIEW (ti_dialog->txf_category_view),
-                                       txf_column_new (_("Form"), "txf-form"));
-        gtk_column_view_append_column (GTK_COLUMN_VIEW (ti_dialog->txf_category_view),
-                                       txf_column_new (_("Description"), "txf-description"));
+        GtkColumnViewColumn *column = txf_column_new (_("Form"), "txf-form");
+        gtk_column_view_append_column (GTK_COLUMN_VIEW (ti_dialog->txf_category_view), column);
+        g_object_unref (column);
+        column = txf_column_new (_("Description"), "txf-description");
+        gtk_column_view_append_column (GTK_COLUMN_VIEW (ti_dialog->txf_category_view), column);
+        g_object_unref (column);
         g_signal_connect (ti_dialog->txf_selection, "selection-changed",
                           G_CALLBACK (txf_code_select_row_cb), ti_dialog);
         ti_dialog->apply_button = GTK_WIDGET(gtk_builder_get_object (builder, "apply_button"));
