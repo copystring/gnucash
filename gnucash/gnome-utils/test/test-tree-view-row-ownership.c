@@ -1211,6 +1211,7 @@ test_commodity_selection_restore_contract (void)
     GtkSelectionModel *selection;
     GtkColumnView *column_view;
     GtkColumnViewColumn *name_column;
+    gnc_commodity_namespace *initial_namespace;
     DisposeOnSelectionChange dispose_context;
     gulong dispose_id;
     guint first_position;
@@ -1237,6 +1238,20 @@ test_commodity_selection_restore_contract (void)
                        (GTK_SINGLE_SELECTION (selection)));
     g_assert_cmpuint (selection_size (selection), ==, 0);
     g_assert_null (gnc_tree_view_commodity_get_selected_commodity (view));
+
+    /* The first real user selection must be recorded even though the initial
+     * roots were built before the selection model existed. */
+    g_assert_true (gtk_selection_model_select_item (selection, 0, TRUE));
+    initial_namespace = gnc_tree_view_commodity_get_selected_namespace (view);
+    g_assert_nonnull (initial_namespace);
+    gnc_tree_view_commodity_refilter (view);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gnc_tree_view_commodity_get_selected_namespace (view) ==
+                   initial_namespace);
+    g_assert_true (gtk_selection_model_unselect_all (selection));
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 0);
 
     gnc_tree_view_commodity_select_commodity (view, first);
     drain_main_context ();

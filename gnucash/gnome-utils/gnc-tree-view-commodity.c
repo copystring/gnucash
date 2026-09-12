@@ -194,9 +194,11 @@ rebuild_roots (GncTreeViewCommodity *view)
     model = g_object_ref (p->model);
     if (p->selection)
         selection = g_object_ref (p->selection);
-    p->synchronizing = TRUE;
     if (selection)
+    {
+        p->synchronizing = TRUE;
         gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (selection));
+    }
     if (!p->disposing)
         g_list_store_remove_all (roots);
     if (!p->disposing)
@@ -245,7 +247,7 @@ restore_state (gpointer data)
     }
     if (!p->disposing && !expanded_any)
     {
-        GtkBitset *desired = gtk_bitset_new_empty ();
+        guint desired_position = GTK_INVALID_LIST_POSITION;
         guint n_items = g_list_model_get_n_items (G_LIST_MODEL (rows));
 
         for (guint position = 0; position < n_items; position++)
@@ -256,20 +258,16 @@ restore_state (gpointer data)
             if (row &&
                 g_hash_table_contains (selected,
                                        gnc_tree_model_commodity_row_get_id (row)))
-                gtk_bitset_add (desired, position);
+                desired_position = position;
             g_object_unref (tree_row);
+            if (desired_position != GTK_INVALID_LIST_POSITION)
+                break;
         }
         if (!p->disposing)
-        {
-            GtkBitset *mask = gtk_bitset_new_range (0, n_items);
-
-            /* The desired IDs are the complete selection, not additions to
-             * whichever rows happened to remain selected. */
-            gtk_selection_model_set_selection (GTK_SELECTION_MODEL (selection),
-                                               desired, mask);
-            gtk_bitset_unref (mask);
-        }
-        gtk_bitset_unref (desired);
+            /* GtkSingleSelection deliberately implements select_item rather
+             * than the optional set_selection operation. Set its one desired
+             * row atomically, including the empty-selection case. */
+            gtk_single_selection_set_selected (selection, desired_position);
     }
     g_hash_table_unref (expanded);
     g_hash_table_unref (selected);
