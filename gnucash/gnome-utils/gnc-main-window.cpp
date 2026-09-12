@@ -77,7 +77,6 @@
 #include "gnc-window.h"
 #include "gnc-prefs.h"
 #include "gnc-optiondb.h"
-#include "gnc-optiondb-impl.hpp"
 #include "gnc-autosave.h"
 #include "print-session.h"
 #ifdef HAVE_SYS_STAT_H
@@ -5313,7 +5312,7 @@ gnc_book_options_dialog_close_cb(GncOptionsDialog * optionwin,
     auto options{static_cast<GncOptionDB *>(user_data)};
 
     delete optionwin;
-    delete options;
+    gnc_option_db_destroy_owned(options);
 }
 
 /** Calls gnc_book_option_num_field_source_change to initiate registered

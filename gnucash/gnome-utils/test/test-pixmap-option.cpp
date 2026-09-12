@@ -27,9 +27,16 @@
 #include <gtk/gtk.h>
 
 #include <string>
+#include <type_traits>
 
 #include "gnc-option.hpp"
 #include "gnc-option-gtk-ui.hpp"
+
+static_assert (!std::is_copy_constructible_v<GncOption>);
+static_assert (!std::is_copy_assignable_v<GncOption>);
+static_assert (std::is_nothrow_destructible_v<GncOption>);
+static_assert (std::is_nothrow_move_constructible_v<GncOption>);
+static_assert (std::is_nothrow_move_assignable_v<GncOption>);
 
 struct PixmapFiles
 {
@@ -217,10 +224,10 @@ assert_preview_measure_and_allocation (GncOption& option, GtkPicture *picture)
     gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
     wait_for_frames (GTK_WIDGET (window), 2);
     g_assert_true (gtk_widget_get_mapped (GTK_WIDGET (picture)));
-    g_assert_cmpint (gtk_widget_get_allocated_width (GTK_WIDGET (picture)), >, 0);
-    g_assert_cmpint (gtk_widget_get_allocated_height (GTK_WIDGET (picture)), >, 0);
-    g_assert_cmpint (gtk_widget_get_allocated_width (GTK_WIDGET (picture)), <=, 128);
-    g_assert_cmpint (gtk_widget_get_allocated_height (GTK_WIDGET (picture)), <=, 128);
+    g_assert_cmpint (gtk_widget_get_width (GTK_WIDGET (picture)), >, 0);
+    g_assert_cmpint (gtk_widget_get_height (GTK_WIDGET (picture)), >, 0);
+    g_assert_cmpint (gtk_widget_get_width (GTK_WIDGET (picture)), <=, 128);
+    g_assert_cmpint (gtk_widget_get_height (GTK_WIDGET (picture)), <=, 128);
     gtk_window_destroy (window);
     g_object_unref (window);
     drain_main_context ();

@@ -45,8 +45,8 @@
 #include "dialog-utils.h"
 #include "gnc-gtk-utils.h"
 
-/*Something somewhere in windows.h defines ABSOLUTE to something and
- *that contaminates using it in RelativeDateType.  Undef it.
+/* GTK/GDK can include windows.h after the option headers. Its ABSOLUTE macro
+ * conflicts with the RelativeDatePeriod enumerator used below.
  */
 #ifdef ABSOLUTE
 #undef ABSOLUTE
