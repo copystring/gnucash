@@ -137,25 +137,36 @@ drain_main_context (void)
 struct FrameWait
 {
     GMainLoop *loop;
-    guint frames;
-    guint required_frames;
+    gboolean frame_seen;
     gboolean timed_out;
+    guint tick_id;
+    GdkFrameClock *clock;
+    gulong after_paint_id;
 };
+
+static void
+frame_wait_after_paint_cb (GdkFrameClock *clock, gpointer user_data)
+{
+    auto wait = static_cast<FrameWait *> (user_data);
+
+    wait->frame_seen = TRUE;
+    if (g_main_loop_is_running (wait->loop))
+        g_main_loop_quit (wait->loop);
+    (void)clock;
+}
 
 static gboolean
 frame_wait_tick_cb (GtkWidget *widget, GdkFrameClock *clock, gpointer user_data)
 {
     auto wait = static_cast<FrameWait *> (user_data);
 
-    wait->frames++;
-    if (wait->frames >= wait->required_frames)
-    {
-        g_main_loop_quit (wait->loop);
-        return G_SOURCE_REMOVE;
-    }
+    wait->tick_id = 0;
+    wait->clock = GDK_FRAME_CLOCK (g_object_ref (clock));
+    wait->after_paint_id = g_signal_connect (clock, "after-paint",
+                                              G_CALLBACK (frame_wait_after_paint_cb), wait);
+    gdk_frame_clock_request_phase (clock, GDK_FRAME_CLOCK_PHASE_AFTER_PAINT);
     (void)widget;
-    (void)clock;
-    return G_SOURCE_CONTINUE;
+    return G_SOURCE_REMOVE;
 }
 
 static gboolean
@@ -164,25 +175,42 @@ frame_wait_timeout_cb (gpointer user_data)
     auto wait = static_cast<FrameWait *> (user_data);
 
     wait->timed_out = TRUE;
-    g_main_loop_quit (wait->loop);
+    if (g_main_loop_is_running (wait->loop))
+        g_main_loop_quit (wait->loop);
     return G_SOURCE_REMOVE;
 }
 
 static void
-wait_for_frames (GtkWidget *widget, guint required_frames)
+present_and_wait_for_frame (GtkWindow *window)
 {
     auto loop = g_main_loop_new (NULL, FALSE);
-    FrameWait wait{loop, 0, required_frames, FALSE};
-    auto tick_id = gtk_widget_add_tick_callback (widget, frame_wait_tick_cb,
+    FrameWait wait{loop, FALSE, FALSE, 0, NULL, 0};
+    /* Register before presenting so the presentation's first after-paint is observable. */
+    wait.tick_id = gtk_widget_add_tick_callback (GTK_WIDGET (window), frame_wait_tick_cb,
                                                   &wait, NULL);
-    auto timeout_id = g_timeout_add (1000, frame_wait_timeout_cb, &wait);
 
-    g_main_loop_run (loop);
-    if (wait.timed_out)
-        gtk_widget_remove_tick_callback (widget, tick_id);
-    else
+    gtk_window_present (window);
+    guint timeout_id = 0;
+    if (!wait.frame_seen)
+    {
+        timeout_id = g_timeout_add (1000, frame_wait_timeout_cb, &wait);
+        g_main_loop_run (loop);
+    }
+    if (wait.tick_id)
+        gtk_widget_remove_tick_callback (GTK_WIDGET (window), wait.tick_id);
+    if (timeout_id && !wait.timed_out)
         g_source_remove (timeout_id);
+    if (wait.after_paint_id)
+        g_signal_handler_disconnect (wait.clock, wait.after_paint_id);
+    g_clear_object (&wait.clock);
     g_main_loop_unref (loop);
+    if (wait.timed_out)
+        g_test_message ("Pixmap preview frame timeout: window mapped=%d realized=%d size=%dx%d",
+                        gtk_widget_get_mapped (GTK_WIDGET (window)),
+                        gtk_widget_get_realized (GTK_WIDGET (window)),
+                        gtk_widget_get_width (GTK_WIDGET (window)),
+                        gtk_widget_get_height (GTK_WIDGET (window)));
+    g_assert_true (wait.frame_seen);
     g_assert_false (wait.timed_out);
 }
 
@@ -221,8 +249,7 @@ assert_preview_measure_and_allocation (GncOption& option, GtkPicture *picture)
     g_object_ref_sink (window);
     gtk_window_set_default_size (window, 900, 300);
     gtk_window_set_child (window, root);
-    gtk_window_present (window);
-    wait_for_frames (GTK_WIDGET (window), 2);
+    present_and_wait_for_frame (window);
     g_assert_true (gtk_widget_get_mapped (GTK_WIDGET (window)));
     g_assert_true (gtk_widget_get_mapped (GTK_WIDGET (picture)));
     g_assert_cmpint (gtk_widget_get_width (GTK_WIDGET (picture)), >, 0);
