@@ -71,9 +71,19 @@ jobs:
             ninja
             ninja check
 
+        - name: Capture matcher IME backtrace after test failure
+          if: ${{ github.repository == 'copystring/gnucash' && failure() }}
+          timeout-minutes: 4
+          shell: msys2 {0}
+          env:
+            GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
+            GUILE_LOAD_COMPILED_PATH: "${{ env.MSYSTEM_PREFIX }}/lib/guile/3.0/ccache"
+          run: bash ./util/ci/windows-matcher-ime-backtrace.sh build
+
         - uses: actions/upload-artifact@v7
           if: failure()
           with:
             name: TestResults
             path: |
               build/Testing/Temporary/LastTest.log
+              build/matcher-ime-backtrace.log
