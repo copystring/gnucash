@@ -47,6 +47,7 @@
 #include <Transaction.h>
 #include <gtk/gtk.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -462,6 +463,58 @@ weak_ref_was_finalized (GWeakRef *weak_ref)
     g_clear_object (&object);
     g_weak_ref_clear (weak_ref);
     return finalized;
+}
+
+static gboolean
+wait_until_weak_ref_finalized (GWeakRef *weak_ref)
+{
+    const auto deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+
+    do
+    {
+        while (g_main_context_pending (nullptr))
+            g_main_context_iteration (nullptr, FALSE);
+        auto object = G_OBJECT (g_weak_ref_get (weak_ref));
+        if (!object)
+        {
+            g_weak_ref_clear (weak_ref);
+            return TRUE;
+        }
+        g_object_unref (object);
+        g_usleep (1000);
+    }
+    while (g_get_monotonic_time () < deadline);
+    g_weak_ref_clear (weak_ref);
+    return FALSE;
+}
+
+static std::vector<GtkWidget *>
+child_popovers (GtkWidget *host)
+{
+    std::vector<GtkWidget *> popovers;
+
+    for (auto child = gtk_widget_get_first_child (host); child;
+         child = gtk_widget_get_next_sibling (child))
+        if (GTK_IS_POPOVER (child))
+            popovers.emplace_back (child);
+    return popovers;
+}
+
+static gboolean
+wait_until_child_popover_count (GtkWidget *host, size_t expected_count)
+{
+    const auto deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+
+    do
+    {
+        while (g_main_context_pending (nullptr))
+            g_main_context_iteration (nullptr, FALSE);
+        if (child_popovers (host).size () == expected_count)
+            return TRUE;
+        g_usleep (1000);
+    }
+    while (g_get_monotonic_time () < deadline);
+    return FALSE;
 }
 
 struct TestTransaction
@@ -929,6 +982,7 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_account_picker_completio
     gnc_gen_trans_list_add_trans (matcher, create_import_transaction (
         m_book, m_bank, m_expenses, m_currency, 700,
         "unbalanced account-picker lifetime", "", FALSE));
+    gnc_gen_trans_list_show_all (matcher);
     gtk_window_present (window);
     ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
 
@@ -1057,6 +1111,27 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_edit_fields_accept)
     g_signal_emit_by_name (edit, "clicked");
     auto dialog = find_buildable_window ("transaction_edit_dialog");
     ASSERT_NE (dialog, nullptr);
+    auto entry = GTK_ENTRY (first_descendant_of_type (GTK_WIDGET (dialog), GTK_TYPE_ENTRY));
+    ASSERT_TRUE (GTK_IS_ENTRY (entry));
+    gtk_editable_set_text (GTK_EDITABLE (entry), "late");
+    std::vector<GtkWidget *> suggestion_popovers;
+    collect_descendants_of_type (GTK_WIDGET (dialog), GTK_TYPE_POPOVER,
+                                 suggestion_popovers);
+    ASSERT_EQ (suggestion_popovers.size (), 3u);
+    std::array<GWeakRef, 3> suggestion_refs {};
+    std::array<GWeakRef, 3> suggestion_model_refs {};
+    for (size_t position = 0; position < suggestion_refs.size (); ++position)
+    {
+        g_weak_ref_init (&suggestion_refs[position], G_OBJECT (suggestion_popovers[position]));
+        auto list = GTK_LIST_VIEW (gtk_popover_get_child (
+            GTK_POPOVER (suggestion_popovers[position])));
+        ASSERT_TRUE (GTK_IS_LIST_VIEW (list));
+        auto selection = GTK_SINGLE_SELECTION (gtk_list_view_get_model (list));
+        ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+        auto model = gtk_single_selection_get_model (selection);
+        ASSERT_TRUE (G_IS_LIST_STORE (model));
+        g_weak_ref_init (&suggestion_model_refs[position], G_OBJECT (model));
+    }
     auto accept = find_buildable_widget (GTK_WIDGET (dialog), "button2");
     ASSERT_TRUE (GTK_IS_BUTTON (accept));
     GWeakRef dialog_ref;
@@ -1068,6 +1143,10 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_edit_fields_accept)
     EXPECT_TRUE (wait_until_buildable_window_closed ("transaction_edit_dialog"));
     g_object_unref (dialog);
     EXPECT_TRUE (weak_ref_was_finalized (&dialog_ref));
+    for (auto& suggestion_ref : suggestion_refs)
+        EXPECT_TRUE (wait_until_weak_ref_finalized (&suggestion_ref));
+    for (auto& model_ref : suggestion_model_refs)
+        EXPECT_TRUE (wait_until_weak_ref_finalized (&model_ref));
     gtk_window_destroy (window);
     g_object_unref (window);
 }
@@ -1091,7 +1170,7 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_price_dialog_accept)
     ASSERT_NE (matcher, nullptr);
     gnc_gen_trans_list_add_trans (matcher, create_import_transaction (
         m_book, m_bank, m_expenses, m_currency, 703,
-        "late price-dialog lifetime", "", TRUE));
+        "late price-dialog lifetime", "", FALSE));
     gnc_gen_trans_list_show_all (matcher);
     gtk_window_present (window);
     ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
@@ -1101,6 +1180,41 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_price_dialog_accept)
     ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
     auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
     ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    ASSERT_TRUE (open_matcher_context_menu (view));
+    auto assign_account = find_button_with_label (GTK_WIDGET (view),
+                                                  "_Assign transfer account");
+    ASSERT_TRUE (GTK_IS_BUTTON (assign_account));
+    ASSERT_TRUE (gtk_widget_get_sensitive (assign_account));
+    g_signal_emit_by_name (assign_account, "clicked");
+    auto picker = find_buildable_window ("account_picker_dialog");
+    ASSERT_NE (picker, nullptr);
+    auto picker_scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (picker), "account_tree_sw"));
+    auto picker_accept = find_buildable_widget (GTK_WIDGET (picker), "okbutton");
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (picker_scroller));
+    ASSERT_TRUE (GTK_IS_BUTTON (picker_accept));
+    auto picker_view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (picker_scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (picker_view));
+    auto selection = GTK_SINGLE_SELECTION (gtk_column_view_get_model (picker_view));
+    ASSERT_TRUE (GTK_IS_SINGLE_SELECTION (selection));
+    auto picker_model = gtk_single_selection_get_model (selection);
+    guint expenses_position = GTK_INVALID_LIST_POSITION;
+    for (guint position = 0;
+         position < g_list_model_get_n_items (picker_model); ++position)
+    {
+        auto row = GTK_STRING_OBJECT (g_list_model_get_item (picker_model, position));
+        if (g_strcmp0 (gtk_string_object_get_string (row), "Expenses") == 0)
+            expenses_position = position;
+        g_object_unref (row);
+        if (expenses_position != GTK_INVALID_LIST_POSITION)
+            break;
+    }
+    ASSERT_NE (expenses_position, GTK_INVALID_LIST_POSITION);
+    gtk_single_selection_set_selected (selection, expenses_position);
+    g_signal_emit_by_name (picker_accept, "clicked");
+    EXPECT_TRUE (wait_until_buildable_window_closed ("account_picker_dialog"));
+    g_object_unref (picker);
+
     ASSERT_TRUE (open_matcher_context_menu (view));
     auto price = find_button_with_label (GTK_WIDGET (view),
                                          "Assign e_xchange rate");
@@ -1126,6 +1240,58 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_price_dialog_accept)
     EXPECT_TRUE (wait_until_buildable_window_closed ("transfer_dialog"));
     g_object_unref (dialog);
     EXPECT_TRUE (weak_ref_was_finalized (&dialog_ref));
+    gtk_window_destroy (window);
+    g_object_unref (window);
+}
+
+TEST_F(ImportMatcherTest, embedded_matcher_releases_context_popovers_on_replacement_and_teardown)
+{
+    auto window = GTK_WINDOW (gtk_window_new ());
+    g_object_ref (window);
+    auto page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child (window, page);
+    auto matcher = gnc_gen_trans_assist_new (GTK_WIDGET (window), page,
+                                             "Embedded matcher", FALSE, 42);
+    ASSERT_NE (matcher, nullptr);
+    gnc_gen_trans_list_add_trans (matcher, create_import_transaction (
+        m_book, m_bank, m_expenses, m_currency, 704,
+        "context-popover lifetime", "", FALSE));
+    gnc_gen_trans_list_show_all (matcher);
+    gtk_window_present (window);
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "scrolledwindow25"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    ASSERT_TRUE (open_matcher_context_menu (view));
+    auto first_popovers = child_popovers (GTK_WIDGET (view));
+    ASSERT_EQ (first_popovers.size (), 1u);
+    auto closed_popover = first_popovers.front ();
+    GWeakRef closed_popover_ref;
+    g_weak_ref_init (&closed_popover_ref, G_OBJECT (closed_popover));
+    auto delayed_finalization_ref = G_OBJECT (g_object_ref (closed_popover));
+    gtk_popover_popdown (GTK_POPOVER (closed_popover));
+    EXPECT_TRUE (wait_until_child_popover_count (GTK_WIDGET (view), 0u));
+
+    ASSERT_TRUE (open_matcher_context_menu (view));
+    g_object_unref (delayed_finalization_ref);
+    EXPECT_TRUE (wait_until_weak_ref_finalized (&closed_popover_ref));
+    auto replaced_popovers = child_popovers (GTK_WIDGET (view));
+    ASSERT_EQ (replaced_popovers.size (), 1u);
+    GWeakRef replaced_popover_ref;
+    g_weak_ref_init (&replaced_popover_ref, G_OBJECT (replaced_popovers.front ()));
+
+    ASSERT_TRUE (open_matcher_context_menu (view));
+    EXPECT_TRUE (wait_until_weak_ref_finalized (&replaced_popover_ref));
+    auto active_popovers = child_popovers (GTK_WIDGET (view));
+    ASSERT_EQ (active_popovers.size (), 1u);
+    GWeakRef active_popover_ref;
+    g_weak_ref_init (&active_popover_ref, G_OBJECT (active_popovers.front ()));
+
+    gnc_gen_trans_list_delete (matcher);
+    EXPECT_TRUE (wait_until_weak_ref_finalized (&active_popover_ref));
     gtk_window_destroy (window);
     g_object_unref (window);
 }

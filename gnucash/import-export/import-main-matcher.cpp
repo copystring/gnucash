@@ -149,6 +149,7 @@ struct _main_matcher_info
     GtkColumnView *view;
     GtkGestureClick *context_click;
     GtkEventControllerKey *key_controller;
+    GtkPopover *context_popover; /* owned by its widget parent; weak-cleared */
     GListStore *rows;
     GtkTreeListModel *tree_model;
     GtkMultiSelection *selection;
@@ -484,9 +485,42 @@ matcher_disconnect_live_view (GNCImportMainMatcher *info)
 }
 
 static void
+matcher_context_popover_closed (GtkPopover *popover, MatcherLifetime *lifetime)
+{
+    auto info = matcher_lifetime_get (lifetime);
+    if (info && info->context_popover == popover)
+    {
+        info->context_popover = nullptr;
+        g_object_remove_weak_pointer (G_OBJECT (popover),
+                                      reinterpret_cast<gpointer *> (&info->context_popover));
+    }
+    gtk_widget_unparent (GTK_WIDGET (popover));
+}
+
+static void
+matcher_release_context_popover (GNCImportMainMatcher *info)
+{
+    if (!info || !info->context_popover)
+        return;
+
+    auto popover = info->context_popover;
+    info->context_popover = nullptr;
+    g_object_remove_weak_pointer (G_OBJECT (popover),
+                                  reinterpret_cast<gpointer *> (&info->context_popover));
+    g_signal_handlers_disconnect_by_func (
+        popover, G_CALLBACK (matcher_context_popover_closed), info->lifetime);
+    gtk_popover_popdown (popover);
+    gtk_widget_unparent (GTK_WIDGET (popover));
+}
+
+static void
 matcher_detach_content (GNCImportMainMatcher *info)
 {
-    if (!info || !info->content_root)
+    if (!info)
+        return;
+
+    matcher_release_context_popover (info);
+    if (!info->content_root)
         return;
 
     /* An assistant owns its page, but the matcher owns the content appended to
@@ -1188,8 +1222,10 @@ struct EntrySuggestion
 {
     GtkEntry *entry;
     GtkPopover *popover;
+    GtkListView *list;
     GListStore *matches;
     std::vector<std::string> candidates;
+    gboolean closing;
 };
 
 struct EntryInfo
@@ -1249,7 +1285,12 @@ suggestion_item_bind (GtkListItemFactory *factory, GtkListItem *item, gpointer u
 static void
 suggestion_activate_cb (GtkListView *view, guint position, EntrySuggestion *suggestion)
 {
+    if (!suggestion || suggestion->closing || !suggestion->matches ||
+        !suggestion->entry || !suggestion->popover)
+        return;
     auto item = GTK_STRING_OBJECT (g_list_model_get_item (G_LIST_MODEL (suggestion->matches), position));
+    if (!item)
+        return;
     (void)view;
     gtk_editable_set_text (GTK_EDITABLE (suggestion->entry), gtk_string_object_get_string (item));
     gtk_popover_popdown (suggestion->popover);
@@ -1259,6 +1300,9 @@ suggestion_activate_cb (GtkListView *view, guint position, EntrySuggestion *sugg
 static void
 suggestion_update_matches (EntrySuggestion *suggestion)
 {
+    if (!suggestion || suggestion->closing || !suggestion->matches ||
+        !suggestion->entry || !suggestion->popover)
+        return;
     auto query = gtk_editable_get_text (GTK_EDITABLE (suggestion->entry));
     auto normalized = g_utf8_normalize (query, -1, G_NORMALIZE_NFC);
     auto folded_query = normalized ? g_utf8_casefold (normalized, -1) : nullptr;
@@ -1312,8 +1356,11 @@ setup_entry_suggestion (EntryInfo& entryinfo)
     auto factory = gtk_signal_list_item_factory_new ();
     g_signal_connect (factory, "setup", G_CALLBACK (suggestion_item_setup), nullptr);
     g_signal_connect (factory, "bind", G_CALLBACK (suggestion_item_bind), nullptr);
-    auto selection = gtk_single_selection_new (G_LIST_MODEL (suggestion.matches));
+    /* GtkSingleSelection consumes its model reference. Keep the original for
+     * the dialog's matching callbacks and explicit teardown. */
+    auto selection = gtk_single_selection_new (G_LIST_MODEL (g_object_ref (suggestion.matches)));
     auto list = GTK_LIST_VIEW (gtk_list_view_new (GTK_SELECTION_MODEL (selection), factory));
+    suggestion.list = list;
     suggestion.popover = GTK_POPOVER (gtk_popover_new ());
     gtk_popover_set_autohide (suggestion.popover, TRUE);
     gtk_popover_set_has_arrow (suggestion.popover, FALSE);
@@ -1415,8 +1462,19 @@ edit_fields_dialog_finish (EditFieldsDialog *dialog, gboolean accepted)
 
     for (auto& entry : dialog->entries)
     {
-        gtk_popover_popdown (entry.suggestion.popover);
-        g_clear_object (&entry.suggestion.matches);
+        auto& suggestion = entry.suggestion;
+        suggestion.closing = TRUE;
+        if (suggestion.entry)
+            g_signal_handlers_disconnect_by_data (suggestion.entry, &suggestion);
+        if (suggestion.list)
+            g_signal_handlers_disconnect_by_data (suggestion.list, &suggestion);
+        auto popover = suggestion.popover;
+        suggestion.popover = nullptr;
+        suggestion.list = nullptr;
+        suggestion.entry = nullptr;
+        gtk_popover_popdown (popover);
+        gtk_widget_unparent (GTK_WIDGET (popover));
+        g_clear_object (&suggestion.matches);
     }
     auto window = dialog->window;
     gtk_window_destroy (window);
@@ -1704,6 +1762,8 @@ gnc_gen_trans_view_popup_menu (GNCImportMainMatcher *info, GtkWidget *anchor)
 {
     ENTER ("");
 
+    matcher_release_context_popover (info);
+
     auto selected_rows = matcher_selected_rows (info);
     if (selected_rows.empty ())
         return;
@@ -1803,6 +1863,13 @@ gnc_gen_trans_view_popup_menu (GNCImportMainMatcher *info, GtkWidget *anchor)
                    G_CALLBACK (gnc_gen_trans_reset_edits_cb));
 
     gtk_widget_set_parent (GTK_WIDGET (popover), anchor ? anchor : GTK_WIDGET (info->view));
+    info->context_popover = popover;
+    g_object_add_weak_pointer (G_OBJECT (popover),
+                               reinterpret_cast<gpointer *> (&info->context_popover));
+    g_signal_connect_data (popover, "closed", G_CALLBACK (matcher_context_popover_closed),
+                           matcher_lifetime_ref (info->lifetime),
+                           matcher_lifetime_closure_destroy,
+                           static_cast<GConnectFlags> (0));
     gtk_popover_popup (popover);
     LEAVE ("");
 }
