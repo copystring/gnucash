@@ -11,7 +11,6 @@
 
 #include <config.h>
 
-#include <gdk/gdkkeysyms.h>
 #include <glib/gi18n.h>
 #include <gtk/gtk.h>
 

@@ -25,7 +25,7 @@
  */
 
 #include <config.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 #include "gnucash-date-picker.h"
 #include "gnc-gtk-utils.h"
 

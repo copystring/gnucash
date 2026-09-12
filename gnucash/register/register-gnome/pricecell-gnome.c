@@ -29,7 +29,7 @@
 #include <config.h>
 
 #include <locale.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 
 #include "gnc-locale-utils.h"
 #include "gnc-exp-parser.h"
@@ -41,7 +41,6 @@
 #include "table-allgui.h"
 
 #ifdef G_OS_WIN32
-# include <gdk/gdk.h>
 # include <gdk/win32/gdkwin32.h>
 #endif
 

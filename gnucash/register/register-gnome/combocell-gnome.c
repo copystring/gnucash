@@ -36,7 +36,7 @@
 #include <config.h>
 
 #include <string.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 
 #include "QuickFill.h"
 #include "combocell.h"

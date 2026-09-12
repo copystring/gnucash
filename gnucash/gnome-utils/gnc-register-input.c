@@ -12,7 +12,6 @@
 #include <config.h>
 
 #include <gtk/gtk.h>
-#include <gdk/gdkkeysyms.h>
 
 #include "gnc-register-input.h"
 #include "dialog-utils.h"

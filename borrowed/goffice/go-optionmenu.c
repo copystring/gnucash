@@ -34,7 +34,7 @@
 #include <config.h>
 #include "go-optionmenu.h"
 
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 #include <glib/gi18n-lib.h>
 
 #define OPTION_MENU_TEXT_KEY "option-menu-text"

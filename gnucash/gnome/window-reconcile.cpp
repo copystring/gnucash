@@ -35,7 +35,6 @@
 #ifdef __G_IR_SCANNER__
 #undef __G_IR_SCANNER__
 #endif
-#include <gdk/gdkkeysyms.h>
 
 #include <algorithm>
 

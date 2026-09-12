@@ -28,7 +28,7 @@
 #include "go-optionmenu.h"
 #include "go-glib-extras.h"
 #include <glib/gi18n-lib.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 #include <string.h>
 #include <stdlib.h>
 

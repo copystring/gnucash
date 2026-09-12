@@ -31,7 +31,7 @@
 #include <config.h>
 #include <glib.h>
 #include <glib/gprintf.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 
 #include "gnucash-register.h"
 #include "gnucash-sheet.h"
