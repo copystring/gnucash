@@ -133,6 +133,20 @@ find_column_view (GtkWidget *widget)
     return NULL;
 }
 
+typedef struct
+{
+    GtkListItem *list_item;
+} FactoryBindCapture;
+
+static void
+capture_factory_bind (GtkListItemFactory *factory, GtkListItem *list_item,
+                      FactoryBindCapture *capture)
+{
+    if (!capture->list_item)
+        capture->list_item = g_object_ref (list_item);
+    (void)factory;
+}
+
 static void
 query_row_selected (GNCQueryView *view, gpointer count, gpointer user_data)
 {
@@ -339,6 +353,116 @@ test_account_dispose_quiesces_retained_row (void)
     g_object_unref (selection);
     g_object_unref (root_row);
     g_object_unref (parent_row);
+    gnc_clear_current_session ();
+}
+
+static void
+test_account_column_owners_outlive_disposed_view (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root = gnc_account_create_root (book);
+    Account *child = xaccMallocAccount (book);
+    GtkWidget *widget;
+    GtkWindow *window;
+    GncTreeViewAccount *view;
+    GtkColumnView *column_view;
+    GListModel *columns;
+    GtkColumnViewColumn *column;
+    GtkListItemFactory *factory;
+    GtkSorter *sorter;
+    GtkSelectionModel *selection;
+    GtkTreeListRow *first_row;
+    GtkTreeListRow *second_row;
+    GtkWidget *cell;
+    GtkWidget *label;
+    FactoryBindCapture capture = { NULL };
+    gulong bind_id;
+    gboolean column_finalized = FALSE;
+    gboolean factory_finalized = FALSE;
+    gboolean sorter_finalized = FALSE;
+    gboolean cell_finalized = FALSE;
+    gboolean first_row_finalized = FALSE;
+    gboolean second_row_finalized = FALSE;
+
+    gnc_set_current_session (session);
+    xaccAccountSetName (root, "Column owner root");
+    xaccAccountSetName (child, "Column owner child");
+    xaccAccountSetType (child, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, child);
+    widget = gnc_tree_view_account_new_with_root (root, TRUE);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_ACCOUNT (widget);
+    selection = gnc_tree_view_account_get_selection_model (view);
+    first_row = GTK_TREE_LIST_ROW (g_list_model_get_item (G_LIST_MODEL (selection), 0));
+    g_assert_nonnull (first_row);
+    gtk_tree_list_row_set_expanded (first_row, TRUE);
+    drain_main_context ();
+    g_assert_cmpuint (g_list_model_get_n_items (G_LIST_MODEL (selection)), ==, 2);
+    second_row = GTK_TREE_LIST_ROW (g_list_model_get_item (G_LIST_MODEL (selection), 1));
+    g_assert_nonnull (second_row);
+    g_assert_true (first_row != second_row);
+    column_view = gnc_tree_view_account_get_column_view (view);
+    columns = gtk_column_view_get_columns (column_view);
+    column = g_list_model_get_item (columns, 0);
+    g_assert_nonnull (column);
+    factory = gtk_column_view_column_get_factory (column);
+    sorter = gtk_column_view_column_get_sorter (column);
+    g_assert_nonnull (factory);
+    g_assert_nonnull (sorter);
+    factory = g_object_ref (factory);
+    sorter = g_object_ref (sorter);
+    bind_id = g_signal_connect (factory, "bind", G_CALLBACK (capture_factory_bind),
+                                &capture);
+
+    window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_default_size (window, 640, 480);
+    gtk_window_set_child (window, widget);
+    present_and_wait_for_frame (window);
+    g_assert_nonnull (capture.list_item);
+    cell = g_object_ref (gtk_list_item_get_child (capture.list_item));
+    g_assert_nonnull (cell);
+    label = gtk_tree_expander_get_child (GTK_TREE_EXPANDER (cell));
+    g_assert_nonnull (label);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), !=,
+                     GTK_ORDERING_EQUAL);
+    g_object_weak_ref (G_OBJECT (column), object_finalized, &column_finalized);
+    g_object_weak_ref (G_OBJECT (factory), object_finalized, &factory_finalized);
+    g_object_weak_ref (G_OBJECT (sorter), object_finalized, &sorter_finalized);
+    g_object_weak_ref (G_OBJECT (cell), object_finalized, &cell_finalized);
+    g_object_weak_ref (G_OBJECT (first_row), object_finalized, &first_row_finalized);
+    g_object_weak_ref (G_OBJECT (second_row), object_finalized, &second_row_finalized);
+    g_object_unref (column);
+    g_signal_handler_disconnect (factory, bind_id);
+
+    gtk_window_set_child (window, NULL);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+    g_object_run_dispose (G_OBJECT (widget));
+    g_object_run_dispose (G_OBJECT (widget));
+    drain_main_context ();
+    g_assert_true (column_finalized);
+    g_assert_false (factory_finalized);
+    g_assert_false (sorter_finalized);
+    g_assert_false (cell_finalized);
+
+    g_object_unref (widget);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), ==,
+                     GTK_ORDERING_EQUAL);
+    g_object_notify (G_OBJECT (label), "editing");
+
+    g_object_unref (first_row);
+    g_object_unref (second_row);
+    g_object_unref (cell);
+    g_object_unref (capture.list_item);
+    g_object_unref (factory);
+    g_object_unref (sorter);
+    drain_main_context ();
+    g_assert_true (factory_finalized);
+    g_assert_true (sorter_finalized);
+    g_assert_true (cell_finalized);
+    g_assert_true (first_row_finalized);
+    g_assert_true (second_row_finalized);
     gnc_clear_current_session ();
 }
 
@@ -752,6 +876,8 @@ main (int argc, char **argv)
                      test_account_lookup_releases_tree_item);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-dispose-row-callback",
                      test_account_dispose_quiesces_retained_row);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-column-owners",
+                     test_account_column_owners_outlive_disposed_view);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-selection-modes",
                      test_account_selection_modes_preserve_semantics);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity",

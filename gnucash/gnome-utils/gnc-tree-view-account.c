@@ -54,7 +54,8 @@ static guint signals[LAST_SIGNAL];
 
 typedef struct
 {
-    GncTreeViewAccount *view;
+    gatomicrefcount ref_count;
+    GWeakRef view;
     gchar *name;
     GncTreeModelAccountColumn column;
     gboolean is_tree;
@@ -162,8 +163,36 @@ account_children_context_free (AccountChildrenContext *context)
 static void
 account_column_free (AccountColumn *column)
 {
+    g_weak_ref_clear (&column->view);
     g_free (column->name);
     g_free (column);
+}
+
+static AccountColumn *
+account_column_ref (AccountColumn *column)
+{
+    g_atomic_ref_count_inc (&column->ref_count);
+    return column;
+}
+
+static void
+account_column_unref (AccountColumn *column)
+{
+    if (g_atomic_ref_count_dec (&column->ref_count))
+        account_column_free (column);
+}
+
+static void
+account_column_closure_free (gpointer data, GClosure *closure)
+{
+    account_column_unref (data);
+    (void)closure;
+}
+
+static GncTreeViewAccount *
+account_column_get_view (AccountColumn *column)
+{
+    return g_weak_ref_get (&column->view);
 }
 
 static void
@@ -213,38 +242,47 @@ static void
 editing_changed (GtkEditableLabel *label, GParamSpec *pspec,
                  AccountColumn *column)
 {
+    GncTreeViewAccount *view = account_column_get_view (column);
     Account *account = g_object_get_data (G_OBJECT (label), "gnc-account");
     gboolean editing = gtk_editable_label_get_editing (label);
     gboolean was_editing = GPOINTER_TO_INT (g_object_get_data (
         G_OBJECT (label), "gnc-account-was-editing"));
 
+    if (!view || view->disposing)
+        goto out;
     if (editing)
     {
         g_object_set_data (G_OBJECT (label), "gnc-account-was-editing",
                            GINT_TO_POINTER (TRUE));
-        if (column->view->editing_started_cb)
-            column->view->editing_started_cb (label,
-                                               column->view->editing_started_data);
+        if (view->editing_started_cb)
+            view->editing_started_cb (label, view->editing_started_data);
     }
     else if (was_editing)
     {
         g_object_set_data (G_OBJECT (label), "gnc-account-was-editing", NULL);
         if (account && column->edited_cb)
             column->edited_cb (account, column, gtk_editable_get_text (GTK_EDITABLE (label)));
-        if (column->view->editing_finished_cb)
-            column->view->editing_finished_cb (label,
-                                                column->view->editing_finished_data);
+        if (view->disposing)
+            goto out;
+        if (view->editing_finished_cb)
+            view->editing_finished_cb (label, view->editing_finished_data);
     }
+out:
+    g_clear_object (&view);
     (void)pspec;
 }
 
 static void
 toggle_changed (GtkCheckButton *button, AccountColumn *column)
 {
+    GncTreeViewAccount *view = account_column_get_view (column);
     Account *account = g_object_get_data (G_OBJECT (button), "gnc-account");
     gboolean value;
-    if (!account || column->view->synchronizing)
+    if (!view || view->disposing || !account || view->synchronizing)
+    {
+        g_clear_object (&view);
         return;
+    }
     value = gtk_check_button_get_active (button);
     switch (column->column)
     {
@@ -253,6 +291,7 @@ toggle_changed (GtkCheckButton *button, AccountColumn *column)
     case GNC_TREE_MODEL_ACCOUNT_COL_OPENING_BALANCE: xaccAccountSetIsOpeningBalance (account, value); break;
     default: break;
     }
+    g_object_unref (view);
 }
 
 static void
@@ -264,7 +303,9 @@ cell_setup (GtkSignalListItemFactory *factory, GtkListItem *list_item,
     {
         widget = gtk_check_button_new ();
         gtk_widget_set_halign (widget, GTK_ALIGN_CENTER);
-        g_signal_connect (widget, "toggled", G_CALLBACK (toggle_changed), column);
+        g_signal_connect_data (widget, "toggled", G_CALLBACK (toggle_changed),
+                               account_column_ref (column),
+                               account_column_closure_free, 0);
     }
     else
     {
@@ -280,7 +321,9 @@ cell_setup (GtkSignalListItemFactory *factory, GtkListItem *list_item,
         }
         else
             widget = label;
-        g_signal_connect (label, "notify::editing", G_CALLBACK (editing_changed), column);
+        g_signal_connect_data (label, "notify::editing", G_CALLBACK (editing_changed),
+                               account_column_ref (column),
+                               account_column_closure_free, 0);
     }
     gtk_list_item_set_child (list_item, widget);
     (void)factory;
@@ -299,17 +342,23 @@ static void
 cell_bind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
            AccountColumn *column)
 {
+    GncTreeViewAccount *view = account_column_get_view (column);
     GtkTreeListRow *row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (list_item));
     Account *account = account_from_row (row);
     GtkWidget *widget = gtk_list_item_get_child (list_item);
 
+    if (!view || view->disposing)
+    {
+        g_clear_object (&view);
+        return;
+    }
     if (column->is_toggle)
     {
         GtkCheckButton *button = GTK_CHECK_BUTTON (widget);
-        column->view->synchronizing = TRUE;
+        view->synchronizing = TRUE;
         gtk_check_button_set_active (button,
             account && gnc_tree_model_account_get_boolean (account, column->column));
-        column->view->synchronizing = FALSE;
+        view->synchronizing = FALSE;
         g_object_set_data (G_OBJECT (button), "gnc-account", account);
     }
     else
@@ -317,7 +366,7 @@ cell_bind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
         GtkEditableLabel *label = cell_label (list_item, column);
         gboolean negative = FALSE;
         gchar *text = account ? gnc_tree_model_account_get_string (
-            column->view->account_model, account, column->column, &negative) : g_strdup ("");
+            view->account_model, account, column->column, &negative) : g_strdup ("");
         gtk_editable_set_text (GTK_EDITABLE (label), text);
         if (negative && gnc_prefs_get_bool (GNC_PREFS_GROUP_GENERAL,
                                             GNC_PREF_NEGATIVE_IN_RED))
@@ -340,9 +389,11 @@ cell_bind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
     if (!g_object_get_data (G_OBJECT (row), "gnc-account-expansion-listener"))
     {
         g_signal_connect_object (row, "notify::expanded",
-                                 G_CALLBACK (row_expanded_changed), column->view, 0);
-        g_object_set_data (G_OBJECT (row), "gnc-account-expansion-listener", column->view);
+                                 G_CALLBACK (row_expanded_changed), view, 0);
+        g_object_set_data (G_OBJECT (row), "gnc-account-expansion-listener",
+                           GINT_TO_POINTER (TRUE));
     }
+    g_object_unref (view);
     (void)factory;
 }
 
@@ -361,34 +412,52 @@ static gint
 account_column_sort_cb (gconstpointer first, gconstpointer second, gpointer user_data)
 {
     AccountColumn *column = user_data;
+    GncTreeViewAccount *view = account_column_get_view (column);
     Account *left = account_from_row ((gpointer) first);
     Account *right = account_from_row ((gpointer) second);
     gchar *left_text;
     gchar *right_text;
     gint result;
+    if (!view || view->disposing)
+    {
+        g_clear_object (&view);
+        return GTK_ORDERING_EQUAL;
+    }
     if (!left || !right)
+    {
+        g_object_unref (view);
         return left ? 1 : (right ? -1 : 0);
-    left_text = gnc_tree_model_account_get_string (column->view->account_model, left,
+    }
+    left_text = gnc_tree_model_account_get_string (view->account_model, left,
                                                     column->column, NULL);
-    right_text = gnc_tree_model_account_get_string (column->view->account_model, right,
+    right_text = gnc_tree_model_account_get_string (view->account_model, right,
                                                      column->column, NULL);
     result = g_utf8_collate (left_text, right_text);
     g_free (left_text);
     g_free (right_text);
+    g_object_unref (view);
     return result;
 }
 static void
 column_sort_changed (GtkColumnViewColumn *column, GParamSpec *pspec,
                      AccountColumn *data)
 {
+    GncTreeViewAccount *view = account_column_get_view (data);
     GtkSortType order = GTK_SORT_ASCENDING;
+
+    if (!view || view->disposing)
+    {
+        g_clear_object (&view);
+        return;
+    }
     g_object_get (column, "sort-order", &order, NULL);
-    gnc_tree_model_account_set_sort_column (data->view->account_model,
+    gnc_tree_model_account_set_sort_column (view->account_model,
                                             data->column, order);
+    g_object_unref (view);
     (void)pspec;
 }
 
-static GtkColumnViewColumn *
+static void
 add_column (GncTreeViewAccount *view, const gchar *title, const gchar *name,
             GncTreeModelAccountColumn value_column, gboolean tree,
             gboolean toggle, gboolean visible)
@@ -398,27 +467,37 @@ add_column (GncTreeViewAccount *view, const gchar *title, const gchar *name,
     GtkColumnViewColumn *column;
     GtkSorter *sorter;
 
-    data->view = view;
+    g_atomic_ref_count_init (&data->ref_count);
+    g_weak_ref_init (&data->view, view);
     data->name = g_strdup (name);
     data->column = value_column;
     data->is_tree = tree;
     data->is_toggle = toggle;
-    sorter = GTK_SORTER (gtk_custom_sorter_new (account_column_sort_cb, data, NULL));
-    g_signal_connect (factory, "setup", G_CALLBACK (cell_setup), data);
-    g_signal_connect (factory, "bind", G_CALLBACK (cell_bind), data);
-    g_signal_connect (factory, "unbind", G_CALLBACK (cell_unbind), data);
+    sorter = GTK_SORTER (gtk_custom_sorter_new (account_column_sort_cb,
+                                                account_column_ref (data),
+                                                (GDestroyNotify)account_column_unref));
+    g_signal_connect_data (factory, "setup", G_CALLBACK (cell_setup),
+                           account_column_ref (data), account_column_closure_free, 0);
+    g_signal_connect_data (factory, "bind", G_CALLBACK (cell_bind),
+                           account_column_ref (data), account_column_closure_free, 0);
+    g_signal_connect_data (factory, "unbind", G_CALLBACK (cell_unbind),
+                           account_column_ref (data), account_column_closure_free, 0);
     column = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_id (column, name);
     gtk_column_view_column_set_visible (column, visible);
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_column_set_expand (column, tree);
     gtk_column_view_column_set_sorter (column, sorter);
-    g_object_set_data_full (G_OBJECT (column), "gnc-account-column", data,
-                            (GDestroyNotify) account_column_free);
-    g_signal_connect (column, "notify::sort-order", G_CALLBACK (column_sort_changed), data);
+    g_object_set_data_full (G_OBJECT (column), "gnc-account-column",
+                            account_column_ref (data),
+                            (GDestroyNotify)account_column_unref);
+    g_signal_connect_data (column, "notify::sort-order", G_CALLBACK (column_sort_changed),
+                           account_column_ref (data), account_column_closure_free, 0);
     gtk_column_view_append_column (view->column_view, column);
     g_object_unref (sorter);
-    return column;
+    /* append_column keeps its own reference; release the creator reference. */
+    g_object_unref (column);
+    account_column_unref (data);
 }
 
 static void
