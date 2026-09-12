@@ -45,6 +45,7 @@ typedef struct
     GncTreeModelCommodityColumn sort_column;
     GtkSortType sort_order;
     gboolean synchronizing;
+    gboolean disposing;
     guint restore_source;
     struct _CommodityChildrenContext *children_context;
 } GncTreeViewCommodityPrivate;
@@ -56,11 +57,11 @@ typedef struct _CommodityChildrenContext
 } CommodityChildrenContext;
 typedef struct
 {
-    GncTreeViewCommodity *view;
+    gatomicrefcount ref_count;
+    GWeakRef view;
     GncTreeModelCommodityColumn column;
     gboolean tree;
     gboolean toggle;
-    gchar *id;
 } CommodityColumn;
 G_DEFINE_TYPE_WITH_PRIVATE (GncTreeViewCommodity, gnc_tree_view_commodity, GNC_TYPE_TREE_VIEW)
 
@@ -97,12 +98,17 @@ row_compare (gconstpointer left, gconstpointer right, gpointer data)
     return p->sort_order == GTK_SORT_DESCENDING? -result: result;
 }
 static void
-append_sorted_visible (GncTreeViewCommodityPrivate *p, GListStore *store, GListModel *source)
+append_sorted_visible (GncTreeViewCommodityPrivate *p, GListStore *store,
+                       GListModel *source)
 {
-    for (guint index = 0; index < g_list_model_get_n_items (source); index++)
+    for (guint index = 0;
+         !p->disposing && index < g_list_model_get_n_items (source); index++)
     {
         GncTreeModelCommodityRow *row = g_list_model_get_item (source, index);
-        if (row_visible (p, row)) g_list_store_insert_sorted (store, row, row_compare, p);
+        gboolean visible = row_visible (p, row);
+
+        if (!p->disposing && visible)
+            g_list_store_insert_sorted (store, row, row_compare, p);
         g_object_unref (row);
     }
 }
@@ -137,45 +143,131 @@ commodity_children_context_free (CommodityChildrenContext *context)
     g_weak_ref_clear (&context->view);
     g_free (context);
 }
+
+static void
+commodity_column_free (CommodityColumn *column)
+{
+    g_weak_ref_clear (&column->view);
+    g_free (column);
+}
+
+static CommodityColumn *
+commodity_column_ref (CommodityColumn *column)
+{
+    g_atomic_ref_count_inc (&column->ref_count);
+    return column;
+}
+
+static void
+commodity_column_unref (CommodityColumn *column)
+{
+    if (g_atomic_ref_count_dec (&column->ref_count))
+        commodity_column_free (column);
+}
+
+static void
+commodity_column_closure_free (gpointer data, GClosure *closure)
+{
+    commodity_column_unref (data);
+    (void)closure;
+}
+
+static GncTreeViewCommodity *
+commodity_column_get_view (CommodityColumn *column)
+{
+    return g_weak_ref_get (&column->view);
+}
+
 static void
 rebuild_roots (GncTreeViewCommodity *view)
 {
     GncTreeViewCommodityPrivate *p = priv (view);
-    if (!p->roots || !p->model) return;
-    p->synchronizing = TRUE;
+    GListStore *roots;
+    GncTreeModelCommodity *model;
+    GtkMultiSelection *selection = NULL;
+
+    if (p->disposing || !p->roots || !p->model)
+        return;
+    roots = g_object_ref (p->roots);
+    model = g_object_ref (p->model);
     if (p->selection)
-        gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (p->selection));
-    g_list_store_remove_all (p->roots);
-    append_sorted_visible (p, p->roots, gnc_tree_model_commodity_get_roots (p->model));
+        selection = g_object_ref (p->selection);
+    p->synchronizing = TRUE;
+    if (selection)
+        gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (selection));
+    if (!p->disposing)
+        g_list_store_remove_all (roots);
+    if (!p->disposing)
+        append_sorted_visible (p, roots,
+                               gnc_tree_model_commodity_get_roots (model));
+    g_clear_object (&selection);
+    g_object_unref (model);
+    g_object_unref (roots);
 }
 static gboolean
 restore_state (gpointer data)
 {
     GncTreeViewCommodity *view = GNC_TREE_VIEW_COMMODITY (data);
     GncTreeViewCommodityPrivate *p = priv (view);
+    GtkTreeListModel *rows;
+    GtkMultiSelection *selection;
+    GHashTable *selected;
+    GHashTable *expanded;
     gboolean expanded_any = FALSE;
-    for (guint position = 0; position < g_list_model_get_n_items (G_LIST_MODEL (p->rows)); position++)
+
+    if (p->disposing || !p->rows || !p->selection || !p->selected ||
+        !p->expanded)
+        return G_SOURCE_REMOVE;
+    rows = g_object_ref (p->rows);
+    selection = g_object_ref (p->selection);
+    selected = g_hash_table_ref (p->selected);
+    expanded = g_hash_table_ref (p->expanded);
+    for (guint position = 0;
+         !p->disposing &&
+         position < g_list_model_get_n_items (G_LIST_MODEL (rows)); position++)
     {
-        GtkTreeListRow *tree_row = gtk_tree_list_model_get_row (p->rows, position);
+        GtkTreeListRow *tree_row = gtk_tree_list_model_get_row (rows, position);
         GncTreeModelCommodityRow *row = row_from_item (tree_row);
-        if (row && gtk_tree_list_row_is_expandable (tree_row) && g_hash_table_contains (p->expanded, gnc_tree_model_commodity_row_get_id (row)) && !gtk_tree_list_row_get_expanded (tree_row))
+        if (row && gtk_tree_list_row_is_expandable (tree_row) &&
+            g_hash_table_contains (expanded,
+                                   gnc_tree_model_commodity_row_get_id (row)) &&
+            !gtk_tree_list_row_get_expanded (tree_row))
         {
             gtk_tree_list_row_set_expanded (tree_row, TRUE);
             expanded_any = TRUE;
         }
-        if (row && g_hash_table_contains (p->selected, gnc_tree_model_commodity_row_get_id (row))) gtk_selection_model_select_item (GTK_SELECTION_MODEL (p->selection), position, FALSE);
+        if (!p->disposing && row &&
+            g_hash_table_contains (selected,
+                                   gnc_tree_model_commodity_row_get_id (row)))
+            gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection),
+                                             position, FALSE);
         g_object_unref (tree_row);
     }
-    if (expanded_any) return G_SOURCE_CONTINUE;
-    p->synchronizing = FALSE;
-    p->restore_source = 0;
+    g_hash_table_unref (expanded);
+    g_hash_table_unref (selected);
+    g_object_unref (selection);
+    g_object_unref (rows);
+    if (!p->disposing && expanded_any)
+        return G_SOURCE_CONTINUE;
+    if (!p->disposing)
+    {
+        p->synchronizing = FALSE;
+        p->restore_source = 0;
+    }
     return G_SOURCE_REMOVE;
 }
 static void
 schedule_restore (GncTreeViewCommodity *view)
 {
     GncTreeViewCommodityPrivate *p = priv (view);
-    if (!p->restore_source) p->restore_source = g_idle_add (restore_state, view);
+    if (p->disposing || !p->rows || !p->selection || !p->selected ||
+        !p->expanded)
+        return;
+    if (!p->restore_source)
+        p->restore_source = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+                                             restore_state,
+                                             g_object_ref (view),
+                                             g_object_unref);
 }
 static void
 model_changed (GncTreeModelCommodity *model, GncTreeViewCommodity *view)
@@ -188,7 +280,7 @@ static void
 selection_changed (GtkSelectionModel *selection, guint position, guint n_items, GncTreeViewCommodity *view)
 {
     GncTreeViewCommodityPrivate *p = priv (view);
-    if (p->synchronizing) return;
+    if (p->disposing || p->synchronizing) return;
     g_hash_table_remove_all (p->selected);
     for (guint i = 0; i < g_list_model_get_n_items (G_LIST_MODEL (p->rows)); i++)
     {
@@ -205,7 +297,7 @@ row_expanded (GtkTreeListRow *tree_row, GParamSpec *pspec, GncTreeViewCommodity 
 {
     GncTreeViewCommodityPrivate *p = priv (view);
     GncTreeModelCommodityRow *row = row_from_item (tree_row);
-    if (row && !p->synchronizing)
+    if (row && !p->disposing && !p->synchronizing)
     {
         const gchar *id = gnc_tree_model_commodity_row_get_id (row);
         if (gtk_tree_list_row_get_expanded (tree_row)) g_hash_table_add (p->expanded, g_strdup (id));
@@ -230,10 +322,17 @@ factory_setup (GtkSignalListItemFactory *factory, GtkListItem *item, CommodityCo
 static void
 factory_bind (GtkSignalListItemFactory *factory, GtkListItem *item, CommodityColumn *column)
 {
+    GncTreeViewCommodity *view = commodity_column_get_view (column);
     GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
     GncTreeModelCommodityRow *row = row_from_item (tree_row);
     GtkWidget *child = gtk_list_item_get_child (item);
     GtkWidget *value = column->tree? gtk_tree_expander_get_child (GTK_TREE_EXPANDER (child)): child;
+
+    if (!view || priv (view)->disposing)
+    {
+        g_clear_object (&view);
+        return;
+    }
     if (column->tree) gtk_tree_expander_set_list_row (GTK_TREE_EXPANDER (child), tree_row);
     if (column->toggle) gtk_check_button_set_active (GTK_CHECK_BUTTON (value), gnc_tree_model_commodity_row_get_boolean (row, column->column));
     else
@@ -242,14 +341,20 @@ factory_bind (GtkSignalListItemFactory *factory, GtkListItem *item, CommodityCol
         gtk_label_set_text (GTK_LABEL (value), text);
         g_free (text);
     }
-    g_signal_connect_object (tree_row, "notify::expanded", G_CALLBACK (row_expanded), column->view, 0);
+    g_signal_connect_object (tree_row, "notify::expanded", G_CALLBACK (row_expanded), view, 0);
+    g_object_unref (view);
     (void)factory;
 }
 static void
 factory_unbind (GtkSignalListItemFactory *factory, GtkListItem *item, CommodityColumn *column)
 {
+    GncTreeViewCommodity *view = commodity_column_get_view (column);
     GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    g_signal_handlers_disconnect_by_func (tree_row, row_expanded, column->view);
+    if (view)
+    {
+        g_signal_handlers_disconnect_by_func (tree_row, row_expanded, view);
+        g_object_unref (view);
+    }
     (void)factory;
 }
 static GtkOrdering
@@ -266,42 +371,59 @@ sort_cb (gconstpointer left, gconstpointer right, gpointer user_data)
 static void
 sort_changed (GtkColumnViewColumn *column_view, GParamSpec *pspec, CommodityColumn *column)
 {
+    GncTreeViewCommodity *view = commodity_column_get_view (column);
+    GncTreeViewCommodityPrivate *p;
     GtkSortType order = GTK_SORT_ASCENDING;
+
+    if (!view || priv (view)->disposing)
+    {
+        g_clear_object (&view);
+        return;
+    }
     g_object_get (column_view, "sort-order", &order, NULL);
-    GncTreeViewCommodityPrivate *p = priv (column->view);
+    p = priv (view);
     p->sort_column = column->column;
     p->sort_order = order;
-    rebuild_roots (column->view);
-    schedule_restore (column->view);
+    rebuild_roots (view);
+    schedule_restore (view);
+    g_object_unref (view);
     (void)pspec;
 }
-static GtkColumnViewColumn *
+static void
 add_column (GncTreeViewCommodity *view, const gchar *title, const gchar *id, GncTreeModelCommodityColumn value, gboolean tree, gboolean toggle, gboolean visible)
 {
     CommodityColumn *data = g_new0 (CommodityColumn, 1);
     GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
     GtkCustomSorter *sorter;
     GtkColumnViewColumn *column;
-    data->view = view;
+    g_atomic_ref_count_init (&data->ref_count);
+    g_weak_ref_init (&data->view, view);
     data->column = value;
     data->tree = tree;
     data->toggle = toggle;
-    data->id = g_strdup (id);
-    g_signal_connect (factory, "setup", G_CALLBACK (factory_setup), data);
-    g_signal_connect (factory, "bind", G_CALLBACK (factory_bind), data);
-    g_signal_connect (factory, "unbind", G_CALLBACK (factory_unbind), data);
+    g_signal_connect_data (factory, "setup", G_CALLBACK (factory_setup),
+                           commodity_column_ref (data), commodity_column_closure_free, 0);
+    g_signal_connect_data (factory, "bind", G_CALLBACK (factory_bind),
+                           commodity_column_ref (data), commodity_column_closure_free, 0);
+    g_signal_connect_data (factory, "unbind", G_CALLBACK (factory_unbind),
+                           commodity_column_ref (data), commodity_column_closure_free, 0);
     column = gtk_column_view_column_new (title, GTK_LIST_ITEM_FACTORY (factory));
     gtk_column_view_column_set_id (column, id);
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_column_set_expand (column, tree);
     gtk_column_view_column_set_visible (column, visible);
-    sorter = gtk_custom_sorter_new (sort_cb, data, NULL);
+    sorter = gtk_custom_sorter_new (sort_cb, commodity_column_ref (data),
+                                    (GDestroyNotify)commodity_column_unref);
     gtk_column_view_column_set_sorter (column, GTK_SORTER (sorter));
-    g_signal_connect (column, "notify::sort-order", G_CALLBACK (sort_changed), data);
-    g_object_set_data_full (G_OBJECT (column), "gnc-commodity-column", data, (GDestroyNotify)g_free);
+    g_signal_connect_data (column, "notify::sort-order", G_CALLBACK (sort_changed),
+                           commodity_column_ref (data), commodity_column_closure_free, 0);
+    g_object_set_data_full (G_OBJECT (column), "gnc-commodity-column",
+                            commodity_column_ref (data),
+                            (GDestroyNotify)commodity_column_unref);
     gtk_column_view_append_column (gnc_tree_view_get_column_view (GNC_TREE_VIEW (view)), column);
     g_object_unref (sorter);
-    return column;
+    g_object_unref (column);
+    commodity_column_unref (data);
 }
 static void
 view_dispose (GObject *object)
@@ -313,6 +435,7 @@ view_dispose (GObject *object)
     gpointer filter_data;
     guint restore_source = p->restore_source;
 
+    p->disposing = TRUE;
     p->restore_source = 0;
     if (restore_source) g_source_remove (restore_source);
     if (p->children_context)

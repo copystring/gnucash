@@ -50,6 +50,7 @@ typedef struct
     guint suspended;
     gboolean dirty;
     gboolean synchronizing;
+    gboolean disposing;
     struct _PriceChildrenContext *children_context;
 } GncTreeViewPricePrivate;
 
@@ -60,10 +61,10 @@ typedef struct _PriceChildrenContext
 } PriceChildrenContext;
 typedef struct
 {
-    GncTreeViewPrice *view;
+    gatomicrefcount ref_count;
+    GWeakRef view;
     GncTreeModelPriceColumn column;
     gboolean tree;
-    gchar *id;
 } PriceColumn;
 G_DEFINE_TYPE_WITH_PRIVATE (GncTreeViewPrice, gnc_tree_view_price, GNC_TYPE_TREE_VIEW)
 
@@ -129,12 +130,17 @@ row_compare (gconstpointer left, gconstpointer right, gpointer data)
     return p->sort_order == GTK_SORT_DESCENDING? -result: result;
 }
 static void
-append_sorted_visible (GncTreeViewPricePrivate *p, GListStore *store, GListModel *source)
+append_sorted_visible (GncTreeViewPricePrivate *p, GListStore *store,
+                       GListModel *source)
 {
-    for (guint i = 0; i < g_list_model_get_n_items (source); i++)
+    for (guint i = 0;
+         !p->disposing && i < g_list_model_get_n_items (source); i++)
     {
         GncTreeModelPriceRow *row = g_list_model_get_item (source, i);
-        if (row_visible (p, row)) g_list_store_insert_sorted (store, row, row_compare, p);
+        gboolean visible = row_visible (p, row);
+
+        if (!p->disposing && visible)
+            g_list_store_insert_sorted (store, row, row_compare, p);
         g_object_unref (row);
     }
 }
@@ -168,51 +174,137 @@ price_children_context_free (PriceChildrenContext *context)
     g_weak_ref_clear (&context->view);
     g_free (context);
 }
+
+static void
+price_column_free (PriceColumn *column)
+{
+    g_weak_ref_clear (&column->view);
+    g_free (column);
+}
+
+static PriceColumn *
+price_column_ref (PriceColumn *column)
+{
+    g_atomic_ref_count_inc (&column->ref_count);
+    return column;
+}
+
+static void
+price_column_unref (PriceColumn *column)
+{
+    if (g_atomic_ref_count_dec (&column->ref_count))
+        price_column_free (column);
+}
+
+static void
+price_column_closure_free (gpointer data, GClosure *closure)
+{
+    price_column_unref (data);
+    (void)closure;
+}
+
+static GncTreeViewPrice *
+price_column_get_view (PriceColumn *column)
+{
+    return g_weak_ref_get (&column->view);
+}
+
 static void
 rebuild_roots (GncTreeViewPrice *view)
 {
     GncTreeViewPricePrivate *p = priv (view);
-    if (!p->roots || !p->model) return;
-    p->synchronizing = TRUE;
+    GListStore *roots;
+    GncTreeModelPrice *model;
+    GtkMultiSelection *selection = NULL;
+
+    if (p->disposing || !p->roots || !p->model)
+        return;
+    roots = g_object_ref (p->roots);
+    model = g_object_ref (p->model);
     if (p->selection)
-        gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (p->selection));
-    g_list_store_remove_all (p->roots);
-    append_sorted_visible (p, p->roots, gnc_tree_model_price_get_roots (p->model));
+        selection = g_object_ref (p->selection);
+    p->synchronizing = TRUE;
+    if (selection)
+        gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (selection));
+    if (!p->disposing)
+        g_list_store_remove_all (roots);
+    if (!p->disposing)
+        append_sorted_visible (p, roots, gnc_tree_model_price_get_roots (model));
+    g_clear_object (&selection);
+    g_object_unref (model);
+    g_object_unref (roots);
 }
 static gboolean
 restore_state (gpointer data)
 {
     GncTreeViewPrice *view = GNC_TREE_VIEW_PRICE (data);
     GncTreeViewPricePrivate *p = priv (view);
+    GtkTreeListModel *rows;
+    GtkMultiSelection *selection;
+    GHashTable *selected;
+    GHashTable *expanded;
     gboolean changed = FALSE;
-    for (guint i = 0; i < g_list_model_get_n_items (G_LIST_MODEL (p->rows)); i++)
+
+    if (p->disposing || !p->rows || !p->selection || !p->selected ||
+        !p->expanded)
+        return G_SOURCE_REMOVE;
+    rows = g_object_ref (p->rows);
+    selection = g_object_ref (p->selection);
+    selected = g_hash_table_ref (p->selected);
+    expanded = g_hash_table_ref (p->expanded);
+    for (guint i = 0;
+         !p->disposing && i < g_list_model_get_n_items (G_LIST_MODEL (rows)); i++)
     {
-        GtkTreeListRow *tr = gtk_tree_list_model_get_row (p->rows, i);
+        GtkTreeListRow *tr = gtk_tree_list_model_get_row (rows, i);
         GncTreeModelPriceRow *row = row_from_item (tr);
-        if (row && gtk_tree_list_row_is_expandable (tr) && g_hash_table_contains (p->expanded, gnc_tree_model_price_row_get_id (row)) && !gtk_tree_list_row_get_expanded (tr))
+        if (row && gtk_tree_list_row_is_expandable (tr) &&
+            g_hash_table_contains (expanded,
+                                   gnc_tree_model_price_row_get_id (row)) &&
+            !gtk_tree_list_row_get_expanded (tr))
         {
             gtk_tree_list_row_set_expanded (tr, TRUE);
             changed = TRUE;
         }
-        if (row && g_hash_table_contains (p->selected, gnc_tree_model_price_row_get_id (row))) gtk_selection_model_select_item (GTK_SELECTION_MODEL (p->selection), i, FALSE);
+        if (!p->disposing && row &&
+            g_hash_table_contains (selected,
+                                   gnc_tree_model_price_row_get_id (row)))
+            gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection),
+                                             i, FALSE);
         g_object_unref (tr);
     }
-    if (changed) return G_SOURCE_CONTINUE;
-    p->synchronizing = FALSE;
-    p->restore_source = 0;
+    g_hash_table_unref (expanded);
+    g_hash_table_unref (selected);
+    g_object_unref (selection);
+    g_object_unref (rows);
+    if (!p->disposing && changed)
+        return G_SOURCE_CONTINUE;
+    if (!p->disposing)
+    {
+        p->synchronizing = FALSE;
+        p->restore_source = 0;
+    }
     return G_SOURCE_REMOVE;
 }
 static void
 schedule_restore (GncTreeViewPrice *view)
 {
     GncTreeViewPricePrivate *p = priv (view);
-    if (!p->restore_source) p->restore_source = g_idle_add (restore_state, view);
+    if (p->disposing || !p->rows || !p->selection || !p->selected ||
+        !p->expanded)
+        return;
+    if (!p->restore_source)
+        p->restore_source = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+                                             restore_state,
+                                             g_object_ref (view),
+                                             g_object_unref);
 }
 static void
 model_changed (GncTreeModelPrice *model, GncTreeViewPrice *view)
 {
     GncTreeViewPricePrivate *p = priv (view);
     (void)model;
+    if (p->disposing)
+        return;
     if (p->suspended)
     {
         p->dirty = TRUE;
@@ -225,7 +317,7 @@ static void
 selection_changed (GtkSelectionModel *selection, guint position, guint n_items, GncTreeViewPrice *view)
 {
     GncTreeViewPricePrivate *p = priv (view);
-    if (p->synchronizing) return;
+    if (p->disposing || p->synchronizing) return;
     g_hash_table_remove_all (p->selected);
     for (guint i = 0; i < g_list_model_get_n_items (G_LIST_MODEL (p->rows)); i++) if (gtk_selection_model_is_selected (selection, i))
     {
@@ -242,7 +334,7 @@ row_expanded (GtkTreeListRow *tr, GParamSpec *pspec, GncTreeViewPrice *view)
 {
     GncTreeViewPricePrivate *p = priv (view);
     GncTreeModelPriceRow *row = row_from_item (tr);
-    if (row && !p->synchronizing)
+    if (row && !p->disposing && !p->synchronizing)
     {
         const gchar *id = gnc_tree_model_price_row_get_id (row);
         if (gtk_tree_list_row_get_expanded (tr)) g_hash_table_add (p->expanded, g_strdup (id));
@@ -267,70 +359,110 @@ factory_setup (GtkSignalListItemFactory *factory, GtkListItem *item, PriceColumn
 static void
 factory_bind (GtkSignalListItemFactory *factory, GtkListItem *item, PriceColumn *column)
 {
+    GncTreeViewPrice *view = price_column_get_view (column);
     GtkTreeListRow *tr = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
     GncTreeModelPriceRow *row = row_from_item (tr);
     GtkWidget *child = gtk_list_item_get_child (item);
     GtkWidget *label = column->tree? gtk_tree_expander_get_child (GTK_TREE_EXPANDER (child)): child;
-    gchar *text = gnc_tree_model_price_row_get_string (row, column->column);
+    gchar *text;
+
+    if (!view || priv (view)->disposing)
+    {
+        g_clear_object (&view);
+        return;
+    }
+    text = gnc_tree_model_price_row_get_string (row, column->column);
     if (column->tree) gtk_tree_expander_set_list_row (GTK_TREE_EXPANDER (child), tr);
     gtk_label_set_text (GTK_LABEL (label), text);
     g_free (text);
-    g_signal_connect_object (tr, "notify::expanded", G_CALLBACK (row_expanded), column->view, 0);
+    g_signal_connect_object (tr, "notify::expanded", G_CALLBACK (row_expanded), view, 0);
+    g_object_unref (view);
     (void)factory;
 }
 static void
 factory_unbind (GtkSignalListItemFactory *factory, GtkListItem *item, PriceColumn *column)
 {
+    GncTreeViewPrice *view = price_column_get_view (column);
     GtkTreeListRow *tr = GTK_TREE_LIST_ROW (gtk_list_item_get_item (item));
-    g_signal_handlers_disconnect_by_func (tr, row_expanded, column->view);
+    if (view)
+    {
+        g_signal_handlers_disconnect_by_func (tr, row_expanded, view);
+        g_object_unref (view);
+    }
     (void)factory;
 }
 static GtkOrdering
 sorter_cb (gconstpointer left, gconstpointer right, gpointer user_data)
 {
     PriceColumn *column = user_data;
+    GncTreeViewPrice *view = price_column_get_view (column);
     GncTreeModelPriceRow *a = row_from_item ((gpointer)left), *b = row_from_item ((gpointer)right);
-    gint result = row_compare (a, b, priv (column->view));
+    gint result;
+
+    if (!view || priv (view)->disposing)
+    {
+        g_clear_object (&view);
+        return GTK_ORDERING_EQUAL;
+    }
+    result = row_compare (a, b, priv (view));
+    g_object_unref (view);
     return result < 0? GTK_ORDERING_SMALLER: result > 0? GTK_ORDERING_LARGER: GTK_ORDERING_EQUAL;
 }
 static void
 sort_changed (GtkColumnViewColumn *column_view, GParamSpec *pspec, PriceColumn *column)
 {
+    GncTreeViewPrice *view = price_column_get_view (column);
+    GncTreeViewPricePrivate *p;
     GtkSortType order = GTK_SORT_ASCENDING;
-    GncTreeViewPricePrivate *p = priv (column->view);
+
+    if (!view || priv (view)->disposing)
+    {
+        g_clear_object (&view);
+        return;
+    }
+    p = priv (view);
     g_object_get (column_view, "sort-order", &order, NULL);
     p->sort_column = column->column;
     p->sort_order = order;
-    rebuild_roots (column->view);
-    schedule_restore (column->view);
+    rebuild_roots (view);
+    schedule_restore (view);
+    g_object_unref (view);
     (void)pspec;
 }
-static GtkColumnViewColumn *
+static void
 add_column (GncTreeViewPrice *view, const gchar *title, const gchar *id, GncTreeModelPriceColumn value, gboolean tree, gboolean visible)
 {
     PriceColumn *data = g_new0 (PriceColumn, 1);
     GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
     GtkCustomSorter *sorter;
     GtkColumnViewColumn *column;
-    data->view = view;
+    g_atomic_ref_count_init (&data->ref_count);
+    g_weak_ref_init (&data->view, view);
     data->column = value;
     data->tree = tree;
-    data->id = g_strdup (id);
-    g_signal_connect (factory, "setup", G_CALLBACK (factory_setup), data);
-    g_signal_connect (factory, "bind", G_CALLBACK (factory_bind), data);
-    g_signal_connect (factory, "unbind", G_CALLBACK (factory_unbind), data);
+    g_signal_connect_data (factory, "setup", G_CALLBACK (factory_setup),
+                           price_column_ref (data), price_column_closure_free, 0);
+    g_signal_connect_data (factory, "bind", G_CALLBACK (factory_bind),
+                           price_column_ref (data), price_column_closure_free, 0);
+    g_signal_connect_data (factory, "unbind", G_CALLBACK (factory_unbind),
+                           price_column_ref (data), price_column_closure_free, 0);
     column = gtk_column_view_column_new (title, factory);
     gtk_column_view_column_set_id (column, id);
     gtk_column_view_column_set_resizable (column, TRUE);
     gtk_column_view_column_set_expand (column, tree);
     gtk_column_view_column_set_visible (column, visible);
-    sorter = gtk_custom_sorter_new (sorter_cb, data, NULL);
+    sorter = gtk_custom_sorter_new (sorter_cb, price_column_ref (data),
+                                    (GDestroyNotify)price_column_unref);
     gtk_column_view_column_set_sorter (column, GTK_SORTER (sorter));
-    g_signal_connect (column, "notify::sort-order", G_CALLBACK (sort_changed), data);
-    g_object_set_data_full (G_OBJECT (column), "gnc-price-column", data, (GDestroyNotify)g_free);
+    g_signal_connect_data (column, "notify::sort-order", G_CALLBACK (sort_changed),
+                           price_column_ref (data), price_column_closure_free, 0);
+    g_object_set_data_full (G_OBJECT (column), "gnc-price-column",
+                            price_column_ref (data),
+                            (GDestroyNotify)price_column_unref);
     gtk_column_view_append_column (gnc_tree_view_get_column_view (GNC_TREE_VIEW (view)), column);
     g_object_unref (sorter);
-    return column;
+    g_object_unref (column);
+    price_column_unref (data);
 }
 static void
 view_dispose (GObject *object)
@@ -342,6 +474,7 @@ view_dispose (GObject *object)
     gpointer filter_data;
     guint restore_source = p->restore_source;
 
+    p->disposing = TRUE;
     p->restore_source = 0;
     if (restore_source) g_source_remove (restore_source);
     if (p->children_context)

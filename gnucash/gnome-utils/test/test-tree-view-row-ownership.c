@@ -138,6 +138,12 @@ typedef struct
     GtkListItem *list_item;
 } FactoryBindCapture;
 
+typedef struct
+{
+    GObject *view;
+    gboolean invoked;
+} DisposeOnSelectionChange;
+
 static void
 capture_factory_bind (GtkListItemFactory *factory, GtkListItem *list_item,
                       FactoryBindCapture *capture)
@@ -145,6 +151,61 @@ capture_factory_bind (GtkListItemFactory *factory, GtkListItem *list_item,
     if (!capture->list_item)
         capture->list_item = g_object_ref (list_item);
     (void)factory;
+}
+
+static void
+dispose_view_on_selection_changed (GtkSelectionModel *selection, guint position,
+                                   guint n_items,
+                                   DisposeOnSelectionChange *context)
+{
+    if (!context->invoked)
+    {
+        context->invoked = TRUE;
+        g_object_run_dispose (context->view);
+    }
+    (void)selection;
+    (void)position;
+    (void)n_items;
+}
+
+static void
+watch_column_owners (GtkColumnView *column_view, guint expected_columns,
+                     guint retained_index, gboolean *columns_finalized,
+                     GtkListItemFactory **retained_factory,
+                     GtkSorter **retained_sorter,
+                     FactoryBindCapture *capture, gulong *bind_id)
+{
+    GListModel *columns = gtk_column_view_get_columns (column_view);
+
+    g_assert_cmpuint (g_list_model_get_n_items (columns), ==, expected_columns);
+    for (guint index = 0; index < expected_columns; index++)
+    {
+        GtkColumnViewColumn *column = g_list_model_get_item (columns, index);
+
+        g_assert_nonnull (column);
+        g_object_weak_ref (G_OBJECT (column), object_finalized,
+                           &columns_finalized[index]);
+        if (index == retained_index)
+        {
+            GtkListItemFactory *factory = gtk_column_view_column_get_factory (column);
+            GtkSorter *sorter = gtk_column_view_column_get_sorter (column);
+
+            g_assert_nonnull (factory);
+            g_assert_nonnull (sorter);
+            *retained_factory = g_object_ref (factory);
+            *retained_sorter = g_object_ref (sorter);
+            *bind_id = g_signal_connect (factory, "bind",
+                                         G_CALLBACK (capture_factory_bind), capture);
+        }
+        g_object_unref (column);
+    }
+}
+
+static void
+assert_all_finalized (const gboolean *finalized, guint count)
+{
+    for (guint index = 0; index < count; index++)
+        g_assert_true (finalized[index]);
 }
 
 static void
@@ -638,6 +699,115 @@ test_commodity_lookup_releases_tree_item (void)
 }
 
 static void
+test_commodity_column_owners_outlive_disposed_view (void)
+{
+    enum { COMMODITY_COLUMN_COUNT = 11, RETAINED_COLUMN = 1 };
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    gnc_commodity_table *table = gnc_commodity_table_get_table (book);
+    gnc_commodity *first;
+    gnc_commodity *second;
+    GtkWidget *widget;
+    GtkWindow *window;
+    GncTreeViewCommodity *view;
+    GtkSelectionModel *selection;
+    GtkColumnView *column_view;
+    GtkListItemFactory *factory = NULL;
+    GtkSorter *sorter = NULL;
+    GtkTreeListRow *first_row;
+    GtkTreeListRow *second_row;
+    GtkWidget *cell;
+    FactoryBindCapture capture = { NULL };
+    DisposeOnSelectionChange dispose_context;
+    gulong bind_id = 0;
+    gulong dispose_id;
+    gboolean columns_finalized[COMMODITY_COLUMN_COUNT] = { FALSE };
+    gboolean factory_finalized = FALSE;
+    gboolean sorter_finalized = FALSE;
+    gboolean cell_finalized = FALSE;
+    gboolean first_row_finalized = FALSE;
+    gboolean second_row_finalized = FALSE;
+
+    gnc_set_current_session (session);
+    first = gnc_commodity_new (book, "First lifetime commodity", "LIFETIME",
+                               "ONE", "", 100);
+    second = gnc_commodity_new (book, "Second lifetime commodity", "LIFETIME",
+                                "TWO", "", 100);
+    gnc_commodity_table_insert (table, first);
+    gnc_commodity_table_insert (table, second);
+    widget = gnc_tree_view_commodity_new (book, NULL);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_COMMODITY (widget);
+    selection = g_object_ref (gnc_tree_view_commodity_get_selection_model (view));
+    gnc_tree_view_commodity_select_commodity (view, first);
+    drain_main_context ();
+    first_row = selected_tree_row (selection);
+    gnc_tree_view_commodity_select_commodity (view, second);
+    drain_main_context ();
+    second_row = selected_tree_row (selection);
+    g_assert_true (first_row != second_row);
+
+    column_view = gnc_tree_view_commodity_get_column_view (view);
+    watch_column_owners (column_view, COMMODITY_COLUMN_COUNT, RETAINED_COLUMN,
+                         columns_finalized, &factory, &sorter, &capture, &bind_id);
+    window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_default_size (window, 640, 480);
+    gtk_window_set_child (window, widget);
+    present_and_wait_for_frame (window);
+    g_assert_nonnull (capture.list_item);
+    cell = g_object_ref (gtk_list_item_get_child (capture.list_item));
+    g_assert_nonnull (cell);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), !=,
+                     GTK_ORDERING_EQUAL);
+    g_object_weak_ref (G_OBJECT (factory), object_finalized, &factory_finalized);
+    g_object_weak_ref (G_OBJECT (sorter), object_finalized, &sorter_finalized);
+    g_object_weak_ref (G_OBJECT (cell), object_finalized, &cell_finalized);
+    g_object_weak_ref (G_OBJECT (first_row), object_finalized, &first_row_finalized);
+    g_object_weak_ref (G_OBJECT (second_row), object_finalized, &second_row_finalized);
+    g_signal_handler_disconnect (factory, bind_id);
+
+    gtk_window_set_child (window, NULL);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+    dispose_context.view = G_OBJECT (widget);
+    dispose_context.invoked = FALSE;
+    dispose_id = g_signal_connect (selection, "selection-changed",
+                                   G_CALLBACK (dispose_view_on_selection_changed),
+                                   &dispose_context);
+    gnc_tree_view_commodity_refilter (view);
+    g_assert_true (dispose_context.invoked);
+    g_signal_handler_disconnect (selection, dispose_id);
+    g_object_run_dispose (G_OBJECT (widget));
+    drain_main_context ();
+    assert_all_finalized (columns_finalized, COMMODITY_COLUMN_COUNT);
+    g_assert_false (factory_finalized);
+    g_assert_false (sorter_finalized);
+    g_assert_false (cell_finalized);
+    g_assert_false (first_row_finalized);
+    g_assert_false (second_row_finalized);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), !=,
+                     GTK_ORDERING_EQUAL);
+
+    g_object_unref (widget);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), !=,
+                     GTK_ORDERING_EQUAL);
+    g_object_unref (first_row);
+    g_object_unref (second_row);
+    g_object_unref (cell);
+    g_object_unref (capture.list_item);
+    g_object_unref (factory);
+    g_object_unref (sorter);
+    g_object_unref (selection);
+    drain_main_context ();
+    g_assert_true (factory_finalized);
+    g_assert_true (sorter_finalized);
+    g_assert_true (cell_finalized);
+    g_assert_true (first_row_finalized);
+    g_assert_true (second_row_finalized);
+    gnc_clear_current_session ();
+}
+
+static void
 test_price_lookup_releases_tree_item (void)
 {
     QofSession *session = qof_session_new (qof_book_new ());
@@ -694,6 +864,138 @@ test_price_lookup_releases_tree_item (void)
     gnc_tree_view_price_set_selected_price (view, expected_price);
     dispose_with_retained_selection (widget, selection, parent_row, &finalized);
     g_assert_true (finalized);
+    gnc_clear_current_session ();
+}
+
+static void
+test_price_column_owners_outlive_disposed_view (void)
+{
+    enum { PRICE_COLUMN_COUNT = 6, RETAINED_COLUMN = 2 };
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    gnc_commodity_table *table = gnc_commodity_table_get_table (book);
+    gnc_commodity *currency;
+    gnc_commodity *security;
+    GNCPrice *first;
+    GNCPrice *second;
+    GtkWidget *widget;
+    GtkWindow *window;
+    GncTreeViewPrice *view;
+    GtkSelectionModel *selection;
+    GtkColumnView *column_view;
+    GtkListItemFactory *factory = NULL;
+    GtkSorter *sorter = NULL;
+    GtkTreeListRow *first_row;
+    GtkTreeListRow *second_row;
+    GtkWidget *cell;
+    FactoryBindCapture capture = { NULL };
+    DisposeOnSelectionChange dispose_context;
+    gulong bind_id = 0;
+    gulong dispose_id;
+    gboolean columns_finalized[PRICE_COLUMN_COUNT] = { FALSE };
+    gboolean factory_finalized = FALSE;
+    gboolean sorter_finalized = FALSE;
+    gboolean cell_finalized = FALSE;
+    gboolean first_row_finalized = FALSE;
+    gboolean second_row_finalized = FALSE;
+
+    gnc_set_current_session (session);
+    currency = gnc_commodity_new (book, "Lifetime currency",
+                                  GNC_COMMODITY_NS_CURRENCY, "LFC", "", 100);
+    security = gnc_commodity_new (book, "Lifetime security", "LIFETIME",
+                                  "LFS", "", 1000);
+    gnc_commodity_table_insert (table, currency);
+    gnc_commodity_table_insert (table, security);
+    first = gnc_price_create (book);
+    gnc_price_begin_edit (first);
+    gnc_price_set_commodity (first, security);
+    gnc_price_set_currency (first, currency);
+    gnc_price_set_time64 (first, 1);
+    gnc_price_set_value (first, gnc_numeric_create (1, 1));
+    gnc_price_commit_edit (first);
+    g_assert_true (gnc_pricedb_add_price (gnc_pricedb_get_db (book), first));
+    second = gnc_price_create (book);
+    gnc_price_begin_edit (second);
+    gnc_price_set_commodity (second, security);
+    gnc_price_set_currency (second, currency);
+    gnc_price_set_time64 (second, 86401);
+    gnc_price_set_value (second, gnc_numeric_create (2, 1));
+    gnc_price_commit_edit (second);
+    g_assert_true (gnc_pricedb_add_price (gnc_pricedb_get_db (book), second));
+
+    widget = gnc_tree_view_price_new (book, NULL);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_PRICE (widget);
+    selection = g_object_ref (gnc_tree_view_price_get_selection_model (view));
+    gnc_tree_view_price_set_selected_price (view, first);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == first);
+    first_row = selected_tree_row (selection);
+    gnc_tree_view_price_set_selected_price (view, second);
+    drain_main_context ();
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == second);
+    second_row = selected_tree_row (selection);
+    g_assert_true (first_row != second_row);
+    gnc_price_unref (first);
+    gnc_price_unref (second);
+
+    column_view = gnc_tree_view_price_get_column_view (view);
+    watch_column_owners (column_view, PRICE_COLUMN_COUNT, RETAINED_COLUMN,
+                         columns_finalized, &factory, &sorter, &capture, &bind_id);
+    window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_default_size (window, 640, 480);
+    gtk_window_set_child (window, widget);
+    present_and_wait_for_frame (window);
+    g_assert_nonnull (capture.list_item);
+    cell = g_object_ref (gtk_list_item_get_child (capture.list_item));
+    g_assert_nonnull (cell);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), !=,
+                     GTK_ORDERING_EQUAL);
+    g_object_weak_ref (G_OBJECT (factory), object_finalized, &factory_finalized);
+    g_object_weak_ref (G_OBJECT (sorter), object_finalized, &sorter_finalized);
+    g_object_weak_ref (G_OBJECT (cell), object_finalized, &cell_finalized);
+    g_object_weak_ref (G_OBJECT (first_row), object_finalized, &first_row_finalized);
+    g_object_weak_ref (G_OBJECT (second_row), object_finalized, &second_row_finalized);
+    g_signal_handler_disconnect (factory, bind_id);
+
+    gtk_window_set_child (window, NULL);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+    dispose_context.view = G_OBJECT (widget);
+    dispose_context.invoked = FALSE;
+    dispose_id = g_signal_connect (selection, "selection-changed",
+                                   G_CALLBACK (dispose_view_on_selection_changed),
+                                   &dispose_context);
+    gnc_tree_view_price_set_filter (view, NULL, NULL, NULL, NULL, NULL);
+    g_assert_true (dispose_context.invoked);
+    g_signal_handler_disconnect (selection, dispose_id);
+    g_object_run_dispose (G_OBJECT (widget));
+    drain_main_context ();
+    assert_all_finalized (columns_finalized, PRICE_COLUMN_COUNT);
+    g_assert_false (factory_finalized);
+    g_assert_false (sorter_finalized);
+    g_assert_false (cell_finalized);
+    g_assert_false (first_row_finalized);
+    g_assert_false (second_row_finalized);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), ==,
+                     GTK_ORDERING_EQUAL);
+
+    g_object_unref (widget);
+    g_assert_cmpint (gtk_sorter_compare (sorter, first_row, second_row), ==,
+                     GTK_ORDERING_EQUAL);
+    g_object_unref (first_row);
+    g_object_unref (second_row);
+    g_object_unref (cell);
+    g_object_unref (capture.list_item);
+    g_object_unref (factory);
+    g_object_unref (sorter);
+    g_object_unref (selection);
+    drain_main_context ();
+    g_assert_true (factory_finalized);
+    g_assert_true (sorter_finalized);
+    g_assert_true (cell_finalized);
+    g_assert_true (first_row_finalized);
+    g_assert_true (second_row_finalized);
     gnc_clear_current_session ();
 }
 
@@ -882,8 +1184,12 @@ main (int argc, char **argv)
                      test_account_selection_modes_preserve_semantics);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity",
                      test_commodity_lookup_releases_tree_item);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity-column-owners",
+                     test_commodity_column_owners_outlive_disposed_view);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/price",
                      test_price_lookup_releases_tree_item);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/price-column-owners",
+                     test_price_column_owners_outlive_disposed_view);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/owner",
                      test_owner_selection_survives_view_dispose);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/query",
