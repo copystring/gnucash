@@ -507,8 +507,7 @@ matcher_release_context_popover (GNCImportMainMatcher *info)
     info->context_popover = nullptr;
     g_object_remove_weak_pointer (G_OBJECT (popover),
                                   reinterpret_cast<gpointer *> (&info->context_popover));
-    g_signal_handlers_disconnect_by_func (
-        popover, G_CALLBACK (matcher_context_popover_closed), info->lifetime);
+    g_signal_handlers_disconnect_by_data (popover, info->lifetime);
     gtk_popover_popdown (popover);
     gtk_widget_unparent (GTK_WIDGET (popover));
 }
