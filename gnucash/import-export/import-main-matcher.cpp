@@ -1245,6 +1245,8 @@ struct EditFieldsDialog
     GtkEntry *desc_entry;
     GtkEntry *notes_entry;
     GtkEntry *memo_entry;
+    GtkButton *cancel_button;
+    GtkButton *ok_button;
     std::vector<GObjectPtr> selected_rows;
     std::vector<EntryInfo> entries;
     gboolean finished;
@@ -1426,6 +1428,28 @@ edit_fields_dialog_finish (EditFieldsDialog *dialog, gboolean accepted)
         return;
     dialog->finished = TRUE;
 
+    /* End editable-child focus while the dialog still owns its native
+     * surface, so its input context is released before widget teardown. */
+    gtk_root_set_focus (GTK_ROOT (dialog->window), nullptr);
+    g_signal_handlers_disconnect_by_data (dialog->window, dialog);
+    if (dialog->cancel_button)
+        g_signal_handlers_disconnect_by_data (dialog->cancel_button, dialog);
+    if (dialog->ok_button)
+        g_signal_handlers_disconnect_by_data (dialog->ok_button, dialog);
+
+    /* The caller may retain the destroyed dialog's widgets. Quiesce every
+     * closure carrying dialog-owned storage before that storage is deleted. */
+    for (auto& entry : dialog->entries)
+    {
+        auto& suggestion = entry.suggestion;
+        if (entry.override_widget)
+            g_signal_handlers_disconnect_by_data (entry.override_widget, &entry);
+        if (suggestion.entry)
+            g_signal_handlers_disconnect_by_data (suggestion.entry, &suggestion);
+        if (suggestion.list)
+            g_signal_handlers_disconnect_by_data (suggestion.list, &suggestion);
+    }
+
     auto info = matcher_lifetime_get (dialog->lifetime);
     if (accepted && info)
     {
@@ -1463,10 +1487,6 @@ edit_fields_dialog_finish (EditFieldsDialog *dialog, gboolean accepted)
     {
         auto& suggestion = entry.suggestion;
         suggestion.closing = TRUE;
-        if (suggestion.entry)
-            g_signal_handlers_disconnect_by_data (suggestion.entry, &suggestion);
-        if (suggestion.list)
-            g_signal_handlers_disconnect_by_data (suggestion.list, &suggestion);
         auto popover = suggestion.popover;
         suggestion.popover = nullptr;
         suggestion.list = nullptr;
@@ -1502,7 +1522,7 @@ input_new_fields_async (GNCImportMainMatcher *info,
                         std::vector<GObjectPtr> selected_rows)
 {
     auto dialog = new EditFieldsDialog { matcher_lifetime_ref (info->lifetime), nullptr, nullptr, nullptr, nullptr,
-                                         std::move (selected_rows), {}, FALSE };
+                                         nullptr, nullptr, std::move (selected_rows), {}, FALSE };
     auto first_row = RowInfo { dialog->selected_rows[0].get () };
     auto builder = gtk_builder_new ();
     gnc_builder_add_from_file (builder, "dialog-import.glade", "transaction_edit_dialog");
@@ -1511,10 +1531,10 @@ input_new_fields_async (GNCImportMainMatcher *info,
     dialog->desc_entry = GTK_ENTRY (gtk_builder_get_object (builder, "desc_entry"));
     dialog->notes_entry = GTK_ENTRY (gtk_builder_get_object (builder, "notes_entry"));
     dialog->memo_entry = GTK_ENTRY (gtk_builder_get_object (builder, "memo_entry"));
-    auto cancel_button = GTK_BUTTON (gtk_builder_get_object (builder, "button1"));
-    auto ok_button = GTK_BUTTON (gtk_builder_get_object (builder, "button2"));
+    dialog->cancel_button = GTK_BUTTON (gtk_builder_get_object (builder, "button1"));
+    dialog->ok_button = GTK_BUTTON (gtk_builder_get_object (builder, "button2"));
     g_return_if_fail (dialog->window && dialog->desc_entry && dialog->notes_entry && dialog->memo_entry &&
-                      cancel_button && ok_button);
+                      dialog->cancel_button && dialog->ok_button);
     g_object_ref (dialog->window);
 
     gtk_widget_set_name (GTK_WIDGET (dialog->window), "gnc-id-import-matcher-edits");
@@ -1538,11 +1558,11 @@ input_new_fields_async (GNCImportMainMatcher *info,
         gtk_widget_grab_focus (GTK_WIDGET (focus_entry->entry));
     gtk_window_set_transient_for (dialog->window, GTK_WINDOW (info->main_widget));
     gtk_window_set_modal (dialog->window, TRUE);
-    gtk_window_set_default_widget (dialog->window, GTK_WIDGET (ok_button));
-    g_object_set_data (G_OBJECT (cancel_button), "accepted", GINT_TO_POINTER (FALSE));
-    g_object_set_data (G_OBJECT (ok_button), "accepted", GINT_TO_POINTER (TRUE));
-    g_signal_connect (cancel_button, "clicked", G_CALLBACK (edit_fields_button_clicked_cb), dialog);
-    g_signal_connect (ok_button, "clicked", G_CALLBACK (edit_fields_button_clicked_cb), dialog);
+    gtk_window_set_default_widget (dialog->window, GTK_WIDGET (dialog->ok_button));
+    g_object_set_data (G_OBJECT (dialog->cancel_button), "accepted", GINT_TO_POINTER (FALSE));
+    g_object_set_data (G_OBJECT (dialog->ok_button), "accepted", GINT_TO_POINTER (TRUE));
+    g_signal_connect (dialog->cancel_button, "clicked", G_CALLBACK (edit_fields_button_clicked_cb), dialog);
+    g_signal_connect (dialog->ok_button, "clicked", G_CALLBACK (edit_fields_button_clicked_cb), dialog);
     g_signal_connect (dialog->window, "close-request", G_CALLBACK (edit_fields_close_request_cb), dialog);
     g_object_unref (builder);
     gtk_window_present (dialog->window);

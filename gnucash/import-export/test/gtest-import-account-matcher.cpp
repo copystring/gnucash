@@ -518,6 +518,34 @@ child_popovers (GtkWidget *host)
     return popovers;
 }
 
+struct PopoverLifecycleSnapshot
+{
+    gboolean floating;
+    guint ref_count;
+    gboolean parent;
+    gboolean mapped;
+    gboolean realized;
+    gboolean root;
+};
+
+static PopoverLifecycleSnapshot
+snapshot_popover_lifecycle (GtkWidget *popover)
+{
+    return { g_object_is_floating (popover), G_OBJECT (popover)->ref_count,
+             gtk_widget_get_parent (popover) != nullptr,
+             gtk_widget_get_mapped (popover), gtk_widget_get_realized (popover),
+             gtk_widget_get_root (popover) != nullptr };
+}
+
+static void
+log_popover_lifecycle_snapshot (const char *phase,
+                                const PopoverLifecycleSnapshot& snapshot)
+{
+    g_printerr ("%s: floating=%d ref-count=%u parent=%d mapped=%d realized=%d root=%d\n",
+                phase, snapshot.floating, snapshot.ref_count, snapshot.parent,
+                snapshot.mapped, snapshot.realized, snapshot.root);
+}
+
 static gboolean
 wait_until_child_popover_count (GtkWidget *host, size_t expected_count)
 {
@@ -1124,6 +1152,11 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_edit_fields_accept)
     ASSERT_NE (dialog, nullptr);
     auto entry = GTK_ENTRY (first_descendant_of_type (GTK_WIDGET (dialog), GTK_TYPE_ENTRY));
     ASSERT_TRUE (GTK_IS_ENTRY (entry));
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (dialog)));
+    auto focused = gtk_root_get_focus (GTK_ROOT (dialog));
+    ASSERT_NE (focused, nullptr);
+    ASSERT_TRUE (focused == GTK_WIDGET (entry) ||
+                 gtk_widget_is_ancestor (focused, GTK_WIDGET (entry)));
     gtk_editable_set_text (GTK_EDITABLE (entry), "late");
     std::vector<GtkWidget *> suggestion_popovers;
     collect_descendants_of_type (GTK_WIDGET (dialog), GTK_TYPE_POPOVER,
@@ -1147,11 +1180,21 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_edit_fields_accept)
     ASSERT_TRUE (GTK_IS_BUTTON (accept));
     GWeakRef dialog_ref;
     g_weak_ref_init (&dialog_ref, G_OBJECT (dialog));
+    g_object_ref (accept);
 
     gnc_gen_trans_list_delete (matcher);
     EXPECT_TRUE (GTK_IS_WINDOW (window));
     g_signal_emit_by_name (accept, "clicked");
     EXPECT_TRUE (wait_until_buildable_window_closed ("transaction_edit_dialog"));
+    gboolean late_click_seen = FALSE;
+    auto late_click_handler = g_signal_connect (
+        accept, "clicked", G_CALLBACK (+[](GtkButton*, gpointer data) {
+            *static_cast<gboolean*> (data) = TRUE;
+        }), &late_click_seen);
+    g_signal_emit_by_name (accept, "clicked");
+    EXPECT_TRUE (late_click_seen);
+    g_signal_handler_disconnect (accept, late_click_handler);
+    g_object_unref (accept);
     g_object_unref (dialog);
     EXPECT_TRUE (weak_ref_was_finalized (&dialog_ref));
     for (auto& suggestion_ref : suggestion_refs)
@@ -1275,12 +1318,36 @@ TEST_F(ImportMatcherTest, embedded_matcher_releases_context_popovers_on_replacem
     GWeakRef closed_popover_ref;
     g_weak_ref_init (&closed_popover_ref, G_OBJECT (closed_popover));
     auto delayed_finalization_ref = G_OBJECT (g_object_ref (closed_popover));
+    auto initial_snapshot = snapshot_popover_lifecycle (closed_popover);
     gtk_popover_popdown (GTK_POPOVER (closed_popover));
     EXPECT_TRUE (wait_until_child_popover_count (GTK_WIDGET (view), 0u));
+    EXPECT_EQ (gtk_widget_get_parent (closed_popover), nullptr);
+    EXPECT_FALSE (gtk_widget_get_visible (closed_popover));
+    auto unparented_snapshot = snapshot_popover_lifecycle (closed_popover);
 
     ASSERT_TRUE (open_matcher_context_menu (view));
+    auto reopened_snapshot = snapshot_popover_lifecycle (closed_popover);
+    GWeakRef diagnostic_popover_ref;
+    g_weak_ref_init (&diagnostic_popover_ref, G_OBJECT (closed_popover));
     g_object_unref (delayed_finalization_ref);
-    EXPECT_TRUE (wait_until_weak_ref_finalized (&closed_popover_ref));
+    auto closed_popover_finalized = wait_until_weak_ref_finalized (&closed_popover_ref);
+    if (!closed_popover_finalized)
+    {
+        log_popover_lifecycle_snapshot ("context popover initial", initial_snapshot);
+        log_popover_lifecycle_snapshot ("context popover unparented", unparented_snapshot);
+        log_popover_lifecycle_snapshot ("context popover after reopen", reopened_snapshot);
+        auto retained = GTK_WIDGET (g_weak_ref_get (&diagnostic_popover_ref));
+        if (retained)
+        {
+            log_popover_lifecycle_snapshot ("context popover after releasing test ref",
+                                            snapshot_popover_lifecycle (retained));
+            g_object_unref (retained);
+        }
+        else
+            g_printerr ("context popover finalized after timeout observation\n");
+    }
+    g_weak_ref_clear (&diagnostic_popover_ref);
+    EXPECT_TRUE (closed_popover_finalized);
     auto replaced_popovers = child_popovers (GTK_WIDGET (view));
     ASSERT_EQ (replaced_popovers.size (), 1u);
     GWeakRef replaced_popover_ref;
