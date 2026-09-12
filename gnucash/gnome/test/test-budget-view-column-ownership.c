@@ -257,6 +257,8 @@ assert_watched_columns_finalized (GPtrArray *watched)
     {
         WatchedColumn *column = g_ptr_array_index (watched, index);
 
+        if (!weak_ref_is_finalized (&column->weak_column))
+            g_test_message ("Budget lifetime: column %u remains referenced", index);
         g_assert_true (weak_ref_is_finalized (&column->weak_column));
         g_assert_true (weak_ref_is_finalized (&column->weak_factory));
     }

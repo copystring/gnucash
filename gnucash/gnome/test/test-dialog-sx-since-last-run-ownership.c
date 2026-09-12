@@ -295,12 +295,14 @@ test_since_last_run_column_view_quiesces_before_adapter_release (void)
     yesterday = today;
     g_date_subtract_days (&yesterday, 1);
     sx = add_daily_sx_with_variable ("Since last run ownership", &yesterday);
+    g_test_message ("SLR lifetime phase: fixture created");
     instances = gnc_sx_get_current_instances ();
     held_instances = g_object_ref (instances);
 
     /* Use the public command path: it owns instances and presents the real
      * dialog, whose factories bind only while GTK has an attached model. */
     gnc_ui_sx_since_last_run_dialog (instances);
+    g_test_message ("SLR lifetime phase: dialog created");
     drain_main_context ();
     window = find_since_last_run_window ();
     g_assert_nonnull (window);
@@ -319,6 +321,7 @@ test_since_last_run_column_view_quiesces_before_adapter_release (void)
     g_assert_cmpuint (gtk_drop_down_get_selected (drop_down), <,
                       SX_INSTANCE_STATE_CREATED);
     gtk_drop_down_set_selected (drop_down, SX_INSTANCE_STATE_REMINDER);
+    g_test_message ("SLR lifetime phase: reminder selected");
     present_and_wait_for_frame (window);
     g_assert_true (wait_for_condition (since_last_run_factory_widgets_ready,
                                        window));
@@ -343,8 +346,10 @@ test_since_last_run_column_view_quiesces_before_adapter_release (void)
     close.updates = 0;
     updated_id = g_signal_connect (held_instances, "updated",
                                    G_CALLBACK (close_on_sx_update), &close);
+    g_test_message ("SLR lifetime phase: before variable activation");
     gtk_editable_set_text (GTK_EDITABLE (entry), "1");
     gtk_widget_activate (GTK_WIDGET (entry));
+    g_test_message ("SLR lifetime phase: after reentrant close");
     g_assert_true (close.closed);
     g_assert_cmpuint (close.updates, ==, 1);
     g_signal_handler_disconnect (held_instances, updated_id);
@@ -369,12 +374,14 @@ test_since_last_run_column_view_quiesces_before_adapter_release (void)
     g_object_unref (view);
     g_object_unref (held_window);
     drain_main_context ();
+    g_test_message ("SLR lifetime phase: retained widgets released");
 
     g_assert_true (window_finalized);
     for (guint index = 0; index < SLR_COLUMN_COUNT; index++)
         g_assert_true (columns_finalized[index]);
 
     g_object_unref (held_instances);
+    g_test_message ("SLR lifetime phase: before fixture removal");
     remove_sx (sx);
     gnc_clear_current_session ();
 }
