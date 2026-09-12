@@ -320,7 +320,12 @@ test_since_last_run_column_view_quiesces_before_adapter_release (void)
     g_assert_nonnull (drop_down);
     g_assert_cmpuint (gtk_drop_down_get_selected (drop_down), <,
                       SX_INSTANCE_STATE_CREATED);
+    /* The visible-tree search returns a borrowed child. Changing its selected
+     * property synchronously updates the instance model and can rebuild the
+     * list item that owns this child, so retain it for the whole GTK call. */
+    g_object_ref (drop_down);
     gtk_drop_down_set_selected (drop_down, SX_INSTANCE_STATE_REMINDER);
+    g_object_unref (drop_down);
     g_test_message ("SLR lifetime phase: reminder selected");
     present_and_wait_for_frame (window);
     g_assert_true (wait_for_condition (since_last_run_factory_widgets_ready,
