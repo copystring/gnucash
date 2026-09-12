@@ -260,10 +260,10 @@ gnc_sx_list_view_new (GncSxInstanceModel *sx_instances)
 
     data = g_new0 (GncSxListViewData, 1);
     data->adapter = gnc_sx_list_tree_model_adapter_new (sx_instances);
+    /* GtkSortListModel consumes both references; the view keeps its sorter. */
     sorter = g_object_ref (gtk_column_view_get_sorter (view));
     data->sorted = gtk_sort_list_model_new
         (g_object_ref (gnc_sx_list_tree_model_adapter_get_model (data->adapter)), sorter);
-    g_object_unref (sorter);
     data->selection = gtk_multi_selection_new (G_LIST_MODEL (g_object_ref (data->sorted)));
     gtk_column_view_set_model (view, GTK_SELECTION_MODEL (data->selection));
 
