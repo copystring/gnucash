@@ -249,6 +249,7 @@ gnc_sx_list_view_new (GncSxInstanceModel *sx_instances)
     GncSxListViewData *data;
     GtkSorter *sorter;
     GtkColumnViewColumn *name_column;
+    GtkColumnViewColumn *column;
     GtkListItemFactory *enabled_factory;
 
     g_return_val_if_fail (GNC_IS_SX_INSTANCE_MODEL (sx_instances), NULL);
@@ -274,11 +275,20 @@ gnc_sx_list_view_new (GncSxInstanceModel *sx_instances)
         (C_("Single-character short column-title form of 'Enabled'", "E"), enabled_factory);
     gtk_column_view_column_set_resizable (data->enabled_column, TRUE);
     gtk_column_view_append_column (view, data->enabled_column);
-    sx_list_append_text_column (view, _("Frequency"), SX_LIST_COLUMN_FREQUENCY, TRUE, TRUE);
-    sx_list_append_text_column (view, _("Postponed"), SX_LIST_COLUMN_POSTPONED, FALSE, FALSE);
-    sx_list_append_text_column (view, _("Last Occur"), SX_LIST_COLUMN_LAST_OCCUR, FALSE, TRUE);
-    sx_list_append_text_column (view, _("Next Occur"), SX_LIST_COLUMN_NEXT_OCCUR, FALSE, TRUE);
+    column = sx_list_append_text_column (view, _("Frequency"), SX_LIST_COLUMN_FREQUENCY,
+                                         TRUE, TRUE);
+    g_object_unref (column);
+    column = sx_list_append_text_column (view, _("Postponed"), SX_LIST_COLUMN_POSTPONED,
+                                         FALSE, FALSE);
+    g_object_unref (column);
+    column = sx_list_append_text_column (view, _("Last Occur"), SX_LIST_COLUMN_LAST_OCCUR,
+                                         FALSE, TRUE);
+    g_object_unref (column);
+    column = sx_list_append_text_column (view, _("Next Occur"), SX_LIST_COLUMN_NEXT_OCCUR,
+                                         FALSE, TRUE);
+    g_object_unref (column);
     gtk_column_view_sort_by_column (view, name_column, GTK_SORT_ASCENDING);
+    g_object_unref (name_column);
 
     g_object_set_qdata_full (G_OBJECT (view), sx_list_view_data_quark (), data,
                              (GDestroyNotify)sx_list_view_data_free);

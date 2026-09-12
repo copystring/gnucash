@@ -326,7 +326,11 @@ gnc_tree_view_owner_new (GncOwnerType owner_type)
     gtk_single_selection_set_autoselect (view->selection, FALSE);
     gtk_column_view_set_model (view->column_view, GTK_SELECTION_MODEL (view->selection));
     for (guint i = 0; i <= OWNER_COL_ACTIVE; i++)
-        append_column (view, (OwnerColumn)i);
+    {
+        GtkColumnViewColumn *column = append_column (view, (OwnerColumn)i);
+
+        g_object_unref (column);
+    }
     return GTK_WIDGET (view);
 }
 

@@ -236,6 +236,25 @@ gnc_add_test (test-dialog-tax-table-column-ownership
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
   GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
 
+set (test_tree_view_column_ownership_SOURCES
+  test-tree-view-column-ownership.c
+)
+
+set (TREE_VIEW_COLUMN_OWNERSHIP_TEST_INCLUDE_DIRS
+  ${GNOME_UTILS_GUI_TEST_INCLUDE_DIRS}
+  ${CMAKE_SOURCE_DIR}/libgnucash/app-utils
+)
+set (TREE_VIEW_COLUMN_OWNERSHIP_TEST_LIBS
+  ${GNOME_UTILS_GUI_TEST_LIBS}
+  gnc-app-utils
+)
+
+gnc_add_test (test-tree-view-column-ownership
+  "${test_tree_view_column_ownership_SOURCES}"
+  TREE_VIEW_COLUMN_OWNERSHIP_TEST_INCLUDE_DIRS
+  TREE_VIEW_COLUMN_OWNERSHIP_TEST_LIBS
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
+
 set (test_gnc_scrub_job_runner_SOURCES
   test-gnc-scrub-job-runner.c
 )
@@ -306,6 +325,7 @@ set_dist_list(test_gnome_utils_DIST
   ${test_doclink_view_SOURCES}
   ${test_dialog_transfer_model_lifecycle_SOURCES}
   ${test_dialog_tax_table_column_ownership_SOURCES}
+  ${test_tree_view_column_ownership_SOURCES}
   ${test_gnc_scrub_job_runner_SOURCES}
   ${test_book_options_dialog_lifecycle_SOURCES}
   ${test_assistant_hierarchy_layout_SOURCES}
