@@ -1,4 +1,25 @@
-/* gnc-tree-view-account.c -- GTK4 account hierarchy view. */
+/**********************************************************************\
+ * gnc-tree-view-account.c -- GTK4 account hierarchy view.            *
+ * Copyright (C) 2003,2005,2006 David Hampton <hampton@employees.org> *
+ *                                                                    *
+ * This program is free software; you can redistribute it and/or      *
+ * modify it under the terms of the GNU General Public License as     *
+ * published by the Free Software Foundation; either version 2 of     *
+ * the License, or (at your option) any later version.                *
+ *                                                                    *
+ * This program is distributed in the hope that it will be useful,    *
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of     *
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the      *
+ * GNU General Public License for more details.                       *
+ *                                                                    *
+ * You should have received a copy of the GNU General Public License  *
+ * along with this program; if not, contact:                          *
+ *                                                                    *
+ * Free Software Foundation           Voice:  +1-617-542-5942         *
+ * 51 Franklin Street, Fifth Floor    Fax:    +1-617-542-2652         *
+ * Boston, MA  02110-1301,  USA       gnu@gnu.org                     *
+ *                                                                    *
+\**********************************************************************/
 #include <config.h>
 
 #include <gtk/gtk.h>
@@ -60,6 +81,7 @@ struct _GncTreeViewAccount
     GHashTable *expanded;
     gboolean synchronizing;
     gboolean rebuilding;
+    gboolean disposing;
     guint restore_source;
     gchar *state_section;
     GFunc editing_started_cb;
@@ -182,7 +204,7 @@ row_expanded_changed (GtkTreeListRow *row, GParamSpec *pspec,
                       GncTreeViewAccount *view)
 {
     Account *account = account_from_row (row);
-    if (account && !view->synchronizing && !view->rebuilding)
+    if (account && !view->disposing && !view->synchronizing && !view->rebuilding)
         mark_expanded (view, account, gtk_tree_list_row_get_expanded (row));
     (void)pspec;
 }
@@ -442,6 +464,8 @@ restore_state_cb (gpointer user_data)
     guint count;
 
     view->restore_source = 0;
+    if (view->disposing)
+        return G_SOURCE_REMOVE;
     view->synchronizing = TRUE;
     for (guint position = 0;
          position < g_list_model_get_n_items (G_LIST_MODEL (view->rows));
@@ -469,13 +493,15 @@ restore_state_cb (gpointer user_data)
 static void
 schedule_restore (GncTreeViewAccount *view)
 {
-    if (!view->restore_source)
+    if (!view->disposing && !view->restore_source)
         view->restore_source = g_idle_add (restore_state_cb, view);
 }
 
 static void
 model_rebuilding (GncTreeModelAccount *model, GncTreeViewAccount *view)
 {
+    if (view->disposing)
+        return;
     view->rebuilding = TRUE;
     (void)model;
 }
@@ -483,6 +509,8 @@ model_rebuilding (GncTreeModelAccount *model, GncTreeViewAccount *view)
 static void
 model_changed (GncTreeModelAccount *model, GncTreeViewAccount *view)
 {
+    if (view->disposing)
+        return;
     schedule_restore (view);
     (void)model;
 }
@@ -491,7 +519,7 @@ static void
 selection_changed (GtkSelectionModel *selection, guint position, guint n_items,
                    GncTreeViewAccount *view)
 {
-    if (view->synchronizing || view->rebuilding)
+    if (view->disposing || view->synchronizing || view->rebuilding)
         return;
     for (guint index = position; index < position + n_items; index++)
     {
@@ -516,6 +544,8 @@ static void
 account_activated (GtkColumnView *column_view, guint position,
                    GncTreeViewAccount *view)
 {
+    if (view->disposing)
+        return;
     Account *account = account_at (view, position);
     if (account)
         g_signal_emit (view, signals[ACCOUNT_ACTIVATED], 0, account);
@@ -530,6 +560,7 @@ view_dispose (GObject *object)
     gpointer selection_filter_data;
     guint restore_source;
 
+    view->disposing = TRUE;
     restore_source = view->restore_source;
     view->restore_source = 0;
     if (restore_source)
@@ -556,9 +587,6 @@ view_dispose (GObject *object)
     view->selection_filter = NULL;
     if (selection_filter_destroy)
         selection_filter_destroy (selection_filter_data);
-    g_clear_pointer (&view->selected, g_hash_table_destroy);
-    g_clear_pointer (&view->expanded, g_hash_table_destroy);
-    g_clear_pointer (&view->state_section, g_free);
     g_clear_object (&view->selection);
     g_clear_object (&view->rows);
     g_clear_object (&view->account_model);
@@ -566,10 +594,22 @@ view_dispose (GObject *object)
 }
 
 static void
+view_finalize (GObject *object)
+{
+    GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT (object);
+
+    g_clear_pointer (&view->selected, g_hash_table_destroy);
+    g_clear_pointer (&view->expanded, g_hash_table_destroy);
+    g_clear_pointer (&view->state_section, g_free);
+    G_OBJECT_CLASS (gnc_tree_view_account_parent_class)->finalize (object);
+}
+
+static void
 gnc_tree_view_account_class_init (GncTreeViewAccountClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
     object_class->dispose = view_dispose;
+    object_class->finalize = view_finalize;
     signals[ACCOUNT_ACTIVATED] = g_signal_new ("account-activated",
         G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
         G_TYPE_NONE, 1, GNC_TYPE_ACCOUNT);

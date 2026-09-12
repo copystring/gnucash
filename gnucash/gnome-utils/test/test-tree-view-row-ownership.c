@@ -37,6 +37,85 @@ drain_main_context (void)
         g_main_context_iteration (NULL, FALSE);
 }
 
+typedef struct
+{
+    GMainLoop *loop;
+    gboolean frame_seen;
+    gboolean timed_out;
+    guint tick_id;
+    GdkFrameClock *clock;
+    gulong after_paint_id;
+} FrameWait;
+
+static void
+frame_wait_after_paint_cb (GdkFrameClock *clock, gpointer user_data)
+{
+    FrameWait *wait = user_data;
+
+    wait->frame_seen = TRUE;
+    if (g_main_loop_is_running (wait->loop))
+        g_main_loop_quit (wait->loop);
+    (void)clock;
+}
+
+static gboolean
+frame_wait_tick_cb (GtkWidget *widget, GdkFrameClock *clock, gpointer user_data)
+{
+    FrameWait *wait = user_data;
+
+    wait->tick_id = 0;
+    wait->clock = GDK_FRAME_CLOCK (g_object_ref (clock));
+    wait->after_paint_id = g_signal_connect (clock, "after-paint",
+                                              G_CALLBACK (frame_wait_after_paint_cb), wait);
+    gdk_frame_clock_request_phase (clock, GDK_FRAME_CLOCK_PHASE_AFTER_PAINT);
+    (void)widget;
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean
+frame_wait_timeout_cb (gpointer user_data)
+{
+    FrameWait *wait = user_data;
+
+    wait->timed_out = TRUE;
+    if (g_main_loop_is_running (wait->loop))
+        g_main_loop_quit (wait->loop);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+present_and_wait_for_frame (GtkWindow *window)
+{
+    GMainLoop *loop = g_main_loop_new (NULL, FALSE);
+    FrameWait wait = { loop, FALSE, FALSE, 0, NULL, 0 };
+    guint timeout_id = 0;
+
+    wait.tick_id = gtk_widget_add_tick_callback (GTK_WIDGET (window), frame_wait_tick_cb,
+                                                  &wait, NULL);
+    gtk_window_present (window);
+    if (!wait.frame_seen)
+    {
+        timeout_id = g_timeout_add (1000, frame_wait_timeout_cb, &wait);
+        g_main_loop_run (loop);
+    }
+    if (wait.tick_id)
+        gtk_widget_remove_tick_callback (GTK_WIDGET (window), wait.tick_id);
+    if (timeout_id && !wait.timed_out)
+        g_source_remove (timeout_id);
+    if (wait.after_paint_id)
+        g_signal_handler_disconnect (wait.clock, wait.after_paint_id);
+    g_clear_object (&wait.clock);
+    g_main_loop_unref (loop);
+    if (wait.timed_out)
+        g_test_message ("Account tree frame timeout: window mapped=%d realized=%d size=%dx%d",
+                        gtk_widget_get_mapped (GTK_WIDGET (window)),
+                        gtk_widget_get_realized (GTK_WIDGET (window)),
+                        gtk_widget_get_width (GTK_WIDGET (window)),
+                        gtk_widget_get_height (GTK_WIDGET (window)));
+    g_assert_true (wait.frame_seen);
+    g_assert_false (wait.timed_out);
+}
+
 static GtkColumnView *
 find_column_view (GtkWidget *widget)
 {
@@ -192,6 +271,75 @@ test_account_lookup_releases_tree_item (void)
     g_assert_false (finalized);
     gnc_clear_current_session ();
     g_assert_true (finalized);
+}
+
+static void
+test_account_dispose_quiesces_retained_row (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root = gnc_account_create_root (book);
+    Account *child = xaccMallocAccount (book);
+    Account *grandchild = xaccMallocAccount (book);
+    GtkWidget *widget;
+    GtkWindow *window;
+    GncTreeViewAccount *view;
+    GtkSelectionModel *selection;
+    GtkTreeListRow *selected_row;
+    GtkTreeListRow *parent_row;
+    GtkTreeListRow *root_row;
+
+    gnc_set_current_session (session);
+    xaccAccountSetName (child, "Dispose callback child");
+    xaccAccountSetType (child, ACCT_TYPE_BANK);
+    gnc_account_append_child (root, child);
+    xaccAccountSetName (grandchild, "Dispose callback grandchild");
+    xaccAccountSetType (grandchild, ACCT_TYPE_BANK);
+    gnc_account_append_child (child, grandchild);
+    widget = gnc_tree_view_account_new_with_root (root, TRUE);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_ACCOUNT (widget);
+    selection = gnc_tree_view_account_get_selection_model (view);
+    gnc_tree_view_account_set_selected_account (view, grandchild);
+    drain_main_context ();
+    selected_row = selected_tree_row (selection);
+    parent_row = gtk_tree_list_row_get_parent (selected_row);
+    g_object_unref (selected_row);
+    g_assert_nonnull (parent_row);
+    root_row = gtk_tree_list_row_get_parent (parent_row);
+    g_assert_nonnull (root_row);
+    gtk_tree_list_row_set_expanded (root_row, TRUE);
+    gtk_tree_list_row_set_expanded (parent_row, TRUE);
+
+    window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_default_size (window, 640, 480);
+    gtk_window_set_child (window, widget);
+    present_and_wait_for_frame (window);
+    g_assert_nonnull (g_object_get_data (G_OBJECT (parent_row),
+                                         "gnc-account-expansion-listener"));
+    gtk_window_set_child (window, NULL);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+
+    gtk_tree_list_row_set_expanded (root_row, FALSE);
+    drain_main_context ();
+    g_assert_cmpuint (g_list_model_get_n_items (G_LIST_MODEL (selection)), ==, 1);
+
+    g_object_ref (selection);
+    g_object_run_dispose (G_OBJECT (widget));
+    g_object_run_dispose (G_OBJECT (widget));
+    gtk_tree_list_row_set_expanded (parent_row, FALSE);
+    gtk_tree_list_row_set_expanded (parent_row, TRUE);
+    g_assert_true (gtk_selection_model_select_item (selection, 0, TRUE));
+    drain_main_context ();
+
+    g_object_unref (widget);
+    gtk_tree_list_row_set_expanded (parent_row, FALSE);
+    gtk_tree_list_row_set_expanded (parent_row, TRUE);
+    g_object_unref (selection);
+    g_object_unref (root_row);
+    g_object_unref (parent_row);
+    gnc_clear_current_session ();
 }
 
 static void
@@ -602,6 +750,8 @@ main (int argc, char **argv)
 
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account",
                      test_account_lookup_releases_tree_item);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-dispose-row-callback",
+                     test_account_dispose_quiesces_retained_row);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-selection-modes",
                      test_account_selection_modes_preserve_semantics);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity",
