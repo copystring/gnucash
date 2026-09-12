@@ -3,13 +3,22 @@ on: [push, pull_request]
 permissions: {}
 jobs:
   ci_tests_ubuntu-22:
-    runs-on: ubuntu-26.04
-    name: Ubuntu-26.04 CI Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.repository == 'copystring/gnucash' && '[{"runner":"ubuntu-26.04","architecture":"x86_64","debian_architecture":"amd64"},{"runner":"ubuntu-26.04-arm","architecture":"aarch64","debian_architecture":"arm64"}]' || '[{"runner":"ubuntu-26.04","architecture":"x86_64","debian_architecture":"amd64"}]') }}
+    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.runner }} (${{ matrix.architecture }}) CI Tests
+    timeout-minutes: 120
     env:
       TZ: America/Los_Angeles
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Verify runner architecture
+        run: |
+          test "$(uname -m)" = "${{ matrix.architecture }}"
+          test "$(dpkg --print-architecture)" = "${{ matrix.debian_architecture }}"
       - run: sudo apt-get update
       - name: Install additional dependencies
         run: sudo apt-get install -y gettext cmake libxslt-dev xsltproc ninja-build libboost-all-dev libgtk-4-dev guile-2.2-dev libofx-dev libdbi-dev libdbd-sqlite3 libwebkitgtk-6.0-dev googletest python3-dev swig xvfb
@@ -42,20 +51,20 @@ jobs:
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: import-matcher-preview
+          name: import-matcher-preview-${{ matrix.architecture }}-${{ matrix.runner }}
           path: ${{ github.workspace }}/build/import-matcher-preview.png
           if-no-files-found: error
       - name: Upload import match picker preview
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: import-match-picker-preview
+          name: import-match-picker-preview-${{ matrix.architecture }}-${{ matrix.runner }}
           path: ${{ github.workspace }}/build/import-match-picker-preview.png
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: TestLog
+          name: TestLog-${{ matrix.architecture }}-${{ matrix.runner }}
           path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
   ci_tests_ASAN:
     runs-on: ubuntu-26.04
@@ -95,5 +104,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: TestLog
+          name: ASAN-TestLog-ubuntu-26.04-x86_64
           path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
