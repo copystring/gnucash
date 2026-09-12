@@ -253,7 +253,7 @@ restore_state (gpointer data)
     GtkMultiSelection *selection;
     GHashTable *selected;
     GHashTable *expanded;
-    gboolean changed = FALSE;
+    gboolean expanded_any = FALSE;
 
     if (p->disposing || !p->rows || !p->selection || !p->selected ||
         !p->expanded)
@@ -262,6 +262,9 @@ restore_state (gpointer data)
     selection = g_object_ref (p->selection);
     selected = g_hash_table_ref (p->selected);
     expanded = g_hash_table_ref (p->expanded);
+    p->synchronizing = TRUE;
+    /* Expanding changes flattened row positions. Reconcile the selection only
+     * after the hierarchy has reached a stable pass. */
     for (guint i = 0;
          !p->disposing && i < g_list_model_get_n_items (G_LIST_MODEL (rows)); i++)
     {
@@ -273,20 +276,43 @@ restore_state (gpointer data)
             !gtk_tree_list_row_get_expanded (tr))
         {
             gtk_tree_list_row_set_expanded (tr, TRUE);
-            changed = TRUE;
+            expanded_any = TRUE;
         }
-        if (!p->disposing && row &&
-            g_hash_table_contains (selected,
-                                   gnc_tree_model_price_row_get_id (row)))
-            gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection),
-                                             i, FALSE);
         g_object_unref (tr);
+    }
+    if (!p->disposing && !expanded_any)
+    {
+        GtkBitset *desired = gtk_bitset_new_empty ();
+        guint n_items = g_list_model_get_n_items (G_LIST_MODEL (rows));
+
+        for (guint i = 0; i < n_items; i++)
+        {
+            GtkTreeListRow *tr = gtk_tree_list_model_get_row (rows, i);
+            GncTreeModelPriceRow *row = row_from_item (tr);
+
+            if (row &&
+                g_hash_table_contains (selected,
+                                       gnc_tree_model_price_row_get_id (row)))
+                gtk_bitset_add (desired, i);
+            g_object_unref (tr);
+        }
+        if (!p->disposing)
+        {
+            GtkBitset *mask = gtk_bitset_new_range (0, n_items);
+
+            /* The desired IDs are the complete selection, not additions to
+             * whichever rows happened to remain selected. */
+            gtk_selection_model_set_selection (GTK_SELECTION_MODEL (selection),
+                                               desired, mask);
+            gtk_bitset_unref (mask);
+        }
+        gtk_bitset_unref (desired);
     }
     g_hash_table_unref (expanded);
     g_hash_table_unref (selected);
     g_object_unref (selection);
     g_object_unref (rows);
-    if (!p->disposing && changed)
+    if (!p->disposing && expanded_any)
         return G_SOURCE_CONTINUE;
     if (!p->disposing)
     {

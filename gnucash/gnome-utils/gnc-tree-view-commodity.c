@@ -35,7 +35,7 @@ typedef struct
     GncTreeModelCommodity *model;
     GListStore *roots;
     GtkTreeListModel *rows;
-    GtkMultiSelection *selection;
+    GtkSingleSelection *selection;
     GHashTable *selected;
     GHashTable *expanded;
     gnc_tree_view_commodity_ns_filter_func ns_filter;
@@ -186,7 +186,7 @@ rebuild_roots (GncTreeViewCommodity *view)
     GncTreeViewCommodityPrivate *p = priv (view);
     GListStore *roots;
     GncTreeModelCommodity *model;
-    GtkMultiSelection *selection = NULL;
+    GtkSingleSelection *selection = NULL;
 
     if (p->disposing || !p->roots || !p->model)
         return;
@@ -212,7 +212,7 @@ restore_state (gpointer data)
     GncTreeViewCommodity *view = GNC_TREE_VIEW_COMMODITY (data);
     GncTreeViewCommodityPrivate *p = priv (view);
     GtkTreeListModel *rows;
-    GtkMultiSelection *selection;
+    GtkSingleSelection *selection;
     GHashTable *selected;
     GHashTable *expanded;
     gboolean expanded_any = FALSE;
@@ -224,6 +224,9 @@ restore_state (gpointer data)
     selection = g_object_ref (p->selection);
     selected = g_hash_table_ref (p->selected);
     expanded = g_hash_table_ref (p->expanded);
+    p->synchronizing = TRUE;
+    /* Expanding changes flattened row positions. Reconcile the selection only
+     * after the hierarchy has reached a stable pass. */
     for (guint position = 0;
          !p->disposing &&
          position < g_list_model_get_n_items (G_LIST_MODEL (rows)); position++)
@@ -238,12 +241,35 @@ restore_state (gpointer data)
             gtk_tree_list_row_set_expanded (tree_row, TRUE);
             expanded_any = TRUE;
         }
-        if (!p->disposing && row &&
-            g_hash_table_contains (selected,
-                                   gnc_tree_model_commodity_row_get_id (row)))
-            gtk_selection_model_select_item (GTK_SELECTION_MODEL (selection),
-                                             position, FALSE);
         g_object_unref (tree_row);
+    }
+    if (!p->disposing && !expanded_any)
+    {
+        GtkBitset *desired = gtk_bitset_new_empty ();
+        guint n_items = g_list_model_get_n_items (G_LIST_MODEL (rows));
+
+        for (guint position = 0; position < n_items; position++)
+        {
+            GtkTreeListRow *tree_row = gtk_tree_list_model_get_row (rows, position);
+            GncTreeModelCommodityRow *row = row_from_item (tree_row);
+
+            if (row &&
+                g_hash_table_contains (selected,
+                                       gnc_tree_model_commodity_row_get_id (row)))
+                gtk_bitset_add (desired, position);
+            g_object_unref (tree_row);
+        }
+        if (!p->disposing)
+        {
+            GtkBitset *mask = gtk_bitset_new_range (0, n_items);
+
+            /* The desired IDs are the complete selection, not additions to
+             * whichever rows happened to remain selected. */
+            gtk_selection_model_set_selection (GTK_SELECTION_MODEL (selection),
+                                               desired, mask);
+            gtk_bitset_unref (mask);
+        }
+        gtk_bitset_unref (desired);
     }
     g_hash_table_unref (expanded);
     g_hash_table_unref (selected);
@@ -507,7 +533,10 @@ gnc_tree_view_commodity_new (QofBook *book, const gchar *first_property_name, ..
     p->rows = gtk_tree_list_model_new (g_object_ref (G_LIST_MODEL (p->roots)), FALSE, FALSE,
                                        create_children, p->children_context,
                                        (GDestroyNotify) commodity_children_context_free);
-    p->selection = gtk_multi_selection_new (g_object_ref (G_LIST_MODEL (p->rows)));
+    p->selection = gtk_single_selection_new (g_object_ref (G_LIST_MODEL (p->rows)));
+    gtk_single_selection_set_autoselect (p->selection, FALSE);
+    gtk_single_selection_set_can_unselect (p->selection, TRUE);
+    gtk_single_selection_set_selected (p->selection, GTK_INVALID_LIST_POSITION);
     column_view = gnc_tree_view_get_column_view (GNC_TREE_VIEW (view));
     gtk_column_view_set_model (column_view, GTK_SELECTION_MODEL (p->selection));
     add_column (view, _("Namespace"), "namespace", GNC_TREE_MODEL_COMMODITY_COL_NAMESPACE, TRUE, FALSE, TRUE);

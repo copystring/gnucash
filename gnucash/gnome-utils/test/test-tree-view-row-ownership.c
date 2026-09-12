@@ -401,6 +401,58 @@ assert_price_order (GtkSelectionModel *selection, GNCPrice *first,
     g_assert_cmpuint (first_position, <, second_position);
 }
 
+static guint64
+selection_size (GtkSelectionModel *selection)
+{
+    GtkBitset *selected = gtk_selection_model_get_selection (selection);
+    guint64 size = gtk_bitset_get_size (selected);
+
+    gtk_bitset_unref (selected);
+    return size;
+}
+
+static guint
+commodity_position (GtkSelectionModel *selection, gnc_commodity *commodity)
+{
+    for (guint position = 0;
+         position < g_list_model_get_n_items (G_LIST_MODEL (selection)); position++)
+    {
+        GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (g_list_model_get_item
+                                                       (G_LIST_MODEL (selection),
+                                                        position));
+        GncTreeModelCommodityRow *row = GNC_TREE_MODEL_COMMODITY_ROW
+            (gtk_tree_list_row_get_item (tree_row));
+        gnc_commodity *candidate = gnc_tree_model_commodity_row_get_commodity (row);
+
+        g_object_unref (row);
+        g_object_unref (tree_row);
+        if (candidate == commodity)
+            return position;
+    }
+    return GTK_INVALID_LIST_POSITION;
+}
+
+static guint
+price_position (GtkSelectionModel *selection, GNCPrice *price)
+{
+    for (guint position = 0;
+         position < g_list_model_get_n_items (G_LIST_MODEL (selection)); position++)
+    {
+        GtkTreeListRow *tree_row = GTK_TREE_LIST_ROW (g_list_model_get_item
+                                                       (G_LIST_MODEL (selection),
+                                                        position));
+        GncTreeModelPriceRow *row = GNC_TREE_MODEL_PRICE_ROW
+            (gtk_tree_list_row_get_item (tree_row));
+        GNCPrice *candidate = gnc_tree_model_price_row_get_price (row);
+
+        g_object_unref (row);
+        g_object_unref (tree_row);
+        if (candidate == price)
+            return position;
+    }
+    return GTK_INVALID_LIST_POSITION;
+}
+
 /* The view drops its selection model during dispose. Keeping the model alive
  * externally proves that its tree-list model still owns the selected item
  * until that final external reference is released. Calling dispose twice also
@@ -1147,6 +1199,234 @@ test_price_column_owners_outlive_disposed_view (void)
 }
 
 static void
+test_commodity_selection_restore_contract (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    gnc_commodity_table *table = gnc_commodity_table_get_table (book);
+    gnc_commodity *first;
+    gnc_commodity *second;
+    GtkWidget *widget;
+    GncTreeViewCommodity *view;
+    GtkSelectionModel *selection;
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *name_column;
+    DisposeOnSelectionChange dispose_context;
+    gulong dispose_id;
+    guint first_position;
+    guint second_position;
+
+    gnc_set_current_session (session);
+    first = gnc_commodity_new (book, "Zulu selection commodity", "SELECTION",
+                               "AAA", "", 100);
+    second = gnc_commodity_new (book, "Alpha selection commodity", "SELECTION",
+                                "ZZZ", "", 100);
+    gnc_commodity_table_insert (table, first);
+    gnc_commodity_table_insert (table, second);
+    widget = gnc_tree_view_commodity_new (book, NULL);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_COMMODITY (widget);
+    selection = g_object_ref (gnc_tree_view_commodity_get_selection_model (view));
+    column_view = gnc_tree_view_commodity_get_column_view (view);
+    name_column = column_by_id (column_view, "name");
+
+    g_assert_true (GTK_IS_SINGLE_SELECTION (selection));
+    g_assert_false (gtk_single_selection_get_autoselect
+                        (GTK_SINGLE_SELECTION (selection)));
+    g_assert_true (gtk_single_selection_get_can_unselect
+                       (GTK_SINGLE_SELECTION (selection)));
+    g_assert_cmpuint (selection_size (selection), ==, 0);
+    g_assert_null (gnc_tree_view_commodity_get_selected_commodity (view));
+
+    gnc_tree_view_commodity_select_commodity (view, first);
+    drain_main_context ();
+    first_position = commodity_position (selection, first);
+    g_assert_cmpuint (first_position, !=, GTK_INVALID_LIST_POSITION);
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gtk_selection_model_is_selected (selection, first_position));
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == first);
+
+    gnc_tree_view_commodity_select_commodity (view, second);
+    drain_main_context ();
+    first_position = commodity_position (selection, first);
+    second_position = commodity_position (selection, second);
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_false (gtk_selection_model_is_selected (selection, first_position));
+    g_assert_true (gtk_selection_model_is_selected (selection, second_position));
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == second);
+
+    gnc_tree_view_commodity_select_commodity (view, NULL);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == second);
+
+    g_assert_true (gtk_selection_model_unselect_all (selection));
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 0);
+    g_assert_null (gnc_tree_view_commodity_get_selected_commodity (view));
+
+    gnc_tree_view_commodity_select_commodity (view, first);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == first);
+
+    gnc_tree_view_commodity_refilter (view);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gtk_selection_model_is_selected
+                       (selection, commodity_position (selection, first)));
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == first);
+
+    gtk_column_view_sort_by_column (column_view, name_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gtk_selection_model_is_selected
+                       (selection, commodity_position (selection, first)));
+    g_assert_true (gnc_tree_view_commodity_get_selected_commodity (view) == first);
+
+    g_object_unref (name_column);
+    dispose_context.view = G_OBJECT (widget);
+    dispose_context.invoked = FALSE;
+    dispose_id = g_signal_connect (selection, "selection-changed",
+                                   G_CALLBACK (dispose_view_on_selection_changed),
+                                   &dispose_context);
+    gnc_tree_view_commodity_select_commodity (view, second);
+    drain_main_context ();
+    g_assert_true (dispose_context.invoked);
+    g_signal_handler_disconnect (selection, dispose_id);
+
+    g_object_unref (selection);
+    g_object_unref (widget);
+    gnc_clear_current_session ();
+}
+
+static void
+test_price_selection_restore_contract (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    gnc_commodity_table *table = gnc_commodity_table_get_table (book);
+    gnc_commodity *currency;
+    gnc_commodity *security;
+    GNCPrice *first;
+    GNCPrice *second;
+    GtkWidget *widget;
+    GncTreeViewPrice *view;
+    GtkSelectionModel *selection;
+    GtkColumnView *column_view;
+    GtkColumnViewColumn *date_column;
+    DisposeOnSelectionChange dispose_context;
+    gulong dispose_id;
+    guint first_position;
+    guint second_position;
+    GList *prices;
+
+    gnc_set_current_session (session);
+    currency = gnc_commodity_new (book, "Selection currency",
+                                  GNC_COMMODITY_NS_CURRENCY, "SEC", "", 100);
+    security = gnc_commodity_new (book, "Selection security", "SELECTION",
+                                  "SES", "", 1000);
+    gnc_commodity_table_insert (table, currency);
+    gnc_commodity_table_insert (table, security);
+    first = gnc_price_create (book);
+    gnc_price_begin_edit (first);
+    gnc_price_set_commodity (first, security);
+    gnc_price_set_currency (first, currency);
+    gnc_price_set_time64 (first, 1);
+    gnc_price_set_value (first, gnc_numeric_create (1, 1));
+    gnc_price_commit_edit (first);
+    g_assert_true (gnc_pricedb_add_price (gnc_pricedb_get_db (book), first));
+    second = gnc_price_create (book);
+    gnc_price_begin_edit (second);
+    gnc_price_set_commodity (second, security);
+    gnc_price_set_currency (second, currency);
+    gnc_price_set_time64 (second, 86401);
+    gnc_price_set_value (second, gnc_numeric_create (2, 1));
+    gnc_price_commit_edit (second);
+    g_assert_true (gnc_pricedb_add_price (gnc_pricedb_get_db (book), second));
+
+    widget = gnc_tree_view_price_new (book, NULL);
+    g_object_ref_sink (widget);
+    view = GNC_TREE_VIEW_PRICE (widget);
+    selection = g_object_ref (gnc_tree_view_price_get_selection_model (view));
+    column_view = gnc_tree_view_price_get_column_view (view);
+    date_column = column_by_id (column_view, "date");
+
+    gnc_tree_view_price_set_selected_price (view, first);
+    drain_main_context ();
+    first_position = price_position (selection, first);
+    g_assert_cmpuint (first_position, !=, GTK_INVALID_LIST_POSITION);
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gtk_selection_model_is_selected (selection, first_position));
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == first);
+
+    gnc_tree_view_price_set_selected_price (view, second);
+    drain_main_context ();
+    first_position = price_position (selection, first);
+    second_position = price_position (selection, second);
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_false (gtk_selection_model_is_selected (selection, first_position));
+    g_assert_true (gtk_selection_model_is_selected (selection, second_position));
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == second);
+
+    g_assert_true (gtk_selection_model_select_item (selection, first_position, FALSE));
+    drain_main_context ();
+    prices = gnc_tree_view_price_get_selected_prices (view);
+    g_assert_cmpuint (selection_size (selection), ==, 2);
+    g_assert_cmpuint (g_list_length (prices), ==, 2);
+    g_assert_nonnull (g_list_find (prices, first));
+    g_assert_nonnull (g_list_find (prices, second));
+    g_list_free (prices);
+
+    gnc_tree_view_price_set_filter (view, NULL, NULL, NULL, NULL, NULL);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 2);
+    g_assert_true (gtk_selection_model_is_selected
+                       (selection, price_position (selection, first)));
+    g_assert_true (gtk_selection_model_is_selected
+                       (selection, price_position (selection, second)));
+
+    gtk_column_view_sort_by_column (column_view, date_column,
+                                    GTK_SORT_ASCENDING);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 2);
+    g_assert_true (gtk_selection_model_is_selected
+                       (selection, price_position (selection, first)));
+    g_assert_true (gtk_selection_model_is_selected
+                       (selection, price_position (selection, second)));
+
+    gnc_tree_view_price_set_selected_price (view, NULL);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 0);
+    g_assert_null (gnc_tree_view_price_get_selected_price (view));
+    prices = gnc_tree_view_price_get_selected_prices (view);
+    g_assert_null (prices);
+
+    gnc_tree_view_price_set_selected_price (view, first);
+    drain_main_context ();
+    g_assert_cmpuint (selection_size (selection), ==, 1);
+    g_assert_true (gnc_tree_view_price_get_selected_price (view) == first);
+
+    g_object_unref (date_column);
+    dispose_context.view = G_OBJECT (widget);
+    dispose_context.invoked = FALSE;
+    dispose_id = g_signal_connect (selection, "selection-changed",
+                                   G_CALLBACK (dispose_view_on_selection_changed),
+                                   &dispose_context);
+    gnc_tree_view_price_set_selected_price (view, NULL);
+    drain_main_context ();
+    g_assert_true (dispose_context.invoked);
+    g_signal_handler_disconnect (selection, dispose_id);
+
+    g_object_unref (selection);
+    g_object_unref (widget);
+    gnc_price_unref (first);
+    gnc_price_unref (second);
+    gnc_clear_current_session ();
+}
+
+static void
 test_account_native_column_sorting (void)
 {
     QofSession *session = qof_session_new (qof_book_new ());
@@ -1687,12 +1967,16 @@ main (int argc, char **argv)
                      test_commodity_lookup_releases_tree_item);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity-column-owners",
                      test_commodity_column_owners_outlive_disposed_view);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity-selection-contract",
+                     test_commodity_selection_restore_contract);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/commodity-native-sorting",
                      test_commodity_native_column_sorting);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/price",
                      test_price_lookup_releases_tree_item);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/price-column-owners",
                      test_price_column_owners_outlive_disposed_view);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/price-selection-contract",
+                     test_price_selection_restore_contract);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/price-native-sorting",
                      test_price_native_column_sorting);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/owner",
