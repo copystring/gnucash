@@ -48,6 +48,7 @@
 #include "gnc-state.h"
 
 #include "assistant-csv-price-import.h"
+#include "gnc-csv-preview-refresh.hpp"
 #include "gnc-import-assistant.h"
 
 #include "go-charmap-sel.h"
@@ -146,6 +147,10 @@ private:
     static void file_dialog_finished_cb (GObject *source, GAsyncResult *result,
                                          gpointer user_data);
     bool set_selected_file (GFile *file);
+    void preview_queue_refresh_table ();
+    static void preview_refresh_table_idle_cb (gpointer user_data);
+
+    CsvPreviewRefreshIdle preview_refresh_idle;
 
     GncImportAssistant    *csv_imp_asst;
 
@@ -534,7 +539,8 @@ CsvImpPriceAssist::settings_confirmation_cb (GtkWindow *parent, gint response,
 /*******************************************************
  * Assistant Constructor
  *******************************************************/
-CsvImpPriceAssist::CsvImpPriceAssist ()
+CsvImpPriceAssist::CsvImpPriceAssist () :
+    preview_refresh_idle {preview_refresh_table_idle_cb, this}
 {
     auto builder = gtk_builder_new();
     gnc_builder_add_from_file  (builder , "assistant-csv-price-import.glade", "start_row_adj");
@@ -760,6 +766,7 @@ gnc_builder_connect_signals (builder, this);
  *******************************************************/
 CsvImpPriceAssist::~CsvImpPriceAssist ()
 {
+    preview_refresh_idle.cancel ();
     g_object_set_data (G_OBJECT (csv_imp_asst),
                        "gnc-csv-price-import-assistant-owner", nullptr);
     gtk_window_destroy (GTK_WINDOW(csv_imp_asst));
@@ -1214,11 +1221,18 @@ CsvImpPriceAssist::preview_update_commodity ()
     preview_refresh_table ();
 }
 
-static gboolean
-csv_imp_preview_queue_rebuild_table (CsvImpPriceAssist *assist)
+void
+CsvImpPriceAssist::preview_refresh_table_idle_cb (gpointer user_data)
 {
+    auto assist = static_cast<CsvImpPriceAssist *> (user_data);
+
     assist->preview_refresh_table ();
-    return false;
+}
+
+void
+CsvImpPriceAssist::preview_queue_refresh_table ()
+{
+    preview_refresh_idle.queue ();
 }
 
 void
@@ -1273,7 +1287,7 @@ void CsvImpPriceAssist::preview_update_col_type (GtkDropDown* dropdown)
     /* Delay rebuilding our data table to avoid critical warnings due to
      * pending events still acting on them after this event is processed.
      */
-    g_idle_add ((GSourceFunc)csv_imp_preview_queue_rebuild_table, this);
+    preview_queue_refresh_table ();
 }
 
 struct CsvPricePreviewRow
@@ -1580,7 +1594,7 @@ CsvImpPriceAssist::preview_refresh ()
         }
     }
     // Repopulate the parsed data table
-    g_idle_add ((GSourceFunc)csv_imp_preview_queue_rebuild_table, this);
+    preview_queue_refresh_table ();
 }
 
 /* Check if all selected data can be parsed sufficiently to continue
@@ -1659,7 +1673,7 @@ CsvImpPriceAssist::assist_preview_page_prepare ()
         preview_refresh ();
 
         /* Populate the GTK4 column view after the page becomes active. */
-        g_idle_add ((GSourceFunc)csv_imp_preview_queue_rebuild_table, this);
+        preview_queue_refresh_table ();
     }
 }
 
