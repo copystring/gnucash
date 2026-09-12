@@ -30,21 +30,38 @@ drain_main_context (void)
 }
 
 static gboolean
-wait_for_paned_width (HierarchyAssistant *assistant, int minimum_width)
+paned_layout_tick_cb (GtkWidget *widget, GdkFrameClock *clock, gpointer user_data)
 {
+    gboolean *frame_seen = user_data;
+
+    *frame_seen = TRUE;
+    (void)widget;
+    (void)clock;
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean
+wait_for_paned_layout (HierarchyAssistant *assistant)
+{
+    gboolean frame_seen = FALSE;
+    guint tick_id = gtk_widget_add_tick_callback (GTK_WIDGET (assistant->window),
+                                                   paned_layout_tick_cb,
+                                                   &frame_seen, NULL);
     gint64 deadline = g_get_monotonic_time () + G_TIME_SPAN_SECOND;
 
     do
     {
         drain_main_context ();
-        if (gtk_widget_get_mapped (GTK_WIDGET (assistant->window)) &&
+        if (frame_seen && gtk_widget_get_mapped (GTK_WIDGET (assistant->window)) &&
             gtk_widget_get_mapped (GTK_WIDGET (assistant->paned)) &&
-            gtk_widget_get_width (GTK_WIDGET (assistant->paned)) >= minimum_width)
+            gtk_widget_get_width (GTK_WIDGET (assistant->paned)) > 0)
             return TRUE;
         g_usleep (1000);
     }
     while (g_get_monotonic_time () < deadline);
 
+    if (!frame_seen)
+        gtk_widget_remove_tick_callback (GTK_WIDGET (assistant->window), tick_id);
     return FALSE;
 }
 
@@ -185,12 +202,17 @@ present_hierarchy_page (HierarchyAssistant *assistant, int width, int height)
 {
     GtkWidget *hierarchy_page = find_hierarchy_page (assistant->stack,
                                                       GTK_WIDGET (assistant->paned));
+    int default_width = 0;
+    int default_height = 0;
 
     g_assert_nonnull (hierarchy_page);
     gtk_stack_set_visible_child (assistant->stack, hierarchy_page);
     gtk_window_set_default_size (assistant->window, width, height);
+    gtk_window_get_default_size (assistant->window, &default_width, &default_height);
+    g_assert_cmpint (default_width, ==, width);
+    g_assert_cmpint (default_height, ==, height);
     gtk_window_present (assistant->window);
-    g_assert_true (wait_for_paned_width (assistant, 1));
+    g_assert_true (wait_for_paned_layout (assistant));
 
     g_assert_true (gtk_widget_get_mapped (GTK_WIDGET (assistant->window)));
     g_assert_true (gtk_widget_get_mapped (hierarchy_page));
@@ -240,11 +262,13 @@ test_hierarchy_paned_builder_contract (void)
     g_assert_cmpint (small_allocation, >=, minimum);
     assert_paned_position_is_valid (assistant.paned);
 
+    free_hierarchy_assistant (&assistant);
+
+    /* Test a larger initial request separately. Window allocations can be
+     * constrained by the window manager, so they are not resize requests. */
+    assistant = load_hierarchy_assistant ();
     large_width = MAX (natural + 200, 800);
-    gtk_window_set_default_size (assistant.window, large_width, 550);
-    gtk_window_present (assistant.window);
-    g_assert_true (wait_for_paned_width (&assistant, small_allocation + 1));
-    large_allocation = gtk_widget_get_width (GTK_WIDGET (assistant.paned));
+    large_allocation = present_hierarchy_page (&assistant, large_width, 550);
     g_assert_cmpint (large_allocation, >=, minimum);
     g_assert_cmpint (large_allocation, >=, small_allocation);
     assert_paned_position_is_valid (assistant.paned);
@@ -266,6 +290,12 @@ test_hierarchy_paned_survives_page_change (void)
     int target_position;
     int position_before;
     int initial_width;
+    int requested_width;
+    int requested_height;
+    int window_width_before;
+    int window_height_before;
+    int paned_width_before;
+    int paned_height_before;
 
     g_assert_nonnull (hierarchy_page);
     other_page = find_other_page (assistant.stack, hierarchy_page);
@@ -276,6 +306,7 @@ test_hierarchy_paned_survives_page_change (void)
     /* Leave room to move the divider even when translated text is wider. */
     initial_width = MAX (natural + 200, 800);
     small_allocation = present_hierarchy_page (&assistant, initial_width, 550);
+    g_assert_cmpint (small_allocation, >=, minimum);
     assert_paned_position_is_valid (assistant.paned);
 
     get_paned_position_bounds (assistant.paned, &min_position, &max_position);
@@ -287,17 +318,40 @@ test_hierarchy_paned_survives_page_change (void)
     g_assert_cmpint (gtk_paned_get_position (assistant.paned), ==, target_position);
     assert_paned_position_is_valid (assistant.paned);
 
-    gtk_window_set_default_size (assistant.window, initial_width + 300, 550);
+    /* Verify the resize request separately from the allocated size: GTK may
+     * constrain an allocation to a minimum or to the window manager's screen. */
+    requested_width = initial_width + 300;
+    window_width_before = gtk_widget_get_width (GTK_WIDGET (assistant.window));
+    window_height_before = gtk_widget_get_height (GTK_WIDGET (assistant.window));
+    paned_width_before = gtk_widget_get_width (GTK_WIDGET (assistant.paned));
+    paned_height_before = gtk_widget_get_height (GTK_WIDGET (assistant.paned));
+    g_test_message ("Hierarchy resize request: minimum=%d natural=%d default=%dx%d "
+                    "window-before=%dx%d paned-before=%dx%d",
+                    minimum, natural, requested_width, 550,
+                    window_width_before, window_height_before,
+                    paned_width_before, paned_height_before);
+    gtk_window_set_default_size (assistant.window, requested_width, 550);
+    gtk_window_get_default_size (assistant.window, &requested_width, &requested_height);
+    g_assert_cmpint (requested_width, ==, initial_width + 300);
+    g_assert_cmpint (requested_height, ==, 550);
     gtk_window_present (assistant.window);
-    g_assert_true (wait_for_paned_width (&assistant, small_allocation + 1));
+    g_assert_true (wait_for_paned_layout (&assistant));
+    g_test_message ("Hierarchy resize result: default=%dx%d window-after=%dx%d "
+                    "paned-after=%dx%d",
+                    requested_width, requested_height,
+                    gtk_widget_get_width (GTK_WIDGET (assistant.window)),
+                    gtk_widget_get_height (GTK_WIDGET (assistant.window)),
+                    gtk_widget_get_width (GTK_WIDGET (assistant.paned)),
+                    gtk_widget_get_height (GTK_WIDGET (assistant.paned)));
     assert_paned_position_is_valid (assistant.paned);
+
     position_before = gtk_paned_get_position (assistant.paned);
 
     gtk_stack_set_visible_child (assistant.stack, other_page);
     drain_main_context ();
     g_assert_true (gtk_stack_get_visible_child (assistant.stack) == other_page);
     gtk_stack_set_visible_child (assistant.stack, hierarchy_page);
-    g_assert_true (wait_for_paned_width (&assistant, 1));
+    g_assert_true (wait_for_paned_layout (&assistant));
     g_assert_true (gtk_stack_get_visible_child (assistant.stack) == hierarchy_page);
     g_assert_true (gtk_widget_get_mapped (hierarchy_page));
     assert_paned_position_is_valid (assistant.paned);

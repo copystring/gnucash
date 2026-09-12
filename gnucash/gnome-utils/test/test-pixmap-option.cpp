@@ -221,8 +221,9 @@ assert_preview_measure_and_allocation (GncOption& option, GtkPicture *picture)
     g_object_ref_sink (window);
     gtk_window_set_default_size (window, 900, 300);
     gtk_window_set_child (window, root);
-    gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
+    gtk_window_present (window);
     wait_for_frames (GTK_WIDGET (window), 2);
+    g_assert_true (gtk_widget_get_mapped (GTK_WIDGET (window)));
     g_assert_true (gtk_widget_get_mapped (GTK_WIDGET (picture)));
     g_assert_cmpint (gtk_widget_get_width (GTK_WIDGET (picture)), >, 0);
     g_assert_cmpint (gtk_widget_get_height (GTK_WIDGET (picture)), >, 0);
