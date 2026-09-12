@@ -456,6 +456,14 @@ new_tax_table_dialog (TaxTableWindow *ttw, gboolean new_table,
     gtk_window_present (GTK_WINDOW (ntt->dialog));
 }
 
+void
+tax_table_new_table_cb (GtkButton *button, TaxTableWindow *ttw)
+{
+    g_return_if_fail (ttw);
+    new_tax_table_dialog (ttw, TRUE, NULL, NULL);
+    (void)button;
+}
+
 static gint
 tax_table_compare (gconstpointer left, gconstpointer right)
 {
