@@ -34,6 +34,7 @@
 #include <import-match-picker.h>
 #include <import-operation-teardown.h>
 #include <import-pending-matches.h>
+#include <gnc-amount-edit.h>
 #include <gnc-ofx-import-teardown.h>
 #include <gnc-prefs.h>
 #include <gnc-prefs-utils.h>
@@ -227,6 +228,23 @@ count_buildable_windows (const gchar *buildable_id)
         g_object_unref (window);
     }
     return count;
+}
+
+static bool
+wait_until_buildable_window_closed (const gchar *buildable_id)
+{
+    const auto deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+
+    do
+    {
+        while (g_main_context_pending (nullptr))
+            g_main_context_iteration (nullptr, FALSE);
+        if (count_buildable_windows (buildable_id) == 0)
+            return true;
+        g_usleep (1000);
+    }
+    while (g_get_monotonic_time () < deadline);
+    return false;
 }
 
 static GtkWidget *
@@ -950,6 +968,8 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_account_picker_completio
     }
     ASSERT_NE (bank_position, GTK_INVALID_LIST_POSITION);
     gtk_single_selection_set_selected (selection, bank_position);
+    GWeakRef picker_ref;
+    g_weak_ref_init (&picker_ref, G_OBJECT (picker));
 
     /* The parent assistant remains alive, so a window WeakRef alone would not
      * protect the callback. The real picker completion must become a no-op. */
@@ -959,7 +979,9 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_account_picker_completio
     gtk_window_set_default_size (window, 640, 420);
     EXPECT_TRUE (spin_until_frame (GTK_WIDGET (window)));
     g_signal_emit_by_name (accept, "clicked");
+    EXPECT_TRUE (wait_until_buildable_window_closed ("account_picker_dialog"));
     g_object_unref (picker);
+    EXPECT_TRUE (weak_ref_was_finalized (&picker_ref));
     gtk_window_destroy (window);
     g_object_unref (window);
 }
@@ -998,7 +1020,7 @@ TEST_F(ImportMatcherTest, embedded_matcher_cancels_replaced_and_torn_down_match_
     ASSERT_EQ (count_buildable_windows ("match_picker_dialog"), 1u);
 
     gnc_gen_trans_list_delete (matcher);
-    EXPECT_EQ (count_buildable_windows ("match_picker_dialog"), 0u);
+    EXPECT_TRUE (wait_until_buildable_window_closed ("match_picker_dialog"));
     EXPECT_TRUE (weak_ref_was_finalized (&content_ref));
     gtk_window_set_default_size (window, 640, 420);
     EXPECT_TRUE (spin_until_frame (GTK_WIDGET (window)));
@@ -1037,11 +1059,15 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_edit_fields_accept)
     ASSERT_NE (dialog, nullptr);
     auto accept = find_buildable_widget (GTK_WIDGET (dialog), "button2");
     ASSERT_TRUE (GTK_IS_BUTTON (accept));
+    GWeakRef dialog_ref;
+    g_weak_ref_init (&dialog_ref, G_OBJECT (dialog));
 
     gnc_gen_trans_list_delete (matcher);
     EXPECT_TRUE (GTK_IS_WINDOW (window));
     g_signal_emit_by_name (accept, "clicked");
+    EXPECT_TRUE (wait_until_buildable_window_closed ("transaction_edit_dialog"));
     g_object_unref (dialog);
+    EXPECT_TRUE (weak_ref_was_finalized (&dialog_ref));
     gtk_window_destroy (window);
     g_object_unref (window);
 }
@@ -1085,11 +1111,21 @@ TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_price_dialog_accept)
     ASSERT_NE (dialog, nullptr);
     auto accept = find_buildable_widget (GTK_WIDGET (dialog), "ok_button");
     ASSERT_TRUE (GTK_IS_BUTTON (accept));
+    auto price_box = find_buildable_widget (GTK_WIDGET (dialog), "price_hbox");
+    ASSERT_TRUE (GTK_IS_BOX (price_box));
+    auto price_edit = GNC_AMOUNT_EDIT (first_descendant_of_type (
+        price_box, GNC_TYPE_AMOUNT_EDIT));
+    ASSERT_TRUE (GNC_IS_AMOUNT_EDIT (price_edit));
+    gnc_amount_edit_set_amount (price_edit, gnc_numeric_create (1, 1));
+    GWeakRef dialog_ref;
+    g_weak_ref_init (&dialog_ref, G_OBJECT (dialog));
 
     gnc_gen_trans_list_delete (matcher);
     EXPECT_TRUE (GTK_IS_WINDOW (window));
     g_signal_emit_by_name (accept, "clicked");
+    EXPECT_TRUE (wait_until_buildable_window_closed ("transfer_dialog"));
     g_object_unref (dialog);
+    EXPECT_TRUE (weak_ref_was_finalized (&dialog_ref));
     gtk_window_destroy (window);
     g_object_unref (window);
 }
