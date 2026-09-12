@@ -24,6 +24,9 @@ add_gnome_test(test-dialog-lot-viewer-scrub test-dialog-lot-viewer-scrub.c)
 add_gnome_test(test-budget-view-column-ownership test-budget-view-column-ownership.c)
 set_property(TEST test-budget-view-column-ownership APPEND PROPERTY ENVIRONMENT
   GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
+add_gnome_test(test-plugin-page-budget-window-lifetime test-plugin-page-budget-window-lifetime.c)
+set_property(TEST test-plugin-page-budget-window-lifetime APPEND PROPERTY ENVIRONMENT
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
 
 set(test_dialog_sx_since_last_run_ownership_INCLUDE_DIRS
   ${GNOME_TEST_INCLUDE_DIRS}
@@ -87,6 +90,7 @@ set_dist_list(test_gnome_DIST
   test-dialog-date-close.c
   test-dialog-lot-viewer-scrub.c
   test-budget-view-column-ownership.c
+  test-plugin-page-budget-window-lifetime.c
   test-dialog-sx-since-last-run-ownership.c
   test-sx-variable-fixture.cpp
   test-assistant-hierarchy-ownership.cpp

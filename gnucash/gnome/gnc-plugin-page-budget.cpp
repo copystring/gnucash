@@ -455,8 +455,9 @@ gnc_plugin_page_budget_create_widget (GncPluginPage *plugin_page)
                       G_CALLBACK(gppb_account_activated_cb), page);
 
     // this should sync the column widths of the two tree views
-    g_signal_connect (G_OBJECT(plugin_page->window), "notify::default-width",
-                      G_CALLBACK(gnc_budget_view_resized_cb), priv->budget_view);
+    g_signal_connect_object (G_OBJECT(plugin_page->window), "notify::default-width",
+                             G_CALLBACK(gnc_budget_view_resized_cb),
+                             G_OBJECT(priv->budget_view), 0);
 
     priv->component_id =
         gnc_register_gui_component (PLUGIN_PAGE_BUDGET_CM_CLASS,
