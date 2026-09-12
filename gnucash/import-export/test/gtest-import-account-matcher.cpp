@@ -1366,6 +1366,88 @@ TEST_F(ImportMatcherTest, embedded_matcher_releases_context_popovers_on_replacem
     g_object_unref (window);
 }
 
+TEST_F(ImportMatcherTest, embedded_matcher_ignores_late_context_menu_buttons)
+{
+    constexpr std::array<const char *, 4> labels {
+        "_Assign transfer account",
+        "Assign e_xchange rate",
+        "_Edit description, notes, or memo",
+        "_Reset all edits"
+    };
+    constexpr std::array<const char *, 3> dialog_ids {
+        "account_picker_dialog",
+        "transfer_dialog",
+        "transaction_edit_dialog"
+    };
+    std::array<GtkWidget *, labels.size ()> buttons {};
+    std::array<gulong, labels.size ()> observer_ids {};
+    std::array<guint, labels.size ()> observer_calls {};
+    std::array<guint, dialog_ids.size ()> dialog_counts {};
+    auto window = GTK_WINDOW (gtk_window_new ());
+    g_object_ref (window);
+    auto page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child (window, page);
+    auto matcher = gnc_gen_trans_assist_new (GTK_WIDGET (window), page,
+                                             "Embedded matcher", FALSE, 42);
+    ASSERT_NE (matcher, nullptr);
+    auto transaction = create_import_transaction (
+        m_book, m_bank, m_expenses, m_currency, 705,
+        "original context-menu description", "memo", FALSE);
+    GncGUID transaction_guid = *qof_instance_get_guid
+        (QOF_INSTANCE (transaction));
+    gnc_gen_trans_list_add_trans (matcher, transaction);
+    gnc_gen_trans_list_show_all (matcher);
+    gtk_window_present (window);
+    ASSERT_TRUE (spin_until_frame (GTK_WIDGET (window)));
+
+    auto scroller = GTK_SCROLLED_WINDOW (find_buildable_widget (
+        GTK_WIDGET (window), "scrolledwindow25"));
+    ASSERT_TRUE (GTK_IS_SCROLLED_WINDOW (scroller));
+    auto view = GTK_COLUMN_VIEW (gtk_scrolled_window_get_child (scroller));
+    ASSERT_TRUE (GTK_IS_COLUMN_VIEW (view));
+    ASSERT_TRUE (open_matcher_context_menu (view));
+    auto popovers = child_popovers (GTK_WIDGET (view));
+    ASSERT_EQ (popovers.size (), 1u);
+    auto popover = GTK_POPOVER (g_object_ref (popovers.front ()));
+    for (size_t index = 0; index < labels.size (); ++index)
+    {
+        buttons[index] = find_button_with_label (GTK_WIDGET (view), labels[index]);
+        ASSERT_TRUE (GTK_IS_BUTTON (buttons[index]));
+        g_object_ref (buttons[index]);
+        observer_ids[index] = g_signal_connect (
+            buttons[index], "clicked",
+            G_CALLBACK (+[](GtkButton*, gpointer data) {
+                (*static_cast<guint *> (data))++;
+            }), &observer_calls[index]);
+    }
+    for (size_t index = 0; index < dialog_ids.size (); ++index)
+        dialog_counts[index] = count_buildable_windows (dialog_ids[index]);
+
+    gtk_popover_popdown (popover);
+    EXPECT_TRUE (wait_until_child_popover_count (GTK_WIDGET (view), 0u));
+    EXPECT_EQ (gtk_widget_get_parent (GTK_WIDGET (popover)), nullptr);
+    gnc_gen_trans_list_delete (matcher);
+    EXPECT_EQ (xaccTransLookup (&transaction_guid, m_book), nullptr);
+    for (size_t index = 0; index < buttons.size (); ++index)
+    {
+        g_signal_emit_by_name (buttons[index], "clicked");
+        EXPECT_EQ (observer_calls[index], 1u);
+    }
+    for (size_t index = 0; index < dialog_ids.size (); ++index)
+        EXPECT_EQ (count_buildable_windows (dialog_ids[index]),
+                   dialog_counts[index]);
+    EXPECT_EQ (xaccTransLookup (&transaction_guid, m_book), nullptr);
+
+    for (size_t index = 0; index < buttons.size (); ++index)
+    {
+        g_signal_handler_disconnect (buttons[index], observer_ids[index]);
+        g_object_unref (buttons[index]);
+    }
+    g_object_unref (popover);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+}
+
 TEST_F(ImportMatcherTest, test_simple_match)
 {
     auto found = gnc_import_select_account(nullptr, "Bank", FALSE, nullptr,

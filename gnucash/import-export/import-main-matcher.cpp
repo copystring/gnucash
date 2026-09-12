@@ -1719,6 +1719,34 @@ gnc_gen_trans_reset_edits_cb (GtkButton *button, GNCImportMainMatcher *info)
     LEAVE("");
 }
 
+using MatcherContextAction = void (*) (GtkButton *, GNCImportMainMatcher *);
+
+struct MatcherContextButton
+{
+    MatcherLifetime *lifetime;
+    MatcherContextAction action;
+};
+
+static void
+matcher_context_button_clicked (GtkButton *button,
+                                MatcherContextButton *context)
+{
+    auto info = matcher_lifetime_get (context->lifetime);
+
+    if (info)
+        context->action (button, info);
+}
+
+static void
+matcher_context_button_destroy (gpointer data, GClosure *closure)
+{
+    auto context = static_cast<MatcherContextButton *> (data);
+
+    matcher_lifetime_unref (context->lifetime);
+    g_free (context);
+    (void)closure;
+}
+
 static void
 gnc_gen_trans_row_activated_cb (GtkColumnView *view,
                                 guint position,
@@ -1851,35 +1879,42 @@ gnc_gen_trans_view_popup_menu (GNCImportMainMatcher *info, GtkWidget *anchor)
     gtk_widget_add_css_class (menu, "menu");
     gtk_popover_set_child (popover, menu);
 
-    auto add_menu_item = [&menu, &info](const char* name, bool sensitive, GCallback callback)
+    auto add_menu_item = [&menu, &info](const char* name, bool sensitive,
+                                        MatcherContextAction action)
     {
         auto menuitem = gtk_button_new_with_mnemonic (_(name));
+        auto context = g_new0 (MatcherContextButton, 1);
+        context->lifetime = matcher_lifetime_ref (info->lifetime);
+        context->action = action;
         gtk_button_set_has_frame (GTK_BUTTON (menuitem), FALSE);
         gtk_widget_set_halign (menuitem, GTK_ALIGN_FILL);
         gtk_widget_set_sensitive (menuitem, sensitive);
-        g_signal_connect (menuitem, "clicked", callback, info);
+        g_signal_connect_data (menuitem, "clicked",
+                               G_CALLBACK (matcher_context_button_clicked),
+                               context, matcher_context_button_destroy,
+                               static_cast<GConnectFlags> (0));
         gtk_box_append (GTK_BOX (menu), menuitem);
     };
 
     /* Translators: Menu entry, no full stop */
     add_menu_item (N_("_Assign transfer account"),
                    can_assign_acct,
-                   G_CALLBACK(gnc_gen_trans_assign_transfer_account_to_selection_cb));
+                   gnc_gen_trans_assign_transfer_account_to_selection_cb);
 
     /* Translators: Menu entry, no full stop */
     add_menu_item (N_("Assign e_xchange rate"),
                    can_update_prices,
-                   G_CALLBACK (gnc_gen_trans_set_price_to_selection_cb));
+                   gnc_gen_trans_set_price_to_selection_cb);
 
     /* Translators: Menu entry, no full stop */
     add_menu_item (N_("_Edit description, notes, or memo"),
                    info->can_edit_desc || info->can_edit_notes || info->can_edit_memo,
-                   G_CALLBACK (gnc_gen_trans_edit_fields));
+                   gnc_gen_trans_edit_fields);
 
     /* Translators: Menu entry, no full stop */
     add_menu_item (N_("_Reset all edits"),
                    can_undo_edits,
-                   G_CALLBACK (gnc_gen_trans_reset_edits_cb));
+                   gnc_gen_trans_reset_edits_cb);
 
     gtk_widget_set_parent (GTK_WIDGET (popover), anchor ? anchor : GTK_WIDGET (info->view));
     info->context_popover = popover;
