@@ -295,7 +295,7 @@ TEST_F(StockAssistantTest, FinishColumnViewReleasesColumnsAndFactories)
     auto loaded = gtk_builder_add_from_string (builder.get (), builder_xml, -1,
                                                &raw_builder_error);
     builder_error.reset (raw_builder_error);
-    ASSERT_NE (loaded, 0u)
+    ASSERT_TRUE (loaded)
         << (builder_error ? builder_error->message : "unknown builder error");
     view = GTK_COLUMN_VIEW (gtk_builder_get_object (builder.get (), "transaction_view"));
     ASSERT_NE (view, nullptr);
