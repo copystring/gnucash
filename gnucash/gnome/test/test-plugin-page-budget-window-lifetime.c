@@ -47,11 +47,23 @@ default_width_changed (GtkWindow *window, GParamSpec *pspec,
     (void)pspec;
 }
 
-static gboolean
-window_has_budget_resize_handler (GtkWindow *window)
+static gulong
+window_budget_resize_handler (GtkWindow *window, GtkWidget *budget_view)
 {
-    return g_signal_handler_find (window, G_SIGNAL_MATCH_FUNC, 0, 0, NULL,
-                                  G_CALLBACK (gnc_budget_view_resized_cb), NULL) != 0;
+    guint signal_id = 0;
+    GQuark detail = 0;
+
+    /* Match the connection contract rather than a raw callback address: A
+     * Windows test executable can see an import thunk while the closure in
+     * the DLL stores the callback's implementation address. */
+    g_assert_true (g_signal_parse_name ("notify::default-width",
+                                        G_OBJECT_TYPE (window),
+                                        &signal_id, &detail, TRUE));
+    return g_signal_handler_find (window,
+                                  G_SIGNAL_MATCH_ID |
+                                  G_SIGNAL_MATCH_DETAIL |
+                                  G_SIGNAL_MATCH_DATA,
+                                  signal_id, detail, NULL, NULL, budget_view);
 }
 
 static void
@@ -83,6 +95,7 @@ test_budget_page_window_handler_ends_with_view (void)
     GWeakRef weak_view;
     DefaultWidthNotification notification = { 0 };
     gulong notify_id;
+    gulong budget_resize_id;
 
     gnc_set_current_session (session);
     gnc_account_create_root (book);
@@ -101,14 +114,15 @@ test_budget_page_window_handler_ends_with_view (void)
     notify_id = g_signal_connect (window, "notify::default-width",
                                   G_CALLBACK (default_width_changed),
                                   &notification);
-    g_assert_true (window_has_budget_resize_handler (window));
+    budget_resize_id = window_budget_resize_handler (window, budget_view);
+    g_assert_cmpuint (budget_resize_id, !=, 0);
     set_default_size_and_assert_notification (window, &notification, 701, 503);
 
     /* Match the window close order: detach the child before page teardown. */
     gtk_window_set_child (window, NULL);
     gnc_plugin_page_destroy_widget (page);
     g_assert_true (weak_ref_is_finalized (&weak_view));
-    g_assert_false (window_has_budget_resize_handler (window));
+    g_assert_false (g_signal_handler_is_connected (window, budget_resize_id));
 
     /* The still-live window must not retain the former budget view callback. */
     set_default_size_and_assert_notification (window, &notification, 743, 521);
