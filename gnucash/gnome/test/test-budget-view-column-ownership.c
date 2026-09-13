@@ -367,6 +367,10 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     gtk_editable_set_text (GTK_EDITABLE (close_label), "43");
     g_weak_ref_init (&weak_view, budget_view);
 
+    /* Detaching the focused page may retain it as move_focus_widget until
+     * GtkWindow completes deferred focus movement after painting. */
+    gtk_window_set_child (window, NULL);
+    present_and_wait_for_frame (window);
     gtk_window_destroy (window);
     g_object_unref (window);
     drain_main_context ();

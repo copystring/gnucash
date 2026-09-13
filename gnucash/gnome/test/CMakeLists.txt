@@ -37,6 +37,8 @@ gnc_add_test_with_guile(test-dialog-sx-since-last-run-ownership
   "test-dialog-sx-since-last-run-ownership.c;test-sx-variable-fixture.cpp"
   test_dialog_sx_since_last_run_ownership_INCLUDE_DIRS GNOME_TEST_LIBS
   GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
+# The scheduled-transaction fixture loads gnucash/app-utils/fin at runtime.
+add_dependencies(test-dialog-sx-since-last-run-ownership scm-expressions)
 
 gnc_add_test_with_guile(test-assistant-hierarchy-ownership
   test-assistant-hierarchy-ownership.cpp GNOME_TEST_INCLUDE_DIRS GNOME_TEST_LIBS)
