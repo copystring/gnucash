@@ -69,6 +69,43 @@ export GSETTINGS_BACKEND=memory
 export GSETTINGS_SCHEMA_DIR="$schema_dir_windows"
 export PATH="$build_dir/bin:$PATH"
 
+record_package_version()
+{
+    local package=$1
+
+    if ! pacman -Q "$package"; then
+        echo "Installed package version unavailable: $package"
+    fi
+}
+
+record_runtime_provenance()
+{
+    local package_prefix=${MINGW_PACKAGE_PREFIX:-mingw-w64-ucrt-x86_64}
+    local gtk_dll
+    local gtk_dll_windows
+
+    echo 'Runtime package provenance:'
+    record_package_version "${package_prefix}-gtk4"
+    record_package_version "${package_prefix}-glib2"
+
+    if ! gtk_dll=$(type -P libgtk-4-1.dll); then
+        echo 'GTK DLL candidate unavailable on PATH: libgtk-4-1.dll'
+        return
+    fi
+
+    if gtk_dll_windows=$(cygpath -am "$gtk_dll"); then
+        echo "GTK DLL candidate from PATH: $gtk_dll_windows"
+    else
+        echo "GTK DLL candidate from PATH: $gtk_dll"
+    fi
+
+    if ! sha256sum "$gtk_dll"; then
+        echo "GTK DLL SHA256 unavailable: $gtk_dll"
+    fi
+}
+
+record_runtime_provenance
+
 # Do not weaken the regular test policy. This diagnostic-only addition makes
 # the Gtk critical stop in gdb so its caller stack is retained in the log.
 export G_DEBUG="${G_DEBUG:+$G_DEBUG,}fatal-criticals"
@@ -82,6 +119,9 @@ echo "GSETTINGS_SCHEMA_DIR=$GSETTINGS_SCHEMA_DIR"
 
 timeout --foreground 120s gdb --quiet --batch --return-child-result \
     -ex 'set pagination off' \
+    -ex 'set debuginfod enabled off' \
     -ex run \
     -ex 'thread apply all bt full' \
+    -ex 'info sharedlibrary' \
+    -ex 'info functions gtk_im_context_ime_message_filter' \
     --args "$test_binary" "--gtest_filter=$test_filter"
