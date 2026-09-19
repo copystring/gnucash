@@ -46,6 +46,7 @@ typedef struct
     gulong after_paint_id;
 } FrameWait;
 
+
 static void
 frame_wait_after_paint_cb (GdkFrameClock *clock, gpointer user_data)
 {
@@ -258,7 +259,21 @@ assert_watched_columns_finalized (GPtrArray *watched)
         WatchedColumn *column = g_ptr_array_index (watched, index);
 
         if (!weak_ref_is_finalized (&column->weak_column))
-            g_test_message ("Budget lifetime: column %u remains referenced", index);
+        {
+            GObject *col_obj = g_weak_ref_get (&column->weak_column);
+            if (col_obj)
+            {
+                g_test_message ("Budget lifetime: column %u remains referenced (ptr=%p, title='%s', ref_count=%u)",
+                                index,
+                                (void*)col_obj,
+                                gtk_column_view_column_get_title (GTK_COLUMN_VIEW_COLUMN (col_obj)),
+                                col_obj->ref_count);
+                GtkColumnView *cv = gtk_column_view_column_get_column_view (GTK_COLUMN_VIEW_COLUMN (col_obj));
+                g_test_message ("column_view of column: %p (%s)",
+                                (void*)cv, cv ? G_OBJECT_TYPE_NAME (cv) : "none");
+                g_object_unref (col_obj);
+            }
+        }
         g_assert_true (weak_ref_is_finalized (&column->weak_column));
         g_assert_true (weak_ref_is_finalized (&column->weak_factory));
     }
@@ -340,19 +355,26 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
 
     first_columns = watch_budget_columns (budget_view);
     g_assert_cmpuint (first_columns->len, ==, 6);
+
     rebuild_label = find_account_period_label (GTK_WIDGET (budget_view), account);
     g_assert_nonnull (rebuild_label);
+
     rebuild_controllers = hold_budget_label_controllers (rebuild_label);
+
     gtk_editable_label_start_editing (rebuild_label);
     g_assert_true (gtk_editable_label_get_editing (rebuild_label));
+
     gtk_editable_set_text (GTK_EDITABLE (rebuild_label), "37");
 
     gnc_budget_view_refresh (budget_view);
+
     present_and_wait_for_frame (window);
+
     g_assert_null (g_object_get_data (G_OBJECT (rebuild_label), "gnc-budget-account"));
     g_assert_false (gtk_editable_label_get_editing (rebuild_label));
     for (guint period = 0; period < gnc_budget_get_num_periods (budget); period++)
         g_assert_false (gnc_budget_is_account_period_value_set (budget, account, period));
+
     release_watched_columns (first_columns);
     drain_main_context ();
     assert_watched_columns_finalized (first_columns);

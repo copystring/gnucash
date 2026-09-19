@@ -118,6 +118,7 @@ present_and_wait_for_frame (GtkWindow *window)
 
     wait.tick_id = gtk_widget_add_tick_callback (GTK_WIDGET (window), frame_wait_tick_cb,
                                                   &wait, NULL);
+    gtk_widget_queue_draw (GTK_WIDGET (window));
     gtk_window_present (window);
     if (!wait.frame_seen)
     {
@@ -353,7 +354,9 @@ test_since_last_run_column_view_quiesces_before_adapter_release (void)
                                    G_CALLBACK (close_on_sx_update), &close);
     g_test_message ("SLR lifetime phase: before variable activation");
     gtk_editable_set_text (GTK_EDITABLE (entry), "1");
-    gtk_widget_activate (GTK_WIDGET (entry));
+    /* GtkEntry forwards its text child's Enter signal, but does not register
+     * an activation signal for gtk_widget_activate(). */
+    g_signal_emit_by_name (entry, "activate");
     g_test_message ("SLR lifetime phase: after reentrant close");
     g_assert_true (close.closed);
     g_assert_cmpuint (close.updates, ==, 1);
@@ -372,7 +375,7 @@ test_since_last_run_column_view_quiesces_before_adapter_release (void)
                                 gtk_drop_down_get_selected (drop_down) == SX_INSTANCE_STATE_IGNORED
                                 ? SX_INSTANCE_STATE_POSTPONED : SX_INSTANCE_STATE_IGNORED);
     gtk_editable_set_text (GTK_EDITABLE (entry), "1");
-    gtk_widget_activate (GTK_WIDGET (entry));
+    g_signal_emit_by_name (entry, "activate");
     g_object_unref (selection);
     g_object_unref (drop_down);
     g_object_unref (entry);

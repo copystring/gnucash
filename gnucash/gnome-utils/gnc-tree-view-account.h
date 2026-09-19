@@ -129,6 +129,7 @@ void gnc_tree_view_account_set_selection_filter (GncTreeViewAccount *view,
 gint gnc_tree_view_account_count_children (GncTreeViewAccount *view,
                                             Account *account);
 void gnc_tree_view_account_clear_model_cache (GncTreeViewAccount *view);
+void gnc_tree_view_account_rebind_columns (GncTreeViewAccount *view);
 Account *gnc_tree_view_account_get_account_at (GncTreeViewAccount *view,
                                                 guint position);
 Account *gnc_tree_view_account_get_cursor_account (GncTreeViewAccount *view);

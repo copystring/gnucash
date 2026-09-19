@@ -217,6 +217,7 @@ typedef struct GncPluginPageBudgetPrivate
        into .gcm file therefore the budget editor->report link is lost
        upon restart. */
     GncPluginPage *reportPage;
+    gulong window_resize_cb_id;
 } GncPluginPageBudgetPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE(GncPluginPageBudget, gnc_plugin_page_budget, GNC_TYPE_PLUGIN_PAGE)
@@ -443,7 +444,7 @@ gnc_plugin_page_budget_create_widget (GncPluginPage *plugin_page)
         return GTK_WIDGET(priv->budget_view);
     }
 
-    priv->budget_view = gnc_budget_view_new (priv->budget, &priv->fd);
+    priv->budget_view = GNC_BUDGET_VIEW (gnc_budget_view_new (priv->budget, &priv->fd));
 
     GtkGesture *event_gesture = gtk_gesture_click_new ();
     gtk_widget_add_controller (GTK_WIDGET(priv->budget_view), GTK_EVENT_CONTROLLER(event_gesture));
@@ -455,10 +456,12 @@ gnc_plugin_page_budget_create_widget (GncPluginPage *plugin_page)
                       G_CALLBACK(gppb_account_activated_cb), page);
 
     // this should sync the column widths of the two tree views
-    g_signal_connect_object (G_OBJECT(plugin_page->window), "notify::default-width",
-                             G_CALLBACK(gnc_budget_view_resized_cb),
-                             G_OBJECT(priv->budget_view),
-                             static_cast<GConnectFlags> (0));
+    if (plugin_page->window)
+    {
+        priv->window_resize_cb_id = g_signal_connect (G_OBJECT(plugin_page->window), "notify::default-width",
+                                                      G_CALLBACK(gnc_budget_view_resized_cb),
+                                                      priv->budget_view);
+    }
 
     priv->component_id =
         gnc_register_gui_component (PLUGIN_PAGE_BUDGET_CM_CLASS,
@@ -498,16 +501,20 @@ gnc_plugin_page_budget_destroy_widget (GncPluginPage *plugin_page)
 
     if (priv->budget_view)
     {
-        // save the account filter state information to budget section
-        gnc_budget_view_save_account_filter (priv->budget_view);
+        GncBudgetView *view = g_steal_pointer (&priv->budget_view);
 
-        if (priv->delete_budget)
+        if (priv->window_resize_cb_id && plugin_page->window)
         {
-            gnc_budget_view_delete_budget (priv->budget_view);
+            g_signal_handler_disconnect (plugin_page->window, priv->window_resize_cb_id);
+            priv->window_resize_cb_id = 0;
         }
 
-        g_object_unref (G_OBJECT(priv->budget_view));
-        priv->budget_view = NULL;
+        gnc_budget_view_save_account_filter (view);
+
+        if (priv->delete_budget)
+            gnc_budget_view_delete_budget (view);
+
+        g_object_unref (G_OBJECT (view));
     }
 
     // Destroy the filter override hash table

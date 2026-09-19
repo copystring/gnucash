@@ -121,6 +121,7 @@ test_budget_page_window_handler_ends_with_view (void)
     /* Match the window close order: detach the child before page teardown. */
     gtk_window_set_child (window, NULL);
     gnc_plugin_page_destroy_widget (page);
+    while (g_main_context_iteration (NULL, FALSE));
     g_assert_true (weak_ref_is_finalized (&weak_view));
     g_assert_false (g_signal_handler_is_connected (window, budget_resize_id));
 

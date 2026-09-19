@@ -737,6 +737,7 @@ test_account_selection_modes_preserve_semantics (void)
     GtkWidget *widget;
     GncTreeViewAccount *view;
     GtkSelectionModel *selection;
+    gboolean old_selection_finalized = FALSE;
     GList *accounts = NULL;
     GList *selected;
 
@@ -761,8 +762,11 @@ test_account_selection_modes_preserve_semantics (void)
     g_assert_null (gnc_tree_view_account_get_selected_account (view));
 
     gnc_tree_view_account_set_selected_account (view, second);
+    g_object_weak_ref (G_OBJECT (selection), object_finalized,
+                       &old_selection_finalized);
     gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_MULTIPLE);
     drain_main_context ();
+    g_assert_true (old_selection_finalized);
     g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
     gnc_tree_view_account_set_selection_mode (view, GTK_SELECTION_SINGLE);
     drain_main_context ();
@@ -850,6 +854,31 @@ test_account_selection_modes_preserve_semantics (void)
     g_assert_true (gnc_tree_view_account_get_selected_account (view) == second);
 
     g_object_unref (widget);
+    gnc_clear_current_session ();
+}
+
+static void
+test_account_model_owns_replaced_root (void)
+{
+    QofSession *session = qof_session_new (qof_book_new ());
+    QofBook *book = qof_session_get_book (session);
+    Account *root = gnc_account_create_root (book);
+    Account *replacement = xaccMallocAccount (book);
+    GtkWidget *widget;
+    gboolean root_finalized = FALSE;
+
+    gnc_set_current_session (session);
+    widget = gnc_tree_view_account_new_with_root (root, FALSE);
+    g_object_ref_sink (widget);
+    g_object_weak_ref (G_OBJECT (root), object_finalized, &root_finalized);
+
+    xaccAccountSetType (replacement, ACCT_TYPE_ROOT);
+    gnc_book_set_root_account (book, replacement);
+    g_assert_false (root_finalized);
+
+    g_object_unref (widget);
+    drain_main_context ();
+    g_assert_true (root_finalized);
     gnc_clear_current_session ();
 }
 
@@ -1457,6 +1486,8 @@ test_account_native_column_sorting (void)
     GtkColumnViewColumn *code_column;
     GtkSelectionModel *selection;
     GtkSorter *view_sorter;
+    GtkWindow *first_window;
+    GtkWindow *second_window;
 
     gnc_set_current_session (session);
     xaccAccountSetName (by_code, "Zulu by name");
@@ -1506,6 +1537,28 @@ test_account_native_column_sorting (void)
     assert_account_root_order (selection, by_name, by_code);
     g_assert_true (gnc_tree_view_account_get_selected_account (view) == selected);
     assert_selected_ancestors_expanded (selection, 1);
+
+    first_window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    second_window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gtk_window_set_default_size (first_window, 640, 480);
+    gtk_window_set_default_size (second_window, 640, 480);
+    gtk_window_set_child (first_window, widget);
+    present_and_wait_for_frame (first_window);
+    gtk_window_set_child (first_window, NULL);
+    gtk_window_set_child (second_window, widget);
+    present_and_wait_for_frame (second_window);
+
+    gtk_column_view_sort_by_column (column_view, name_column,
+                                    GTK_SORT_DESCENDING);
+    drain_main_context ();
+    assert_account_root_order (selection, by_code, by_name);
+    g_assert_true (gnc_tree_view_account_get_selected_account (view) == selected);
+
+    gtk_window_set_child (second_window, NULL);
+    gtk_window_destroy (first_window);
+    gtk_window_destroy (second_window);
+    g_object_unref (first_window);
+    g_object_unref (second_window);
 
     g_object_unref (name_column);
     g_object_unref (code_column);
@@ -1972,6 +2025,8 @@ main (int argc, char **argv)
                      test_account_column_owners_outlive_disposed_view);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-selection-modes",
                      test_account_selection_modes_preserve_semantics);
+    g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-model-root-ownership",
+                     test_account_model_owns_replaced_root);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-native-sorting",
                      test_account_native_column_sorting);
     g_test_add_func ("/gnome-utils/tree-view-row-ownership/account-sort-rebuild-dispose",

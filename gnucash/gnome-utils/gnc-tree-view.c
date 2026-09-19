@@ -89,6 +89,11 @@ gnc_column_view_unbind_grid_line_preferences (GtkColumnView *view)
     g_return_if_fail (GTK_IS_COLUMN_VIEW (view));
 
     remove_grid_line_preferences (view);
+    if (g_object_get_qdata (G_OBJECT (view), grid_line_preferences_quark ()))
+    {
+        g_object_set_qdata (G_OBJECT (view), grid_line_preferences_quark (), NULL);
+        g_object_weak_unref (G_OBJECT (view), grid_line_preferences_destroyed, NULL);
+    }
 }
 
 void

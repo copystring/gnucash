@@ -164,8 +164,10 @@ model_dispose (GObject *object)
     }
     if (model->filter_destroy)
     {
-        model->filter_destroy (model->filter_data);
-        model->filter_destroy = NULL;
+        GDestroyNotify filter_destroy = g_steal_pointer (&model->filter_destroy);
+        gpointer filter_data = g_steal_pointer (&model->filter_data);
+        if (filter_destroy)
+            filter_destroy (filter_data);
     }
     g_clear_object (&model->roots);
     g_clear_object (&model->root);

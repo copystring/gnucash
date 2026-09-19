@@ -85,6 +85,7 @@ struct _GncTreeViewAccount
     gboolean synchronizing;
     gboolean rebuilding;
     gboolean disposing;
+    gboolean unrooting;
     guint restore_source;
     gchar *state_section;
     GFunc editing_started_cb;
@@ -96,6 +97,7 @@ struct _GncTreeViewAccount
     GDestroyNotify selection_filter_destroy;
     AccountViewInfo view_info;
     gboolean use_view_info;
+    GPtrArray *column_sorters;
 };
 
 G_DEFINE_TYPE (GncTreeViewAccount, gnc_tree_view_account, GTK_TYPE_BOX)
@@ -111,11 +113,14 @@ account_guid (Account *account)
 static Account *
 account_from_row (gpointer item)
 {
-    gpointer account;
+    if (!item || !G_IS_OBJECT (item))
+        return NULL;
+    if (GNC_IS_ACCOUNT (item))
+        return GNC_ACCOUNT (item);
     if (!GTK_IS_TREE_LIST_ROW (item))
         return NULL;
-    account = gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (item));
-    Account *result = GNC_IS_ACCOUNT (account) ? GNC_ACCOUNT (account) : NULL;
+    gpointer account = gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (item));
+    Account *result = (account && GNC_IS_ACCOUNT (account)) ? GNC_ACCOUNT (account) : NULL;
     g_clear_object (&account);
     return result;
 }
@@ -125,7 +130,7 @@ account_at (GncTreeViewAccount *view, guint position)
 {
     gpointer item;
     Account *account;
-    if (position >= g_list_model_get_n_items (G_LIST_MODEL (view->rows)))
+    if (!view || view->disposing || !view->rows || position >= g_list_model_get_n_items (G_LIST_MODEL (view->rows)))
         return NULL;
     item = g_list_model_get_item (G_LIST_MODEL (view->rows), position);
     account = account_from_row (item);
@@ -145,6 +150,11 @@ create_children_cb (gpointer item, gpointer user_data)
     view = g_weak_ref_get (&context->view);
     if (!view)
         return NULL;
+    if (!GNC_IS_TREE_VIEW_ACCOUNT (view) || view->disposing)
+    {
+        g_object_unref (view);
+        return NULL;
+    }
     if (gnc_account_n_children (account) == 0)
     {
         g_object_unref (view);
@@ -194,7 +204,15 @@ account_column_closure_free (gpointer data, GClosure *closure)
 static GncTreeViewAccount *
 account_column_get_view (AccountColumn *column)
 {
-    return g_weak_ref_get (&column->view);
+    if (!column)
+        return NULL;
+    GncTreeViewAccount *view = g_weak_ref_get (&column->view);
+    if (!view || !GNC_IS_TREE_VIEW_ACCOUNT (view) || view->disposing)
+    {
+        g_clear_object (&view);
+        return NULL;
+    }
+    return view;
 }
 
 static void
@@ -234,8 +252,10 @@ static void
 row_expanded_changed (GtkTreeListRow *row, GParamSpec *pspec,
                       GncTreeViewAccount *view)
 {
+    if (!view || view->disposing || view->synchronizing || view->rebuilding)
+        return;
     Account *account = account_from_row (row);
-    if (account && !view->disposing && !view->synchronizing && !view->rebuilding)
+    if (account)
         mark_expanded (view, account, gtk_tree_list_row_get_expanded (row));
     (void)pspec;
 }
@@ -334,10 +354,16 @@ cell_setup (GtkSignalListItemFactory *factory, GtkListItem *list_item,
 static GtkEditableLabel *
 cell_label (GtkListItem *list_item, AccountColumn *column)
 {
-    GtkWidget *widget = gtk_list_item_get_child (list_item);
+    GtkWidget *widget = list_item ? gtk_list_item_get_child (list_item) : NULL;
+    if (!widget)
+        return NULL;
     if (column->is_tree)
+    {
+        if (!GTK_IS_TREE_EXPANDER (widget))
+            return NULL;
         widget = gtk_tree_expander_get_child (GTK_TREE_EXPANDER (widget));
-    return GTK_EDITABLE_LABEL (widget);
+    }
+    return GTK_IS_EDITABLE_LABEL (widget) ? GTK_EDITABLE_LABEL (widget) : NULL;
 }
 
 static void
@@ -345,17 +371,22 @@ cell_bind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
            AccountColumn *column)
 {
     GncTreeViewAccount *view = account_column_get_view (column);
-    GtkTreeListRow *row = GTK_TREE_LIST_ROW (gtk_list_item_get_item (list_item));
+    GtkTreeListRow *row = list_item ? GTK_TREE_LIST_ROW (gtk_list_item_get_item (list_item)) : NULL;
     Account *account = account_from_row (row);
-    GtkWidget *widget = gtk_list_item_get_child (list_item);
+    GtkWidget *widget = list_item ? gtk_list_item_get_child (list_item) : NULL;
 
-    if (!view || view->disposing)
+    if (!view || view->disposing || !row || !widget)
     {
         g_clear_object (&view);
         return;
     }
     if (column->is_toggle)
     {
+        if (!GTK_IS_CHECK_BUTTON (widget))
+        {
+            g_object_unref (view);
+            return;
+        }
         GtkCheckButton *button = GTK_CHECK_BUTTON (widget);
         view->synchronizing = TRUE;
         gtk_check_button_set_active (button,
@@ -366,6 +397,11 @@ cell_bind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
     else
     {
         GtkEditableLabel *label = cell_label (list_item, column);
+        if (!label)
+        {
+            g_object_unref (view);
+            return;
+        }
         gboolean negative = FALSE;
         gchar *text = account ? gnc_tree_model_account_get_string (
             view->account_model, account, column->column, &negative) : g_strdup ("");
@@ -385,7 +421,7 @@ cell_bind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
             gtk_widget_set_tooltip_text (GTK_WIDGET (label), NULL);
         g_free (text);
         g_object_set_data (G_OBJECT (label), "gnc-account", account);
-        if (column->is_tree)
+        if (column->is_tree && GTK_IS_TREE_EXPANDER (widget))
             gtk_tree_expander_set_list_row (GTK_TREE_EXPANDER (widget), row);
     }
     if (!g_object_get_data (G_OBJECT (row), "gnc-account-expansion-listener"))
@@ -403,11 +439,20 @@ static void
 cell_unbind (GtkSignalListItemFactory *factory, GtkListItem *list_item,
              AccountColumn *column)
 {
-    GtkWidget *widget = gtk_list_item_get_child (list_item);
+    GtkWidget *widget = list_item ? gtk_list_item_get_child (list_item) : NULL;
+    if (!widget || !G_IS_OBJECT (widget))
+        return;
     if (column->is_toggle)
-        g_object_set_data (G_OBJECT (widget), "gnc-account", NULL);
+    {
+        if (GTK_IS_CHECK_BUTTON (widget))
+            g_object_set_data (G_OBJECT (widget), "gnc-account", NULL);
+    }
     else
-        g_object_set_data (G_OBJECT (cell_label (list_item, column)), "gnc-account", NULL);
+    {
+        GtkEditableLabel *label = cell_label (list_item, column);
+        if (label && G_IS_OBJECT (label))
+            g_object_set_data (G_OBJECT (label), "gnc-account", NULL);
+    }
     (void)factory;
 }
 static gint
@@ -415,8 +460,6 @@ account_column_sort_cb (gconstpointer first, gconstpointer second, gpointer user
 {
     AccountColumn *column = user_data;
     GncTreeViewAccount *view = account_column_get_view (column);
-    Account *left = account_from_row ((gpointer) first);
-    Account *right = account_from_row ((gpointer) second);
     gchar *left_text;
     gchar *right_text;
     gint result;
@@ -425,10 +468,13 @@ account_column_sort_cb (gconstpointer first, gconstpointer second, gpointer user
         g_clear_object (&view);
         return GTK_ORDERING_EQUAL;
     }
+    Account *left = account_from_row ((gpointer) first);
+    Account *right = account_from_row ((gpointer) second);
     if (!left || !right)
     {
+        gint res = left ? 1 : (right ? -1 : 0);
         g_object_unref (view);
-        return left ? 1 : (right ? -1 : 0);
+        return res;
     }
     left_text = gnc_tree_model_account_get_string (view->account_model, left,
                                                     column->column, NULL);
@@ -449,7 +495,7 @@ column_sort_changed (GtkSorter *sorter, GtkSorterChange change,
     GtkSortType order;
 
     g_object_ref (view);
-    if (view->disposing)
+    if (!view || !GNC_IS_TREE_VIEW_ACCOUNT (view) || view->disposing || view->unrooting || view->synchronizing)
         goto cleanup;
     column = gtk_column_view_sorter_get_primary_sort_column
         (GTK_COLUMN_VIEW_SORTER (sorter));
@@ -460,8 +506,10 @@ column_sort_changed (GtkSorter *sorter, GtkSorterChange change,
         goto cleanup;
     order = gtk_column_view_sorter_get_primary_sort_order
         (GTK_COLUMN_VIEW_SORTER (sorter));
+    view->synchronizing = TRUE;
     gnc_tree_model_account_set_sort_column (view->account_model,
                                             data->column, order);
+    view->synchronizing = FALSE;
 cleanup:
     g_object_unref (view);
     (void)change;
@@ -503,8 +551,6 @@ add_column (GncTreeViewAccount *view, const gchar *title, const gchar *name,
                             (GDestroyNotify)account_column_unref);
     gtk_column_view_append_column (view->column_view, column);
     g_object_unref (sorter);
-    /* append_column keeps its own reference; release the creator reference. */
-    g_object_unref (column);
     account_column_unref (data);
     return column;
 }
@@ -512,10 +558,18 @@ add_column (GncTreeViewAccount *view, const gchar *title, const gchar *name,
 static void
 add_default_columns (GncTreeViewAccount *view)
 {
-    GtkColumnViewColumn *default_column;
+    GtkColumnViewColumn *default_column = NULL;
 
-#define COLUMN(t, n, c, tree, toggle, shown) add_column (view, t, n, c, tree, toggle, shown)
-    default_column = COLUMN (_("Account Name"), "name", GNC_TREE_MODEL_ACCOUNT_COL_NAME, TRUE, FALSE, TRUE);
+#define COLUMN(t, n, c, tree, toggle, shown) \
+    do { \
+        GtkColumnViewColumn *_c = add_column (view, t, n, c, tree, toggle, shown); \
+        if (_c) { \
+            if (!default_column) default_column = _c; \
+            else g_object_unref (_c); \
+        } \
+    } while (0)
+
+    COLUMN (_("Account Name"), "name", GNC_TREE_MODEL_ACCOUNT_COL_NAME, TRUE, FALSE, TRUE);
     COLUMN (_("Type"), "type", GNC_TREE_MODEL_ACCOUNT_COL_TYPE, FALSE, FALSE, FALSE);
     COLUMN (_("Commodity"), "commodity", GNC_TREE_MODEL_ACCOUNT_COL_COMMODITY, FALSE, FALSE, FALSE);
     COLUMN (_("Account Code"), "account-code", GNC_TREE_MODEL_ACCOUNT_COL_CODE, FALSE, FALSE, FALSE);
@@ -545,12 +599,16 @@ add_default_columns (GncTreeViewAccount *view)
     COLUMN (C_("Column header for 'Placeholder'", "P"), "placeholder", GNC_TREE_MODEL_ACCOUNT_COL_PLACEHOLDER, FALSE, TRUE, FALSE);
     COLUMN (C_("Column header for 'Opening Balance'", "O"), "opening-balance", GNC_TREE_MODEL_ACCOUNT_COL_OPENING_BALANCE, FALSE, TRUE, FALSE);
 #undef COLUMN
-    gtk_column_view_sort_by_column (view->column_view, default_column,
-                                    GTK_SORT_ASCENDING);
-    view->view_sorter = g_object_ref (gtk_column_view_get_sorter
-                                     (view->column_view));
-    view->view_sorter_changed_id = g_signal_connect
-        (view->view_sorter, "changed", G_CALLBACK (column_sort_changed), view);
+    if (default_column)
+    {
+        gtk_column_view_sort_by_column (view->column_view, default_column, GTK_SORT_ASCENDING);
+        g_object_unref (default_column);
+    }
+    GtkSorter *sorter = gtk_column_view_get_sorter (view->column_view);
+    view->view_sorter = sorter;
+    if (view->view_sorter)
+        view->view_sorter_changed_id = g_signal_connect
+            (view->view_sorter, "changed", G_CALLBACK (column_sort_changed), view);
 }
 
 static gboolean
@@ -687,6 +745,7 @@ view_dispose (GObject *object)
         g_signal_handler_disconnect (view->view_sorter,
                                      view->view_sorter_changed_id);
         view->view_sorter_changed_id = 0;
+        view->view_sorter = NULL;
     }
     restore_source = view->restore_source;
     view->restore_source = 0;
@@ -707,18 +766,22 @@ view_dispose (GObject *object)
         g_signal_handlers_disconnect_by_func (view->column_view, account_activated, view);
         gnc_column_view_unbind_grid_line_preferences (view->column_view);
         gtk_column_view_set_model (view->column_view, NULL);
-        view->column_view = NULL;
     }
     selection_filter_destroy = g_steal_pointer (&view->selection_filter_destroy);
     selection_filter_data = g_steal_pointer (&view->selection_filter_data);
     view->selection_filter = NULL;
     if (selection_filter_destroy)
         selection_filter_destroy (selection_filter_data);
+
+    /* Dispose child widgets (including view->column_view) while selection/models are alive */
+    G_OBJECT_CLASS (gnc_tree_view_account_parent_class)->dispose (object);
+
+    view->column_view = NULL;
+    view->view_sorter = NULL;
+    g_clear_pointer (&view->column_sorters, g_ptr_array_unref);
     g_clear_object (&view->selection);
     g_clear_object (&view->rows);
     g_clear_object (&view->account_model);
-    g_clear_object (&view->view_sorter);
-    G_OBJECT_CLASS (gnc_tree_view_account_parent_class)->dispose (object);
 }
 
 static void
@@ -726,18 +789,38 @@ view_finalize (GObject *object)
 {
     GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT (object);
 
+    g_clear_object (&view->selection);
+    g_clear_object (&view->rows);
+    g_clear_object (&view->account_model);
+    view->view_sorter = NULL;
+    g_clear_pointer (&view->column_sorters, g_ptr_array_unref);
     g_clear_pointer (&view->selected, g_hash_table_destroy);
     g_clear_pointer (&view->expanded, g_hash_table_destroy);
     g_clear_pointer (&view->state_section, g_free);
+
     G_OBJECT_CLASS (gnc_tree_view_account_parent_class)->finalize (object);
+}
+
+static void
+view_unroot (GtkWidget *widget)
+{
+    GncTreeViewAccount *view = GNC_TREE_VIEW_ACCOUNT (widget);
+
+    view->unrooting = TRUE;
+    GTK_WIDGET_CLASS (gnc_tree_view_account_parent_class)->unroot (widget);
+    view->unrooting = FALSE;
 }
 
 static void
 gnc_tree_view_account_class_init (GncTreeViewAccountClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
+    GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
+
     object_class->dispose = view_dispose;
     object_class->finalize = view_finalize;
+    widget_class->unroot = view_unroot;
+
     signals[ACCOUNT_ACTIVATED] = g_signal_new ("account-activated",
         G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
         G_TYPE_NONE, 1, GNC_TYPE_ACCOUNT);
@@ -747,6 +830,7 @@ static void
 gnc_tree_view_account_init (GncTreeViewAccount *view)
 {
     gtk_orientable_set_orientation (GTK_ORIENTABLE (view), GTK_ORIENTATION_VERTICAL);
+    view->column_sorters = g_ptr_array_new_with_free_func (g_object_unref);
     view->selected = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     view->expanded = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     view->selection_mode = GTK_SELECTION_SINGLE;
@@ -760,11 +844,11 @@ selection_model_new (GListModel *model, GtkSelectionMode mode)
     switch (mode)
     {
     case GTK_SELECTION_NONE:
-        return GTK_SELECTION_MODEL (gtk_no_selection_new (g_object_ref (model)));
+        return GTK_SELECTION_MODEL (gtk_no_selection_new (model));
     case GTK_SELECTION_MULTIPLE:
-        return GTK_SELECTION_MODEL (gtk_multi_selection_new (g_object_ref (model)));
+        return GTK_SELECTION_MODEL (gtk_multi_selection_new (model));
     case GTK_SELECTION_BROWSE:
-        return GTK_SELECTION_MODEL (gtk_single_selection_new (g_object_ref (model)));
+        return GTK_SELECTION_MODEL (gtk_single_selection_new (model));
     case GTK_SELECTION_SINGLE:
     default:
     {
@@ -814,14 +898,13 @@ new_with_model (Account *root, gboolean show_root)
     view->children_context = g_new0 (AccountChildrenContext, 1);
     g_weak_ref_init (&view->children_context->view, view);
     view->rows = gtk_tree_list_model_new (
-        g_object_ref (gnc_tree_model_account_get_roots (view->account_model)),
+        G_LIST_MODEL (g_object_ref (gnc_tree_model_account_get_roots (view->account_model))),
         FALSE, FALSE,
         create_children_cb, view->children_context,
         (GDestroyNotify) account_children_context_free);
-    view->selection = selection_model_new (G_LIST_MODEL (view->rows),
+    view->selection = selection_model_new (G_LIST_MODEL (g_object_ref (view->rows)),
                                            view->selection_mode);
-    view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (
-        g_object_ref (view->selection)));
+    view->column_view = GTK_COLUMN_VIEW (gtk_column_view_new (g_object_ref (view->selection)));
     gnc_column_view_bind_grid_line_preferences (view->column_view);
     gtk_column_view_set_reorderable (view->column_view, TRUE);
     gtk_widget_set_hexpand (GTK_WIDGET (view->column_view), TRUE);
@@ -879,7 +962,7 @@ gnc_tree_view_account_set_selection_mode (GncTreeViewAccount *view,
     old_selection = g_steal_pointer (&view->selection);
     if (old_selection)
         g_signal_handlers_disconnect_by_func (old_selection, selection_changed, view);
-    selection = selection_model_new (G_LIST_MODEL (view->rows), mode);
+    selection = selection_model_new (G_LIST_MODEL (g_object_ref (view->rows)), mode);
     g_signal_connect_object (selection, "selection-changed",
                              G_CALLBACK (selection_changed), view, 0);
     view->selection = selection;
@@ -1040,6 +1123,17 @@ gnc_tree_view_account_clear_model_cache (GncTreeViewAccount *view)
     gnc_tree_model_account_clear_cache (view->account_model);
 }
 
+void
+gnc_tree_view_account_rebind_columns (GncTreeViewAccount *view)
+{
+    if (!GNC_IS_TREE_VIEW_ACCOUNT (view) || view->disposing || !view->rows || !G_IS_LIST_MODEL (view->rows))
+        return;
+
+    guint n = g_list_model_get_n_items (G_LIST_MODEL (view->rows));
+    if (n > 0)
+        g_list_model_items_changed (G_LIST_MODEL (view->rows), 0, n, n);
+}
+
 Account *
 gnc_tree_view_account_get_account_at (GncTreeViewAccount *view, guint position)
 {
@@ -1051,6 +1145,8 @@ Account *
 gnc_tree_view_account_get_cursor_account (GncTreeViewAccount *view)
 {
     g_return_val_if_fail (GNC_IS_TREE_VIEW_ACCOUNT (view), NULL);
+    if (view->disposing || !view->rows || !view->selection)
+        return NULL;
     for (guint position = 0;
          position < g_list_model_get_n_items (G_LIST_MODEL (view->rows)); position++)
         if (gtk_selection_model_is_selected (view->selection, position))
@@ -1067,6 +1163,8 @@ gnc_tree_view_account_get_selected_accounts (GncTreeViewAccount *view)
 {
     GList *accounts = NULL;
     g_return_val_if_fail (GNC_IS_TREE_VIEW_ACCOUNT (view), NULL);
+    if (view->disposing || !view->rows || !view->selection)
+        return NULL;
     for (guint position = 0;
          position < g_list_model_get_n_items (G_LIST_MODEL (view->rows)); position++)
     {
@@ -1098,10 +1196,13 @@ void
 gnc_tree_view_account_toggle_expand (GncTreeViewAccount *view, Account *account)
 {
     g_return_if_fail (GNC_IS_TREE_VIEW_ACCOUNT (view));
+    if (view->disposing || !view->rows)
+        return;
     for (guint position = 0; position < g_list_model_get_n_items (G_LIST_MODEL (view->rows)); position++)
     {
         GtkTreeListRow *row = gtk_tree_list_model_get_row (view->rows, position);
-        if (account_from_row (row) == account && gtk_tree_list_row_is_expandable (row))
+        Account *row_account = account_from_row (row);
+        if (row_account == account && gtk_tree_list_row_is_expandable (row))
         {
             gtk_tree_list_row_set_expanded (row, !gtk_tree_list_row_get_expanded (row));
             g_clear_object (&row);

@@ -485,6 +485,23 @@ matcher_disconnect_live_view (GNCImportMainMatcher *info)
 }
 
 static void
+matcher_clear_popover_focus (GtkPopover *popover)
+{
+    if (!popover)
+        return;
+    auto root = gtk_widget_get_root (GTK_WIDGET (popover));
+    if (root)
+    {
+        auto focus = gtk_root_get_focus (root);
+        if (focus && (focus == GTK_WIDGET (popover) ||
+                      gtk_widget_is_ancestor (focus, GTK_WIDGET (popover))))
+        {
+            gtk_root_set_focus (root, NULL);
+        }
+    }
+}
+
+static void
 matcher_context_popover_closed (GtkPopover *popover, MatcherLifetime *lifetime)
 {
     auto info = matcher_lifetime_get (lifetime);
@@ -494,7 +511,15 @@ matcher_context_popover_closed (GtkPopover *popover, MatcherLifetime *lifetime)
         g_object_remove_weak_pointer (G_OBJECT (popover),
                                       reinterpret_cast<gpointer *> (&info->context_popover));
     }
-    gtk_widget_unparent (GTK_WIDGET (popover));
+    g_signal_handlers_disconnect_by_data (popover, lifetime);
+    g_idle_add_full (G_PRIORITY_HIGH, +[](gpointer data) -> gboolean {
+        auto pop = GTK_POPOVER (data);
+        matcher_clear_popover_focus (pop);
+        gtk_popover_set_child (pop, NULL);
+        if (gtk_widget_get_parent (GTK_WIDGET (pop)))
+            gtk_widget_unparent (GTK_WIDGET (pop));
+        return G_SOURCE_REMOVE;
+    }, g_object_ref (popover), g_object_unref);
 }
 
 static void
@@ -508,7 +533,9 @@ matcher_release_context_popover (GNCImportMainMatcher *info)
     g_object_remove_weak_pointer (G_OBJECT (popover),
                                   reinterpret_cast<gpointer *> (&info->context_popover));
     g_signal_handlers_disconnect_by_data (popover, info->lifetime);
+    matcher_clear_popover_focus (popover);
     gtk_popover_popdown (popover);
+    gtk_popover_set_child (popover, NULL);
     gtk_widget_unparent (GTK_WIDGET (popover));
 }
 
