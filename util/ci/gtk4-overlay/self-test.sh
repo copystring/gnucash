@@ -51,4 +51,11 @@ grep -Fq 'key="$(bash "$GITHUB_ACTION_PATH/../../gtk4-overlay/prepare.sh" finger
 grep -Fq '#include <gtk/gtk.h>' "$helper"
 ! grep -Fq '#include <gtk/gtkversion.h>' "$helper"
 grep -Fxq 'set -e' "$arch_entrypoint"
+bash -c 'source "$1"; platform=arch-20260913.0.592969; gtk_version=4.22.5; select_source_contract; [[ "$platform" == arch-20260913.0.592969 && "$gtk_commit" == bd25f1e2dc2c2fbf3b8864e61afe642910ba359c ]]' \
+    _ "$helper"
+if bash -c 'source "$1"; platform=fedora-42; gtk_version=4.22.5; select_source_contract' \
+    _ "$helper" 2>/dev/null; then
+    echo 'unsupported platform/version was accepted' >&2
+    exit 1
+fi
 echo 'GTK overlay self-test passed'

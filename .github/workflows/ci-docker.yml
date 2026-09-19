@@ -30,11 +30,17 @@ jobs:
       shell: bash
       run: |
         echo "NoExtract = !*locale*/fr*/* !usr/share/i18n/locales/fr_FR*" >> /etc/pacman.conf
+        # Keep the ABI-inventory packages explicit even when GTK pulls them in.
         pacman -Syu --noconfirm \
-          glibc glib2-devel gcc binutils cmake make boost boost-libs python3 pkg-config gettext \
-          gtk4 guile git meson ninja sassc gtest gmock sqlite3 webkitgtk-6.0 swig \
+          glibc glib2 glib2-devel cairo pango harfbuzz gdk-pixbuf2 graphene \
+          libdrm libepoxy fontconfig fribidi libjpeg-turbo libpng libtiff wayland \
+          libxkbcommon libx11 libxcursor libxdamage libxext libxfixes libxi \
+          libxinerama libxrandr libxrender gtk4 webkitgtk-6.0 \
+          gcc binutils cmake make meson ninja pkgconf python3 git sassc \
+          wayland-protocols hicolor-icon-theme boost boost-libs gettext guile \
+          gtest gmock sqlite3 swig \
           gwenhywfar aqbanking intltool libxslt libofx postgresql-libs \
-          libmariadbclient libdbi libdbi-drivers wayland-protocols \
+          libmariadbclient libdbi libdbi-drivers \
           xorg-server-xvfb dbus tar zstd
         dbus-uuidgen --ensure=/etc/machine-id
         echo en_US.UTF-8 UTF-8 > /etc/locale.gen

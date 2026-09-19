@@ -24,25 +24,15 @@ sha256()
     sha256sum "$1" | awk '{print tolower($1)}'
 }
 
-select_contract()
+select_source_contract()
 {
-    local arch_gtk_package
-    . /etc/os-release
-    platform="$ID-${VERSION_ID:-rolling}"
-    architecture="$(uname -m)"
-    gtk_version="$(pkg-config --modversion gtk4)"
     case "$platform:$gtk_version" in
         ubuntu-26.04:4.22.4)
             gtk_commit='7f99ab1a26408b6499a18f353f081e3c0598ea5c'
             column_source_sha='36a89d49ee871ce33389135b867f15f6ee19e633a479dbb29f6f6829fc13cc13'
             window_source_sha='59c0c837334e3e0039c2799fb5df04827b9f78bd4518c65d25ae66afd28d41be'
             ;;
-        arch-rolling:4.22.5)
-            arch_gtk_package="$(pacman -Q gtk4)"
-            if [[ "$arch_gtk_package" != 'gtk4 1:4.22.5-1' ]]; then
-                printf 'Unsupported Arch GTK package: %s\n' "$arch_gtk_package" >&2
-                exit 1
-            fi
+        arch-*:4.22.5)
             gtk_commit='bd25f1e2dc2c2fbf3b8864e61afe642910ba359c'
             column_source_sha='783997a91b33de84f59df8166c7b93e145b5016cf4fb2951673e5b49a4386790'
             window_source_sha='c0a8631f08321df8e91fa614454948c22def253cd175ebdf8b1dc7950900a278'
@@ -50,9 +40,26 @@ select_contract()
         *)
             printf 'Unsupported GTK overlay platform/version: %s (%s)\n' \
                 "$platform" "$gtk_version" >&2
-            exit 1
+            return 1
             ;;
     esac
+}
+
+select_contract()
+{
+    local arch_gtk_package
+    . /etc/os-release
+    platform="$ID-${VERSION_ID:-rolling}"
+    architecture="$(uname -m)"
+    gtk_version="$(pkg-config --modversion gtk4)"
+    select_source_contract || return
+    if [[ "$ID" == arch ]]; then
+        arch_gtk_package="$(pacman -Q gtk4)"
+        if [[ "$arch_gtk_package" != 'gtk4 1:4.22.5-1' ]]; then
+            printf 'Unsupported Arch GTK package: %s\n' "$arch_gtk_package" >&2
+            exit 1
+        fi
+    fi
     [[ "$architecture" == x86_64 || "$architecture" == aarch64 ]]
     [[ "$(sha256 "$column_patch")" == "$column_patch_sha" ]]
     [[ "$(sha256 "$window_patch")" == "$window_patch_sha" ]]
@@ -227,10 +234,12 @@ PY
     } >>"${GITHUB_ENV:?}"
 )
 
-case "${1:-}" in
-    install-dependencies) install_dependencies ;;
-    fingerprint) fingerprint ;;
-    prepare) activate_overlay ;;
-    verify-record) verify_record "${2:?}" "${3:?}" ;;
-    *) echo "usage: $0 install-dependencies|fingerprint|prepare|verify-record ENTRY CONTRACT" >&2; exit 2 ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    case "${1:-}" in
+        install-dependencies) install_dependencies ;;
+        fingerprint) fingerprint ;;
+        prepare) activate_overlay ;;
+        verify-record) verify_record "${2:?}" "${3:?}" ;;
+        *) echo "usage: $0 install-dependencies|fingerprint|prepare|verify-record ENTRY CONTRACT" >&2; exit 2 ;;
+    esac
+fi
