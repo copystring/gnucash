@@ -24,18 +24,37 @@ sha256()
     sha256sum "$1" | awk '{print tolower($1)}'
 }
 
+require_equal()
+{
+    local label="$1" expected="$2" actual="$3"
+    if [[ "$actual" != "$expected" ]]; then
+        printf '%s mismatch\n  expected: %s\n  actual:   %s\n' \
+            "$label" "$expected" "$actual" >&2
+        return 1
+    fi
+}
+
+require_sha256()
+{
+    local label="$1" path="$2" expected="$3" actual
+    actual="$(sha256 "$path")"
+    require_equal "$label SHA256" "$expected" "$actual"
+}
+
 select_source_contract()
 {
     case "$platform:$gtk_version" in
         ubuntu-26.04:4.22.4)
             gtk_commit='7f99ab1a26408b6499a18f353f081e3c0598ea5c'
+            gtk_tag_object='442df0886e47cd15ecbdd267e706d08ea517eada'
             column_source_sha='36a89d49ee871ce33389135b867f15f6ee19e633a479dbb29f6f6829fc13cc13'
             window_source_sha='59c0c837334e3e0039c2799fb5df04827b9f78bd4518c65d25ae66afd28d41be'
             ;;
         arch-*:4.22.5)
             gtk_commit='bd25f1e2dc2c2fbf3b8864e61afe642910ba359c'
-            column_source_sha='783997a91b33de84f59df8166c7b93e145b5016cf4fb2951673e5b49a4386790'
-            window_source_sha='c0a8631f08321df8e91fa614454948c22def253cd175ebdf8b1dc7950900a278'
+            gtk_tag_object='f93ed25dc632f2161fed4aac66602ec2d293317a'
+            column_source_sha='36a89d49ee871ce33389135b867f15f6ee19e633a479dbb29f6f6829fc13cc13'
+            window_source_sha='41f3a813238ca06e79534ad115f8a7c18df8a35b80f62f621df514d9b222d1bc'
             ;;
         *)
             printf 'Unsupported GTK overlay platform/version: %s (%s)\n' \
@@ -61,8 +80,21 @@ select_contract()
         fi
     fi
     [[ "$architecture" == x86_64 || "$architecture" == aarch64 ]]
-    [[ "$(sha256 "$column_patch")" == "$column_patch_sha" ]]
-    [[ "$(sha256 "$window_patch")" == "$window_patch_sha" ]]
+    require_sha256 'ColumnView patch' "$column_patch" "$column_patch_sha"
+    require_sha256 'GtkWindow patch' "$window_patch" "$window_patch_sha"
+}
+
+verify_source_pin()
+{
+    local source="$1" head tag_object tag_type tag_commit
+    head="$(git -C "$source" rev-parse 'HEAD^{commit}')"
+    tag_object="$(git -C "$source" rev-parse "refs/tags/$gtk_version")"
+    tag_type="$(git -C "$source" cat-file -t "refs/tags/$gtk_version")"
+    tag_commit="$(git -C "$source" rev-parse "refs/tags/$gtk_version^{commit}")"
+    require_equal 'GTK checkout commit' "$gtk_commit" "$head"
+    require_equal 'GTK annotated tag object' "$gtk_tag_object" "$tag_object"
+    require_equal 'GTK tag object type' tag "$tag_type"
+    require_equal 'GTK tag peeled commit' "$gtk_commit" "$tag_commit"
 }
 
 abi_inventory()
@@ -107,10 +139,11 @@ contract_text()
     local options_sha inventory_sha
     options_sha="$(printf '%s\n' "${meson_options[@]}" | sha256sum | awk '{print $1}')" || return
     inventory_sha="$(abi_inventory | sha256sum | awk '{print $1}')" || return
-    printf 'platform=%s\narchitecture=%s\ngtk_version=%s\nsource_commit=%s\n' \
-        "$platform" "$architecture" "$gtk_version" "$gtk_commit"
-    printf 'column_patch_sha=%s\nwindow_patch_sha=%s\nmeson_options_sha=%s\nabi_inventory_sha=%s\n' \
-        "$column_patch_sha" "$window_patch_sha" "$options_sha" "$inventory_sha"
+    printf 'platform=%s\narchitecture=%s\ngtk_version=%s\nsource_commit=%s\nsource_tag_object=%s\n' \
+        "$platform" "$architecture" "$gtk_version" "$gtk_commit" "$gtk_tag_object"
+    printf 'column_source_sha=%s\nwindow_source_sha=%s\ncolumn_patch_sha=%s\nwindow_patch_sha=%s\n' \
+        "$column_source_sha" "$window_source_sha" "$column_patch_sha" "$window_patch_sha"
+    printf 'meson_options_sha=%s\nabi_inventory_sha=%s\n' "$options_sha" "$inventory_sha"
 }
 
 fingerprint()
@@ -166,12 +199,15 @@ build_overlay() (
     source="$temp_root/source"
     build="$temp_root/build"
     staged="$temp_root/staged"
-    git clone --depth 1 --branch "$gtk_version" https://gitlab.gnome.org/GNOME/gtk.git "$source"
-    [[ "$(git -C "$source" rev-parse HEAD)" == "$gtk_commit" ]]
-    [[ "$(sha256 "$source/gtk/gtkcolumnview.c")" == "$column_source_sha" ]]
-    [[ "$(sha256 "$source/gtk/gtkwindow.c")" == "$window_source_sha" ]]
-    [[ "$(sha256 "$column_patch")" == "$column_patch_sha" ]]
-    [[ "$(sha256 "$window_patch")" == "$window_patch_sha" ]]
+    git -c core.autocrlf=false clone --depth 1 --branch "$gtk_version" \
+        https://gitlab.gnome.org/GNOME/gtk.git "$source"
+    verify_source_pin "$source"
+    require_sha256 'gtkcolumnview.c preimage' \
+        "$source/gtk/gtkcolumnview.c" "$column_source_sha"
+    require_sha256 'gtkwindow.c preimage' \
+        "$source/gtk/gtkwindow.c" "$window_source_sha"
+    require_sha256 'ColumnView patch' "$column_patch" "$column_patch_sha"
+    require_sha256 'GtkWindow patch' "$window_patch" "$window_patch_sha"
     git -C "$source" apply --check "$column_patch"
     git -C "$source" apply "$column_patch"
     git -C "$source" apply --check "$window_patch"
