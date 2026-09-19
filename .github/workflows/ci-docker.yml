@@ -3,6 +3,7 @@ on: [push, pull_request]
 permissions: {}
 jobs:
   ci_tests_archlinux:
+    if: github.repository != 'copystring/gnucash'
     runs-on: ubuntu-latest
     name: Arch Linux (via Docker) CI
     steps:
@@ -10,6 +11,45 @@ jobs:
       uses: actions/checkout@v6
     - name: Test Action
       uses: ./util/ci/actions/archlinux-test
+    - uses: actions/upload-artifact@v7
+      if: failure()
+      with:
+        name: TestLog
+        path: ${{ github.workspace }}/LastTest.log
+        if-no-files-found: ignore
+
+  ci_tests_archlinux_patched:
+    if: github.repository == 'copystring/gnucash'
+    runs-on: ubuntu-latest
+    name: Arch Linux CI (pinned patched GTK4)
+    timeout-minutes: 120
+    container:
+      image: archlinux:latest
+    steps:
+    - name: Install Arch Linux test dependencies
+      shell: bash
+      run: |
+        echo "NoExtract = !*locale*/fr*/* !usr/share/i18n/locales/fr_FR*" >> /etc/pacman.conf
+        pacman -Syu --noconfirm \
+          glibc glib2-devel gcc binutils cmake make boost boost-libs python3 pkg-config gettext \
+          gtk4 guile git meson ninja sassc gtest gmock sqlite3 webkitgtk-6.0 swig \
+          gwenhywfar aqbanking intltool libxslt libofx postgresql-libs \
+          libmariadbclient libdbi libdbi-drivers wayland-protocols \
+          xorg-server-xvfb dbus tar zstd
+        dbus-uuidgen --ensure=/etc/machine-id
+        echo en_US.UTF-8 UTF-8 > /etc/locale.gen
+        echo en_GB.UTF-8 UTF-8 >> /etc/locale.gen
+        echo fr_FR.UTF-8 UTF-8 >> /etc/locale.gen
+        locale-gen
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Prepare pinned patched GTK4 runtime
+      uses: ./util/ci/actions/patched-gtk4
+      with:
+        build-jobs: '3'
+    - name: Run GnuCash tests
+      shell: bash
+      run: bash "$GITHUB_WORKSPACE/util/ci/actions/archlinux-test/entrypoint.sh"
     - uses: actions/upload-artifact@v7
       if: failure()
       with:

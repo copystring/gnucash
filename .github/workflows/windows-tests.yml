@@ -62,6 +62,7 @@ jobs:
             mkdir build && cd build
             cmake -G Ninja -DWITH_AQBANKING=ON ..
         - name: Build and Test GnuCash
+          id: build_test
           env:
             GUILE_LOAD_PATH: "${{ env.MSYSTEM_PREFIX }}/share/guile/3.0/"
             GUILE_LOAD_COMPILED_PATH: "${{ env.MSYSTEM_PREFIX }}/lib/guile/3.0/ccache"
@@ -72,7 +73,7 @@ jobs:
             ninja check
 
         - name: Capture matcher IME backtrace after test failure
-          if: ${{ github.repository == 'copystring/gnucash' && failure() }}
+          if: ${{ github.repository == 'copystring/gnucash' && failure() && steps.build_test.outcome == 'failure' }}
           timeout-minutes: 4
           shell: msys2 {0}
           env:
