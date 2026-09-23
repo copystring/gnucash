@@ -17,11 +17,6 @@ jobs:
         run: sudo apt-get install -y gettext cmake libxslt-dev xsltproc ninja-build libboost-all-dev libgtk-4-dev guile-2.2-dev libofx-dev libdbi-dev libdbd-sqlite3 libwebkitgtk-6.0-dev googletest lcov python3-dev swig xvfb
       - name: Install language packs.
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
-      - name: Prepare pinned patched GTK4 runtime
-        if: github.repository == 'copystring/gnucash'
-        uses: ./util/ci/actions/patched-gtk4
-        with:
-          build-jobs: '3'
       - run: |
           echo "ROOT_DIR=$GITHUB_WORKSPACE/.." >> $GITHUB_ENV
       - name: Create Directories

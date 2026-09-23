@@ -33,12 +33,6 @@ jobs:
             guile-3.0-dev python3-dev swig xvfb
           sudo apt-get --reinstall install -y language-pack-en language-pack-fr
 
-      - name: Prepare pinned patched GTK4 runtime
-        if: github.repository == 'copystring/gnucash'
-        uses: ./util/ci/actions/patched-gtk4
-        with:
-          build-jobs: '3'
-
       - name: Configure dependency prefix
         run: |
           mkdir -p "$AQ_PREFIX" "$ROOT_DIR/inst"
