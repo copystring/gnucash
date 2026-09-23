@@ -82,6 +82,24 @@ def main():
             raise AssertionError(f"Could not disable the first-run dialog: "
                                  f"{setting.stderr}")
 
+        def check_local_option(option, expected_output, *, option_env=env):
+            result = run([str(args.gnucash), option], env=option_env,
+                         cwd=invoker)
+            if (result.returncode != 0 or
+                    expected_output not in result.stdout or result.stderr):
+                raise AssertionError(
+                    f"{option} must complete in its own process: "
+                    f"status={result.returncode}, stdout={result.stdout!r}, "
+                    f"stderr={result.stderr!r}")
+
+        no_display_env = env.copy()
+        no_display_env.pop("DISPLAY", None)
+        no_display_env.pop("WAYLAND_DISPLAY", None)
+        for option, output in (("--version", "GnuCash"),
+                               ("--help", "Application Options"),
+                               ("--paths", "GnuCash Paths")):
+            check_local_option(option, output, option_env=no_display_env)
+
         log_path = root / "primary.log"
         with log_path.open("w", encoding="utf-8") as primary_log:
             primary = subprocess.Popen([str(args.gnucash), "--nofile"],
@@ -100,12 +118,18 @@ def main():
 
             wait_until(owns_name, primary, log_path, 120)
 
+            for option, output in (("--version", "GnuCash"),
+                                   ("--help", "Application Options"),
+                                   ("--paths", "GnuCash Paths")):
+                check_local_option(option, output)
+
             bad = run([str(args.gnucash), "--unsupported-gnucash-test-option"],
                       env=env, cwd=invoker)
-            if bad.returncode != 1 or ("A separate GnuCash instance is already "
-                                       "running" not in bad.stderr):
+            if (bad.returncode != 1 or
+                    "--unsupported-gnucash-test-option" not in bad.stderr or
+                    "A separate GnuCash instance" in bad.stderr):
                 raise AssertionError(
-                    f"Forwarded error must reach caller with status 1: "
+                    f"Parser error must reach caller with status 1: "
                     f"status={bad.returncode}, stdout={bad.stdout!r}, "
                     f"stderr={bad.stderr!r}")
 

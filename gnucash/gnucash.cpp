@@ -389,12 +389,6 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
 
     if (!m_started)
     {
-        auto parse_result = parse_command_line (argc, argv);
-        if (parse_result != CommandLineResult::Run)
-        {
-            g_strfreev (argv);
-            return parse_result == CommandLineResult::ExitSuccess ? 0 : 1;
-        }
         m_argc = argc;
         m_argv = argv;
         activate ();
@@ -453,6 +447,14 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
 int
 Gnucash::Gnucash::run (int argc, char **argv)
 {
+    /* Parse in the invoking process before GApplication forwards the
+     * command line. Informational options and parser errors must be written
+     * to that process's stdout/stderr, even if another instance owns the
+     * application name. */
+    auto parse_result = parse_command_line (argc, argv);
+    if (parse_result != CommandLineResult::Run)
+        return parse_result == CommandLineResult::ExitSuccess ? 0 : 1;
+
     auto gtk_application = gtk_application_new ("org.gnucash.GnuCash",
                                                 G_APPLICATION_HANDLES_COMMAND_LINE);
 #ifdef MAC_INTEGRATION
