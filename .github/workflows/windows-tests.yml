@@ -7,6 +7,9 @@ jobs:
         name: Windows ucrt64 CI Tests
         env:
           TZ: America/Los_Angeles
+          # Ninja runs guild in parallel. Compile project modules explicitly,
+          # but don't let each guild process rebuild its own startup modules.
+          GUILE_AUTO_COMPILE: '0'
         defaults:
           run:
             shell: msys2 {0}
