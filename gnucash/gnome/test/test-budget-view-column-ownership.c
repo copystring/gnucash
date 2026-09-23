@@ -443,15 +443,19 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     for (guint period = 0; period < gnc_budget_get_num_periods (budget); period++)
         g_assert_false (gnc_budget_is_account_period_value_set (budget, account, period));
 
+    g_ptr_array_unref (close_controllers);
+    g_ptr_array_unref (rebuild_controllers);
+    g_object_unref (close_label);
+    g_object_unref (rebuild_label);
+    drain_main_context ();
+    report_budget_view_lifetime ("after releasing label references", &weak_view,
+                                 &weak_window, FALSE);
+
     assert_watched_columns_detached (rebuilt_columns);
     release_watched_columns (rebuilt_columns);
     drain_main_context ();
     report_watched_columns_lifetime (rebuilt_columns);
 
-    g_ptr_array_unref (close_controllers);
-    g_ptr_array_unref (rebuild_controllers);
-    g_object_unref (close_label);
-    g_object_unref (rebuild_label);
     g_ptr_array_unref (rebuilt_columns);
     g_ptr_array_unref (first_columns);
     drain_main_context ();
