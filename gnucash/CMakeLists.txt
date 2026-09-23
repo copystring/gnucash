@@ -196,6 +196,26 @@ set_tests_properties(test-gnucash-cli-report-bootstrap PROPERTIES
 gnc_add_test_runtime_path(test-gnucash-cli-report-bootstrap)
 add_dependencies(testbuild gnucash-cli scm-reports)
 
+if (UNIX AND NOT APPLE AND COMPILE_GSCHEMAS)
+  find_program(GAPPLICATION_TEST_PYTHON python3)
+  find_program(GAPPLICATION_TEST_GSETTINGS gsettings)
+  find_program(GAPPLICATION_TEST_GDBUS gdbus)
+  if (GAPPLICATION_TEST_PYTHON AND GAPPLICATION_TEST_GSETTINGS AND GAPPLICATION_TEST_GDBUS)
+    add_test(NAME test-gnucash-gapplication-instance
+      COMMAND ${GAPPLICATION_TEST_PYTHON}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test-gapplication-instance.py
+        --gnucash $<TARGET_FILE:gnucash>
+        --build-root ${CMAKE_BINARY_DIR}
+        --sample-book ${CMAKE_SOURCE_DIR}/libgnucash/backend/xml/test/test-files/load-save/sample1.gnucash
+        --schema-dir ${SCHEMADIR_BUILD}
+        --guile-lib-dir ${_guile_runtime_prefix}/${GUILE_REL_LIBDIR}
+        --guile-compiled-lib-dir ${_guile_runtime_prefix}/${GUILE_REL_CCACHEDIR})
+    set_tests_properties(test-gnucash-gapplication-instance PROPERTIES
+      TIMEOUT 300 RUN_SERIAL TRUE)
+    add_dependencies(testbuild gnucash compiled-schemas)
+  endif()
+endif()
+
 
 set(TOP_SRC_DIR ${CMAKE_SOURCE_DIR})
 set(GNUCASH_BIN_INSTALL_NAME "gnucash")
@@ -314,6 +334,7 @@ set_local_dist(gnucash_DIST_local CMakeLists.txt environment.in generate-gnc-scr
     gnucash.cpp gnucash-commands.cpp gnucash-cli.cpp gnucash-core-app.cpp
     gnucash-guile-bootstrap.c
     ${test_gapplication_command_line_SOURCES}
+    test-gapplication-instance.py
     test-gnucash-cli-report-bootstrap.cmake
     test-windows-native-decorations.cmake
     gnucash-locale-macos.mm gnucash-locale-windows.c gnucash.rc.in gnucash-valgrind.in

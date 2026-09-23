@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Exercise GnuCash's forwarded command line in an isolated Xvfb session."""
+
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+
+import argparse
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import time
+
+
+def run(command, *, env, cwd, timeout=90):
+    return subprocess.run(command, env=env, cwd=cwd, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          timeout=timeout, check=False)
+
+
+def wait_until(predicate, primary, log_path, seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if primary.poll() is not None:
+            raise AssertionError(
+                f"GnuCash exited with {primary.returncode}:\n"
+                f"{log_path.read_text(errors='replace')}")
+        if predicate():
+            return
+        time.sleep(0.25)
+    raise AssertionError(f"GnuCash did not reach the expected state:\n"
+                         f"{log_path.read_text(errors='replace')}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gnucash", type=Path, required=True)
+    parser.add_argument("--build-root", type=Path, required=True)
+    parser.add_argument("--sample-book", type=Path, required=True)
+    parser.add_argument("--schema-dir", type=Path, required=True)
+    parser.add_argument("--guile-lib-dir", type=Path, required=True)
+    parser.add_argument("--guile-compiled-lib-dir", type=Path, required=True)
+    args = parser.parse_args()
+
+    with tempfile.TemporaryDirectory(prefix="gnucash-gapplication-") as temp:
+        root = Path(temp)
+        home = root / "home"
+        invoker = root / "invoker"
+        for directory in (home, invoker, root / "config", root / "data",
+                          root / "cache", root / "gnc-config", root / "gnc-data"):
+            directory.mkdir()
+        book = invoker / "relative-book.gnucash"
+        shutil.copyfile(args.sample_book, book)
+
+        env = os.environ.copy()
+        for name in ("GUILE_LOAD_PATH", "GUILE_LOAD_COMPILED_PATH",
+                     "GUILE_AUTO_COMPILE", "GNC_MODULE_PATH"):
+            env.pop(name, None)
+        env.update(HOME=str(home), XDG_CONFIG_HOME=str(root / "config"),
+                   XDG_DATA_HOME=str(root / "data"),
+                   XDG_CACHE_HOME=str(root / "cache"),
+                   GNC_CONFIG_HOME=str(root / "gnc-config"),
+                   GNC_DATA_HOME=str(root / "gnc-data"),
+                   GNC_UNINSTALLED="YES", GNC_BUILDDIR=str(args.build_root),
+                   GSETTINGS_BACKEND="keyfile",
+                   GSETTINGS_SCHEMA_DIR=str(args.schema_dir),
+                   GUILE_LIBS=str(args.guile_lib_dir),
+                   GUILE_COMPILED_LIBS=str(args.guile_compiled_lib_dir),
+                   LC_ALL="C")
+
+        schema = "org.gnucash.GnuCash.dialogs.new-user"
+        setting = run(["gsettings", "set", schema, "first-startup", "false"],
+                      env=env, cwd=root)
+        if setting.returncode:
+            raise AssertionError(f"Could not disable the first-run dialog: "
+                                 f"{setting.stderr}")
+
+        log_path = root / "primary.log"
+        with log_path.open("w", encoding="utf-8") as primary_log:
+            primary = subprocess.Popen([str(args.gnucash), "--nofile"],
+                                       env=env, cwd=root, stdin=subprocess.DEVNULL,
+                                       stdout=primary_log,
+                                       stderr=subprocess.STDOUT)
+        try:
+            def owns_name():
+                result = run(["gdbus", "call", "--session", "--dest",
+                              "org.freedesktop.DBus", "--object-path",
+                              "/org/freedesktop/DBus", "--method",
+                              "org.freedesktop.DBus.NameHasOwner",
+                              "org.gnucash.GnuCash"], env=env, cwd=root,
+                             timeout=10)
+                return result.returncode == 0 and "true" in result.stdout
+
+            wait_until(owns_name, primary, log_path, 120)
+
+            bad = run([str(args.gnucash), "--unsupported-gnucash-test-option"],
+                      env=env, cwd=invoker)
+            if bad.returncode != 1 or ("A separate GnuCash instance is already "
+                                       "running" not in bad.stderr):
+                raise AssertionError(
+                    f"Forwarded error must reach caller with status 1: "
+                    f"status={bad.returncode}, stdout={bad.stdout!r}, "
+                    f"stderr={bad.stderr!r}")
+
+            opened = run([str(args.gnucash), book.name], env=env, cwd=invoker)
+            if opened.returncode != 0:
+                raise AssertionError(
+                    f"Relative book invocation failed: status={opened.returncode}, "
+                    f"stdout={opened.stdout!r}, stderr={opened.stderr!r}")
+
+            def book_in_history():
+                result = run(["gsettings", "get",
+                              "org.gnucash.GnuCash.history", "file0"],
+                             env=env, cwd=root, timeout=10)
+                return result.returncode == 0 and str(book) in result.stdout
+
+            wait_until(book_in_history, primary, log_path, 90)
+        finally:
+            primary.terminate()
+            try:
+                primary.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                primary.kill()
+                primary.wait(timeout=10)
+
+
+if __name__ == "__main__":
+    main()
