@@ -380,9 +380,15 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     filter.show_unused = TRUE;
 
     budget_view = gnc_budget_view_new (budget, &filter);
+    g_test_message ("budget view after new: ref_count=%u floating=%d",
+                    G_OBJECT (budget_view)->ref_count,
+                    g_object_is_floating (budget_view));
     window = GTK_WINDOW (gtk_window_new ());
     g_object_ref (window);
     gtk_window_set_child (window, GTK_WIDGET (budget_view));
+    g_test_message ("budget view after set_child: ref_count=%u floating=%d",
+                    G_OBJECT (budget_view)->ref_count,
+                    g_object_is_floating (budget_view));
     present_and_wait_for_frame (window);
     gnc_tree_view_account_expand_to_account (
         GNC_TREE_VIEW_ACCOUNT (gnc_budget_view_get_account_tree_view (budget_view)), account);
@@ -428,7 +434,17 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
 
     /* Detaching the focused page may retain it as move_focus_widget until
      * GtkWindow completes deferred focus movement after painting. */
+    g_test_message ("budget view before detach: ref_count=%u floating=%d",
+                    G_OBJECT (budget_view)->ref_count,
+                    g_object_is_floating (budget_view));
     gtk_window_set_child (window, NULL);
+    {
+        GObject *detached_view = g_weak_ref_get (&weak_view);
+        g_test_message ("budget view after detach: ref_count=%u floating=%d (weak_ref_get holds one temporary reference)",
+                        detached_view ? detached_view->ref_count : 0,
+                        detached_view ? g_object_is_floating (detached_view) : FALSE);
+        g_clear_object (&detached_view);
+    }
     report_budget_view_lifetime ("after detach", &weak_view, &weak_window, TRUE);
     present_and_wait_for_frame (window);
     report_budget_view_lifetime ("after paint", &weak_view, &weak_window, TRUE);
