@@ -205,6 +205,26 @@ weak_ref_is_finalized (GWeakRef *weak_ref)
 }
 
 static void
+report_budget_view_lifetime (const gchar *phase, GWeakRef *view_ref,
+                             GWeakRef *window_ref, gboolean inspect_window)
+{
+    GObject *view = g_weak_ref_get (view_ref);
+    GObject *window = g_weak_ref_get (window_ref);
+
+    g_test_message ("%s: budget view=%p ref_count=%u parent=%p; window=%p ref_count=%u child=%p focus=%p",
+                    phase, (void *)view, view ? view->ref_count : 0,
+                    view ? (void *)gtk_widget_get_parent (GTK_WIDGET (view)) : NULL,
+                    (void *)window, window ? window->ref_count : 0,
+                    inspect_window && window ?
+                        (void *)gtk_window_get_child (GTK_WINDOW (window)) : NULL,
+                    inspect_window && window ?
+                        (void *)gtk_root_get_focus (GTK_ROOT (window)) : NULL);
+
+    g_clear_object (&window);
+    g_clear_object (&view);
+}
+
+static void
 watched_column_free (WatchedColumn *watched)
 {
     watched_column_release (watched);
@@ -336,6 +356,7 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     GPtrArray *rebuild_controllers;
     GPtrArray *close_controllers;
     GWeakRef weak_view;
+    GWeakRef weak_window;
 
     gnc_set_current_session (session);
     gnc_account_create_root (book);
@@ -403,14 +424,18 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     g_assert_true (gtk_editable_label_get_editing (close_label));
     gtk_editable_set_text (GTK_EDITABLE (close_label), "43");
     g_weak_ref_init (&weak_view, budget_view);
+    g_weak_ref_init (&weak_window, window);
 
     /* Detaching the focused page may retain it as move_focus_widget until
      * GtkWindow completes deferred focus movement after painting. */
     gtk_window_set_child (window, NULL);
+    report_budget_view_lifetime ("after detach", &weak_view, &weak_window, TRUE);
     present_and_wait_for_frame (window);
+    report_budget_view_lifetime ("after paint", &weak_view, &weak_window, TRUE);
     gtk_window_destroy (window);
     g_object_unref (window);
     drain_main_context ();
+    report_budget_view_lifetime ("after destroy", &weak_view, &weak_window, FALSE);
     g_assert_true (weak_ref_is_finalized (&weak_view));
     g_assert_null (g_object_get_data (G_OBJECT (close_label), "gnc-budget-account"));
     g_assert_false (gtk_editable_label_get_editing (close_label));
@@ -429,6 +454,7 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     g_object_unref (close_label);
     g_object_unref (rebuild_label);
     g_weak_ref_clear (&weak_view);
+    g_weak_ref_clear (&weak_window);
     g_ptr_array_unref (rebuilt_columns);
     g_ptr_array_unref (first_columns);
     gnc_budget_destroy (budget);
