@@ -68,12 +68,14 @@ jobs:
             GUILE_LOAD_COMPILED_PATH: "${{ env.MSYSTEM_PREFIX }}/lib/guile/3.0/ccache"
             CTEST_OUTPUT_ON_FAILURE: On
           run: |
+            set -euo pipefail
             cd build
             ninja
+            printf 'build_succeeded=true\n' >> "$GITHUB_OUTPUT"
             ninja check
 
         - name: Capture matcher IME backtrace after test failure
-          if: ${{ github.repository == 'copystring/gnucash' && failure() && steps.build_test.outcome == 'failure' }}
+          if: ${{ github.repository == 'copystring/gnucash' && failure() && steps.build_test.outcome == 'failure' && steps.build_test.outputs.build_succeeded == 'true' }}
           timeout-minutes: 4
           shell: msys2 {0}
           env:
@@ -88,3 +90,4 @@ jobs:
             path: |
               build/Testing/Temporary/LastTest.log
               build/matcher-ime-backtrace.log
+
