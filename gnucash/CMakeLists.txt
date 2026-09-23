@@ -211,7 +211,7 @@ if (UNIX AND NOT APPLE AND COMPILE_GSCHEMAS)
         --guile-lib-dir ${_guile_runtime_prefix}/${GUILE_REL_LIBDIR}
         --guile-compiled-lib-dir ${_guile_runtime_prefix}/${GUILE_REL_CCACHEDIR})
     set_tests_properties(test-gnucash-gapplication-instance PROPERTIES
-      TIMEOUT 300 RUN_SERIAL TRUE)
+      TIMEOUT 540 RUN_SERIAL TRUE)
     add_dependencies(testbuild gnucash compiled-schemas)
   endif()
 endif()

@@ -54,6 +54,10 @@ def main():
             directory.mkdir()
         book = invoker / "relative-book.gnucash"
         shutil.copyfile(args.sample_book, book)
+        concurrent_books = [invoker / f"concurrent-{index}.gnucash"
+                            for index in (1, 2)]
+        for concurrent_book in concurrent_books:
+            shutil.copyfile(args.sample_book, concurrent_book)
 
         env = os.environ.copy()
         for name in ("GUILE_LOAD_PATH", "GUILE_LOAD_COMPILED_PATH",
@@ -118,6 +122,44 @@ def main():
                 return result.returncode == 0 and str(book) in result.stdout
 
             wait_until(book_in_history, primary, log_path, 90)
+
+            # The command-line handler acknowledges each request before the
+            # asynchronous file open completes. Both requests must therefore
+            # survive the session-transition queue, regardless of arrival order.
+            secondaries = []
+            try:
+                for concurrent_book in concurrent_books:
+                    secondaries.append(subprocess.Popen(
+                        [str(args.gnucash), concurrent_book.name],
+                        env=env, cwd=invoker, stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True))
+                for secondary in secondaries:
+                    stdout, stderr = secondary.communicate(timeout=90)
+                    if secondary.returncode != 0:
+                        raise AssertionError(
+                            f"Concurrent book invocation failed: "
+                            f"status={secondary.returncode}, stdout={stdout!r}, "
+                            f"stderr={stderr!r}")
+            finally:
+                for secondary in secondaries:
+                    if secondary.poll() is None:
+                        secondary.kill()
+                        secondary.communicate()
+
+            def both_books_in_history():
+                entries = []
+                for key in ("file0", "file1"):
+                    result = run(["gsettings", "get",
+                                  "org.gnucash.GnuCash.history", key],
+                                 env=env, cwd=root, timeout=10)
+                    if result.returncode != 0:
+                        return False
+                    entries.append(result.stdout)
+                return all(any(str(book) in entry for entry in entries)
+                           for book in concurrent_books)
+
+            wait_until(both_books_in_history, primary, log_path, 90)
         finally:
             primary.terminate()
             try:
