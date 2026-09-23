@@ -631,6 +631,36 @@ TEST (QofSessionTest, legacy_async_load_generation_drift_is_stale)
     qof_backend_unregister_all_providers ();
 }
 
+TEST (QofSessionTest, legacy_async_load_generation_drift_blocks_legacy_destroy)
+{
+    if (gnc_current_session_exist ())
+        gnc_clear_current_session ();
+    qof_backend_register_provider (get_provider ());
+    load_error = false;
+    data_loaded = false;
+    auto marker = qof_session_new (qof_book_new ());
+    gnc_set_current_session (marker);
+    AsyncSessionLoadResult result;
+    ManualSessionLoadExecutor executor;
+    auto session = start_legacy_async_load (
+        &result, &executor, async_session_load_finished_and_destroy);
+    ASSERT_NE (session, nullptr);
+
+    /* A generation change invalidates the lease, but must not make a queued
+     * LOAD task's session pointer disposable before terminal dispatch. */
+    gnc_clear_current_session ();
+    qof_session_destroy (session);
+    EXPECT_EQ (result.callbacks, 0u);
+    EXPECT_TRUE (executor.dispatch ());
+    EXPECT_FALSE (data_loaded);
+    EXPECT_EQ (result.callbacks, 1u);
+    EXPECT_EQ (result.status, QOF_SESSION_LOAD_STALE);
+    EXPECT_FALSE (executor.dispatch ());
+
+    load_error = true;
+    qof_backend_unregister_all_providers ();
+}
+
 TEST (QofSessionTest, legacy_async_load_callback_may_destroy_session)
 {
     qof_backend_register_provider (get_provider ());

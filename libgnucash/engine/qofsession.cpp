@@ -281,6 +281,14 @@ legacy_operation_allowed (const QofSession *session,
 {
     if (!session)
         return false;
+    /* An invalidated lease doesn't mean that its deferred LOAD has finished.
+     * The task still holds a pointer to this session until terminality. */
+    if (session->has_async_load ())
+    {
+        PWARN ("Refusing legacy %s while an asynchronous load owns session %p",
+               operation, session);
+        return false;
+    }
     if (!session->has_active_operation_lease ())
         return true;
 
