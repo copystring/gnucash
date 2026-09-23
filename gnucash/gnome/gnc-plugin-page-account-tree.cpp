@@ -922,6 +922,26 @@ gnc_plugin_page_account_tree_destroy_widget (GncPluginPage *plugin_page)
     // Remove the page focus idle function if present
     g_idle_remove_by_data (plugin_page);
 
+    /* GTK may retain the focused view after the page leaves the notebook.
+     * Release its book-bound model before the session is destroyed. */
+    if (priv->tree_view)
+    {
+        GtkWidget *scrolled_window = gtk_widget_get_ancestor (
+            GTK_WIDGET (priv->tree_view), GTK_TYPE_SCROLLED_WINDOW);
+        GtkSelectionModel *selection =
+            gnc_tree_view_account_get_selection_model (priv->tree_view);
+
+        g_signal_handlers_disconnect_by_func (
+            selection, (gpointer)gnc_plugin_page_account_tree_selection_changed_cb,
+            page);
+        g_object_ref (priv->tree_view);
+        if (scrolled_window)
+            gtk_scrolled_window_set_child (
+                GTK_SCROLLED_WINDOW (scrolled_window), nullptr);
+        g_object_run_dispose (G_OBJECT (priv->tree_view));
+        g_object_unref (priv->tree_view);
+    }
+
     if (priv->widget)
     {
         g_object_unref(G_OBJECT(priv->widget));
