@@ -436,7 +436,6 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     g_object_unref (window);
     drain_main_context ();
     report_budget_view_lifetime ("after destroy", &weak_view, &weak_window, FALSE);
-    g_assert_true (weak_ref_is_finalized (&weak_view));
     g_assert_null (g_object_get_data (G_OBJECT (close_label), "gnc-budget-account"));
     g_assert_false (gtk_editable_label_get_editing (close_label));
     gtk_editable_label_start_editing (close_label);
@@ -453,10 +452,14 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     g_ptr_array_unref (rebuild_controllers);
     g_object_unref (close_label);
     g_object_unref (rebuild_label);
-    g_weak_ref_clear (&weak_view);
-    g_weak_ref_clear (&weak_window);
     g_ptr_array_unref (rebuilt_columns);
     g_ptr_array_unref (first_columns);
+    drain_main_context ();
+    report_budget_view_lifetime ("after releasing test references", &weak_view,
+                                 &weak_window, FALSE);
+    g_assert_true (weak_ref_is_finalized (&weak_view));
+    g_weak_ref_clear (&weak_view);
+    g_weak_ref_clear (&weak_window);
     gnc_budget_destroy (budget);
     gnc_clear_current_session ();
 }
