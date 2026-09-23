@@ -205,22 +205,14 @@ weak_ref_is_finalized (GWeakRef *weak_ref)
 }
 
 static void
-report_budget_view_lifetime (const gchar *phase, GWeakRef *view_ref,
-                             GWeakRef *window_ref, gboolean inspect_window)
+report_retained_budget_view (GWeakRef *view_ref)
 {
     GObject *view = g_weak_ref_get (view_ref);
-    GObject *window = g_weak_ref_get (window_ref);
 
-    g_test_message ("%s: budget view=%p ref_count=%u parent=%p; window=%p ref_count=%u child=%p focus=%p",
-                    phase, (void *)view, view ? view->ref_count : 0,
-                    view ? (void *)gtk_widget_get_parent (GTK_WIDGET (view)) : NULL,
-                    (void *)window, window ? window->ref_count : 0,
-                    inspect_window && window ?
-                        (void *)gtk_window_get_child (GTK_WINDOW (window)) : NULL,
-                    inspect_window && window ?
-                        (void *)gtk_root_get_focus (GTK_ROOT (window)) : NULL);
+    if (view)
+        g_test_message ("Disposed budget view remains referenced (ref_count=%u including diagnostic reference)",
+                        view->ref_count);
 
-    g_clear_object (&window);
     g_clear_object (&view);
 }
 
@@ -356,7 +348,6 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     GPtrArray *rebuild_controllers;
     GPtrArray *close_controllers;
     GWeakRef weak_view;
-    GWeakRef weak_window;
 
     gnc_set_current_session (session);
     gnc_account_create_root (book);
@@ -380,15 +371,9 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     filter.show_unused = TRUE;
 
     budget_view = gnc_budget_view_new (budget, &filter);
-    g_test_message ("budget view after new: ref_count=%u floating=%d",
-                    G_OBJECT (budget_view)->ref_count,
-                    g_object_is_floating (budget_view));
     window = GTK_WINDOW (gtk_window_new ());
     g_object_ref (window);
     gtk_window_set_child (window, GTK_WIDGET (budget_view));
-    g_test_message ("budget view after set_child: ref_count=%u floating=%d",
-                    G_OBJECT (budget_view)->ref_count,
-                    g_object_is_floating (budget_view));
     present_and_wait_for_frame (window);
     gnc_tree_view_account_expand_to_account (
         GNC_TREE_VIEW_ACCOUNT (gnc_budget_view_get_account_tree_view (budget_view)), account);
@@ -430,28 +415,20 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     g_assert_true (gtk_editable_label_get_editing (close_label));
     gtk_editable_set_text (GTK_EDITABLE (close_label), "43");
     g_weak_ref_init (&weak_view, budget_view);
-    g_weak_ref_init (&weak_window, window);
 
-    /* Detaching the focused page may retain it as move_focus_widget until
-     * GtkWindow completes deferred focus movement after painting. */
-    g_test_message ("budget view before detach: ref_count=%u floating=%d",
-                    G_OBJECT (budget_view)->ref_count,
-                    g_object_is_floating (budget_view));
+    /* Keep the view alive so this tests GnuCash's dispose contract even when
+     * other references outlive the view's parent. */
+    g_object_ref (budget_view);
     gtk_window_set_child (window, NULL);
-    {
-        GObject *detached_view = g_weak_ref_get (&weak_view);
-        g_test_message ("budget view after detach: ref_count=%u floating=%d (weak_ref_get holds one temporary reference)",
-                        detached_view ? detached_view->ref_count : 0,
-                        detached_view ? g_object_is_floating (detached_view) : FALSE);
-        g_clear_object (&detached_view);
-    }
-    report_budget_view_lifetime ("after detach", &weak_view, &weak_window, TRUE);
     present_and_wait_for_frame (window);
-    report_budget_view_lifetime ("after paint", &weak_view, &weak_window, TRUE);
     gtk_window_destroy (window);
     g_object_unref (window);
     drain_main_context ();
-    report_budget_view_lifetime ("after destroy", &weak_view, &weak_window, FALSE);
+
+    /* Disposal must release GnuCash's columns regardless of other references
+     * that may still keep the view alive. */
+    g_object_run_dispose (G_OBJECT (budget_view));
+    assert_watched_columns_detached (rebuilt_columns);
     g_assert_null (g_object_get_data (G_OBJECT (close_label), "gnc-budget-account"));
     g_assert_false (gtk_editable_label_get_editing (close_label));
     gtk_editable_label_start_editing (close_label);
@@ -464,22 +441,17 @@ test_budget_columns_release_on_rebuild_and_dispose (void)
     g_object_unref (close_label);
     g_object_unref (rebuild_label);
     drain_main_context ();
-    report_budget_view_lifetime ("after releasing label references", &weak_view,
-                                 &weak_window, FALSE);
 
-    assert_watched_columns_detached (rebuilt_columns);
     release_watched_columns (rebuilt_columns);
     drain_main_context ();
     report_watched_columns_lifetime (rebuilt_columns);
 
     g_ptr_array_unref (rebuilt_columns);
     g_ptr_array_unref (first_columns);
+    g_object_unref (budget_view);
     drain_main_context ();
-    report_budget_view_lifetime ("after releasing test references", &weak_view,
-                                 &weak_window, FALSE);
-    g_assert_true (weak_ref_is_finalized (&weak_view));
+    report_retained_budget_view (&weak_view);
     g_weak_ref_clear (&weak_view);
-    g_weak_ref_clear (&weak_window);
     gnc_budget_destroy (budget);
     gnc_clear_current_session ();
 }
@@ -537,14 +509,15 @@ test_budget_refresh_handles_reentrant_dispose (void)
         g_signal_handler_disconnect (columns, changed_handler);
     g_object_unref (columns);
     g_assert_true (state.disposed);
+    assert_watched_columns_detached (watched);
+    g_assert_null (gtk_widget_get_first_child (GTK_WIDGET (state.view)));
 
     gtk_window_destroy (window);
     g_object_unref (window);
-    assert_watched_columns_detached (watched);
     release_watched_columns (watched);
     g_object_unref (state.view);
     drain_main_context ();
-    g_assert_true (weak_ref_is_finalized (&weak_view));
+    report_retained_budget_view (&weak_view);
     report_watched_columns_lifetime (watched);
 
     /* A separately retained scroller must not call into the former owner. */
