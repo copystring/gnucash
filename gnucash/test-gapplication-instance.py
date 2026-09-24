@@ -54,6 +54,8 @@ def main():
             directory.mkdir()
         book = invoker / "relative-book.gnucash"
         shutil.copyfile(args.sample_book, book)
+        startup_book = invoker / "nofile-startup.gnucash"
+        shutil.copyfile(args.sample_book, startup_book)
         concurrent_books = [invoker / f"concurrent-{index}.gnucash"
                             for index in (1, 2)]
         for concurrent_book in concurrent_books:
@@ -101,6 +103,30 @@ def main():
                                ("--help", "Application Options"),
                                ("--paths", "GnuCash Paths")):
             check_local_option(option, output, option_env=no_display_env)
+
+        # --nofile suppresses only the history fallback, not an explicit book.
+        startup_log_path = root / "startup.log"
+        with startup_log_path.open("w", encoding="utf-8") as startup_log:
+            startup = subprocess.Popen(
+                [str(args.gnucash), "--nofile", startup_book.name],
+                env=env, cwd=invoker, stdin=subprocess.DEVNULL,
+                stdout=startup_log, stderr=subprocess.STDOUT)
+        try:
+            def startup_book_in_history():
+                result = run(["gsettings", "get",
+                              "org.gnucash.GnuCash.history", "file0"],
+                             env=env, cwd=root, timeout=10)
+                return (result.returncode == 0 and
+                        str(startup_book) in result.stdout)
+
+            wait_until(startup_book_in_history, startup, startup_log_path, 120)
+        finally:
+            startup.terminate()
+            try:
+                startup.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                startup.kill()
+                startup.wait(timeout=10)
 
         log_path = root / "primary.log"
         with log_path.open("w", encoding="utf-8") as primary_log:

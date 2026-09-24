@@ -121,13 +121,14 @@ load_gnucash_modules()
 }
 
 static char *
-get_file_to_load (const char* file_to_load)
+get_file_to_load (const char* file_to_load, bool nofile)
 {
     if (file_to_load && *file_to_load != '\0')
         return g_strdup(file_to_load);
-    else
-        /* Note history will always return a valid (possibly empty) string */
-        return gnc_history_get_last();
+    if (nofile)
+        return nullptr;
+    /* Note history will always return a valid (possibly empty) string */
+    return gnc_history_get_last();
 }
 
 extern SCM scm_init_sw_gnome_module(void);
@@ -204,7 +205,7 @@ scm_run_gnucash (void *data, [[maybe_unused]] int argc, [[maybe_unused]] char **
                            !user_file_spec->pending_open_file->empty ();
     if (from_open_event)
         requested_file = user_file_spec->pending_open_file->c_str ();
-    if (!user_file_spec->nofile && (fn = get_file_to_load (requested_file)) && *fn )
+    if ((fn = get_file_to_load (requested_file, user_file_spec->nofile)) && *fn )
     {
         if (from_open_event)
             user_file_spec->pending_open_file->clear ();
