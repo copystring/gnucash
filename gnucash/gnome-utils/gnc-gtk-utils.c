@@ -799,6 +799,26 @@ gnc_accelerator_overrides_lookup (const gchar *action_name,
     return TRUE;
 }
 
+GtkShortcutTrigger *
+gnc_accelerator_trigger_parse (const gchar *accelerator)
+{
+    g_return_val_if_fail (accelerator != NULL, NULL);
+
+#ifdef MAC_INTEGRATION
+    if (g_strstr_len (accelerator, -1, "<Primary>"))
+    {
+        gchar **parts = g_strsplit (accelerator, "<Primary>", -1);
+        gchar *mac_accelerator = g_strjoinv ("<Meta>", parts);
+        GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (mac_accelerator);
+
+        g_free (mac_accelerator);
+        g_strfreev (parts);
+        return trigger;
+    }
+#endif
+    return gtk_shortcut_trigger_parse_string (accelerator);
+}
+
 static void
 clear_menu_shortcuts (GtkShortcutController *shortcut_controller,
                       GPtrArray *shortcuts)
@@ -834,7 +854,7 @@ add_menu_shortcuts (GMenuModel *model,
 
             if (accelerator && *accelerator)
             {
-                GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (accelerator);
+                GtkShortcutTrigger *trigger = gnc_accelerator_trigger_parse (accelerator);
                 if (trigger)
                 {
                     GtkShortcutAction *action = gtk_named_action_new (action_name);

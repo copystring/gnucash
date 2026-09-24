@@ -74,12 +74,37 @@ test_texture_from_pixbuf (void)
     g_object_unref (pixbuf);
 }
 
+static void
+test_primary_accelerator (void)
+{
+    GtkShortcutTrigger *trigger = gnc_accelerator_trigger_parse ("<Primary><Shift>s");
+    GdkModifierType modifiers;
+
+    g_assert_true (GTK_IS_KEYVAL_TRIGGER (trigger));
+    modifiers = gtk_keyval_trigger_get_modifiers (GTK_KEYVAL_TRIGGER (trigger));
+#ifdef MAC_INTEGRATION
+    g_assert_cmpint (modifiers, ==, GDK_META_MASK | GDK_SHIFT_MASK);
+#else
+    g_assert_cmpint (modifiers, ==, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+#endif
+    g_object_unref (trigger);
+
+    /* An explicitly requested Control modifier must never become Command. */
+    trigger = gnc_accelerator_trigger_parse ("<Control><Meta>v");
+    g_assert_true (GTK_IS_KEYVAL_TRIGGER (trigger));
+    g_assert_cmpint (gtk_keyval_trigger_get_modifiers (GTK_KEYVAL_TRIGGER (trigger)),
+                     ==, GDK_CONTROL_MASK | GDK_META_MASK);
+    g_object_unref (trigger);
+}
+
 int
 main (int argc, char **argv)
 {
     g_test_init (&argc, &argv, NULL);
     g_test_add_func ("/gnome-utils/accelerators/legacy-map",
                      test_legacy_accelerator_map);
+    g_test_add_func ("/gnome-utils/accelerators/primary-modifier",
+                     test_primary_accelerator);
     g_test_add_func ("/gnome-utils/texture/pixbuf",
                      test_texture_from_pixbuf);
 
