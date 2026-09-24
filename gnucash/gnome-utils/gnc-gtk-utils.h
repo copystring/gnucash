@@ -135,6 +135,7 @@ gboolean gnc_accelerator_overrides_lookup (const gchar *action_name,
 
 /** Interpret the legacy Primary modifier according to the current platform. */
 GtkShortcutTrigger *gnc_accelerator_trigger_parse (const gchar *accelerator);
+void gnc_menu_model_apply_accelerators (GMenuModel *model);
 
 void gnc_add_accelerator_keys_for_menu (GtkWidget *menu, GMenuModel *model, GtkEventController *shortcut_controller);
 

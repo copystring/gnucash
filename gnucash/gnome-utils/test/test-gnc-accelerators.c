@@ -97,6 +97,71 @@ test_primary_accelerator (void)
     g_object_unref (trigger);
 }
 
+static void
+test_menu_accelerator_label (void)
+{
+    GMenu *root = g_menu_new ();
+    GMenu *submenu = g_menu_new ();
+    GMenuItem *item = g_menu_item_new ("Save", "app.save");
+    gchar *displayed = NULL;
+    gchar *original = NULL;
+    gchar *filename = NULL;
+    GError *error = NULL;
+    gint fd;
+
+    g_menu_item_set_attribute (item, "accel", "s", "<Primary>s");
+    g_menu_append_item (submenu, item);
+    g_menu_append_submenu (root, "File", G_MENU_MODEL (submenu));
+    g_object_unref (item);
+
+    gnc_menu_model_apply_accelerators (G_MENU_MODEL (root));
+    g_menu_model_get_item_attribute (G_MENU_MODEL (submenu), 0, "accel",
+                                     "s", &displayed);
+#ifdef MAC_INTEGRATION
+    g_assert_cmpstr (displayed, ==, "<Meta>s");
+    g_menu_model_get_item_attribute (G_MENU_MODEL (submenu), 0,
+                                     "gnc-original-accel", "s", &original);
+    g_assert_cmpstr (original, ==, "<Primary>s");
+#else
+    g_assert_cmpstr (displayed, ==, "<Primary>s");
+#endif
+    g_clear_pointer (&displayed, g_free);
+    g_clear_pointer (&original, g_free);
+
+    fd = g_file_open_tmp ("gnc-accelerator-label-XXXXXX", &filename, &error);
+    g_assert_no_error (error);
+    g_assert_cmpint (fd, >=, 0);
+    g_assert_true (g_close (fd, &error));
+    g_assert_no_error (error);
+    g_assert_true (g_file_set_contents
+                   (filename,
+                    "(gtk_accel_path \"<Actions>/app/save\" \"<Control><Meta>s\")\n",
+                    -1, &error));
+    g_assert_no_error (error);
+    gnc_accelerator_overrides_load_legacy_map (filename);
+    gnc_menu_model_apply_accelerators (G_MENU_MODEL (root));
+    g_menu_model_get_item_attribute (G_MENU_MODEL (submenu), 0, "accel",
+                                     "s", &displayed);
+    g_assert_cmpstr (displayed, ==, "<Control><Meta>s");
+    g_clear_pointer (&displayed, g_free);
+
+    gnc_accelerator_overrides_clear ();
+    gnc_menu_model_apply_accelerators (G_MENU_MODEL (root));
+    g_menu_model_get_item_attribute (G_MENU_MODEL (submenu), 0, "accel",
+                                     "s", &displayed);
+#ifdef MAC_INTEGRATION
+    g_assert_cmpstr (displayed, ==, "<Meta>s");
+#else
+    g_assert_cmpstr (displayed, ==, "<Primary>s");
+#endif
+
+    g_free (displayed);
+    g_assert_cmpint (g_remove (filename), ==, 0);
+    g_free (filename);
+    g_object_unref (submenu);
+    g_object_unref (root);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -105,6 +170,8 @@ main (int argc, char **argv)
                      test_legacy_accelerator_map);
     g_test_add_func ("/gnome-utils/accelerators/primary-modifier",
                      test_primary_accelerator);
+    g_test_add_func ("/gnome-utils/accelerators/menu-label",
+                     test_menu_accelerator_label);
     g_test_add_func ("/gnome-utils/texture/pixbuf",
                      test_texture_from_pixbuf);
 

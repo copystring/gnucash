@@ -704,6 +704,7 @@ gnc_disable_all_actions_in_group (GSimpleActionGroup *action_group)
  * recreating them. */
 #define GNC_MENU_SHORTCUTS "gnc-menu-shortcuts"
 #define GNC_ACCELERATOR_MAP_PREFIX "<Actions>/"
+#define GNC_MENU_ORIGINAL_ACCELERATOR "gnc-original-accel"
 
 static GHashTable *accelerator_overrides;
 
@@ -799,24 +800,98 @@ gnc_accelerator_overrides_lookup (const gchar *action_name,
     return TRUE;
 }
 
-GtkShortcutTrigger *
-gnc_accelerator_trigger_parse (const gchar *accelerator)
+static gchar *
+accelerator_for_platform (const gchar *accelerator)
 {
-    g_return_val_if_fail (accelerator != NULL, NULL);
-
 #ifdef MAC_INTEGRATION
     if (g_strstr_len (accelerator, -1, "<Primary>"))
     {
         gchar **parts = g_strsplit (accelerator, "<Primary>", -1);
         gchar *mac_accelerator = g_strjoinv ("<Meta>", parts);
-        GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (mac_accelerator);
 
-        g_free (mac_accelerator);
         g_strfreev (parts);
-        return trigger;
+        return mac_accelerator;
     }
 #endif
-    return gtk_shortcut_trigger_parse_string (accelerator);
+    return g_strdup (accelerator);
+}
+
+GtkShortcutTrigger *
+gnc_accelerator_trigger_parse (const gchar *accelerator)
+{
+    GtkShortcutTrigger *trigger;
+    gchar *platform_accelerator;
+
+    g_return_val_if_fail (accelerator != NULL, NULL);
+
+    platform_accelerator = accelerator_for_platform (accelerator);
+    trigger = gtk_shortcut_trigger_parse_string (platform_accelerator);
+    g_free (platform_accelerator);
+    return trigger;
+}
+
+void
+gnc_menu_model_apply_accelerators (GMenuModel *model)
+{
+    g_return_if_fail (G_IS_MENU_MODEL (model));
+
+    for (gint index = 0; index < g_menu_model_get_n_items (model); index++)
+    {
+        gchar *action_name = NULL;
+        gchar *original = NULL;
+        gchar *current = NULL;
+        const gchar *override = NULL;
+        gboolean saved_original;
+
+        saved_original = g_menu_model_get_item_attribute (model, index,
+                                                           GNC_MENU_ORIGINAL_ACCELERATOR,
+                                                           "s", &original);
+        g_menu_model_get_item_attribute (model, index,
+                                         GNC_MENU_ATTRIBUTE_ACCELERATOR, "s", &current);
+        if (!saved_original)
+            original = g_strdup (current);
+
+        g_menu_model_get_item_attribute (model, index, G_MENU_ATTRIBUTE_ACTION,
+                                         "s", &action_name);
+        if (action_name)
+            gnc_accelerator_overrides_lookup (action_name, &override);
+
+        if ((override || original) && G_IS_MENU (model))
+        {
+            gchar *displayed = accelerator_for_platform (override ? override : original);
+
+            if (g_strcmp0 (current, displayed) != 0)
+            {
+                GMenuItem *item = g_menu_item_new_from_model (model, index);
+
+                if (!saved_original)
+                    g_menu_item_set_attribute (item, GNC_MENU_ORIGINAL_ACCELERATOR,
+                                               "s", original ? original : "");
+                g_menu_item_set_attribute (item, GNC_MENU_ATTRIBUTE_ACCELERATOR,
+                                           "s", displayed);
+                g_menu_remove (G_MENU (model), index);
+                g_menu_insert_item (G_MENU (model), index, item);
+                g_object_unref (item);
+            }
+            g_free (displayed);
+        }
+
+        const gchar *link_names[] = { G_MENU_LINK_SECTION, G_MENU_LINK_SUBMENU };
+        for (guint link_index = 0; link_index < G_N_ELEMENTS (link_names); link_index++)
+        {
+            GMenuModel *linked_model = g_menu_model_get_item_link (model, index,
+                                                                    link_names[link_index]);
+            if (linked_model)
+            {
+                gnc_menu_model_apply_accelerators (linked_model);
+                g_object_unref (linked_model);
+            }
+        }
+
+        g_free (action_name);
+        g_free (original);
+        g_free (current);
+    }
 }
 
 static void
@@ -910,6 +985,7 @@ gnc_add_accelerator_keys_for_menu (GtkWidget *menu, GMenuModel *model, GtkEventC
                                 shortcuts, (GDestroyNotify)g_ptr_array_unref);
     }
 
+    gnc_menu_model_apply_accelerators (model);
     clear_menu_shortcuts (GTK_SHORTCUT_CONTROLLER (shortcut_controller), shortcuts);
     add_menu_shortcuts (model, GTK_SHORTCUT_CONTROLLER (shortcut_controller), shortcuts);
 }
@@ -1452,7 +1528,10 @@ gnc_menubar_model_update_item (GMenuModel *menu_model, const gchar *action_name,
     if (label)
         g_menu_item_set_label (item, label);
     if (accel_name)
+    {
         g_menu_item_set_attribute (item, GNC_MENU_ATTRIBUTE_ACCELERATOR, "s", accel_name);
+        g_menu_item_set_attribute (item, GNC_MENU_ORIGINAL_ACCELERATOR, "s", accel_name);
+    }
     if (tooltip)
         g_menu_item_set_attribute (item, GNC_MENU_ATTRIBUTE_TOOLTIP, "s", tooltip);
 
