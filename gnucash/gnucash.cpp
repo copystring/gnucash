@@ -69,6 +69,8 @@
 #include <boost/nowide/args.hpp>
 #endif
 #include <iostream>
+#include <string>
+#include <vector>
 #include <gnc-report.h>
 #include <gnc-locale-utils.hpp>
 #include <gnc-quotes.hpp>
@@ -133,6 +135,7 @@ extern SCM scm_init_sw_gnome_module(void);
 struct t_file_spec {
     int nofile;
     const char *file_to_load;
+    std::string *pending_open_file;
 };
 
 static void
@@ -196,8 +199,15 @@ scm_run_gnucash (void *data, [[maybe_unused]] int argc, [[maybe_unused]] char **
     gnc_hook_run(HOOK_STARTUP, NULL);
 
     char* fn = nullptr;
-    if (!user_file_spec->nofile && (fn = get_file_to_load (user_file_spec->file_to_load)) && *fn )
+    auto requested_file = user_file_spec->file_to_load;
+    auto from_open_event = (!requested_file || !*requested_file) &&
+                           !user_file_spec->pending_open_file->empty ();
+    if (from_open_event)
+        requested_file = user_file_spec->pending_open_file->c_str ();
+    if (!user_file_spec->nofile && (fn = get_file_to_load (requested_file)) && *fn )
     {
+        if (from_open_event)
+            user_file_spec->pending_open_file->clear ();
         auto msg = _("Loading data…");
         gnc_update_splash_screen (msg, GNC_SPLASH_PERCENTAGE_UNKNOWN);
         gnc_file_open_file(nullptr, fn, /*open_readonly*/ FALSE);
@@ -232,15 +242,19 @@ namespace Gnucash {
         int run (int argc, char **argv);
         void activate (void);
         int command_line (GApplicationCommandLine *command_line);
+        void open (GFile **files, gint n_files);
 
     private:
         void configure_program_options (void);
 
         bool m_nofile = false;
         bool m_started = false;
+        bool m_starting = false;
         int m_exit_status = 0;
         int m_argc = 0;
         char **m_argv = nullptr;
+        std::string m_pending_open_file;
+        std::vector<std::string> m_pending_extra_files;
     };
 
 }
@@ -284,7 +298,8 @@ Gnucash::Gnucash::start (int argc, char **argv)
 
     auto user_file_spec = t_file_spec {
         m_nofile,
-        m_file_to_load ? m_file_to_load->c_str() : ""};
+        m_file_to_load ? m_file_to_load->c_str() : "",
+        &m_pending_open_file};
     scm_run_gnucash (&user_file_spec, argc, argv);
 
     return 0;
@@ -300,7 +315,22 @@ Gnucash::Gnucash::activate (void)
     }
 
     m_started = true;
+    m_starting = true;
     m_exit_status = start (m_argc, m_argv);
+    m_starting = false;
+    if (m_exit_status == 0)
+    {
+        /* A command-line file takes precedence at startup. Finder files that
+         * arrived alongside it, and additional open requests, follow it. */
+        if (!m_pending_open_file.empty ())
+            m_pending_extra_files.insert (m_pending_extra_files.begin (),
+                                          m_pending_open_file);
+        for (const auto& uri : m_pending_extra_files)
+            gnc_file_open_file (gnc_ui_get_main_window (nullptr), uri.c_str (),
+                                /*open_readonly*/ FALSE);
+    }
+    m_pending_open_file.clear ();
+    m_pending_extra_files.clear ();
     auto application = g_application_get_default ();
     if (m_exit_status == 0)
     {
@@ -320,6 +350,37 @@ static void
 on_application_activate ([[maybe_unused]] GtkApplication *application, gpointer user_data)
 {
     static_cast<Gnucash::Gnucash*>(user_data)->activate ();
+}
+
+void
+Gnucash::Gnucash::open (GFile **files, gint n_files)
+{
+    for (gint i = 0; i < n_files; ++i)
+    {
+        auto uri = g_file_get_uri (files[i]);
+        if (!m_started || m_starting)
+        {
+            if (m_pending_open_file.empty ())
+                m_pending_open_file = uri;
+            else
+                m_pending_extra_files.emplace_back (uri);
+        }
+        else
+            gnc_file_open_file (gnc_ui_get_main_window (nullptr), uri,
+                                /*open_readonly*/ FALSE);
+        g_free (uri);
+    }
+
+    if (!m_started)
+        activate ();
+}
+
+static void
+on_application_open ([[maybe_unused]] GApplication *application, GFile **files,
+                     gint n_files, [[maybe_unused]] const char *hint,
+                     gpointer user_data)
+{
+    static_cast<Gnucash::Gnucash*>(user_data)->open (files, n_files);
 }
 
 #ifdef MAC_INTEGRATION
@@ -403,14 +464,21 @@ Gnucash::Gnucash::command_line (GApplicationCommandLine *command_line)
      * the existing file-opening path. Do not silently treat unsupported
      * invocations as activation requests. */
     if (argc == 1)
-        activate ();
+    {
+        if (!m_starting)
+            activate ();
+    }
     else if (argc == 2 && argv[1][0] != '-')
     {
         auto file = g_application_command_line_create_file_for_arg (
             command_line, argv[1]);
         auto filename = g_file_get_uri (file);
 
-        auto open_result = gnc_file_open_file (gnc_ui_get_main_window (nullptr),
+        auto open_result = GNC_FILE_OPEN_QUEUED;
+        if (m_starting)
+            m_pending_extra_files.emplace_back (filename);
+        else
+            open_result = gnc_file_open_file (gnc_ui_get_main_window (nullptr),
                                                filename,
                                                /*open_readonly*/ FALSE);
         g_free (filename);
@@ -456,12 +524,15 @@ Gnucash::Gnucash::run (int argc, char **argv)
         return parse_result == CommandLineResult::ExitSuccess ? 0 : 1;
 
     auto gtk_application = gtk_application_new ("org.gnucash.GnuCash",
-                                                G_APPLICATION_HANDLES_COMMAND_LINE);
+                                                static_cast<GApplicationFlags> (
+                                                    G_APPLICATION_HANDLES_COMMAND_LINE |
+                                                    G_APPLICATION_HANDLES_OPEN));
 #ifdef MAC_INTEGRATION
     g_signal_connect (gtk_application, "startup",
                       G_CALLBACK (on_macos_application_startup), nullptr);
 #endif
     g_signal_connect (gtk_application, "activate", G_CALLBACK (on_application_activate), this);
+    g_signal_connect (gtk_application, "open", G_CALLBACK (on_application_open), this);
     g_signal_connect (gtk_application, "command-line",
                       G_CALLBACK (on_application_command_line), this);
 

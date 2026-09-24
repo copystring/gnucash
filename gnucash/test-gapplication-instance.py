@@ -58,6 +58,8 @@ def main():
                             for index in (1, 2)]
         for concurrent_book in concurrent_books:
             shutil.copyfile(args.sample_book, concurrent_book)
+        desktop_book = invoker / "desktop-open.gnucash"
+        shutil.copyfile(args.sample_book, desktop_book)
 
         env = os.environ.copy()
         for name in ("GUILE_LOAD_PATH", "GUILE_LOAD_COMPILED_PATH",
@@ -184,6 +186,26 @@ def main():
                            for book in concurrent_books)
 
             wait_until(both_books_in_history, primary, log_path, 90)
+
+            # A desktop file-open request uses GApplication.Open rather than
+            # the command-line signal used by a second executable invocation.
+            desktop_open = run(
+                ["gdbus", "call", "--session", "--dest", "org.gnucash.GnuCash",
+                 "--object-path", "/org/gnucash/GnuCash", "--method",
+                 "org.freedesktop.Application.Open", f"['{desktop_book.as_uri()}']",
+                 "{}"], env=env, cwd=root)
+            if desktop_open.returncode != 0:
+                raise AssertionError(
+                    f"Desktop open request failed: {desktop_open.stderr}")
+
+            def desktop_book_in_history():
+                result = run(["gsettings", "get",
+                              "org.gnucash.GnuCash.history", "file0"],
+                             env=env, cwd=root, timeout=10)
+                return (result.returncode == 0 and
+                        str(desktop_book) in result.stdout)
+
+            wait_until(desktop_book_in_history, primary, log_path, 90)
         finally:
             primary.terminate()
             try:
