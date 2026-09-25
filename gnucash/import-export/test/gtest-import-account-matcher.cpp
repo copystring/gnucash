@@ -96,12 +96,14 @@ protected:
         }
         gnc_engine_init_static (0, nullptr);
         gnc_prefs_init ();
+        gnc_component_manager_init ();
         g_log_set_always_fatal (static_cast<GLogLevelFlags> (
             G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL));
     }
 
     static void TearDownTestSuite ()
     {
+        gnc_component_manager_shutdown ();
         gnc_prefs_remove_registered ();
         gnc_engine_shutdown ();
     }
@@ -825,14 +827,15 @@ TEST_F(ImportMatcherTest, closing_matcher_does_not_refresh_unrelated_components)
         ASSERT_NE (component, NO_COMPONENT);
         guint affected_refreshes = 0;
         auto affected_component = gnc_register_gui_component (
-            "synthetic-affected-import-component",
+            "synthetic-transaction-import-component",
             +[](GHashTable*, gpointer data) {
                 ++*static_cast<guint*> (data);
             }, nullptr, &affected_refreshes);
         ASSERT_NE (affected_component, NO_COMPONENT);
+        // Accept commits these transactions; cancel destroys them while open.
         gnc_gui_component_watch_entity_type (
-            affected_component, GNC_ID_ACCOUNT,
-            GNC_EVENT_ITEM_CHANGED | GNC_EVENT_ITEM_REMOVED);
+            affected_component, GNC_ID_TRANS,
+            QOF_EVENT_MODIFY | QOF_EVENT_DESTROY);
 
         auto window = gnc_gen_trans_list_widget (matcher);
         auto button = find_buildable_widget (
