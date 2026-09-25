@@ -6,6 +6,7 @@ add_subdirectory(mocks)
 
 set(engine_noinst_HEADERS
   AccountP.hpp
+  ScrubP.h
   SplitP.hpp
   SX-book.h
   SX-ttinfo.hpp
@@ -125,6 +126,7 @@ set (engine_HEADERS
   qofsession.hpp
   qofutil.h
   qof-gobject.h
+  qof-load-executor.h
   qof-string-cache.h
 )
 
