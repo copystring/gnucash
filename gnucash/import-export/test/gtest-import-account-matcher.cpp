@@ -35,6 +35,7 @@
 #include <import-operation-teardown.h>
 #include <import-pending-matches.h>
 #include <gnc-amount-edit.h>
+#include <gnc-component-manager.h>
 #include <gnc-ofx-import-teardown.h>
 #include <gnc-prefs.h>
 #include <gnc-prefs-utils.h>
@@ -42,6 +43,7 @@
 #include <gnc-ui-util.h>
 #include <gnc-commodity.h>
 #include <gnc-engine.h>
+#include <gnc-event.h>
 #include <qofbook.h>
 #include <Account.h>
 #include <Transaction.h>
@@ -798,6 +800,56 @@ reconcile_continuation_called (GObject *source, gpointer user_data)
     auto metrics = static_cast<OfxLifecycleMetrics *> (user_data);
     metrics->reconcile_calls++;
     (void)source;
+}
+
+TEST_F(ImportMatcherTest, closing_matcher_does_not_refresh_unrelated_components)
+{
+    for (const auto accept : {false, true})
+    {
+        auto matcher = gnc_gen_trans_list_new (nullptr, "Synthetic import",
+                                                FALSE, 42, FALSE);
+        ASSERT_NE (matcher, nullptr);
+        for (gint64 index = 1; index <= 3; ++index)
+            gnc_gen_trans_list_add_trans (
+                matcher, create_import_transaction (
+                    m_book, m_bank, m_expenses, m_currency, index,
+                    "Synthetic close-path transaction", "", true));
+        gnc_gen_trans_list_show_all (matcher);
+
+        guint unrelated_refreshes = 0;
+        auto component = gnc_register_gui_component (
+            "synthetic-unrelated-import-component",
+            +[](GHashTable*, gpointer data) {
+                ++*static_cast<guint*> (data);
+            }, nullptr, &unrelated_refreshes);
+        ASSERT_NE (component, NO_COMPONENT);
+        guint affected_refreshes = 0;
+        auto affected_component = gnc_register_gui_component (
+            "synthetic-affected-import-component",
+            +[](GHashTable*, gpointer data) {
+                ++*static_cast<guint*> (data);
+            }, nullptr, &affected_refreshes);
+        ASSERT_NE (affected_component, NO_COMPONENT);
+        gnc_gui_component_watch_entity_type (
+            affected_component, GNC_ID_ACCOUNT,
+            GNC_EVENT_ITEM_CHANGED | GNC_EVENT_ITEM_REMOVED);
+
+        auto window = gnc_gen_trans_list_widget (matcher);
+        auto button = find_buildable_widget (
+            window, accept ? "matcher_ok" : "matcher_cancel");
+        ASSERT_TRUE (GTK_IS_BUTTON (button));
+        g_signal_emit_by_name (button, "clicked");
+
+        EXPECT_EQ (unrelated_refreshes, 0u);
+        EXPECT_EQ (affected_refreshes, 1u);
+        EXPECT_FALSE (gnc_gui_refresh_suspended ());
+        EXPECT_FALSE (gnc_account_get_defer_bal_computation (m_bank));
+        EXPECT_EQ (gnc_numeric_compare (xaccAccountGetBalance (m_bank),
+                                        gnc_numeric_create (accept ? 6 : 0, 1)),
+                   0);
+        gnc_unregister_gui_component (component);
+        gnc_unregister_gui_component (affected_component);
+    }
 }
 
 TEST_F(ImportMatcherTest, matcher_cells_keep_layout_status_and_action_invariants)
