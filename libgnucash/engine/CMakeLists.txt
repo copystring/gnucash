@@ -73,6 +73,7 @@ set (engine_HEADERS
   gnc-rational-rounding.hpp
   gnc-session.h
   gnc-timezone.hpp
+  gnc-transfer-transaction.h
   gnc-uri-utils.h
   gnc-uri.hpp
   gncAddress.h
@@ -175,6 +176,7 @@ set (engine_SOURCES
   gnc-rational.cpp
   gnc-session.c
   gnc-timezone.cpp
+  gnc-transfer-transaction.c
   gnc-uri.cpp
   engine-helpers.c
   guid.cpp
