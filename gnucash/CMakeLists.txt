@@ -174,7 +174,7 @@ install(TARGETS gnucash gnucash-cli DESTINATION ${CMAKE_INSTALL_BINDIR})
 # No headers to install.
 
 set(test_gapplication_command_line_SOURCES
-  test-gapplication-command-line.c
+  test/test-gapplication-command-line.c
 )
 set(GAPPLICATION_TEST_INCLUDE_DIRS ${GIO_INCLUDE_DIRS})
 set(GAPPLICATION_TEST_LIBS ${GIO_LDFLAGS})
@@ -192,7 +192,7 @@ add_test(NAME test-gnucash-cli-report-bootstrap
     -DBUILD_ROOT=${CMAKE_BINARY_DIR}
     -DGUILE_RUNTIME_LIBDIR=${_guile_runtime_prefix}/${GUILE_REL_LIBDIR}
     -DGUILE_RUNTIME_CCACHEDIR=${_guile_runtime_prefix}/${GUILE_REL_CCACHEDIR}
-    -P ${CMAKE_CURRENT_SOURCE_DIR}/test-gnucash-cli-report-bootstrap.cmake)
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/test/test-gnucash-cli-report-bootstrap.cmake)
 set_tests_properties(test-gnucash-cli-report-bootstrap PROPERTIES
   ENVIRONMENT "$<$<CONFIG:Asan>:ASAN_OPTIONS=${ASAN_TEST_OPTIONS}>")
 gnc_add_test_runtime_path(test-gnucash-cli-report-bootstrap)
@@ -205,7 +205,7 @@ if (UNIX AND NOT APPLE AND COMPILE_GSCHEMAS)
   if (GAPPLICATION_TEST_PYTHON AND GAPPLICATION_TEST_GSETTINGS AND GAPPLICATION_TEST_GDBUS)
     add_test(NAME test-gnucash-gapplication-instance
       COMMAND ${GAPPLICATION_TEST_PYTHON}
-        ${CMAKE_CURRENT_SOURCE_DIR}/test-gapplication-instance.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/test-gapplication-instance.py
         --gnucash $<TARGET_FILE:gnucash>
         --build-root ${CMAKE_BINARY_DIR}
         --sample-book ${CMAKE_SOURCE_DIR}/libgnucash/backend/xml/test/test-files/load-save/sample1.gnucash
@@ -329,16 +329,16 @@ if (WIN32)
   add_test(NAME check-windows-native-decorations
     COMMAND ${CMAKE_COMMAND}
       -DENVIRONMENT_FILE=${ENVIRONMENT_FILE_DIR}/environment
-      -P ${CMAKE_CURRENT_SOURCE_DIR}/test-windows-native-decorations.cmake)
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/test/test-windows-native-decorations.cmake)
 endif()
 
 set_local_dist(gnucash_DIST_local CMakeLists.txt environment.in generate-gnc-script
     gnucash.cpp gnucash-commands.cpp gnucash-cli.cpp gnucash-core-app.cpp
     gnucash-guile-bootstrap.c
     ${test_gapplication_command_line_SOURCES}
-    test-gapplication-instance.py
-    test-gnucash-cli-report-bootstrap.cmake
-    test-windows-native-decorations.cmake
+    test/test-gapplication-instance.py
+    test/test-gnucash-cli-report-bootstrap.cmake
+    test/test-windows-native-decorations.cmake
     gnucash-locale-macos.mm gnucash-locale-windows.c gnucash.rc.in
     gnucash-valgrind.in gnucash-manifest.rc gnucash-utf8.manifest
     ${gnucash_GRESOURCES}

@@ -78,11 +78,11 @@ if (GTK4_BUILDER_TOOL)
                      -DGNC_SOURCE_DIR=${CMAKE_SOURCE_DIR}/gnucash
                      -DGTKBUILDER_RESOURCES=${GTKBUILDER_RESOURCES_ARGUMENT}
                      -DAQB_ASSISTANT=${CMAKE_SOURCE_DIR}/gnucash/import-export/aqb/assistant-ab-initial.glade
-                     -P ${CMAKE_CURRENT_SOURCE_DIR}/test-layout-parity.cmake)
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/test/test-layout-parity.cmake)
 else()
     message(STATUS "gtk4-builder-tool not found; skipping GTK builder layout parity test")
 endif()
 
 install (FILES ${gtkbuilder_SOURCES} DESTINATION share/gnucash/gtkbuilder)
 
-set_dist_list(gtkbuilder_DIST CMakeLists.txt test-layout-parity.cmake ${gtkbuilder_SOURCES})
+set_dist_list(gtkbuilder_DIST CMakeLists.txt test/test-layout-parity.cmake ${gtkbuilder_SOURCES})

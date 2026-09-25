@@ -50,7 +50,7 @@ foreach(_test_case IN LISTS _gnc_mingw_target_path_test_cases)
     COMMAND ${CMAKE_COMMAND}
       -DTEST_CASE=${_test_case}
       -DTEST_MODULE=${CMAKE_CURRENT_SOURCE_DIR}/GncMinGWTargetPaths.cmake
-      -P ${CMAKE_CURRENT_SOURCE_DIR}/test-GncMinGWTargetPaths.cmake)
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/test/test-GncMinGWTargetPaths.cmake)
 endforeach()
 unset(_gnc_mingw_target_path_test_cases)
 
@@ -67,7 +67,7 @@ add_test(NAME test-gnc-add-test-windows-scheme-runner
     -DTEST_GUILD_EXECUTABLE=${GUILD_EXECUTABLE}
     "-DTEST_CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
     -DTEST_HOST_WIN32=${WIN32}
-    -P ${CMAKE_CURRENT_SOURCE_DIR}/test-GncAddTest.cmake)
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/test/test-GncAddTest.cmake)
 
 add_test(NAME test-gnc-add-scheme-targets-relative-install-dirs
   COMMAND ${CMAKE_COMMAND}
@@ -81,8 +81,8 @@ add_test(NAME test-gnc-add-scheme-targets-relative-install-dirs
     -DTEST_GUILE_REL_CCACHEDIR=${GUILE_REL_CCACHEDIR}
     -DTEST_GUILE_REL_SITEDIR=${GUILE_REL_SITEDIR}
     -DTEST_GUILE_REL_SITECCACHEDIR=${GUILE_REL_SITECCACHEDIR}
-    -P ${CMAKE_CURRENT_SOURCE_DIR}/test-GncAddSchemeTargets.cmake)
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/test/test-GncAddSchemeTargets.cmake)
 
 set_dist_list(cmake_modules_DIST CMakeLists.txt COPYING-CMAKE-SCRIPTS.txt
-  test-GncAddSchemeTargets.cmake test-GncAddTest.cmake
-  test-GncMinGWTargetPaths.cmake ${cmake_FILES})
+  test/test-GncAddSchemeTargets.cmake test/test-GncAddTest.cmake
+  test/test-GncMinGWTargetPaths.cmake ${cmake_FILES})
