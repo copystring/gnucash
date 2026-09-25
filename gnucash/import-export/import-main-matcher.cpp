@@ -562,11 +562,17 @@ matcher_detach_content (GNCImportMainMatcher *info)
 
 static void
 gnc_gen_trans_list_destroy (GNCImportMainMatcher *info,
-                            gboolean allow_book_mutation)
+                            gboolean allow_book_mutation,
+                            gboolean gui_refresh_held)
 {
 
     if (info == NULL)
         return;
+
+    /* Teardown can commit/destroy many transactions. Keep their account and
+     * transaction events pending until the complete batch is finished. */
+    if (allow_book_mutation && !gui_refresh_held)
+        gnc_suspend_gui_refresh ();
 
     matcher_lifetime_invalidate (info->lifetime, info);
     auto match_picker = info->match_picker;
@@ -624,8 +630,10 @@ gnc_gen_trans_list_destroy (GNCImportMainMatcher *info,
 
     g_free (info);
 
-    if (allow_book_mutation && !gnc_gui_refresh_suspended ())
-        gnc_gui_refresh_all ();
+    /* Resume dispatching the accumulated, targeted engine events only after
+     * the transactions and deferred account balances are consistent. */
+    if (allow_book_mutation || gui_refresh_held)
+        gnc_resume_gui_refresh ();
 }
 
 struct MatcherCompletion
@@ -638,13 +646,15 @@ struct MatcherCompletion
 static MatcherCompletion
 gnc_gen_trans_list_complete (GNCImportMainMatcher *info,
                              gboolean accepted,
-                             gboolean mutation_allowed)
+                             gboolean mutation_allowed,
+                             gboolean gui_refresh_held)
 {
     MatcherCompletion completion {info->done_cb, info->done_user_data,
                                   accepted && mutation_allowed};
     info->done_cb = nullptr;
     info->done_user_data = nullptr;
-    gnc_gen_trans_list_destroy (info, mutation_allowed);
+    gnc_gen_trans_list_destroy (info, mutation_allowed,
+                                gui_refresh_held);
     return completion;
 }
 
@@ -658,7 +668,8 @@ gnc_gen_trans_list_notify (const MatcherCompletion& completion)
 static void
 gnc_gen_trans_list_finish_with_operation (GNCImportMainMatcher *info,
                                           gboolean accepted,
-                                          gboolean operation_held)
+                                          gboolean operation_held,
+                                          gboolean gui_refresh_held = FALSE)
 {
     if (!info)
         return;
@@ -688,7 +699,7 @@ gnc_gen_trans_list_finish_with_operation (GNCImportMainMatcher *info,
     }
 
     auto completion = gnc_gen_trans_list_complete (
-        info, accepted, mutation_allowed);
+        info, accepted, mutation_allowed, gui_refresh_held);
     if (release_operation)
         gnc_session_operation_context_end (operation_context);
     gnc_gen_trans_list_notify (completion);
@@ -750,7 +761,7 @@ gnc_gen_trans_list_discard (GNCImportMainMatcher *info)
 {
     if (!info)
         return;
-    auto completion = gnc_gen_trans_list_complete (info, FALSE, FALSE);
+    auto completion = gnc_gen_trans_list_complete (info, FALSE, FALSE, FALSE);
     gnc_gen_trans_list_notify (completion);
 }
 
@@ -953,10 +964,10 @@ on_matcher_ok_clicked (GtkButton *button, GNCImportMainMatcher *info)
     DEBUG ("End");
     g_list_free_full (accounts_modified, (GDestroyNotify)xaccAccountCommitEdit);
 
-    /* Allow GUI refresh again upon commit completion. */
-    gnc_resume_gui_refresh ();
+    /* The matcher teardown consumes this refresh suspension after all
+     * transactions and deferred balances have reached their final state. */
     gnc_gen_trans_list_finish_with_operation (
-        info, TRUE, info->operation_context != nullptr);
+        info, TRUE, info->operation_context != nullptr, TRUE);
 }
 
 void
