@@ -34,6 +34,14 @@
 
 static QofLogModule log_module = GNC_MOD_GUI;
 
+static void
+object_references_response_cb (GtkDialog *dialog, gint response, gpointer user_data)
+{
+    (void)response;
+    (void)user_data;
+    gtk_widget_destroy (GTK_WIDGET (dialog));
+}
+
 void
 gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
 {
@@ -80,15 +88,12 @@ gnc_ui_object_references_show( const gchar* explanation_text, GList* objlist )
     box = GTK_WIDGET(gtk_builder_get_object (builder, "hbox_list" ));
     gtk_container_add( GTK_CONTAINER(box), listview );
 
-    /* Autoconnect signals */
-    gtk_builder_connect_signals_full (builder, gnc_builder_connect_full_func, dialog);
-
-    /* Run the dialog */
-    gtk_widget_show_all( dialog );
-    gtk_dialog_run( GTK_DIALOG(dialog) );
+    g_signal_connect (dialog, "response",
+                      G_CALLBACK (object_references_response_cb), NULL);
+    gtk_window_set_modal (GTK_WINDOW (dialog), TRUE);
+    gtk_widget_show_all (dialog);
     g_object_unref(G_OBJECT(builder));
     g_object_unref (store);
-    gtk_widget_destroy( dialog );
 
     LEAVE("");
 }
