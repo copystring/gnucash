@@ -125,6 +125,7 @@ test_transfer_transaction (gconstpointer data)
 
     gnc_clear_current_session ();
     qof_session_destroy (session);
+    qof_session_destroy (unrelated);
 }
 
 int
