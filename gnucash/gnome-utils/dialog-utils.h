@@ -114,6 +114,9 @@ void gnc_widget_style_context_remove_class (GtkWidget *widget, const char *gnc_c
 \********************************************************************/
 gboolean gnc_draw_arrow_cb (GtkWidget *widget, cairo_t *cr, gpointer direction);
 
+/* The validation result is immediate. If requested, an informational warning
+ * remains modal until answered; it does not retain test_date.
+ */
 gboolean gnc_gdate_in_valid_range (GDate *test_date, gboolean warn);
 
 gboolean gnc_handle_date_accelerator (GdkEventKey *event,

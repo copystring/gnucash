@@ -436,14 +436,15 @@ gnc_gdate_in_valid_range (GDate *test_date, gboolean warn)
                   "01/01/1400 - 31/12/9999, resetting to this year");
         gchar *dialog_title = _("Date out of range");
         GtkWidget *dialog = gtk_message_dialog_new (gnc_ui_get_main_window (NULL),
-                               0,
+                               GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
                                GTK_MESSAGE_ERROR,
                                GTK_BUTTONS_OK,
                                "%s", dialog_title);
         gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG(dialog),
                              "%s", dialog_msg);
-        gtk_dialog_run (GTK_DIALOG(dialog));
-        gtk_widget_destroy (dialog);
+        g_signal_connect_swapped (dialog, "response",
+                                  G_CALLBACK (gtk_widget_destroy), dialog);
+        gtk_widget_show_all (dialog);
     }
     g_date_free (max_date);
     g_date_free (min_date);
