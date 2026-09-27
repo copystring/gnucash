@@ -1172,55 +1172,36 @@ typedef struct
 
 typedef struct
 {
-    gint ref_count;
     GWeakRef window;
-    GCancellable *cancellable;
     GPtrArray *callbacks;
-    gchar **buttons;
-    gulong destroy_handler;
+    GtkWindow *dialog;
+    gulong parent_destroy_handler;
+    gulong dialog_close_handler;
+    gulong dialog_destroy_handler;
     gboolean completed;
 } GncOkToCloseWindowRequest;
-
-static GncOkToCloseWindowRequest *
-gnc_ok_to_close_window_request_ref (GncOkToCloseWindowRequest *request)
-{
-    g_atomic_int_inc (&request->ref_count);
-    return request;
-}
 
 static void
 gnc_ok_to_close_window_request_free (GncOkToCloseWindowRequest *request)
 {
-    g_assert (request->destroy_handler == 0);
+    g_assert (request->parent_destroy_handler == 0);
+    g_assert (request->dialog_close_handler == 0);
+    g_assert (request->dialog_destroy_handler == 0);
     g_weak_ref_clear (&request->window);
-    g_clear_object (&request->cancellable);
+    g_clear_object (&request->dialog);
     g_clear_pointer (&request->callbacks, g_ptr_array_unref);
-    g_strfreev (request->buttons);
     g_free (request);
-}
-
-static void
-gnc_ok_to_close_window_request_unref (GncOkToCloseWindowRequest *request)
-{
-    if (g_atomic_int_dec_and_test (&request->ref_count))
-        gnc_ok_to_close_window_request_free (request);
-}
-
-static void
-gnc_ok_to_close_window_request_destroy_notify (gpointer data,
-                                                GClosure *closure)
-{
-    (void)closure;
-    gnc_ok_to_close_window_request_unref (data);
 }
 
 static void
 gnc_ok_to_close_window_request_complete (GncOkToCloseWindowRequest *request,
                                          GtkWindow *window,
+                                         gboolean window_destroyed,
                                          gboolean close_allowed)
 {
     GPtrArray *callbacks;
     guint index;
+    gboolean destroy_dialog;
 
     if (request->completed)
         return;
@@ -1230,20 +1211,36 @@ gnc_ok_to_close_window_request_complete (GncOkToCloseWindowRequest *request,
                                      GNC_OK_TO_CLOSE_REQUEST) == request)
         g_object_set_data (G_OBJECT (window), GNC_OK_TO_CLOSE_REQUEST, NULL);
 
-    if (request->destroy_handler)
+    if (request->parent_destroy_handler)
     {
-        g_signal_handler_disconnect (window, request->destroy_handler);
-        request->destroy_handler = 0;
+        g_signal_handler_disconnect (window, request->parent_destroy_handler);
+        request->parent_destroy_handler = 0;
     }
+    if (request->dialog_close_handler)
+    {
+        g_signal_handler_disconnect (request->dialog, request->dialog_close_handler);
+        request->dialog_close_handler = 0;
+    }
+    destroy_dialog = request->dialog_destroy_handler != 0;
+    if (destroy_dialog)
+    {
+        g_signal_handler_disconnect (request->dialog, request->dialog_destroy_handler);
+        request->dialog_destroy_handler = 0;
+    }
+    if (destroy_dialog)
+        gtk_window_destroy (request->dialog);
+    g_clear_object (&request->dialog);
 
     callbacks = g_steal_pointer (&request->callbacks);
     for (index = 0; index < callbacks->len; index++)
     {
         GncOkToCloseWindowCallbackData *callback =
             g_ptr_array_index (callbacks, index);
-        callback->completed (window, close_allowed, callback->user_data);
+        callback->completed (window_destroyed ? NULL : window,
+                             close_allowed, callback->user_data);
     }
     g_ptr_array_unref (callbacks);
+    gnc_ok_to_close_window_request_free (request);
 }
 
 static void
@@ -1252,31 +1249,64 @@ gnc_ok_to_close_window_request_window_destroyed (GtkWidget *widget,
 {
     GncOkToCloseWindowRequest *request = user_data;
 
-    (void)widget;
-    request->destroy_handler = 0;
-    gnc_ok_to_close_window_request_complete (request, NULL, FALSE);
-    g_cancellable_cancel (request->cancellable);
+    request->parent_destroy_handler = 0;
+    gnc_ok_to_close_window_request_complete (request, GTK_WINDOW (widget),
+                                             TRUE, FALSE);
 }
 
 static void
-gnc_ok_to_close_window_request_finished (GObject *source,
-                                          GAsyncResult *result,
-                                          gpointer user_data)
+gnc_ok_to_close_window_request_dialog_destroyed (GtkWidget *widget,
+                                                  gpointer user_data)
 {
     GncOkToCloseWindowRequest *request = user_data;
-    GError *error = NULL;
-    GtkWindow *window = GTK_WINDOW (g_weak_ref_get (&request->window));
-    gint choice = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
-                                                  &error);
-    gboolean close_allowed = !error && choice == 1 && window != NULL;
+    GtkWindow *window;
 
-    if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        g_warning ("Close confirmation failed: %s", error->message);
-
-    gnc_ok_to_close_window_request_complete (request, window, close_allowed);
-    g_clear_error (&error);
+    (void)widget;
+    request->dialog_destroy_handler = 0;
+    window = GTK_WINDOW (g_weak_ref_get (&request->window));
+    gnc_ok_to_close_window_request_complete (request, window,
+                                             window == NULL, FALSE);
     g_clear_object (&window);
-    gnc_ok_to_close_window_request_unref (request);
+}
+
+static gboolean
+gnc_ok_to_close_window_request_dialog_close (GtkWindow *dialog,
+                                             gpointer user_data)
+{
+    GncOkToCloseWindowRequest *request = user_data;
+    GtkWindow *window = GTK_WINDOW (g_weak_ref_get (&request->window));
+
+    (void)dialog;
+    gnc_ok_to_close_window_request_complete (request, window,
+                                             window == NULL, FALSE);
+    g_clear_object (&window);
+    return TRUE;
+}
+
+static void
+gnc_ok_to_close_window_request_answer (GncOkToCloseWindowRequest *request,
+                                       gboolean close_allowed)
+{
+    GtkWindow *window = GTK_WINDOW (g_weak_ref_get (&request->window));
+
+    gnc_ok_to_close_window_request_complete (request, window,
+                                             window == NULL,
+                                             close_allowed && window != NULL);
+    g_clear_object (&window);
+}
+
+static void
+gnc_ok_to_close_window_request_no_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_ok_to_close_window_request_answer (user_data, FALSE);
+}
+
+static void
+gnc_ok_to_close_window_request_yes_clicked (GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    gnc_ok_to_close_window_request_answer (user_data, TRUE);
 }
 
 void
@@ -1286,7 +1316,11 @@ gnc_ok_to_close_window_async (GtkWindow *window,
 {
     GncOkToCloseWindowRequest *request;
     GncOkToCloseWindowCallbackData *callback;
-    GtkAlertDialog *dialog;
+    GtkWidget *content;
+    GtkWidget *label;
+    GtkWidget *buttons;
+    GtkWidget *no_button;
+    GtkWidget *yes_button;
 
     g_return_if_fail (GTK_IS_WINDOW (window));
     g_return_if_fail (completed != NULL);
@@ -1295,19 +1329,12 @@ gnc_ok_to_close_window_async (GtkWindow *window,
     if (!request)
     {
         request = g_new0 (GncOkToCloseWindowRequest, 1);
-        request->ref_count = 1;
         g_weak_ref_init (&request->window, window);
-        request->cancellable = g_cancellable_new ();
         request->callbacks = g_ptr_array_new_with_free_func (g_free);
-        request->buttons = g_new0 (gchar *, 3);
-        request->buttons[0] = g_strdup (_("No"));
-        request->buttons[1] = g_strdup (_("Yes"));
         g_object_set_data (G_OBJECT (window), GNC_OK_TO_CLOSE_REQUEST, request);
-        gnc_ok_to_close_window_request_ref (request);
-        request->destroy_handler = g_signal_connect_data (
+        request->parent_destroy_handler = g_signal_connect (
             window, "destroy",
-            G_CALLBACK (gnc_ok_to_close_window_request_window_destroyed), request,
-            gnc_ok_to_close_window_request_destroy_notify, 0);
+            G_CALLBACK (gnc_ok_to_close_window_request_window_destroyed), request);
     }
 
     callback = g_new0 (GncOkToCloseWindowCallbackData, 1);
@@ -1318,15 +1345,47 @@ gnc_ok_to_close_window_async (GtkWindow *window,
     if (request->callbacks->len != 1)
         return;
 
-    dialog = gtk_alert_dialog_new ("%s", _("Close Window ?"));
-    gtk_alert_dialog_set_buttons (dialog, (const char * const *)request->buttons);
-    gtk_alert_dialog_set_default_button (dialog, 0);
-    gtk_alert_dialog_set_cancel_button (dialog, 0);
-    gnc_ok_to_close_window_request_ref (request);
-    gtk_alert_dialog_choose (dialog, window, request->cancellable,
-                             gnc_ok_to_close_window_request_finished, request);
-    g_object_unref (dialog);
-    gnc_ok_to_close_window_request_unref (request);
+    /* Keep one teardown path when the target window disappears mid-question. */
+    request->dialog = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    gnc_window_bind_to_application (request->dialog);
+    gtk_window_set_title (request->dialog, _("Close Window ?"));
+    gtk_window_set_transient_for (request->dialog, window);
+    gtk_window_set_destroy_with_parent (request->dialog, FALSE);
+    gtk_window_set_modal (request->dialog, TRUE);
+    gtk_window_set_resizable (request->dialog, FALSE);
+
+    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start (content, 18);
+    gtk_widget_set_margin_end (content, 18);
+    gtk_widget_set_margin_top (content, 18);
+    gtk_widget_set_margin_bottom (content, 18);
+    gtk_window_set_child (request->dialog, content);
+    label = gtk_label_new (_("Close Window ?"));
+    gtk_box_append (GTK_BOX (content), label);
+    buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign (buttons, GTK_ALIGN_END);
+    gtk_box_append (GTK_BOX (content), buttons);
+    no_button = gtk_button_new_with_label (_("No"));
+    yes_button = gtk_button_new_with_label (_("Yes"));
+    gtk_box_append (GTK_BOX (buttons), no_button);
+    gtk_box_append (GTK_BOX (buttons), yes_button);
+    gtk_widget_set_visible (label, TRUE);
+    gtk_widget_set_visible (no_button, TRUE);
+    gtk_widget_set_visible (yes_button, TRUE);
+    gtk_widget_set_visible (buttons, TRUE);
+    gtk_widget_set_visible (content, TRUE);
+    g_signal_connect (no_button, "clicked",
+                      G_CALLBACK (gnc_ok_to_close_window_request_no_clicked), request);
+    g_signal_connect (yes_button, "clicked",
+                      G_CALLBACK (gnc_ok_to_close_window_request_yes_clicked), request);
+    request->dialog_close_handler = g_signal_connect (
+        request->dialog, "close-request",
+        G_CALLBACK (gnc_ok_to_close_window_request_dialog_close), request);
+    request->dialog_destroy_handler = g_signal_connect (
+        request->dialog, "destroy",
+        G_CALLBACK (gnc_ok_to_close_window_request_dialog_destroyed), request);
+    gtk_window_set_default_widget (request->dialog, no_button);
+    gtk_window_present (request->dialog);
 }
 
 /* If this is a new book, this function can be used to display book options

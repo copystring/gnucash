@@ -82,6 +82,17 @@ collect_check_buttons (GtkWidget *widget, GPtrArray *buttons)
 }
 
 static void
+collect_buttons (GtkWidget *widget, GPtrArray *buttons)
+{
+    if (GTK_IS_BUTTON (widget))
+        g_ptr_array_add (buttons, widget);
+
+    for (GtkWidget *child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        collect_buttons (child, buttons);
+}
+
+static void
 test_stored_warning_response_is_deferred (void)
 {
     const gchar *key = "closing-window-question";
@@ -157,6 +168,33 @@ test_duplicate_close_requests_finish_once_each (void)
     g_assert_cmpuint (result.calls, ==, 2);
 }
 
+static void
+test_duplicate_close_requests_accept_once_each (void)
+{
+    CloseResult result = { 0 };
+    GtkWindow *window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    GtkWindow *dialog;
+    GPtrArray *buttons = g_ptr_array_new ();
+
+    gnc_ok_to_close_window_async (window, close_completed, &result);
+    gnc_ok_to_close_window_async (window, close_completed, &result);
+    dialog = find_transient_window (window);
+    g_assert_nonnull (dialog);
+    collect_buttons (GTK_WIDGET (dialog), buttons);
+    g_assert_cmpuint (buttons->len, ==, 2);
+    g_signal_emit_by_name (g_ptr_array_index (buttons, 1), "clicked");
+    g_assert_cmpuint (result.calls, ==, 2);
+    g_assert_cmpuint (result.destroyed_windows, ==, 0);
+    g_assert_cmpuint (result.denied_closes, ==, 0);
+    drain_main_context ();
+    g_assert_cmpuint (result.calls, ==, 2);
+
+    g_ptr_array_unref (buttons);
+    g_object_unref (dialog);
+    gtk_window_destroy (window);
+    g_object_unref (window);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -173,6 +211,8 @@ main (int argc, char **argv)
                      test_warning_cancels_when_parent_is_destroyed);
     g_test_add_func ("/gnome-utils/dialog-response/duplicate-close",
                      test_duplicate_close_requests_finish_once_each);
+    g_test_add_func ("/gnome-utils/dialog-response/duplicate-accept",
+                     test_duplicate_close_requests_accept_once_each);
     status = g_test_run ();
 
     gnc_prefs_remove_registered ();
