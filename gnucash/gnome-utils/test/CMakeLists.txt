@@ -147,6 +147,15 @@ gnc_add_test (test-gnc-window-application
   "${test_gnc_window_application_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
+set (test_dialog_response_lifecycle_SOURCES
+  test-dialog-response-lifecycle.c
+)
+
+gnc_add_test (test-dialog-response-lifecycle
+  "${test_dialog_response_lifecycle_SOURCES}"
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas)
+
 set (test_gnucash_guile_bootstrap_SOURCES
   test-gnucash-guile-bootstrap.c
   ${CMAKE_SOURCE_DIR}/gnucash/gnucash-guile-bootstrap.c
