@@ -26,5 +26,11 @@ gnc_add_scheme_test_targets(scm-test-load-gnome-utils-module
 
 gnc_add_scheme_tests(test-load-gnome-utils-module.scm)
 
+gnc_add_test (test-dialog-object-references-response
+  test-dialog-object-references-response.c
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
-set_dist_list(test_gnome_utils_DIST CMakeLists.txt test-load-gnome-utils-module.scm)
+set_dist_list(test_gnome_utils_DIST
+  CMakeLists.txt
+  test-load-gnome-utils-module.scm
+  test-dialog-object-references-response.c)
