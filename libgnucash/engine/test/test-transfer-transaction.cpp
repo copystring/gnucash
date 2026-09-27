@@ -1,4 +1,4 @@
-/* test-transfer-transaction.c -- Transfer creation without a GTK dialog.
+/* test-transfer-transaction.cpp -- Transfer creation without a GTK dialog.
  *
  * Copyright (C) 2026 GnuCash contributors
  *
@@ -18,7 +18,8 @@
 #include "cashobjects.h"
 #include "gnc-commodity.h"
 #include "gnc-session.h"
-#include "gnc-transfer-transaction.h"
+#include "Account.h"
+#include "Transaction.h"
 #include "qofbook.h"
 
 static Account *
@@ -56,7 +57,7 @@ test_transfer_transaction (gconstpointer data)
     Transaction *transaction;
     Split *from_split = NULL;
     Split *to_split = NULL;
-    GncTransferTransactionInfo info;
+    GncTransactionInfo info;
     GDate posted;
     gint index;
 
@@ -81,12 +82,12 @@ test_transfer_transaction (gconstpointer data)
 
     from_account = make_account (book, root, usd, "From");
     to_account = make_account (book, root, eur, "To");
-    info = (GncTransferTransactionInfo) {
+    info = GncTransactionInfo {
         book, from_account, to_account, usd, eur, 1609502400,
         gnc_numeric_create (10, 1), gnc_numeric_create (9, 1),
         "123", "Transfer", "Notes", "Memo"
     };
-    transaction = gnc_transfer_transaction_create (&info);
+    transaction = gnc_transaction_from_transaction_info (&info);
 
     g_assert_nonnull (transaction);
     g_assert_true (xaccTransGetCurrency (transaction) == usd);

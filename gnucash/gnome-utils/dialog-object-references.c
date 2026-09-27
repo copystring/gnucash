@@ -35,10 +35,9 @@
 static QofLogModule log_module = GNC_MOD_GUI;
 
 static void
-object_references_response_cb (GtkDialog *dialog, gint response, gpointer user_data)
+object_references_response_cb (GtkDialog *dialog, [[maybe_unused]] gint response,
+                               [[maybe_unused]] gpointer user_data)
 {
-    (void)response;
-    (void)user_data;
     gtk_widget_destroy (GTK_WIDGET (dialog));
 }
 

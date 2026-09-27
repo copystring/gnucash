@@ -41,7 +41,6 @@
 #include "gnc-gui-query.h"
 #include "gnc-pricedb.h"
 #include "gnc-tree-view-account.h"
-#include "gnc-transfer-transaction.h"
 #include "gnc-ui.h"
 #include "Transaction.h"
 #include "Account.h"
@@ -1475,7 +1474,7 @@ create_transaction(XferDialog *xferData, time64 time,
                    Account *from_account, Account* to_account,
                    gnc_numeric amount, gnc_numeric to_amount)
 {
-    GncTransferTransactionInfo info = {
+    GncTransactionInfo info = {
         xferData->book,
         from_account,
         to_account,
@@ -1489,7 +1488,7 @@ create_transaction(XferDialog *xferData, time64 time,
         gtk_entry_get_text (GTK_ENTRY (xferData->notes_entry)),
         gtk_entry_get_text (GTK_ENTRY (xferData->memo_entry))
     };
-    auto trans = gnc_transfer_transaction_create (&info);
+    auto trans = gnc_transaction_from_transaction_info (&info);
 
     /* If there is a registered callback handler that should be
        notified of the newly created Transaction, call it now. */

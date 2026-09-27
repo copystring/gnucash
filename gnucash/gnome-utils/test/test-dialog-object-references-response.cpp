@@ -1,4 +1,4 @@
-/* test-dialog-object-references-response.c -- GTK3 response lifecycle.
+/* test-dialog-object-references-response.cpp -- GTK3 response lifecycle.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,7 +22,7 @@ find_references_dialog (void)
 
     for (GList *node = windows; node; node = node->next)
     {
-        GtkWidget *window = node->data;
+        auto window = static_cast<GtkWidget *> (node->data);
 
         if (g_strcmp0 (gtk_widget_get_name (window),
                        "gnc-id-object-reference") == 0)
@@ -36,12 +36,11 @@ find_references_dialog (void)
 }
 
 static void
-dialog_destroyed (GtkWidget *dialog, gpointer user_data)
+dialog_destroyed ([[maybe_unused]] GtkWidget *dialog, gpointer user_data)
 {
-    guint *destroy_count = user_data;
+    auto destroy_count = static_cast<guint *> (user_data);
 
     ++*destroy_count;
-    (void)dialog;
 }
 
 static void
