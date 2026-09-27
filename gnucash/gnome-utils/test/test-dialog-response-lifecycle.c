@@ -129,12 +129,13 @@ test_warning_cancels_when_parent_is_destroyed (void)
     g_ptr_array_unref (buttons);
     g_object_unref (warning);
 
+    /* The destroy signal runs after both GTK and the test release the window. */
     gtk_window_destroy (parent);
+    g_object_unref (parent);
     g_assert_cmpuint (result.calls, ==, 1);
     g_assert_cmpint (result.response, ==, GTK_RESPONSE_CANCEL);
     drain_main_context ();
     g_assert_cmpuint (result.calls, ==, 1);
-    g_object_unref (parent);
 }
 
 static void
@@ -148,12 +149,12 @@ test_duplicate_close_requests_finish_once_each (void)
     g_assert_cmpuint (result.calls, ==, 0);
 
     gtk_window_destroy (window);
+    g_object_unref (window);
     g_assert_cmpuint (result.calls, ==, 2);
     g_assert_cmpuint (result.destroyed_windows, ==, 2);
     g_assert_cmpuint (result.denied_closes, ==, 2);
     drain_main_context ();
     g_assert_cmpuint (result.calls, ==, 2);
-    g_object_unref (window);
 }
 
 int
