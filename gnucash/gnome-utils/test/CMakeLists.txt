@@ -324,6 +324,7 @@ set_dist_list(test_gnome_utils_DIST
   ${test_gnc_statusbar_SOURCES}
   ${test_gnc_toolbar_SOURCES}
   ${test_gnc_window_application_SOURCES}
+  ${test_dialog_response_lifecycle_SOURCES}
   test-gnucash-guile-bootstrap.c
   ${test_gnc_accelerators_SOURCES}
   ${test_gnc_dense_cal_SOURCES}

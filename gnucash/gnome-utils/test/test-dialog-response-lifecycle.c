@@ -54,6 +54,33 @@ close_completed (GtkWindow *window, gboolean close_allowed, gpointer user_data)
     result->denied_closes += !close_allowed;
 }
 
+static GtkWindow *
+find_transient_window (GtkWindow *parent)
+{
+    GListModel *windows = gtk_window_get_toplevels ();
+
+    for (guint index = 0; index < g_list_model_get_n_items (windows); index++)
+    {
+        GtkWindow *window = g_list_model_get_item (windows, index);
+
+        if (gtk_window_get_transient_for (window) == parent)
+            return window;
+        g_object_unref (window);
+    }
+    return NULL;
+}
+
+static void
+collect_check_buttons (GtkWidget *widget, GPtrArray *buttons)
+{
+    if (GTK_IS_CHECK_BUTTON (widget))
+        g_ptr_array_add (buttons, widget);
+
+    for (GtkWidget *child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        collect_check_buttons (child, buttons);
+}
+
 static void
 test_stored_warning_response_is_deferred (void)
 {
@@ -80,6 +107,8 @@ test_warning_cancels_when_parent_is_destroyed (void)
     const gchar *key = "checkprinting-multi-acct";
     WarningResult result = { 0 };
     GtkWindow *parent = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
+    GtkWindow *warning;
+    GPtrArray *buttons = g_ptr_array_new ();
 
     g_assert_true (gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_TEMP, key, 0));
     g_assert_true (gnc_prefs_set_int (GNC_PREFS_GROUP_WARNINGS_PERM, key, 0));
@@ -87,6 +116,18 @@ test_warning_cancels_when_parent_is_destroyed (void)
                               "Yes", GTK_RESPONSE_YES, TRUE,
                               warning_completed, &result);
     g_assert_cmpuint (result.calls, ==, 0);
+
+    warning = find_transient_window (parent);
+    g_assert_nonnull (warning);
+    collect_check_buttons (GTK_WIDGET (warning), buttons);
+    g_assert_cmpuint (buttons->len, ==, 2);
+    g_assert_true (gtk_widget_get_sensitive (g_ptr_array_index (buttons, 1)));
+    gtk_check_button_set_active (g_ptr_array_index (buttons, 0), TRUE);
+    g_assert_false (gtk_widget_get_sensitive (g_ptr_array_index (buttons, 1)));
+    gtk_check_button_set_active (g_ptr_array_index (buttons, 0), FALSE);
+    g_assert_true (gtk_widget_get_sensitive (g_ptr_array_index (buttons, 1)));
+    g_ptr_array_unref (buttons);
+    g_object_unref (warning);
 
     gtk_window_destroy (parent);
     g_assert_cmpuint (result.calls, ==, 1);

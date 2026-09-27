@@ -849,11 +849,11 @@ gnc_builder_connect_full_func(GtkBuilder *builder,
 
 
 static void
-gnc_perm_button_cb (GtkButton *perm, gpointer user_data)
+gnc_perm_button_cb (GtkCheckButton *perm, gpointer user_data)
 {
     gboolean perm_active;
 
-    perm_active = gtk_check_button_get_active(GTK_CHECK_BUTTON(perm));
+    perm_active = gtk_check_button_get_active (perm);
     gtk_widget_set_sensitive(user_data, !perm_active);
 }
 
@@ -1096,7 +1096,7 @@ gnc_warning_dialog_async_full (GtkWindow *parent, const gchar *pref_name,
     gtk_widget_set_visible (temp, TRUE);
     g_weak_ref_set (&request->perm, perm);
     g_weak_ref_set (&request->temp, temp);
-    g_signal_connect (perm, "clicked", G_CALLBACK (gnc_perm_button_cb), temp);
+    g_signal_connect (perm, "toggled", G_CALLBACK (gnc_perm_button_cb), temp);
 
     button_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_halign (button_box, GTK_ALIGN_END);
