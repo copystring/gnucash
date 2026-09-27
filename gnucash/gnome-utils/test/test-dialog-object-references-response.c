@@ -69,6 +69,15 @@ test_dialog_closes (gconstpointer data)
     else
         gtk_window_close (GTK_WINDOW (dialog));
 
+    /* gtk_window_close() dispatches a delete event through the main context. */
+    for (guint attempts = 0; destroy_count == 0 && attempts < 1000; ++attempts)
+    {
+        while (g_main_context_iteration (NULL, FALSE))
+            ;
+        if (destroy_count == 0)
+            g_usleep (1000);
+    }
+
     g_assert_cmpuint (destroy_count, ==, 1);
     g_assert_null (find_references_dialog ());
 }
@@ -78,6 +87,8 @@ main (int argc, char **argv)
 {
     g_test_init (&argc, &argv, NULL);
     display_available = gtk_init_check (&argc, &argv);
+    if (g_getenv ("GNC_REQUIRE_DISPLAY"))
+        g_assert_true (display_available);
 
     g_test_add_data_func ("/gnome-utils/object-references/response",
                           GINT_TO_POINTER (TRUE), test_dialog_closes);
