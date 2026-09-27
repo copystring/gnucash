@@ -19,10 +19,21 @@ test_filter='ImportMatcherTest.embedded_matcher_ignores_late_price_dialog_accept
 mkdir -p "$build_dir"
 exec > >(tee "$log_file") 2>&1
 
+failed_tests="$build_dir/Testing/Temporary/LastTestsFailed.log"
+if [[ ! -f "$failed_tests" ]] ||
+   ! grep -Eq '^[0-9]+:test-import-account-matcher[[:space:]]*$' "$failed_tests"; then
+    echo 'The matcher test did not fail; no diagnostic replay.'
+    exit 0
+fi
+
 if [[ ! -f "$build_dir/Testing/Temporary/LastTest.log" ]] ||
    ! grep -Fq 'gtk_im_context_ime_message_filter' "$build_dir/Testing/Temporary/LastTest.log"; then
-    echo 'No matcher IME assertion in the completed test log; no diagnostic replay.'
-    exit 0
+    # A later callback failure may depend on earlier tests in the same process.
+    # Preserve their ordering when reproducing a crash without the IME marker.
+    test_filter='ImportMatcherTest.*'
+else
+    # Only the known critical needs to become fatal for a useful stack.
+    export G_DEBUG="${G_DEBUG:+$G_DEBUG,}fatal-criticals"
 fi
 
 require_ctest_property()
@@ -106,13 +117,9 @@ record_runtime_provenance()
 
 record_runtime_provenance
 
-# Do not weaken the regular test policy. This diagnostic-only addition makes
-# the Gtk critical stop in gdb so its caller stack is retained in the log.
-export G_DEBUG="${G_DEBUG:+$G_DEBUG,}fatal-criticals"
-
 cd "$test_dir"
 gdb --version
-echo "Running $test_filter under gdb"
+echo "Running $test_filter under gdb after matcher test failure"
 echo "Working directory: $PWD"
 echo "GNC_BUILDDIR=$GNC_BUILDDIR"
 echo "GSETTINGS_SCHEMA_DIR=$GSETTINGS_SCHEMA_DIR"
