@@ -9,6 +9,7 @@
 
 #include <config.h>
 
+#include <glib/gi18n.h>
 #include <gtk/gtk.h>
 
 #include "dialog-utils.h"
@@ -81,15 +82,21 @@ collect_check_buttons (GtkWidget *widget, GPtrArray *buttons)
         collect_check_buttons (child, buttons);
 }
 
-static void
-collect_buttons (GtkWidget *widget, GPtrArray *buttons)
+static GtkButton *
+find_button_with_label (GtkWidget *widget, const gchar *label)
 {
-    if (GTK_IS_BUTTON (widget))
-        g_ptr_array_add (buttons, widget);
+    if (GTK_IS_BUTTON (widget) &&
+        g_strcmp0 (gtk_button_get_label (GTK_BUTTON (widget)), label) == 0)
+        return GTK_BUTTON (widget);
 
     for (GtkWidget *child = gtk_widget_get_first_child (widget); child;
          child = gtk_widget_get_next_sibling (child))
-        collect_buttons (child, buttons);
+    {
+        GtkButton *button = find_button_with_label (child, label);
+        if (button)
+            return button;
+    }
+    return NULL;
 }
 
 static void
@@ -174,22 +181,21 @@ test_duplicate_close_requests_accept_once_each (void)
     CloseResult result = { 0 };
     GtkWindow *window = GTK_WINDOW (g_object_ref_sink (gtk_window_new ()));
     GtkWindow *dialog;
-    GPtrArray *buttons = g_ptr_array_new ();
+    GtkButton *yes_button;
 
     gnc_ok_to_close_window_async (window, close_completed, &result);
     gnc_ok_to_close_window_async (window, close_completed, &result);
     dialog = find_transient_window (window);
     g_assert_nonnull (dialog);
-    collect_buttons (GTK_WIDGET (dialog), buttons);
-    g_assert_cmpuint (buttons->len, ==, 2);
-    g_signal_emit_by_name (g_ptr_array_index (buttons, 1), "clicked");
+    yes_button = find_button_with_label (GTK_WIDGET (dialog), _("Yes"));
+    g_assert_nonnull (yes_button);
+    g_signal_emit_by_name (yes_button, "clicked");
     g_assert_cmpuint (result.calls, ==, 2);
     g_assert_cmpuint (result.destroyed_windows, ==, 0);
     g_assert_cmpuint (result.denied_closes, ==, 0);
     drain_main_context ();
     g_assert_cmpuint (result.calls, ==, 2);
 
-    g_ptr_array_unref (buttons);
     g_object_unref (dialog);
     gtk_window_destroy (window);
     g_object_unref (window);
