@@ -49,6 +49,8 @@
 #include "gnc-tree-view-account.h"
 #include "gnc-ui.h"
 #include "gnc-ui-util.h"
+#include "guid.h"
+#include "qofbook.h"
 #include <gnc-locale-tax.h>
 
 #define DIALOG_NEW_ACCOUNT_CM_CLASS "dialog-new-account"
@@ -2419,6 +2421,207 @@ enable_box_cb (GtkToggleButton *toggle_button, gpointer user_data)
     gtk_widget_set_sensitive (GTK_WIDGET(user_data), sensitive);
 }
 
+typedef struct
+{
+    guint refs;
+    GtkBuilder *builder;
+    GtkWidget *dialog;
+    GtkWidget *color_button;
+    GtkWidget *replace_check;
+    GtkWidget *enable_color;
+    GtkWidget *enable_placeholder;
+    GtkWidget *enable_hidden;
+    GtkWidget *placeholder_button;
+    GtkWidget *hidden_button;
+    QofBook *book;
+    GncGUID *account_guid;
+    gchar *old_color;
+    gboolean completed;
+    gboolean destroyed;
+} CascadeDialogRequest;
+
+static CascadeDialogRequest *
+cascade_dialog_request_ref (CascadeDialogRequest *request)
+{
+    ++request->refs;
+    return request;
+}
+
+static void
+cascade_dialog_request_unref (CascadeDialogRequest *request)
+{
+    if (--request->refs)
+        return;
+
+    if (request->book)
+        g_object_remove_weak_pointer (G_OBJECT (request->book),
+                                      (gpointer *)&request->book);
+    if (request->builder)
+        g_object_unref (request->builder);
+    guid_free (request->account_guid);
+    g_free (request->old_color);
+    g_free (request);
+}
+
+static void
+cascade_dialog_request_closure_unref (gpointer data, GClosure *closure)
+{
+    cascade_dialog_request_unref (data);
+}
+
+static gboolean
+cascade_dialog_request_book_is_usable (CascadeDialogRequest *request)
+{
+    return request->book && qof_book_is_open (request->book) &&
+           !qof_book_shutting_down (request->book) &&
+           !qof_book_is_readonly (request->book);
+}
+
+static Account *
+cascade_dialog_request_lookup_account (CascadeDialogRequest *request,
+                                       const GncGUID *guid)
+{
+    Account *account;
+    Account *book_root;
+
+    if (!cascade_dialog_request_book_is_usable (request))
+        return NULL;
+
+    account = xaccAccountLookup (guid, request->book);
+    book_root = gnc_book_get_root_account (request->book);
+    if (!account || !book_root || gnc_account_get_root (account) != book_root)
+        return NULL;
+
+    return account;
+}
+
+static void
+cascade_dialog_request_apply_account (CascadeDialogRequest *request,
+                                     const GncGUID *guid, gboolean is_root,
+                                     gboolean color_active,
+                                     const gchar *new_color,
+                                     gboolean replace,
+                                     gboolean placeholder_active,
+                                     gboolean placeholder,
+                                     gboolean hidden_active,
+                                     gboolean hidden)
+{
+    Account *account;
+
+    account = cascade_dialog_request_lookup_account (request, guid);
+    if (color_active && account)
+    {
+        const gchar *old_color = is_root ? request->old_color :
+                                 xaccAccountGetColor (account);
+        update_account_color (account, old_color, new_color, replace);
+    }
+
+    /* Each setter emits account events. An event handler can delete this
+     * account or close its book, so resolve the GUID again before every write. */
+    account = cascade_dialog_request_lookup_account (request, guid);
+    if (placeholder_active && account)
+        xaccAccountSetPlaceholder (account, placeholder);
+
+    account = cascade_dialog_request_lookup_account (request, guid);
+    if (hidden_active && account)
+        xaccAccountSetHidden (account, hidden);
+}
+
+static void
+cascade_dialog_request_destroyed (GtkWidget *dialog, gpointer user_data)
+{
+    CascadeDialogRequest *request = user_data;
+
+    request->destroyed = TRUE;
+    request->completed = TRUE;
+    request->dialog = NULL;
+    request->color_button = NULL;
+    request->replace_check = NULL;
+    request->enable_color = NULL;
+    request->enable_placeholder = NULL;
+    request->enable_hidden = NULL;
+    request->placeholder_button = NULL;
+    request->hidden_button = NULL;
+    if (request->book)
+    {
+        g_object_remove_weak_pointer (G_OBJECT (request->book),
+                                      (gpointer *)&request->book);
+        request->book = NULL;
+    }
+    if (request->builder)
+    {
+        g_object_unref (request->builder);
+        request->builder = NULL;
+    }
+}
+
+static void
+cascade_dialog_request_response (GtkDialog *dialog, gint response,
+                                 gpointer user_data)
+{
+    CascadeDialogRequest *request = cascade_dialog_request_ref (user_data);
+    gboolean color_active, replace, placeholder_active, placeholder;
+    gboolean hidden_active, hidden;
+    gchar *new_color = NULL;
+    GPtrArray *account_guids;
+    Account *account;
+    GList *descendants;
+
+    if (request->completed || request->destroyed)
+    {
+        cascade_dialog_request_unref (request);
+        return;
+    }
+    request->completed = TRUE;
+
+    color_active = response == GTK_RESPONSE_OK &&
+                   gtk_toggle_button_get_active (
+                       GTK_TOGGLE_BUTTON (request->enable_color));
+    replace = gtk_toggle_button_get_active (
+                  GTK_TOGGLE_BUTTON (request->replace_check));
+    placeholder_active = response == GTK_RESPONSE_OK &&
+                         gtk_toggle_button_get_active (
+                             GTK_TOGGLE_BUTTON (request->enable_placeholder));
+    placeholder = gtk_toggle_button_get_active (
+                      GTK_TOGGLE_BUTTON (request->placeholder_button));
+    hidden_active = response == GTK_RESPONSE_OK &&
+                    gtk_toggle_button_get_active (
+                        GTK_TOGGLE_BUTTON (request->enable_hidden));
+    hidden = gtk_toggle_button_get_active (
+                 GTK_TOGGLE_BUTTON (request->hidden_button));
+    if (color_active)
+    {
+        GdkRGBA color;
+        gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (request->color_button),
+                                    &color);
+        new_color = gdk_rgba_to_string (&color);
+        if (g_strcmp0 (new_color, DEFAULT_COLOR) == 0)
+            g_clear_pointer (&new_color, g_free);
+    }
+
+    account_guids = g_ptr_array_new_with_free_func (g_free);
+    g_ptr_array_add (account_guids, guid_copy (request->account_guid));
+    account = cascade_dialog_request_lookup_account (request,
+                                                    request->account_guid);
+    descendants = account ? gnc_account_get_descendants (account) : NULL;
+    for (GList *node = descendants; node; node = g_list_next (node))
+        g_ptr_array_add (account_guids,
+                         guid_copy (xaccAccountGetGUID (node->data)));
+    g_list_free (descendants);
+
+    for (guint i = 0; i < account_guids->len && !request->destroyed; ++i)
+        cascade_dialog_request_apply_account (
+            request, g_ptr_array_index (account_guids, i), i == 0,
+            color_active, new_color, replace, placeholder_active, placeholder,
+            hidden_active, hidden);
+
+    g_ptr_array_unref (account_guids);
+    g_free (new_color);
+    if (!request->destroyed)
+        gtk_widget_destroy (GTK_WIDGET (dialog));
+    cascade_dialog_request_unref (request);
+}
+
 void
 gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
 {
@@ -2434,7 +2637,7 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
     const char *color_string;
     gchar *old_color_string = NULL;
     GdkRGBA color;
-    gint response;
+    CascadeDialogRequest *request;
 
     // check if we actually do have sub accounts
     g_return_if_fail (gnc_account_n_children (account) > 0);
@@ -2510,76 +2713,41 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
     g_free (string);
     g_free (fullname);
 
+    /* The request owns the builder until the dialog is destroyed. */
+    request = g_new0 (CascadeDialogRequest, 1);
+    request->refs = 1;
+    request->builder = builder;
+    request->dialog = dialog;
+    request->color_button = color_button;
+    request->replace_check = over_write;
+    request->enable_color = enable_color;
+    request->enable_placeholder = enable_placeholder;
+    request->enable_hidden = enable_hidden;
+    request->placeholder_button = placeholder_button;
+    request->hidden_button = hidden_button;
+    request->book = gnc_account_get_book (account);
+    request->account_guid = guid_copy (xaccAccountGetGUID (account));
+    request->old_color = old_color_string;
+    old_color_string = NULL;
+    g_object_add_weak_pointer (G_OBJECT (request->book),
+                               (gpointer *)&request->book);
+
+    gtk_window_set_modal (GTK_WINDOW (dialog), TRUE);
+    gtk_window_set_destroy_with_parent (GTK_WINDOW (dialog), TRUE);
+
     /* default to cancel */
     gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
 
     gtk_builder_connect_signals (builder, dialog);
-    g_object_unref (G_OBJECT(builder));
+    g_signal_connect_data (dialog, "response",
+                           G_CALLBACK (cascade_dialog_request_response),
+                           cascade_dialog_request_ref (request),
+                           cascade_dialog_request_closure_unref, 0);
+    g_signal_connect_data (dialog, "destroy",
+                           G_CALLBACK (cascade_dialog_request_destroyed),
+                           cascade_dialog_request_ref (request),
+                           cascade_dialog_request_closure_unref, 0);
+    cascade_dialog_request_unref (request);
 
     gtk_widget_show_all (dialog);
-
-    response = gtk_dialog_run (GTK_DIALOG(dialog));
-
-    if (response == GTK_RESPONSE_OK)
-    {
-        GList *accounts = gnc_account_get_descendants (account);
-        GdkRGBA new_color;
-        gchar *new_color_string = NULL;
-        gboolean color_active = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(enable_color));
-        gboolean placeholder_active = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(enable_placeholder));
-        gboolean hidden_active = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(enable_hidden));
-        gboolean replace = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(over_write));
-        gboolean placeholder = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(placeholder_button));
-        gboolean hidden = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(hidden_button));
-
-        // Update Account Colors
-        if (color_active)
-        {
-            gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER(color_button), &new_color);
-            new_color_string = gdk_rgba_to_string (&new_color);
-
-            if (g_strcmp0 (new_color_string, DEFAULT_COLOR) == 0)
-            {
-                g_free (new_color_string);
-                new_color_string = NULL;
-            }
-
-            // check/update selected account
-            update_account_color (account, old_color_string, new_color_string, replace);
-        }
-
-        // Update Account Placeholder value
-        if (placeholder_active)
-            xaccAccountSetPlaceholder (account, placeholder);
-
-        // Update Account Hidden value
-        if (hidden_active)
-            xaccAccountSetHidden (account, hidden);
-
-        // Update SubAccounts
-        if (accounts)
-        {
-            for (GList *acct = accounts; acct; acct = g_list_next(acct))
-            {
-                // Update SubAccount Colors
-                if (color_active)
-                {
-                    const char *string = xaccAccountGetColor (acct->data);
-                    update_account_color (acct->data, string, new_color_string, replace);
-                }
-                // Update SubAccount PlaceHolder
-                if (placeholder_active)
-                    xaccAccountSetPlaceholder (acct->data, placeholder);
-                // Update SubAccount Hidden
-                if (hidden_active)
-                    xaccAccountSetHidden (acct->data, hidden);
-            }
-        }
-        g_list_free (accounts);
-        g_free (new_color_string);
-    }
-    if (old_color_string)
-        g_free (old_color_string);
-
-    gtk_widget_destroy (dialog);
 }

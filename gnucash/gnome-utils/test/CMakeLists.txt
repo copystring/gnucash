@@ -40,9 +40,15 @@ gnc_add_test (test-gui-query-response
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 set_tests_properties(test-gui-query-response PROPERTIES TIMEOUT 30)
 
+gnc_add_test (test-dialog-account-cascade-response
+  test-dialog-account-cascade-response.cpp
+  GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+set_tests_properties(test-dialog-account-cascade-response PROPERTIES TIMEOUT 30)
+
 set_dist_list(test_gnome_utils_DIST
   CMakeLists.txt
   test-load-gnome-utils-module.scm
   test-dialog-object-references-response.cpp
   test-dialog-date-range-response.cpp
-  test-gui-query-response.cpp)
+  test-gui-query-response.cpp
+  test-dialog-account-cascade-response.cpp)

@@ -181,6 +181,11 @@ void gnc_ui_register_account_destroy_callback (void (*cb)(Account *));
 
 void gnc_account_renumber_create_dialog (GtkWidget *window, Account *account);
 
+/** Show the account cascade properties dialog for @a account.
+ * The dialog is response-driven; this function returns immediately and does
+ * not report whether the user accepted the changes. The account is resolved
+ * again from its original book when the response arrives.
+ */
 void gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account);
 
 #ifdef __cplusplus
