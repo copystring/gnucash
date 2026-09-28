@@ -2194,8 +2194,8 @@ gnc_plugin_page_register_cmd_print_check (GSimpleAction *simple,
     }
     else
     {
-        gnc_error_dialog (GTK_WINDOW (window), "%s",
-                          _ ("You can only print checks from a bank account register or search results."));
+        gnc_error_dialog_async (GTK_WINDOW (window), "%s",
+                                _ ("You can only print checks from a bank account register or search results."));
         LEAVE ("Unsupported ledger type");
         return;
     }
@@ -2455,15 +2455,15 @@ gnc_plugin_page_register_cmd_void_transaction (GSimpleAction *simple,
     if (xaccTransHasReconciledSplits (trans) ||
         xaccTransHasSplitsInState (trans, CREC))
     {
-        gnc_error_dialog (window, "%s",
-                          _ ("You cannot void a transaction with reconciled or cleared splits."));
+        gnc_error_dialog_async (window, "%s",
+                                _ ("You cannot void a transaction with reconciled or cleared splits."));
         return;
     }
     reason = xaccTransGetReadOnly (trans);
     if (reason)
     {
-        gnc_error_dialog (window,
-                          _ ("This transaction is marked read-only with the comment: '%s'"), reason);
+        gnc_error_dialog_async (window,
+                                _ ("This transaction is marked read-only with the comment: '%s'"), reason);
         return;
     }
 

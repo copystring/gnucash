@@ -143,6 +143,15 @@ extern void
 gnc_error_dialog (GtkWindow *parent,
                   const char *format, ...) G_GNUC_PRINTF (2, 3);
 
+/** Show a modal error notice without waiting for dismissal.
+ * Use only when the caller has no work that depends on closing the notice.
+ * Formatting arguments are copied before returning; destruction of the
+ * parent closes the notice. Existing synchronous error callers are unchanged.
+ */
+extern void
+gnc_error_dialog_async (GtkWindow *parent,
+                        const gchar *format, ...) G_GNUC_PRINTF (2, 3);
+
 extern gchar *
 gnc_input_dialog (GtkWidget *parent, const gchar *title, const gchar *msg, const gchar *default_input);
 

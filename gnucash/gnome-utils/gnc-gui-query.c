@@ -283,8 +283,8 @@ gnc_verify_dialog(GtkWindow *parent, gboolean yes_is_default,
     return (result == GTK_RESPONSE_YES);
 }
 
-static void
-gnc_message_dialog_common (GtkWindow *parent, const gchar *format, GtkMessageType msg_type, va_list args)
+static GtkWidget *
+gnc_message_dialog_create (GtkWindow *parent, const gchar *format, GtkMessageType msg_type, va_list args)
 {
     GtkWidget *dialog = NULL;
     gchar *buffer;
@@ -304,6 +304,14 @@ gnc_message_dialog_common (GtkWindow *parent, const gchar *format, GtkMessageTyp
     if (!parent)
         gtk_window_set_skip_taskbar_hint(GTK_WINDOW(dialog), FALSE);
 
+    return dialog;
+}
+
+static void
+gnc_message_dialog_common (GtkWindow *parent, const gchar *format,
+                          GtkMessageType msg_type, va_list args)
+{
+    GtkWidget *dialog = gnc_message_dialog_create (parent, format, msg_type, args);
     gtk_dialog_run (GTK_DIALOG (dialog));
     gtk_widget_destroy (dialog);
 }
@@ -372,6 +380,19 @@ void gnc_error_dialog (GtkWindow* parent, const char* format, ...)
     va_start(args, format);
     gnc_message_dialog_common (parent, format, GTK_MESSAGE_ERROR, args);
     va_end(args);
+}
+
+void
+gnc_error_dialog_async (GtkWindow *parent, const gchar *format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    GtkWidget *dialog = gnc_message_dialog_create (parent, format,
+                                                  GTK_MESSAGE_ERROR, args);
+    va_end (args);
+    g_signal_connect_swapped (dialog, "response",
+                              G_CALLBACK (gtk_widget_destroy), dialog);
+    gtk_widget_show (dialog);
 }
 
 static void

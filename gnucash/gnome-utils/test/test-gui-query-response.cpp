@@ -113,6 +113,65 @@ test_query (gconstpointer data)
         gtk_widget_destroy (GTK_WIDGET (parent));
 }
 
+static void
+notice_destroyed (GtkWidget *, gpointer user_data)
+{
+    ++*static_cast<guint *> (user_data);
+}
+
+static void
+test_error_notice (gconstpointer data)
+{
+    if (!display_available)
+    {
+        g_test_skip ("No graphical display is available");
+        return;
+    }
+    auto action = GPOINTER_TO_INT (data);
+    auto parent = GTK_WINDOW (gtk_window_new (GTK_WINDOW_TOPLEVEL));
+    auto detail = g_strdup ("borrowed detail");
+    gnc_error_dialog_async (parent, "Error %d: %s", 42, detail);
+    g_free (detail);
+    auto dialog = find_query (parent);
+    g_assert_nonnull (dialog);
+    g_assert_true (gtk_window_get_modal (GTK_WINDOW (dialog)));
+    g_assert_true (gtk_window_get_destroy_with_parent (GTK_WINDOW (dialog)));
+    gchar *message = nullptr;
+    gint type = GTK_MESSAGE_OTHER;
+    g_object_get (dialog, "text", &message, "message-type", &type, nullptr);
+    g_assert_cmpstr (message, ==, "Error 42: borrowed detail");
+    g_assert_cmpint (type, ==, GTK_MESSAGE_ERROR);
+    g_free (message);
+
+    guint count = 0;
+    g_signal_connect (dialog, "destroy", G_CALLBACK (notice_destroyed), &count);
+    g_object_ref (dialog);
+    GtkWidget *weak_dialog = dialog;
+    g_object_add_weak_pointer (G_OBJECT (dialog),
+                               reinterpret_cast<gpointer *> (&weak_dialog));
+    switch (action)
+    {
+    case 0: gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_CLOSE); break;
+    case 1: gtk_window_close (GTK_WINDOW (dialog)); break;
+    case 2: gtk_widget_destroy (GTK_WIDGET (parent)); break;
+    case 3: gtk_widget_destroy (dialog); break;
+    }
+    for (guint attempt = 0; count == 0 && attempt < 1000; ++attempt)
+    {
+        while (g_main_context_iteration (nullptr, FALSE))
+            ;
+        if (count == 0)
+            g_usleep (1000);
+    }
+    g_assert_cmpuint (count, ==, 1);
+    gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_CLOSE);
+    g_assert_cmpuint (count, ==, 1);
+    g_object_unref (dialog);
+    g_assert_null (weak_dialog);
+    if (action != 2)
+        gtk_widget_destroy (GTK_WIDGET (parent));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -131,5 +190,14 @@ main (int argc, char **argv)
             g_test_add_data_func (path, GINT_TO_POINTER (family * 6 + action), test_query);
             g_free (path);
         }
+    const char *notice_actions[] = {"close", "window-close", "parent-destroy",
+                                    "dialog-destroy"};
+    for (guint action = 0; action < G_N_ELEMENTS (notice_actions); ++action)
+    {
+        auto path = g_strdup_printf ("/gnome-utils/query/error-notice/%s",
+                                     notice_actions[action]);
+        g_test_add_data_func (path, GINT_TO_POINTER (action), test_error_notice);
+        g_free (path);
+    }
     return g_test_run ();
 }
