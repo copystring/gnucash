@@ -31,6 +31,128 @@
 
 #define INDEX_LABEL "index"
 
+typedef struct
+{
+    GWeakRef parent;
+    gboolean has_parent;
+    GncGuiQueryResponseCallback callback;
+    gpointer user_data;
+    gint accept_response;
+    gint cancel_response;
+} GncGuiQueryRequest;
+
+static void
+gnc_gui_query_complete (GtkWidget *dialog, GncGuiQueryRequest *request,
+                        gint response, gboolean destroying)
+{
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+    GncGuiQueryResponseCallback callback = request->callback;
+    gpointer user_data = request->user_data;
+
+    /* Disconnect before destroying: response and destroy are two ways of
+     * completing the same request, not two independent notifications. */
+    g_signal_handlers_disconnect_by_data (dialog, request);
+    if (parent && gtk_widget_in_destruction (GTK_WIDGET (parent)))
+        g_clear_object (&parent);
+    if (response != request->accept_response || destroying ||
+        (request->has_parent && !parent))
+        response = request->cancel_response;
+    if (!destroying)
+        gtk_widget_destroy (dialog);
+    g_weak_ref_clear (&request->parent);
+    g_free (request);
+    callback (parent, response, user_data);
+    g_clear_object (&parent);
+}
+
+static void
+gnc_gui_query_response (GtkDialog *dialog, gint response, gpointer user_data)
+{
+    gnc_gui_query_complete (GTK_WIDGET (dialog), user_data, response, FALSE);
+}
+
+static void
+gnc_gui_query_destroyed (GtkWidget *dialog, gpointer user_data)
+{
+    gnc_gui_query_complete (dialog, user_data, GTK_RESPONSE_NONE, TRUE);
+}
+
+static void
+gnc_gui_query_async_va (GtkWindow *parent, const gchar *accept_label,
+                        const gchar *cancel_label, gint accept_response,
+                        gint cancel_response, gboolean accept_default,
+                        GncGuiQueryResponseCallback completed,
+                        gpointer user_data, const gchar *format, va_list args)
+{
+    g_return_if_fail (completed != NULL);
+    if (!parent)
+        parent = gnc_ui_get_main_window (NULL);
+
+    gchar *message = g_strdup_vprintf (format, args);
+    GtkWidget *dialog = gtk_message_dialog_new (
+        parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s", message);
+    g_free (message);
+    gtk_dialog_add_button (GTK_DIALOG (dialog), cancel_label, cancel_response);
+    gtk_dialog_add_button (GTK_DIALOG (dialog), accept_label, accept_response);
+    gtk_dialog_set_default_response (GTK_DIALOG (dialog),
+                                    accept_default ? accept_response : cancel_response);
+    if (!parent)
+        gtk_window_set_skip_taskbar_hint (GTK_WINDOW (dialog), FALSE);
+
+    GncGuiQueryRequest *request = g_new0 (GncGuiQueryRequest, 1);
+    g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
+    request->callback = completed;
+    request->user_data = user_data;
+    request->accept_response = accept_response;
+    request->cancel_response = cancel_response;
+    g_signal_connect (dialog, "response", G_CALLBACK (gnc_gui_query_response), request);
+    g_signal_connect (dialog, "destroy", G_CALLBACK (gnc_gui_query_destroyed), request);
+    gtk_widget_show_all (dialog);
+}
+
+void
+gnc_ok_cancel_dialog_async (GtkWindow *parent, gint default_result,
+                            GncGuiQueryResponseCallback completed,
+                            gpointer user_data, const gchar *format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    gnc_gui_query_async_va (parent, _("_OK"), _("_Cancel"), GTK_RESPONSE_OK,
+                            GTK_RESPONSE_CANCEL, default_result == GTK_RESPONSE_OK,
+                            completed, user_data, format, args);
+    va_end (args);
+}
+
+void
+gnc_verify_dialog_async (GtkWindow *parent, gboolean yes_is_default,
+                         GncGuiQueryResponseCallback completed,
+                         gpointer user_data, const gchar *format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    gnc_gui_query_async_va (parent, _("_Yes"), _("_No"), GTK_RESPONSE_YES,
+                            GTK_RESPONSE_NO, yes_is_default,
+                            completed, user_data, format, args);
+    va_end (args);
+}
+
+void
+gnc_action_dialog_async (GtkWindow *parent, const gchar *action,
+                         gboolean action_default,
+                         GncGuiQueryResponseCallback completed,
+                         gpointer user_data, const gchar *format, ...)
+{
+    va_list args;
+    g_return_if_fail (action != NULL);
+    va_start (args, format);
+    gnc_gui_query_async_va (parent, action, _("_Cancel"), GTK_RESPONSE_ACCEPT,
+                            GTK_RESPONSE_CANCEL, action_default,
+                            completed, user_data, format, args);
+    va_end (args);
+}
+
 /* This static indicates the debugging module that this .o belongs to.  */
 /* static short module = MOD_GUI; */
 

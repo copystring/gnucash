@@ -31,7 +31,7 @@ jobs:
           cd build
           ninja
           ninja distcheck
-          GNC_REQUIRE_DISPLAY=1 xvfb-run -a ctest --test-dir . -R '^test-dialog-(object-references|date-range)-response$' --output-on-failure
+          GNC_REQUIRE_DISPLAY=1 xvfb-run -a ctest --test-dir . -R '^test-(dialog-(object-references|date-range)|gui-query)-response$' --output-on-failure
         env:
           CTEST_OUTPUT_ON_FAILURE: On
       - uses: actions/upload-artifact@v7

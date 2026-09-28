@@ -90,6 +90,31 @@ extern "C" {
 
 /* Dialog windows ***************************************************/
 
+/** Completion of a non-blocking decision dialog, exactly once.
+ * parent is borrowed for the duration of the callback, or NULL if destroyed.
+ * Closing or destroying the dialog, destroying its parent, or an unknown
+ * response produces the negative response
+ * (NO for verify, CANCEL otherwise). The caller must keep user_data valid
+ * until completion. Existing synchronous callers retain their old contract.
+ */
+typedef void (*GncGuiQueryResponseCallback) (GtkWindow *parent,
+                                            gint response,
+                                            gpointer user_data);
+
+void gnc_ok_cancel_dialog_async (GtkWindow *parent, gint default_result,
+                                 GncGuiQueryResponseCallback completed,
+                                 gpointer user_data,
+                                 const gchar *format, ...) G_GNUC_PRINTF (5, 6);
+void gnc_verify_dialog_async (GtkWindow *parent, gboolean yes_is_default,
+                              GncGuiQueryResponseCallback completed,
+                              gpointer user_data,
+                              const gchar *format, ...) G_GNUC_PRINTF (5, 6);
+void gnc_action_dialog_async (GtkWindow *parent, const gchar *action,
+                              gboolean action_default,
+                              GncGuiQueryResponseCallback completed,
+                              gpointer user_data,
+                              const gchar *format, ...) G_GNUC_PRINTF (6, 7);
+
 extern gboolean
 gnc_verify_dialog (GtkWindow *parent,
                    gboolean yes_is_default,
