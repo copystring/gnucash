@@ -1626,15 +1626,17 @@ static Split *select_payment_split (GtkWindow *parent, Transaction *txn)
             return NULL;
 
         dialog = gtk_message_dialog_new (parent,
+                                         GTK_DIALOG_MODAL |
                                          GTK_DIALOG_DESTROY_WITH_PARENT,
                                          GTK_MESSAGE_INFO,
                                          GTK_BUTTONS_CLOSE,
                                          "%s",
                                          _("The selected transaction doesn't have splits that can be assigned as a payment"));
-        gtk_dialog_run (GTK_DIALOG(dialog));
-        gtk_widget_destroy (dialog);
         PINFO("No asset splits in txn \"%s\"; cannot use this for assigning a payment.",
                   xaccTransGetDescription(txn));
+        g_signal_connect_swapped (dialog, "response",
+                                  G_CALLBACK (gtk_widget_destroy), dialog);
+        gtk_widget_show (dialog);
         return NULL;
     }
 
@@ -1707,6 +1709,7 @@ static Split *select_payment_split (GtkWindow *parent, Transaction *txn)
 
 static GList *select_txn_lots (GtkWindow *parent, Transaction *txn, Account **post_acct, gboolean *abort)
 {
+    GtkWidget *notice = NULL;
     SplitList *apar_splits = NULL; /* all spits in txn that are APAR type */
     SplitList *apar_splits_no_lot = NULL; /* all splits in txn that are APAR type, but not tied to a lot */
     SplitList *iter;
@@ -1771,6 +1774,7 @@ static GList *select_txn_lots (GtkWindow *parent, Transaction *txn, Account **po
         }
 
         dialog = gtk_message_dialog_new (parent,
+                                         GTK_DIALOG_MODAL |
                                          GTK_DIALOG_DESTROY_WITH_PARENT,
                                          GTK_MESSAGE_INFO,
                                          GTK_BUTTONS_CLOSE,
@@ -1778,12 +1782,13 @@ static GList *select_txn_lots (GtkWindow *parent, Transaction *txn, Account **po
                                          "GnuCash can only handle transactions that post to a single account.\n\n"
                                          "Please correct this manually by editing the transaction directly and then try again."),
                                          split_str);
-        gtk_dialog_run (GTK_DIALOG(dialog));
-        gtk_widget_destroy (dialog);
         PINFO("Multiple asset accounts in splits of txn \"%s\"; cannot use this for assigning a payment.",
               xaccTransGetDescription(txn));
         g_free (split_str);
 
+        g_signal_connect_swapped (dialog, "response",
+                                  G_CALLBACK (gtk_widget_destroy), dialog);
+        notice = dialog;
         *abort = TRUE;
         g_list_free_full (txn_lots, g_free);
         txn_lots = NULL;
@@ -1792,6 +1797,8 @@ static GList *select_txn_lots (GtkWindow *parent, Transaction *txn, Account **po
     g_list_free (apar_splits);
     g_list_free (apar_splits_no_lot);
     g_list_free (unique_apar_accts);
+    if (notice)
+        gtk_widget_show (notice);
     return txn_lots;
 }
 
