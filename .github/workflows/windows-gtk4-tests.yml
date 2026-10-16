@@ -23,55 +23,30 @@ jobs:
             toolchain:p
             cmake:p
             ninja:p
-            boost:p
-            gtk4:p
-            guile3:p
-            libofx:p
-            libdbi:p
-            libdbi-drivers:p
-            gtest:p
-            python:p
-            pkgconf:p
-            gettext-tools:p
+      - name: Add GnuCash custom repo
+        run: |
+          sed -i "/^# SigLevel = Never/a [gnc-ucrt64]\nSigLevel = Optional TrustAll\nServer = https://github.com/gnucash/gnucash-windows-deps-repo/releases/download/gnc-ucrt64-repo/" /etc/pacman.conf
+          sed -i "s/^# ParallelDownloads/ParallelDownloads/" /etc/pacman.conf
+          pacman -Syv
+          pacboy --noconfirm -S swig:p appstream-glib:p aqbanking:p boost:p gtk4:p gsettings-desktop-schemas:p docbook-xsl:p gettext-tools:p gtest:p guile3:p harfbuzz-icu:p icu:p iso-codes:p pdcurses:p libdbi-drivers:p libofx:p libsecret:p webview2-loader zlib:p
       - name: Configure Environment
         run: |
-          echo "PREFIX=$HOME/gnucash/inst" >> $GITHUB_ENV
-          echo "SRCROOT=$HOME/gnucash/source" >> $GITHUB_ENV
-          mkdir -p $HOME/gnucash/inst/bin
-          echo "$HOME/gnucash/inst/bin" >> $GITHUB_PATH
-      - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
-        run: |
-          mkdir -p $SRCROOT
-          cd $SRCROOT
-          git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
-            git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
-          cd gwenhywfar
-          if [ ! -f configure ]; then autoreconf -fiv; fi
-          ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins
-          make -j$(nproc)
-          make install
-      - name: Build aqbanking from source (against Gwenhywfar GTK4)
-        run: |
-          cd $SRCROOT
-          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
-          cd aqbanking
-          if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX
-          make -j$(nproc)
-          make install
+          echo "PREFIX=$MSYSTEM_PREFIX" >> $GITHUB_ENV
+          echo "GUILE_LOAD_PATH=$MSYSTEM_PREFIX/share/guile/3.0/" >> $GITHUB_ENV
+          echo "GUILE_LOAD_COMPILED_PATH=$MSYSTEM_PREFIX/lib/guile/3.0/ccache" >> $GITHUB_ENV
       - name: Configure GnuCash for GTK4
         run: |
-          mkdir -p $HOME/gnucash/build
-          cd $HOME/gnucash/build
+          mkdir -p build
+          cd build
           cmake -GNinja \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DCMAKE_PREFIX_PATH=$PREFIX \
             -DWITH_PYTHON=ON \
+            -DWITH_AQBANKING=ON \
             -DGTK_MIN_VERSION=4.10.0 \
             $GITHUB_WORKSPACE
       - name: Build and Test GnuCash (GTK4)
         run: |
-          cd $HOME/gnucash/build
+          cd build
           ninja
           ninja check
         env:
