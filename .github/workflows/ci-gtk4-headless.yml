@@ -48,7 +48,7 @@ jobs:
           git clone --depth 1 https://github.com/aqbanking/aqbanking.git
           cd aqbanking
           if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --with-gwen-dir=$ROOT_DIR/inst
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst 
           make -j$(nproc)
           make install
       - name: Start Weston (headless Wayland compositor)
@@ -129,7 +129,7 @@ jobs:
           git clone --depth 1 https://github.com/aqbanking/aqbanking.git
           cd aqbanking
           if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --with-gwen-dir=$ROOT_DIR/inst
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst 
           make -j$(nproc)
           make install
       - name: Start Xvfb
@@ -209,7 +209,7 @@ jobs:
           git clone --depth 1 https://github.com/aqbanking/aqbanking.git
           cd aqbanking
           if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --with-gwen-dir=$ROOT_DIR/inst
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst 
           make -j$(nproc)
           make install
       - name: Start Xvfb
