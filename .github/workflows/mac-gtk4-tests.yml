@@ -1,0 +1,65 @@
+name: mac-gtk4-tests
+on: [push, pull_request]
+permissions: {}
+jobs:
+  ci_tests_mac_gtk4:
+    runs-on: macos-14
+    name: macOS-14 GTK4 CI Tests
+    env:
+      TZ: America/Los_Angeles
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Configure Environment
+        run: |
+          echo "PATH=$HOME/gnucash/inst/bin:$PATH" >> $GITHUB_ENV
+          echo "PREFIX=$HOME/gnucash/inst" >> $GITHUB_ENV
+          echo "SRCROOT=$HOME/gnucash/source" >> $GITHUB_ENV
+          # Install base dependencies only (GTK4 stack from Homebrew)
+          # NOTE: gwenhywfar and aqbanking from Homebrew are GTK3 versions.
+          # We build Gwenhywfar GTK4 (our fork with GTK4 backend) and AqBanking from source below.
+          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite webkitgtk googletest boost gtksourceview autoconf automake libtool
+      - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
+        run: |
+          cd $HOME/gnucash/source
+          git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
+            git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
+          cd gwenhywfar
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins
+          make -j$(sysctl -n hw.ncpu)
+          make install
+      - name: Build aqbanking from source (against Gwenhywfar GTK4)
+        run: |
+          cd $HOME/gnucash/source
+          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
+          cd aqbanking
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX --with-gwen-dir=$PREFIX
+          make -j$(sysctl -n hw.ncpu)
+          make install
+      - name: Configure GnuCash for GTK4
+        run: |
+          mkdir -p $HOME/gnucash/build
+          cd $HOME/gnucash/build
+          cmake -GNinja \
+            -DPKG_CONFIG_EXECUTABLE=$PREFIX/bin/pkg-config \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DCMAKE_PREFIX_PATH=$PREFIX \
+            -DWITH_PYTHON=ON \
+            -DGTEST_ROOT=$SRCROOT/googletest \
+            -DGTK_MIN_VERSION=4.10.0 \
+            $GITHUB_WORKSPACE
+      - name: Build and Test GnuCash (GTK4)
+        run: |
+          cd $HOME/gnucash/build
+          ninja
+          ninja check
+        env:
+          CTEST_OUTPUT_ON_FAILURE: On
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: TestLog-mac-gtk4
+          path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore

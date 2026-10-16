@@ -1,0 +1,246 @@
+name: ci-gtk4-headless
+on: [push, pull_request]
+permissions: {}
+jobs:
+  ci_gtk4_headless_ubuntu:
+    runs-on: ubuntu-24.04
+    name: Ubuntu-24.04 GTK4 Headless CI (Weston/Xvfb)
+    env:
+      TZ: America/Los_Angeles
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - run: sudo apt-get update
+      - name: Install GTK4 dependencies (base only — Gwenhywfar/AqBanking GTK4 built from source below)
+        run: |
+          sudo apt-get install -y \
+            gettext cmake libxslt-dev xsltproc ninja-build \
+            libboost-all-dev libgtk-4-dev \
+            guile-3.0-dev \
+            libofx-dev \
+            libdbi-dev libdbd-sqlite3 \
+            googletest \
+            weston xvfb \
+            wayland-protocols \
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev
+      - name: Install language packs
+        run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
+      - run: |
+          echo "ROOT_DIR=$GITHUB_WORKSPACE/.." >> $GITHUB_ENV
+      - name: Create Directories
+        run: |
+          pwd
+          mkdir $ROOT_DIR/inst
+          mkdir build
+      - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
+        run: |
+          cd $ROOT_DIR
+          git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
+            git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
+          cd gwenhywfar
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins
+          make -j$(nproc)
+          make install
+      - name: Build aqbanking from source (against Gwenhywfar GTK4)
+        run: |
+          cd $ROOT_DIR
+          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
+          cd aqbanking
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --with-gwen-dir=$ROOT_DIR/inst
+          make -j$(nproc)
+          make install
+      - name: Start Weston (headless Wayland compositor)
+        run: |
+          sudo mkdir -p /run/user/1000
+          sudo chown $USER:$USER /run/user/1000
+          weston --socket=wayland-0 --backend=headless-rdp.so &
+          echo "WAYLAND_DISPLAY=wayland-0" >> $GITHUB_ENV
+          sleep 2
+      - name: Configure GnuCash for GTK4
+        run: |
+          cd build
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH cmake -G Ninja \
+            -DWITH_PYTHON=ON \
+            -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst \
+            -DCMAKE_PREFIX_PATH=$ROOT_DIR/inst \
+            -DGTK_MIN_VERSION=4.10.0 \
+            $GITHUB_WORKSPACE
+      - name: Build and Test GnuCash (GTK4)
+        run: |
+          cd build
+          ninja
+          ninja check
+        env:
+          CTEST_OUTPUT_ON_FAILURE: On
+          GDK_BACKEND: wayland
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: TestLog-gtk4-headless
+          path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
+      - name: Stop Weston
+        if: always()
+        run: pkill weston || true
+
+  ci_gtk4_headless_xvfb:
+    runs-on: ubuntu-24.04
+    name: Ubuntu-24.04 GTK4 Headless CI (Xvfb fallback)
+    env:
+      TZ: America/Los_Angeles
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - run: sudo apt-get update
+      - name: Install GTK4 dependencies (base only — Gwenhywfar/AqBanking GTK4 built from source below)
+        run: |
+          sudo apt-get install -y \
+            gettext cmake libxslt-dev xsltproc ninja-build \
+            libboost-all-dev libgtk-4-dev \
+            guile-3.0-dev \
+            libofx-dev \
+            libdbi-dev libdbd-sqlite3 \
+            googletest \
+            xvfb \
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev
+      - name: Install language packs
+        run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
+      - run: |
+          echo "ROOT_DIR=$GITHUB_WORKSPACE/.." >> $GITHUB_ENV
+      - name: Create Directories
+        run: |
+          pwd
+          mkdir $ROOT_DIR/inst
+          mkdir build
+      - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
+        run: |
+          cd $ROOT_DIR
+          git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
+            git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
+          cd gwenhywfar
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins
+          make -j$(nproc)
+          make install
+      - name: Build aqbanking from source (against Gwenhywfar GTK4)
+        run: |
+          cd $ROOT_DIR
+          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
+          cd aqbanking
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --with-gwen-dir=$ROOT_DIR/inst
+          make -j$(nproc)
+          make install
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1920x1080x24 &
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+          sleep 2
+      - name: Configure GnuCash for GTK4
+        run: |
+          cd build
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH cmake -G Ninja \
+            -DWITH_PYTHON=ON \
+            -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst \
+            -DCMAKE_PREFIX_PATH=$ROOT_DIR/inst \
+            -DGTK_MIN_VERSION=4.10.0 \
+            $GITHUB_WORKSPACE
+      - name: Build and Test GnuCash (GTK4 Xvfb)
+        run: |
+          cd build
+          ninja
+          ninja check
+        env:
+          CTEST_OUTPUT_ON_FAILURE: On
+          GDK_BACKEND: x11
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: TestLog-gtk4-xvfb
+          path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
+      - name: Stop Xvfb
+        if: always()
+        run: pkill Xvfb || true
+
+  ci_gtk4_asan:
+    runs-on: ubuntu-24.04
+    name: Ubuntu-24.04 GTK4 Address Sanitizer
+    continue-on-error: true
+    env:
+      TZ: America/Los_Angeles
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - run: sudo apt-get update
+      - name: Install GTK4 dependencies (base only — Gwenhywfar/AqBanking GTK4 built from source below)
+        run: |
+          sudo apt-get install -y \
+            gettext cmake libxslt-dev xsltproc ninja-build \
+            libboost-all-dev libgtk-4-dev \
+            guile-3.0-dev \
+            libofx-dev \
+            libdbi-dev libdbd-sqlite3 \
+            googletest \
+            xvfb \
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev
+      - name: Install language packs
+        run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
+      - run: |
+          echo "ROOT_DIR=$GITHUB_WORKSPACE/.." >> $GITHUB_ENV
+      - name: Create Directories
+        run: |
+          pwd
+          mkdir $ROOT_DIR/inst
+          mkdir build
+      - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
+        run: |
+          cd $ROOT_DIR
+          git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
+            git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
+          cd gwenhywfar
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins
+          make -j$(nproc)
+          make install
+      - name: Build aqbanking from source (against Gwenhywfar GTK4)
+        run: |
+          cd $ROOT_DIR
+          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
+          cd aqbanking
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --with-gwen-dir=$ROOT_DIR/inst
+          make -j$(nproc)
+          make install
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1920x1080x24 &
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+          sleep 2
+      - name: Configure GnuCash for GTK4 (ASan)
+        run: |
+          cd build
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH cmake -G Ninja \
+            -DWITH_PYTHON=ON \
+            -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst \
+            -DCMAKE_PREFIX_PATH=$ROOT_DIR/inst \
+            -DGTK_MIN_VERSION=4.10.0 \
+            -DCMAKE_BUILD_TYPE=Asan \
+            $GITHUB_WORKSPACE
+      - name: Build and Test GnuCash (GTK4 ASan)
+        run: |
+          cd build
+          ninja
+          ninja check
+        env:
+          CTEST_OUTPUT_ON_FAILURE: On
+          GDK_BACKEND: x11
+          ASAN_OPTIONS: detect_leaks=1
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: TestLog-gtk4-asan
+          path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
+      - name: Stop Xvfb
+        if: always()
+        run: pkill Xvfb || true

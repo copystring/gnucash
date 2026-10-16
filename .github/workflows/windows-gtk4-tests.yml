@@ -1,0 +1,95 @@
+name: windows-gtk4-tests
+on: [push, pull_request]
+permissions: {}
+jobs:
+  ci_tests_windows_gtk4:
+    runs-on: windows-latest
+    name: Windows MSYS2 GTK4 CI Tests
+    env:
+      TZ: America/Los_Angeles
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup MSYS2 (base dependencies only — Gwenhywfar/AqBanking GTK4 not in MSYS2)
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-boost
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-guile
+            mingw-w64-x86_64-libofx
+            mingw-w64-x86_64-libdbi
+            mingw-w64-x86_64-libdbi-driver-sqlite3
+            mingw-w64-x86_64-googletest
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-gettext
+            mingw-w64-x86_64-gtksourceview5
+            # NOTE: The following are NOT in MSYS2 repos yet:
+            # mingw-w64-x86_64-gwenhywfar (GTK4) — build from Gwenhywfar branch-4
+            # mingw-w64-x86_64-aqbanking (GTK4) — build from AqBanking master
+            # mingw-w64-x86_64-webkit2gtk-4.1 — not yet packaged
+      - name: Configure Environment
+        run: |
+          echo "PREFIX=$HOME/gnucash/inst" >> $GITHUB_ENV
+          echo "SRCROOT=$HOME/gnucash/source" >> $GITHUB_ENV
+          mkdir -p $PREFIX/bin
+          echo "$PREFIX/bin" >> $GITHUB_PATH
+      - name: Download and extract googletest
+        run: |
+          mkdir -p $SRCROOT
+          cd $SRCROOT
+          curl -L -o googletest.tar.gz https://github.com/google/googletest/archive/release-1.14.0.tar.gz
+          tar -xzf googletest.tar.gz
+          mv googletest-* googletest
+      - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
+        run: |
+          cd $SRCROOT
+          git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
+            git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
+          cd gwenhywfar
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins
+          make -j$(nproc)
+          make install
+      - name: Build aqbanking from source (against Gwenhywfar GTK4)
+        run: |
+          cd $SRCROOT
+          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
+          cd aqbanking
+          if [ ! -f configure ]; then autoreconf -fiv; fi
+          PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX --with-gwen-dir=$PREFIX
+          make -j$(nproc)
+          make install
+      - name: Configure GnuCash for GTK4
+        run: |
+          mkdir -p $HOME/gnucash/build
+          cd $HOME/gnucash/build
+          cmake -GNinja \
+            -DPKG_CONFIG_EXECUTABLE=/mingw64/bin/pkg-config.exe \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DCMAKE_PREFIX_PATH=$PREFIX \
+            -DWITH_PYTHON=ON \
+            -DGTEST_ROOT=$SRCROOT/googletest \
+            -DGTK_MIN_VERSION=4.10.0 \
+            $GITHUB_WORKSPACE
+      - name: Build and Test GnuCash (GTK4)
+        run: |
+          cd $HOME/gnucash/build
+          ninja
+          ninja check
+        env:
+          CTEST_OUTPUT_ON_FAILURE: On
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: TestLog-windows-gtk4
+          path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
