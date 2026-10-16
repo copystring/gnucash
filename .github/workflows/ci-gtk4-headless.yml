@@ -22,7 +22,7 @@ jobs:
             googletest \
             weston xvfb \
             wayland-protocols \
-            autoconf automake libtool libgnutls28-dev libgcrypt20-dev
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev
       - name: Install language packs
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
@@ -103,7 +103,7 @@ jobs:
             libdbi-dev libdbd-sqlite3 \
             googletest \
             xvfb \
-            autoconf automake libtool libgnutls28-dev libgcrypt20-dev
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev
       - name: Install language packs
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
@@ -183,7 +183,7 @@ jobs:
             libdbi-dev libdbd-sqlite3 \
             googletest \
             xvfb \
-            autoconf automake libtool libgnutls28-dev libgcrypt20-dev
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev
       - name: Install language packs
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
