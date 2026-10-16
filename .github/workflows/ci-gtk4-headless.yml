@@ -22,7 +22,8 @@ jobs:
             googletest \
             weston xvfb \
             wayland-protocols \
-            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev \
+            libpcsclite-dev libgmp-dev
       - name: Install language packs
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
@@ -45,17 +46,24 @@ jobs:
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
         run: |
           cd $ROOT_DIR
-          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
-          cd aqbanking
-          if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst 
+          curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz -o libchipcard-5.1.6.tar.gz
+          tar -xf libchipcard-5.1.6.tar.gz
+          cd libchipcard-5.1.6
+          ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
+          make -j$(nproc)
+          make install
+          cd $ROOT_DIR
+          curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
+          tar -xf aqbanking-6.9.2.tar.gz
+          cd aqbanking-6.9.2
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
           make -j$(nproc)
           make install
       - name: Start Weston (headless Wayland compositor)
         run: |
           sudo mkdir -p /run/user/1000
           sudo chown $USER:$USER /run/user/1000
-          weston --socket=wayland-0 --backend=headless-rdp.so &
+          weston --socket=wayland-0 --backend=headless --no-config &
           echo "WAYLAND_DISPLAY=wayland-0" >> $GITHUB_ENV
           sleep 2
       - name: Configure GnuCash for GTK4
@@ -103,7 +111,8 @@ jobs:
             libdbi-dev libdbd-sqlite3 \
             googletest \
             xvfb \
-            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev \
+            libpcsclite-dev libgmp-dev
       - name: Install language packs
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
@@ -126,10 +135,17 @@ jobs:
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
         run: |
           cd $ROOT_DIR
-          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
-          cd aqbanking
-          if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst 
+          curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz -o libchipcard-5.1.6.tar.gz
+          tar -xf libchipcard-5.1.6.tar.gz
+          cd libchipcard-5.1.6
+          ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
+          make -j$(nproc)
+          make install
+          cd $ROOT_DIR
+          curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
+          tar -xf aqbanking-6.9.2.tar.gz
+          cd aqbanking-6.9.2
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
           make -j$(nproc)
           make install
       - name: Start Xvfb
@@ -183,7 +199,8 @@ jobs:
             libdbi-dev libdbd-sqlite3 \
             googletest \
             xvfb \
-            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev
+            autoconf automake libtool libgnutls28-dev libgcrypt20-dev libxmlsec1-dev \
+            libpcsclite-dev libgmp-dev
       - name: Install language packs
         run: sudo apt-get --reinstall install -y language-pack-en language-pack-fr
       - run: |
@@ -206,10 +223,17 @@ jobs:
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
         run: |
           cd $ROOT_DIR
-          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
-          cd aqbanking
-          if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst 
+          curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz -o libchipcard-5.1.6.tar.gz
+          tar -xf libchipcard-5.1.6.tar.gz
+          cd libchipcard-5.1.6
+          ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
+          make -j$(nproc)
+          make install
+          cd $ROOT_DIR
+          curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
+          tar -xf aqbanking-6.9.2.tar.gz
+          cd aqbanking-6.9.2
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
           make -j$(nproc)
           make install
       - name: Start Xvfb

@@ -12,19 +12,18 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Environment
         run: |
-          echo "PATH=$HOME/gnucash/inst/bin:$PATH" >> $GITHUB_ENV
+          echo "PATH=$HOME/gnucash/inst/bin:$(brew --prefix gettext)/bin:$PATH" >> $GITHUB_ENV
           echo "PREFIX=$HOME/gnucash/inst" >> $GITHUB_ENV
           echo "SRCROOT=$HOME/gnucash/source" >> $GITHUB_ENV
-          # Install base dependencies only (GTK4 stack from Homebrew)
-          # NOTE: gwenhywfar and aqbanking from Homebrew are GTK3 versions.
-          # We build Gwenhywfar GTK4 (our fork with GTK4 backend) and AqBanking from source below.
-          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool libxmlsec1
+          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool libxmlsec1 gnutls libgcrypt
+          echo "PKG_CONFIG_PATH=$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$HOME/gnucash/inst/lib/pkgconfig" >> $GITHUB_ENV
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           mkdir -p $SRCROOT; cd $SRCROOT
           git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
+          export PATH="$(brew --prefix gettext)/bin:$PATH"
           if [ ! -f configure ]; then autoreconf -fiv; fi
           ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins
           make -j$(sysctl -n hw.ncpu)
@@ -32,10 +31,10 @@ jobs:
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
         run: |
           mkdir -p $SRCROOT; cd $SRCROOT
-          git clone --depth 1 https://github.com/aqbanking/aqbanking.git
-          cd aqbanking
-          if [ ! -f configure ]; then autoreconf -fiv; fi
-          PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX 
+          curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
+          tar -xf aqbanking-6.9.2.tar.gz
+          cd aqbanking-6.9.2
+          PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX --disable-static --enable-shared --enable-local-install
           make -j$(sysctl -n hw.ncpu)
           make install
       - name: Configure GnuCash for GTK4
