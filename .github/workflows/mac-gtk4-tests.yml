@@ -17,6 +17,7 @@ jobs:
           echo "SRCROOT=$HOME/gnucash/source" >> $GITHUB_ENV
           brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool libxmlsec1 gnutls libgcrypt
           echo "PKG_CONFIG_PATH=$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$HOME/gnucash/inst/lib/pkgconfig" >> $GITHUB_ENV
+          echo "ACLOCAL_PATH=$(brew --prefix gettext)/share/aclocal:$(brew --prefix)/share/aclocal" >> $GITHUB_ENV
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           mkdir -p $SRCROOT; cd $SRCROOT
@@ -24,8 +25,10 @@ jobs:
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
           export PATH="$(brew --prefix gettext)/bin:$PATH"
+          export ACLOCAL_PATH="$(brew --prefix gettext)/share/aclocal:$(brew --prefix)/share/aclocal:${ACLOCAL_PATH:-}"
+          export LIBTOOLIZE=glibtoolize
           if [ ! -f configure ]; then autoreconf -fiv; fi
-          ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins
+          ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(sysctl -n hw.ncpu)
           make install
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
@@ -42,7 +45,6 @@ jobs:
           mkdir -p $HOME/gnucash/build
           cd $HOME/gnucash/build
           cmake -GNinja \
-            -DPKG_CONFIG_EXECUTABLE=$PREFIX/bin/pkg-config \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_PREFIX_PATH=$PREFIX \
             -DWITH_PYTHON=ON \

@@ -31,8 +31,12 @@ jobs:
       - name: Create Directories
         run: |
           pwd
-          mkdir $ROOT_DIR/inst
-          mkdir build
+          mkdir -p $ROOT_DIR/inst
+          mkdir -p build
+          echo "$ROOT_DIR/inst/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:$ROOT_DIR/inst/share/pkgconfig" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$ROOT_DIR/inst/lib:$ROOT_DIR/inst/lib64" >> $GITHUB_ENV
+          echo "ACLOCAL_PATH=$ROOT_DIR/inst/share/aclocal" >> $GITHUB_ENV
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           cd $ROOT_DIR
@@ -40,7 +44,7 @@ jobs:
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
           if [ ! -f configure ]; then autoreconf -fiv; fi
-          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins
+          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(nproc)
           make install
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
@@ -49,14 +53,14 @@ jobs:
           curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz -o libchipcard-5.1.6.tar.gz
           tar -xf libchipcard-5.1.6.tar.gz
           cd libchipcard-5.1.6
-          ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:${PKG_CONFIG_PATH:-} ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
           make -j$(nproc)
           make install
           cd $ROOT_DIR
           curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
           tar -xf aqbanking-6.9.2.tar.gz
           cd aqbanking-6.9.2
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:${PKG_CONFIG_PATH:-} ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
           make -j$(nproc)
           make install
       - name: Start Weston (headless Wayland compositor)
@@ -120,8 +124,12 @@ jobs:
       - name: Create Directories
         run: |
           pwd
-          mkdir $ROOT_DIR/inst
-          mkdir build
+          mkdir -p $ROOT_DIR/inst
+          mkdir -p build
+          echo "$ROOT_DIR/inst/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:$ROOT_DIR/inst/share/pkgconfig" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$ROOT_DIR/inst/lib:$ROOT_DIR/inst/lib64" >> $GITHUB_ENV
+          echo "ACLOCAL_PATH=$ROOT_DIR/inst/share/aclocal" >> $GITHUB_ENV
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           cd $ROOT_DIR
@@ -129,7 +137,7 @@ jobs:
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
           if [ ! -f configure ]; then autoreconf -fiv; fi
-          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins
+          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(nproc)
           make install
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
@@ -138,14 +146,14 @@ jobs:
           curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz -o libchipcard-5.1.6.tar.gz
           tar -xf libchipcard-5.1.6.tar.gz
           cd libchipcard-5.1.6
-          ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:${PKG_CONFIG_PATH:-} ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
           make -j$(nproc)
           make install
           cd $ROOT_DIR
           curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
           tar -xf aqbanking-6.9.2.tar.gz
           cd aqbanking-6.9.2
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:${PKG_CONFIG_PATH:-} ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
           make -j$(nproc)
           make install
       - name: Start Xvfb
@@ -208,8 +216,12 @@ jobs:
       - name: Create Directories
         run: |
           pwd
-          mkdir $ROOT_DIR/inst
-          mkdir build
+          mkdir -p $ROOT_DIR/inst
+          mkdir -p build
+          echo "$ROOT_DIR/inst/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:$ROOT_DIR/inst/share/pkgconfig" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$ROOT_DIR/inst/lib:$ROOT_DIR/inst/lib64" >> $GITHUB_ENV
+          echo "ACLOCAL_PATH=$ROOT_DIR/inst/share/aclocal" >> $GITHUB_ENV
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           cd $ROOT_DIR
@@ -217,7 +229,7 @@ jobs:
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
           if [ ! -f configure ]; then autoreconf -fiv; fi
-          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins
+          ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(nproc)
           make install
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
@@ -226,14 +238,14 @@ jobs:
           curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/382/libchipcard-5.1.6.tar.gz -o libchipcard-5.1.6.tar.gz
           tar -xf libchipcard-5.1.6.tar.gz
           cd libchipcard-5.1.6
-          ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:${PKG_CONFIG_PATH:-} ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared
           make -j$(nproc)
           make install
           cd $ROOT_DIR
           curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
           tar -xf aqbanking-6.9.2.tar.gz
           cd aqbanking-6.9.2
-          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
+          PKG_CONFIG_PATH=$ROOT_DIR/inst/lib/pkgconfig:$ROOT_DIR/inst/lib64/pkgconfig:${PKG_CONFIG_PATH:-} ./configure --prefix=$ROOT_DIR/inst --disable-static --enable-shared --enable-local-install
           make -j$(nproc)
           make install
       - name: Start Xvfb
