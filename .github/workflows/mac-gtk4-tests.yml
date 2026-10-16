@@ -21,7 +21,7 @@ jobs:
           brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
-          cd $HOME/gnucash/source
+          mkdir -p $SRCROOT; cd $SRCROOT
           git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
@@ -31,7 +31,7 @@ jobs:
           make install
       - name: Build aqbanking from source (against Gwenhywfar GTK4)
         run: |
-          cd $HOME/gnucash/source
+          mkdir -p $SRCROOT; cd $SRCROOT
           git clone --depth 1 https://github.com/aqbanking/aqbanking.git
           cd aqbanking
           if [ ! -f configure ]; then autoreconf -fiv; fi
