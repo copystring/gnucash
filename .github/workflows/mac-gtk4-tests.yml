@@ -18,7 +18,7 @@ jobs:
           # Install base dependencies only (GTK4 stack from Homebrew)
           # NOTE: gwenhywfar and aqbanking from Homebrew are GTK3 versions.
           # We build Gwenhywfar GTK4 (our fork with GTK4 backend) and AqBanking from source below.
-          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite webkitgtk googletest boost gtksourceview autoconf automake libtool
+          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite webkitgtk googletest boost gtksourceview5 autoconf automake libtool
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           cd $HOME/gnucash/source
