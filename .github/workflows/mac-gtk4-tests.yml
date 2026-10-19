@@ -58,8 +58,8 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_PREFIX_PATH="$(brew --prefix icu4c);$(brew --prefix libxml2);$(brew --prefix);$PREFIX" \
             -DICU_ROOT="$(brew --prefix icu4c)" \
-            -DCMAKE_C_FLAGS="-I$(brew --prefix icu4c)/include" \
-            -DCMAKE_CXX_FLAGS="-I$(brew --prefix icu4c)/include" \
+            -DCMAKE_C_FLAGS="-I$(brew --prefix icu4c)/include -Wno-constant-logical-operand" \
+            -DCMAKE_CXX_FLAGS="-I$(brew --prefix icu4c)/include -Wno-constant-logical-operand" \
             -DWITH_PYTHON=ON \
             -DWITH_SQL=OFF \
             -DGTK_MIN_VERSION=4.10.0 \

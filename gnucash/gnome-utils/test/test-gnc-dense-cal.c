@@ -64,7 +64,10 @@ poll_scene (gpointer user_data)
 
     if (!scene_is_ready (wait))
     {
+        GdkDisplay *display = gtk_widget_get_display (wait->drawing_area);
         gtk_widget_queue_draw (wait->drawing_area);
+        if (display)
+            gdk_display_flush (display);
         return G_SOURCE_CONTINUE;
     }
 
@@ -154,11 +157,18 @@ test_resize_rebuilds_calendar_scene (void)
     initial_child = gtk_widget_get_first_child (background);
     initial_width = gtk_widget_get_width (drawing_area);
 
+    gtk_window_destroy (window);
+
+    window = GTK_WINDOW (gtk_window_new ());
+    calendar = gnc_dense_cal_new (window);
+    background = find_widget (calendar, GTK_TYPE_FIXED);
+    drawing_area = find_widget (calendar, GTK_TYPE_DRAWING_AREA);
+    g_assert_nonnull (background);
+    g_assert_nonnull (drawing_area);
+
     gtk_window_set_default_size (window, 900, 520);
-    gtk_widget_set_size_request (calendar, 900, 520);
-    gtk_widget_queue_resize (GTK_WIDGET (window));
-    gtk_widget_queue_resize (calendar);
-    gtk_widget_queue_draw (drawing_area);
+    gtk_window_set_child (window, calendar);
+    gtk_window_present (window);
     g_assert_true (wait_for_scene (background, drawing_area, initial_child,
                                    initial_width));
 

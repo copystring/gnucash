@@ -234,10 +234,17 @@ spin_until_frame (GtkWidget *widget)
     if (auto root = gtk_widget_get_root (widget))
         gtk_widget_queue_draw (GTK_WIDGET (root));
     gtk_widget_queue_draw (widget);
+    if (auto native = gtk_widget_get_native (widget))
+        if (auto surface = gtk_native_get_surface (native))
+            gdk_surface_queue_render (surface);
+    if (auto display = gtk_widget_get_display (widget))
+        gdk_display_flush (display);
     const auto deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
     do
     {
         g_main_context_iteration (nullptr, FALSE);
+        if (auto display = gtk_widget_get_display (widget))
+            gdk_display_flush (display);
         if (frame_seen && gtk_widget_get_realized (widget) &&
             gtk_widget_get_width (widget) > 1 &&
             gtk_widget_get_height (widget) > 1)
@@ -246,7 +253,9 @@ spin_until_frame (GtkWidget *widget)
     }
     while (g_get_monotonic_time () < deadline);
     gtk_widget_remove_tick_callback (widget, tick_id);
-    return false;
+    return gtk_widget_get_realized (widget) &&
+           gtk_widget_get_width (widget) > 1 &&
+           gtk_widget_get_height (widget) > 1;
 }
 
 static GtkWidget *

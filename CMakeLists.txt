@@ -749,7 +749,8 @@ if (MINGW)
 endif()
 
 if (APPLE)
-  set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-gnu-folding-constant")
+  set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-gnu-folding-constant -Wno-constant-logical-operand")
+  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-constant-logical-operand")
    execute_process(COMMAND clang --print-file-name=libclang_rt.asan_osx_dynamic.dylib
     OUTPUT_VARIABLE ASAN_DYNAMIC_LIB
     OUTPUT_STRIP_TRAILING_WHITESPACE)
