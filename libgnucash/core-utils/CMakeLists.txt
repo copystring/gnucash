@@ -54,6 +54,8 @@ target_link_libraries(gnc-core-utils
     PRIVATE
         ${Boost_LIBRARIES}
         ${GOBJECT_LDFLAGS}
+        ICU::uc
+        ICU::i18n
         ${ICU_LIBRARIES}
         "$<$<BOOL:${MAC_INTEGRATION}>:${OSX_EXTRA_LIBRARIES}>")
 

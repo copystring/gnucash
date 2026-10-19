@@ -19,8 +19,8 @@ jobs:
           echo "PKG_CONFIG_PATH=$(brew --prefix icu4c)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$HOME/gnucash/inst/lib/pkgconfig" >> $GITHUB_ENV
           echo "ICU_ROOT=$(brew --prefix icu4c)" >> $GITHUB_ENV
           echo "ACLOCAL_PATH=$(brew --prefix gettext)/share/aclocal:$(brew --prefix)/share/aclocal" >> $GITHUB_ENV
-          echo "CPPFLAGS=-I$(brew --prefix)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include" >> $GITHUB_ENV
-          echo "LDFLAGS=-L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I$(brew --prefix icu4c)/include -I$(brew --prefix)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$(brew --prefix icu4c)/lib -L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib" >> $GITHUB_ENV
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           mkdir -p $SRCROOT; cd $SRCROOT
@@ -58,6 +58,8 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_PREFIX_PATH="$(brew --prefix icu4c);$(brew --prefix libxml2);$(brew --prefix);$PREFIX" \
             -DICU_ROOT="$(brew --prefix icu4c)" \
+            -DCMAKE_C_FLAGS="-I$(brew --prefix icu4c)/include" \
+            -DCMAKE_CXX_FLAGS="-I$(brew --prefix icu4c)/include" \
             -DWITH_PYTHON=ON \
             -DWITH_SQL=OFF \
             -DGTK_MIN_VERSION=4.10.0 \

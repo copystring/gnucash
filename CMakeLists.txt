@@ -622,6 +622,7 @@ endif()
 
 #ICU
 find_package(ICU 78.0 REQUIRED COMPONENTS uc i18n)
+include_directories(${ICU_INCLUDE_DIRS})
 
 pkg_check_modules (LIBSECRET libsecret-1>=0.21)
 IF (LIBSECRET_FOUND)
