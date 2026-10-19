@@ -45,7 +45,7 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <glib/gstdio.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 #ifdef HAVE_SYS_WAIT_H
 #    include <sys/wait.h>
 #endif

@@ -15,9 +15,11 @@ jobs:
           echo "PATH=$HOME/gnucash/inst/bin:$(brew --prefix gettext)/bin:$PATH" >> $GITHUB_ENV
           echo "PREFIX=$HOME/gnucash/inst" >> $GITHUB_ENV
           echo "SRCROOT=$HOME/gnucash/source" >> $GITHUB_ENV
-          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool libxmlsec1 gnutls libgcrypt
+          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool libxmlsec1 gnutls libgcrypt gmp
           echo "PKG_CONFIG_PATH=$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$HOME/gnucash/inst/lib/pkgconfig" >> $GITHUB_ENV
           echo "ACLOCAL_PATH=$(brew --prefix gettext)/share/aclocal:$(brew --prefix)/share/aclocal" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I$(brew --prefix)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib" >> $GITHUB_ENV
       - name: Build gwenhywfar-gtk4 from source (fork gtk4-backend)
         run: |
           mkdir -p $SRCROOT; cd $SRCROOT
@@ -27,6 +29,8 @@ jobs:
           export PATH="$(brew --prefix gettext)/bin:$PATH"
           export ACLOCAL_PATH="$(brew --prefix gettext)/share/aclocal:$(brew --prefix)/share/aclocal:${ACLOCAL_PATH:-}"
           export LIBTOOLIZE=glibtoolize
+          export CPPFLAGS="-I$(brew --prefix)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include"
+          export LDFLAGS="-L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib"
           if [ ! -f configure ]; then autoreconf -fiv; fi
           ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(sysctl -n hw.ncpu)
@@ -37,6 +41,8 @@ jobs:
           curl --fail --location --show-error https://aquamaniac.de/rdm/attachments/download/654/aqbanking-6.9.2.tar.gz -o aqbanking-6.9.2.tar.gz
           tar -xf aqbanking-6.9.2.tar.gz
           cd aqbanking-6.9.2
+          export CPPFLAGS="-I$PREFIX/include -I$(brew --prefix)/include -I$(brew --prefix gmp)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include"
+          export LDFLAGS="-L$PREFIX/lib -L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib"
           PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX --disable-static --enable-shared --enable-local-install
           make -j$(sysctl -n hw.ncpu)
           make install

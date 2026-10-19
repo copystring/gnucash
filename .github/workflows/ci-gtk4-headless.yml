@@ -3,8 +3,8 @@ on: [push, pull_request]
 permissions: {}
 jobs:
   ci_gtk4_headless_ubuntu:
-    runs-on: ubuntu-24.04
-    name: Ubuntu-24.04 GTK4 Headless CI (Weston/Xvfb)
+    runs-on: ubuntu-26.04
+    name: Ubuntu-26.04 GTK4 Headless CI (Weston/Xvfb)
     env:
       TZ: America/Los_Angeles
     steps:
@@ -16,7 +16,7 @@ jobs:
           sudo apt-get install -y \
             gettext cmake libxslt-dev xsltproc ninja-build \
             libboost-all-dev libgtk-4-dev \
-            guile-3.0-dev \
+            guile-3.0-dev python3-dev swig \
             libofx-dev \
             libdbi-dev libdbd-sqlite3 \
             googletest \
@@ -97,8 +97,8 @@ jobs:
         run: pkill weston || true
 
   ci_gtk4_headless_xvfb:
-    runs-on: ubuntu-24.04
-    name: Ubuntu-24.04 GTK4 Headless CI (Xvfb fallback)
+    runs-on: ubuntu-26.04
+    name: Ubuntu-26.04 GTK4 Headless CI (Xvfb fallback)
     env:
       TZ: America/Los_Angeles
     steps:
@@ -110,7 +110,7 @@ jobs:
           sudo apt-get install -y \
             gettext cmake libxslt-dev xsltproc ninja-build \
             libboost-all-dev libgtk-4-dev \
-            guile-3.0-dev \
+            guile-3.0-dev python3-dev swig \
             libofx-dev \
             libdbi-dev libdbd-sqlite3 \
             googletest \
@@ -188,8 +188,8 @@ jobs:
         run: pkill Xvfb || true
 
   ci_gtk4_asan:
-    runs-on: ubuntu-24.04
-    name: Ubuntu-24.04 GTK4 Address Sanitizer
+    runs-on: ubuntu-26.04
+    name: Ubuntu-26.04 GTK4 Address Sanitizer
     continue-on-error: true
     env:
       TZ: America/Los_Angeles
@@ -202,7 +202,7 @@ jobs:
           sudo apt-get install -y \
             gettext cmake libxslt-dev xsltproc ninja-build \
             libboost-all-dev libgtk-4-dev \
-            guile-3.0-dev \
+            guile-3.0-dev python3-dev swig \
             libofx-dev \
             libdbi-dev libdbd-sqlite3 \
             googletest \

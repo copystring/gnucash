@@ -34,7 +34,7 @@
 
 #include <string.h>
 #include <stdbool.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 
 #include "completioncell.h"
 #include "gnc-prefs.h"

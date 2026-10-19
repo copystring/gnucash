@@ -29,7 +29,7 @@
 #include <config.h>
 
 #include <locale.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 
 #include "gnc-locale-utils.h"
 #include "gnc-exp-parser.h"
