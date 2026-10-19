@@ -31,6 +31,7 @@ jobs:
           export LIBTOOLIZE=glibtoolize
           export CPPFLAGS="-I$(brew --prefix)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include"
           export LDFLAGS="-L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib"
+          export CFLAGS="-std=gnu99 -g -O2 -Wno-error=declaration-after-statement"
           if [ ! -f configure ]; then autoreconf -fiv; fi
           ./configure --prefix=$PREFIX --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(sysctl -n hw.ncpu)
@@ -43,6 +44,7 @@ jobs:
           cd aqbanking-6.9.2
           export CPPFLAGS="-I$PREFIX/include -I$(brew --prefix)/include -I$(brew --prefix gmp)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include"
           export LDFLAGS="-L$PREFIX/lib -L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib"
+          export CFLAGS="-std=gnu99 -g -O2 -Wno-error=declaration-after-statement"
           PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX --disable-static --enable-shared --enable-local-install
           make -j$(sysctl -n hw.ncpu)
           make install
