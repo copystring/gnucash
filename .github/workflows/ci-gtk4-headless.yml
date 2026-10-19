@@ -15,7 +15,7 @@ jobs:
         run: |
           sudo apt-get install -y \
             gettext cmake libxslt-dev xsltproc ninja-build \
-            libboost-all-dev libgtk-4-dev \
+            libboost-all-dev libgtk-4-dev libwebkitgtk-6.0-dev \
             guile-3.0-dev python3-dev swig \
             libofx-dev \
             libdbi-dev libdbd-sqlite3 \
@@ -43,6 +43,7 @@ jobs:
           git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
+          sed -i.bak 's/case GWEN_DialogProperty_Title:/case GWEN_DialogProperty_Title: ;/' gui/gtk4/w_pushbutton.c || true
           if [ ! -f configure ]; then autoreconf -fiv; fi
           ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(nproc)
@@ -109,7 +110,7 @@ jobs:
         run: |
           sudo apt-get install -y \
             gettext cmake libxslt-dev xsltproc ninja-build \
-            libboost-all-dev libgtk-4-dev \
+            libboost-all-dev libgtk-4-dev libwebkitgtk-6.0-dev \
             guile-3.0-dev python3-dev swig \
             libofx-dev \
             libdbi-dev libdbd-sqlite3 \
@@ -136,6 +137,7 @@ jobs:
           git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
+          sed -i.bak 's/case GWEN_DialogProperty_Title:/case GWEN_DialogProperty_Title: ;/' gui/gtk4/w_pushbutton.c || true
           if [ ! -f configure ]; then autoreconf -fiv; fi
           ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(nproc)
@@ -201,7 +203,7 @@ jobs:
         run: |
           sudo apt-get install -y \
             gettext cmake libxslt-dev xsltproc ninja-build \
-            libboost-all-dev libgtk-4-dev \
+            libboost-all-dev libgtk-4-dev libwebkitgtk-6.0-dev \
             guile-3.0-dev python3-dev swig \
             libofx-dev \
             libdbi-dev libdbd-sqlite3 \
@@ -228,6 +230,7 @@ jobs:
           git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
+          sed -i.bak 's/case GWEN_DialogProperty_Title:/case GWEN_DialogProperty_Title: ;/' gui/gtk4/w_pushbutton.c || true
           if [ ! -f configure ]; then autoreconf -fiv; fi
           ./configure --prefix=$ROOT_DIR/inst --with-guis="gtk4" --disable-binaries --disable-plugins --disable-network-checks --disable-binreloc
           make -j$(nproc)

@@ -26,6 +26,7 @@ jobs:
           git clone --depth 1 --branch cs-202609-gtk4-gui https://github.com/copystring/gwenhywfar.git || \
             git clone --depth 1 --branch branch-4 https://github.com/aqbanking/gwenhywfar.git
           cd gwenhywfar
+          sed -i.bak 's/case GWEN_DialogProperty_Title:/case GWEN_DialogProperty_Title: ;/' gui/gtk4/w_pushbutton.c || true
           export PATH="$(brew --prefix gettext)/bin:$PATH"
           export ACLOCAL_PATH="$(brew --prefix gettext)/share/aclocal:$(brew --prefix)/share/aclocal:${ACLOCAL_PATH:-}"
           export LIBTOOLIZE=glibtoolize

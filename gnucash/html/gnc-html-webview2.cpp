@@ -11,6 +11,19 @@
 
 #include <config.h>
 
+#include <cmath>
+#include <atomic>
+#include <cerrno>
+#include <cstring>
+#include <new>
+#include <memory>
+#include <string>
+#include <vector>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <platform.h>
 #ifdef __MINGW32__
 #define _GL_UNISTD_H /* Deflect Guile's poisonous close definition. */
@@ -28,15 +41,8 @@
 #include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
-#include <atomic>
-#include <cerrno>
-#include <cstring>
-#include <new>
 #include <regex.h>
-#include <memory>
-#include <string>
 #include <unistd.h>
-#include <vector>
 
 #include "gnc-engine.h"
 #include "gnc-gui-query.h"
