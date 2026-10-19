@@ -68,6 +68,7 @@ jobs:
         run: |
           sudo mkdir -p /run/user/$(id -u)
           sudo chown -R $USER:$USER /run/user/$(id -u)
+          chmod 0700 /run/user/$(id -u)
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> $GITHUB_ENV
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           weston --socket=wayland-0 --backend=headless --no-config &
@@ -81,15 +82,17 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=$ROOT_DIR/inst \
             -DCMAKE_PREFIX_PATH=$ROOT_DIR/inst \
             -DGTK_MIN_VERSION=4.10.0 \
+            -DGNC_USE_VIRTUAL_DISPLAY=OFF \
             $GITHUB_WORKSPACE
       - name: Build and Test GnuCash (GTK4)
         run: |
           cd build
           ninja
-          ninja check
+          dbus-run-session ninja check
         env:
           CTEST_OUTPUT_ON_FAILURE: On
           GDK_BACKEND: wayland
+          GTK_A11Y: none
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

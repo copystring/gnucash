@@ -40,7 +40,7 @@ jobs:
           cd build
           cmake -GNinja \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DWITH_PYTHON=ON \
+            -DWITH_PYTHON=OFF \
             -DWITH_AQBANKING=OFF \
             -DGTK_MIN_VERSION=4.10.0 \
             $GITHUB_WORKSPACE

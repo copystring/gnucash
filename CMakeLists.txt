@@ -826,9 +826,11 @@ endif()
 gnc_gtest_configure()
 
 # There are targets that need to build before tests will run
-set(GNC_USE_VIRTUAL_DISPLAY FALSE)
-if(UNIX AND NOT APPLE)
-  set(GNC_USE_VIRTUAL_DISPLAY TRUE)
+if(NOT DEFINED GNC_USE_VIRTUAL_DISPLAY)
+  set(GNC_USE_VIRTUAL_DISPLAY FALSE)
+  if(UNIX AND NOT APPLE)
+    set(GNC_USE_VIRTUAL_DISPLAY TRUE)
+  endif()
 endif()
 add_custom_target(testbuild)
 add_custom_target(check DEPENDS testbuild
