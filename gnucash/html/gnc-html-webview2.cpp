@@ -11,6 +11,11 @@
 
 #include <config.h>
 
+#ifdef __MINGW32__
+#undef copysign
+#undef _GLIBCXX_USE_C99_MATH_TR1
+#endif
+
 #include <cmath>
 #include <atomic>
 #include <cerrno>
@@ -25,10 +30,6 @@
 #endif
 
 #include <platform.h>
-#ifdef __MINGW32__
-#define _GL_UNISTD_H /* Deflect Guile's poisonous close definition. */
-#endif
-#include <libguile.h>
 
 #include <windows.h>
 #include <dcomp.h>

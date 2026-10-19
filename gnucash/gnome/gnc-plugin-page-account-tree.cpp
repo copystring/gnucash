@@ -593,6 +593,11 @@ gnc_plugin_page_account_tree_finalize (GObject *object)
         gnc_scrub_context_unref (priv->scrub_context);
         priv->scrub_context = nullptr;
     }
+    if (priv->fd.filter_override)
+    {
+        g_hash_table_destroy (priv->fd.filter_override);
+        priv->fd.filter_override = NULL;
+    }
     G_OBJECT_CLASS (gnc_plugin_page_account_tree_parent_class)->finalize (object);
     LEAVE(" ");
 }
@@ -913,8 +918,15 @@ gnc_plugin_page_account_tree_destroy_widget (GncPluginPage *plugin_page)
     gnc_tree_view_account_save_filter (priv->tree_view, &priv->fd,
        gnc_state_get_current(), gnc_tree_view_account_get_state_section (priv->tree_view));
 
+    if (priv->tree_view)
+        gnc_tree_view_account_set_filter (priv->tree_view, NULL, NULL, NULL);
+
     // Destroy the filter override hash table
-    g_hash_table_destroy(priv->fd.filter_override);
+    if (priv->fd.filter_override)
+    {
+        g_hash_table_destroy(priv->fd.filter_override);
+        priv->fd.filter_override = NULL;
+    }
 
     // Remove the page_changed signal callback
     gnc_plugin_page_disconnect_page_changed (GNC_PLUGIN_PAGE(plugin_page));

@@ -66,8 +66,10 @@ jobs:
           make install
       - name: Start Weston (headless Wayland compositor)
         run: |
-          sudo mkdir -p /run/user/1000
-          sudo chown $USER:$USER /run/user/1000
+          sudo mkdir -p /run/user/$(id -u)
+          sudo chown -R $USER:$USER /run/user/$(id -u)
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> $GITHUB_ENV
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
           weston --socket=wayland-0 --backend=headless --no-config &
           echo "WAYLAND_DISPLAY=wayland-0" >> $GITHUB_ENV
           sleep 2

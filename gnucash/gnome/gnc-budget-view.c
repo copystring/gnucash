@@ -428,6 +428,8 @@ finalize (GObject *object)
 {
     GncBudgetView *view = GNC_BUDGET_VIEW (object);
     GncBudgetViewPrivate *priv = PRIV (view);
+    if (priv->account_view)
+        gnc_tree_view_account_set_filter (priv->account_view, NULL, NULL, NULL);
     gnc_prefs_remove_cb_by_func (GNC_PREFS_GROUP_GENERAL, GNC_PREF_NEGATIVE_IN_RED, update_negative_pref, view);
     g_list_free (priv->period_columns); g_list_free (priv->totals_period_columns);
     g_clear_object (&priv->totals_rows);

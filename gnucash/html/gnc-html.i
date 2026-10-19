@@ -22,6 +22,11 @@
 %{
 /* Includes the header in the wrapper code */
 #include <config.h>
+#ifdef __MINGW32__
+#undef copysign
+#undef _GLIBCXX_USE_C99_MATH_TR1
+#endif
+#include <cmath>
 #include <gtk/gtk.h>
 #include <glib-object.h>
 #include <dialog-utils.h>

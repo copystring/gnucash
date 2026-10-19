@@ -15,8 +15,8 @@ jobs:
           echo "PATH=$HOME/gnucash/inst/bin:$(brew --prefix gettext)/bin:$PATH" >> $GITHUB_ENV
           echo "PREFIX=$HOME/gnucash/inst" >> $GITHUB_ENV
           echo "SRCROOT=$HOME/gnucash/source" >> $GITHUB_ENV
-          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool libxmlsec1 gnutls libgcrypt gmp
-          echo "PKG_CONFIG_PATH=$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$HOME/gnucash/inst/lib/pkgconfig" >> $GITHUB_ENV
+          brew install ninja cmake pkg-config gettext gtk4 guile libofx libdbi sqlite googletest boost gtksourceview5 autoconf automake libtool libxmlsec1 gnutls libgcrypt gmp libxml2
+          echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$HOME/gnucash/inst/lib/pkgconfig" >> $GITHUB_ENV
           echo "ACLOCAL_PATH=$(brew --prefix gettext)/share/aclocal:$(brew --prefix)/share/aclocal" >> $GITHUB_ENV
           echo "CPPFLAGS=-I$(brew --prefix)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include" >> $GITHUB_ENV
           echo "LDFLAGS=-L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib" >> $GITHUB_ENV
@@ -46,16 +46,16 @@ jobs:
           export CPPFLAGS="-I$PREFIX/include -I$(brew --prefix)/include -I$(brew --prefix gmp)/include -I$(brew --prefix libgcrypt)/include -I$(brew --prefix gnutls)/include"
           export LDFLAGS="-L$PREFIX/lib -L$(brew --prefix)/lib -L$(brew --prefix libgcrypt)/lib -L$(brew --prefix gnutls)/lib"
           export CFLAGS="-std=gnu99 -g -O2 -Wno-error=declaration-after-statement"
-          PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX --disable-static --enable-shared --enable-local-install
+          PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libxmlsec1)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:$PKG_CONFIG_PATH ./configure --prefix=$PREFIX --disable-static --enable-shared --enable-local-install
           make -j$(sysctl -n hw.ncpu)
           make install
       - name: Configure GnuCash for GTK4
         run: |
           mkdir -p $HOME/gnucash/build
           cd $HOME/gnucash/build
-          cmake -GNinja \
+          PKG_CONFIG_PATH="$(brew --prefix libxml2)/lib/pkgconfig:$PKG_CONFIG_PATH" cmake -GNinja \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DCMAKE_PREFIX_PATH=$PREFIX \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix libxml2);$PREFIX" \
             -DWITH_PYTHON=ON \
             -DGTEST_ROOT=$SRCROOT/googletest \
             -DGTK_MIN_VERSION=4.10.0 \
