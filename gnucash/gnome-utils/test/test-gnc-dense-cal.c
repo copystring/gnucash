@@ -44,12 +44,12 @@ typedef struct
     gboolean require_rebuild;
     gboolean ready;
 } SceneWait;
-
 static gboolean
 scene_is_ready (const SceneWait *wait)
 {
     if (!gtk_widget_get_first_child (wait->background) ||
-        gtk_widget_get_width (wait->drawing_area) < 1)
+        gtk_widget_get_width (wait->drawing_area) < 1 ||
+        !gtk_widget_get_realized (wait->drawing_area))
         return FALSE;
 
     return !wait->require_rebuild ||
@@ -78,10 +78,11 @@ poll_scene (gpointer user_data)
         g_source_remove (wait->timeout_source);
         wait->timeout_source = 0;
     }
+
     g_main_loop_quit (wait->loop);
+
     return G_SOURCE_REMOVE;
 }
-
 static gboolean
 scene_wait_timed_out (gpointer user_data)
 {
@@ -93,7 +94,14 @@ scene_wait_timed_out (gpointer user_data)
         g_source_remove (wait->poll_source);
         wait->poll_source = 0;
     }
+
+    g_message ("Scene wait timed out; background has child: %s, drawing_area width: %d, realized: %s",
+               gtk_widget_get_first_child (wait->background) ? "yes" : "no",
+               gtk_widget_get_width (wait->drawing_area),
+               gtk_widget_get_realized (wait->drawing_area) ? "yes" : "no");
+
     g_main_loop_quit (wait->loop);
+
     return G_SOURCE_REMOVE;
 }
 
@@ -119,7 +127,7 @@ wait_for_scene (GtkWidget *background, GtkWidget *drawing_area,
     else
     {
         wait.poll_source = g_timeout_add (10, poll_scene, &wait);
-        wait.timeout_source = g_timeout_add_seconds (5, scene_wait_timed_out,
+        wait.timeout_source = g_timeout_add_seconds (30, scene_wait_timed_out,
                                                      &wait);
         g_main_loop_run (wait.loop);
     }

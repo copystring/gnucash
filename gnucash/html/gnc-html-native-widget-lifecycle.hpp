@@ -42,21 +42,34 @@ public:
         if (!view_)
             return;
 
+        // First, disconnect signals (they may trigger callbacks that touch the widget)
         for (const auto &signal : signals_)
+        {
             if (g_signal_handler_is_connected (signal.object, signal.id))
                 g_signal_handler_disconnect (signal.object, signal.id);
+        }
         signals_.clear ();
 
+        // Then remove tick callback (might be using widget state)
         if (tick_callback_)
         {
-            gtk_widget_remove_tick_callback (view_, tick_callback_);
+            if (gtk_widget_get_mapped (view_) || gtk_widget_get_realized (view_))
+            {
+                gtk_widget_remove_tick_callback (view_, tick_callback_);
+            }
             tick_callback_ = 0;
         }
 
+        // Finally remove controllers (they may be freed when removed from widget)
         for (const auto controller : controllers_)
+        {
             if (gtk_event_controller_get_widget (controller) == view_)
+            {
                 gtk_widget_remove_controller (view_, controller);
+            }
+        }
         controllers_.clear ();
+
         view_ = nullptr;
     }
 
