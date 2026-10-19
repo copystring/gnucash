@@ -403,7 +403,7 @@ static void
 gnc_basic_command_start_after_pending (GncMainWindow *window,
                                        GncBasicCommand command)
 {
-    auto request = g_new0 (GncBasicCommandRequest, 1);
+    GncBasicCommandRequest *request = g_new0 (GncBasicCommandRequest, 1);
 
     g_weak_ref_init (&request->window, window);
     request->command = command;
