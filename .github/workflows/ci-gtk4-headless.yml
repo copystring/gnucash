@@ -93,6 +93,8 @@ jobs:
           CTEST_OUTPUT_ON_FAILURE: On
           GDK_BACKEND: wayland
           GTK_A11Y: none
+          GSK_RENDERER: cairo
+          LIBGL_ALWAYS_SOFTWARE: "1"
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

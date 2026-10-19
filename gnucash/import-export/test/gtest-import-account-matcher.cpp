@@ -231,6 +231,9 @@ spin_until_frame (GtkWidget *widget)
             *static_cast<gboolean*> (data) = TRUE;
             return G_SOURCE_REMOVE;
         }, &frame_seen, nullptr);
+    if (auto root = gtk_widget_get_root (widget))
+        gtk_widget_queue_draw (GTK_WIDGET (root));
+    gtk_widget_queue_draw (widget);
     const auto deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
     do
     {
@@ -239,6 +242,7 @@ spin_until_frame (GtkWidget *widget)
             gtk_widget_get_width (widget) > 1 &&
             gtk_widget_get_height (widget) > 1)
             return true;
+        g_usleep (1000);
     }
     while (g_get_monotonic_time () < deadline);
     gtk_widget_remove_tick_callback (widget, tick_id);

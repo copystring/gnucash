@@ -63,7 +63,10 @@ poll_scene (gpointer user_data)
     SceneWait *wait = user_data;
 
     if (!scene_is_ready (wait))
+    {
+        gtk_widget_queue_draw (wait->drawing_area);
         return G_SOURCE_CONTINUE;
+    }
 
     wait->ready = TRUE;
     wait->poll_source = 0;
@@ -151,7 +154,11 @@ test_resize_rebuilds_calendar_scene (void)
     initial_child = gtk_widget_get_first_child (background);
     initial_width = gtk_widget_get_width (drawing_area);
 
+    gtk_window_set_default_size (window, 900, 520);
     gtk_widget_set_size_request (calendar, 900, 520);
+    gtk_widget_queue_resize (GTK_WIDGET (window));
+    gtk_widget_queue_resize (calendar);
+    gtk_widget_queue_draw (drawing_area);
     g_assert_true (wait_for_scene (background, drawing_area, initial_child,
                                    initial_width));
 
