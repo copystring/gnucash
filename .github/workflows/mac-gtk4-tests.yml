@@ -75,5 +75,5 @@ jobs:
         if: failure()
         with:
           name: TestLog-mac-gtk4
-          path: ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
+          path: /Users/runner/gnucash/build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore

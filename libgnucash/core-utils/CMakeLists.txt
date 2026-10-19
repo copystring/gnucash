@@ -45,7 +45,8 @@ target_include_directories(gnc-core-utils
         ${CMAKE_SOURCE_DIR}/common
         ${CMAKE_BINARY_DIR}/common
         ${CMAKE_CURRENT_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR})
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${ICU_INCLUDE_DIRS})
 
 target_link_libraries(gnc-core-utils
     PUBLIC
