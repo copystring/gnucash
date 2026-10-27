@@ -696,7 +696,19 @@ TEST_F (RegisterSaveCloseLifecycle, ValidationFailure)
     ASSERT_STREQ (gnc_table_get_current_cell_name (reg->table), MXFRM_CELL);
     accept_close ();
     ASSERT_FALSE (HasFatalFailure ());
-    ASSERT_TRUE (wait_for ([this] { return !transient_dialogs (window).empty (); }));
+    /* The save confirmation may still be visible while its async response
+     * completes. Wait for the distinct one-button validation alert. */
+    ASSERT_TRUE (wait_for ([this] {
+        auto dialogs = transient_dialogs (window);
+        return dialogs.size () == 1 &&
+            gtk_dialog_get_widget_for_response (GTK_DIALOG (dialogs.front ()),
+#if GTK_CHECK_VERSION(4, 0, 0)
+                                                0) &&
+            !gtk_dialog_get_widget_for_response (GTK_DIALOG (dialogs.front ()), 2);
+#else
+                                                GTK_RESPONSE_CLOSE);
+#endif
+    }));
     auto errors = transient_dialogs (window);
     ASSERT_EQ (errors.size (), 1u);
     auto error = errors.front ();
