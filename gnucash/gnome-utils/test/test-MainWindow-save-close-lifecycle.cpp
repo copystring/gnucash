@@ -334,9 +334,8 @@ protected:
         require(observed.dispatch_returned);
         require(!released);
         require(!gnc_file_save_in_progress());
-        // The shutdown hook does not perform application shutdown.
-        if (!window_closed())
-            gtk_window_destroy(GTK_WINDOW(window));
+        // Production close must already have removed the toplevel before the
+        // intercepted shutdown callback. Never repair this in the fixture.
         require(window_closed() && observed.finalizes == 0);
         g_object_unref(window);
         window = nullptr;
@@ -500,6 +499,16 @@ TEST_F(MainWindowSaveCloseLifecycle, SaveSuccess)
     xaccAccountSetName(account, "Persisted by real lifecycle APPLY");
     xaccAccountCommitEdit(account);
     qof_book_mark_session_dirty(book);
+    // Negative control: the first real XML save must not contain the edit.
+    auto before = qof_session_new(qof_book_new());
+    qof_session_begin(before, uri.c_str(), SESSION_READ_ONLY);
+    ASSERT_EQ(qof_session_get_error(before), ERR_BACKEND_NO_ERR);
+    qof_session_load(before, nullptr);
+    ASSERT_EQ(qof_session_get_error(before), ERR_BACKEND_NO_ERR);
+    auto before_root = gnc_book_get_root_account(qof_session_get_book(before));
+    ASSERT_NE(gnc_account_lookup_by_name(before_root, "Before lifecycle APPLY"), nullptr);
+    ASSERT_EQ(gnc_account_lookup_by_name(before_root, "Persisted by real lifecycle APPLY"), nullptr);
+    qof_session_destroy(before);
     close_dirty(GTK_RESPONSE_APPLY);
     shutdown_return();
     EXPECT_EQ(observed.applies, 1u);
