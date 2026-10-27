@@ -465,9 +465,15 @@ protected:
         if (dialogs.size () != 1)
             return nullptr;
         auto dialog = dialogs.front ();
+#if GTK_CHECK_VERSION(4, 0, 0)
+        if (!gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), 0) ||
+            !gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), 1) ||
+            !gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), 2))
+#else
         if (!gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), GTK_RESPONSE_ACCEPT) ||
             !gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), GTK_RESPONSE_CANCEL) ||
             !gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), GTK_RESPONSE_REJECT))
+#endif
             return nullptr;
         return dialog;
     }
