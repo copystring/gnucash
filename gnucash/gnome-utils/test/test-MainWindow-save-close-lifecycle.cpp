@@ -338,6 +338,7 @@ protected:
         if (!window_closed())
             gtk_window_destroy(GTK_WINDOW(window));
         require(window_closed() && observed.finalizes == 0);
+        g_printerr("TEST window ref before release=%u\n", G_OBJECT(window)->ref_count);
         g_object_unref(window);
         window = nullptr;
         released = true;
@@ -407,6 +408,7 @@ protected:
         qof_book_mark_session_saved(book);
         window = gnc_main_window_new();
         g_object_ref_sink(window);
+        g_printerr("TEST window ref after acquire=%u\n", G_OBJECT(window)->ref_count);
         observed.window = window;
         g_signal_connect(window, "destroy", G_CALLBACK(destroyed), &observed);
         g_object_weak_ref(G_OBJECT(window), finalized, &observed);
@@ -525,6 +527,23 @@ TEST_F(MainWindowSaveCloseLifecycle, SaveError)
     until([&] { return observed.writes == 1 && dialog(true) != nullptr; });
     ++observed.errors;
     answer(GTK_RESPONSE_OK);
+#if GTK_CHECK_VERSION(4, 0, 0)
+    GtkWindow *chooser{};
+    until([&] {
+        auto windows = gtk_window_get_toplevels();
+        for (guint i = 0; i < g_list_model_get_n_items(windows); ++i)
+        {
+            auto candidate = GTK_WINDOW(g_list_model_get_item(windows, i));
+            if (candidate != GTK_WINDOW(window) &&
+                gtk_window_get_transient_for(candidate) == GTK_WINDOW(window) &&
+                g_strcmp0(gtk_window_get_title(candidate), "Save") == 0)
+                chooser = candidate;
+            g_object_unref(candidate);
+        }
+        return chooser != nullptr;
+    });
+    gtk_window_close(chooser);
+#endif
     until([&] { return dialog() != nullptr && !gnc_file_save_in_progress(); });
     answer(GTK_RESPONSE_CANCEL);
     until([&] { return dialog() == nullptr; });
