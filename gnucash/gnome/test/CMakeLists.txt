@@ -81,6 +81,7 @@ if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
     ${CMAKE_SOURCE_DIR}/libgnucash/engine/test-core)
   set(REGISTER_LIFECYCLE_LIBS
     ${GNOME_TEST_LIBS}
+    gtest
     gnc-gnome-utils
     gnc-register-gnome
     gnc-register-core

@@ -250,6 +250,7 @@ if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
     ${CMAKE_SOURCE_DIR}/libgnucash/engine/test-core)
   set(MAIN_WINDOW_LIFECYCLE_LIBS
     ${GNOME_UTILS_GUI_TEST_LIBS}
+    gtest
     gnc-test-engine
     ${GUILE_LDFLAGS})
   gnc_add_test_with_guile(test-MainWindow-save-close-lifecycle
