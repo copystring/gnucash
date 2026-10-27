@@ -30,7 +30,7 @@
 #include <config.h>
 
 #include <string.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 
 #include "quickfillcell.h"
 #include "quickfillcell-gnome.h"

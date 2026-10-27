@@ -38,7 +38,7 @@
 #include <string.h>
 #include <time.h>
 #include <glib/gi18n.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 
 #include "datecell.h"
 #include "dialog-utils.h"
