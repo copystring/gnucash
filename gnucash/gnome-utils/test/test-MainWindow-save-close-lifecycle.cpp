@@ -16,6 +16,8 @@
 #include "gnc-engine.h"
 #include "gnc-file.h"
 #include "gnc-gsettings.h"
+#include "gnc-gnome-utils.h"
+#include "gnc-hooks.h"
 #include "gnc-main-window.h"
 #include "gnc-session.h"
 #include "gnc-test-shutdown.h"
@@ -598,8 +600,37 @@ TEST_F(MainWindowSaveCloseLifecycle, ReentrantClose)
 }
 }
 
+namespace
+{
+void real_shutdown_hook(gpointer, gpointer)
+{
+    g_print("AIW848_REAL_SHUTDOWN_HOOK\n");
+    fflush(stdout);
+}
+
+void real_shutdown_exit()
+{
+    g_print("AIW848_REAL_EXIT_HANDLER\n");
+    fflush(stdout);
+}
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 2 && g_strcmp0(argv[1], "--real-shutdown") == 0)
+    {
+        if (!gtk_init_check())
+            return EXIT_FAILURE;
+        qof_init();
+        gnc_hooks_init();
+        gnc_hook_add_dangler(HOOK_SHUTDOWN, real_shutdown_hook, nullptr, nullptr);
+        if (std::atexit(real_shutdown_exit) != 0)
+            return EXIT_FAILURE;
+        // No test hook: execute the real non-running-UI shutdown branch,
+        // including GnuCash shutdown hooks, engine shutdown, and exit(0).
+        gnc_shutdown(0);
+        return EXIT_FAILURE; // reaching here would violate its exit contract
+    }
     ::testing::InitGoogleTest(&argc, argv);
     if (!one_case())
         return EXIT_FAILURE;

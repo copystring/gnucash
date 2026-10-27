@@ -266,6 +266,12 @@ if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
     "GNC_LIFECYCLE_XML_DIR=$<TARGET_FILE_DIR:gncmod-backend-xml>")
   get_test_property(test-MainWindow-save-close-lifecycle
     ENVIRONMENT MAIN_WINDOW_LIFECYCLE_ENVIRONMENT)
+  add_test(NAME test-MainWindow-real-shutdown
+    COMMAND $<TARGET_FILE:test-MainWindow-save-close-lifecycle> --real-shutdown)
+  set_tests_properties(test-MainWindow-real-shutdown PROPERTIES
+    ENVIRONMENT "${MAIN_WINDOW_LIFECYCLE_ENVIRONMENT}"
+    PASS_REGULAR_EXPRESSION "AIW848_REAL_SHUTDOWN_HOOK"
+    TIMEOUT 30)
   foreach(lifecycle_case IN ITEMS SaveSuccess CleanClose CancelClose SaveError ReentrantClose)
     add_test(NAME "test-MainWindow-save-close-lifecycle.${lifecycle_case}"
       COMMAND $<TARGET_FILE:test-MainWindow-save-close-lifecycle>

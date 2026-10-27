@@ -23,8 +23,13 @@ jobs:
       - name: Build test targets
         run: cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle
       - name: Run lifecycle tests
-        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-gnc-plugin-page-register-save-close-lifecycle\.'
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.'
 
+      - name: Verify real shutdown exit marker
+        run: |
+          xvfb-run -a ctest --test-dir build -V -R '^test-MainWindow-real-shutdown$' | tee real-shutdown.log
+          grep -F 'AIW848_REAL_SHUTDOWN_HOOK' real-shutdown.log
+          grep -F 'AIW848_REAL_EXIT_HANDLER' real-shutdown.log
       - name: Diagnose failing lifecycle cases
         if: failure()
         run: |
