@@ -55,6 +55,7 @@ struct Observation
     bool inside_iteration{};
     bool dispatch_returned{};
     bool shutdown_save_active{};
+    bool toplevel_present_at_shutdown{};
     GncMainWindow *window{};
 };
 
@@ -145,6 +146,19 @@ protected:
         ++o.shutdowns;
         o.status = status;
         o.shutdown_save_active = gnc_file_save_in_progress();
+#if GTK_CHECK_VERSION(4, 0, 0)
+        auto windows = gtk_window_get_toplevels();
+        for (guint i = 0; i < g_list_model_get_n_items(windows); ++i)
+        {
+            auto candidate = g_list_model_get_item(windows, i);
+            o.toplevel_present_at_shutdown |= candidate == o.window;
+            g_object_unref(candidate);
+        }
+#else
+        auto windows = gtk_window_list_toplevels();
+        o.toplevel_present_at_shutdown = g_list_find(windows, o.window) != nullptr;
+        g_list_free(windows);
+#endif
     }
 
     static void destroyed(GtkWidget *, gpointer data)
@@ -303,6 +317,7 @@ protected:
         EXPECT_EQ(observed.shutdowns, 1u);
         EXPECT_EQ(observed.status, 0);
         EXPECT_FALSE(observed.shutdown_save_active);
+        EXPECT_FALSE(observed.toplevel_present_at_shutdown);
         EXPECT_TRUE(window_closed());
         EXPECT_EQ(observed.finalizes, 0u);
         EXPECT_EQ(observed.releases, 0u);
