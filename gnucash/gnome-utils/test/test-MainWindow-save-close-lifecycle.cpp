@@ -523,14 +523,21 @@ TEST_F(MainWindowSaveCloseLifecycle, SaveError)
         if (auto question = dialog())
         {
             ++observed.errors;
-            G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-            if (gtk_dialog_get_widget_for_response(question, GTK_RESPONSE_CANCEL))
+#if GTK_CHECK_VERSION(4, 0, 0)
+            if (find_button(GTK_WIDGET(question), "Cancel"))
                 answer(GTK_RESPONSE_CANCEL);
-            else if (gtk_dialog_get_widget_for_response(question, GTK_RESPONSE_CLOSE))
+            else
+                answer(GTK_RESPONSE_CLOSE);
+#else
+            G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+            if (gtk_dialog_get_widget_for_response(GTK_DIALOG(question), GTK_RESPONSE_CANCEL))
+                answer(GTK_RESPONSE_CANCEL);
+            else if (gtk_dialog_get_widget_for_response(GTK_DIALOG(question), GTK_RESPONSE_CLOSE))
                 answer(GTK_RESPONSE_CLOSE);
             else
                 answer(GTK_RESPONSE_OK);
             G_GNUC_END_IGNORE_DEPRECATIONS
+#endif
         }
         iteration();
         g_usleep(1000);
