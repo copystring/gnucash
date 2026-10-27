@@ -338,7 +338,6 @@ protected:
         if (!window_closed())
             gtk_window_destroy(GTK_WINDOW(window));
         require(window_closed() && observed.finalizes == 0);
-        g_printerr("TEST window ref before release=%u\n", G_OBJECT(window)->ref_count);
         g_object_unref(window);
         window = nullptr;
         released = true;
@@ -407,8 +406,8 @@ protected:
         }
         qof_book_mark_session_saved(book);
         window = gnc_main_window_new();
-        g_object_ref_sink(window);
-        g_printerr("TEST window ref after acquire=%u\n", G_OBJECT(window)->ref_count);
+        /* gnc_main_window_new uses g_object_new, so the constructor already
+         * supplies the fixture's reference in addition to GTK's toplevel ref. */
         observed.window = window;
         g_signal_connect(window, "destroy", G_CALLBACK(destroyed), &observed);
         g_object_weak_ref(G_OBJECT(window), finalized, &observed);
