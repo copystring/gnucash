@@ -613,5 +613,10 @@ int main(int argc, char **argv)
     auto tests = ::testing::UnitTest::GetInstance();
     if (tests->test_to_run_count() != 1 || tests->successful_test_count() != 1)
         result = EXIT_FAILURE;
+    if (result == EXIT_SUCCESS)
+    {
+        g_print("AIW848_TEST_COMPLETED %s\n", ::testing::GTEST_FLAG(filter).c_str());
+        fflush(stdout);
+    }
     std::_Exit(result);
 }

@@ -272,6 +272,7 @@ if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
         "--gtest_filter=MainWindowSaveCloseLifecycle.${lifecycle_case}")
     set_tests_properties("test-MainWindow-save-close-lifecycle.${lifecycle_case}" PROPERTIES
       ENVIRONMENT "${MAIN_WINDOW_LIFECYCLE_ENVIRONMENT}"
+      PASS_REGULAR_EXPRESSION "AIW848_TEST_COMPLETED MainWindowSaveCloseLifecycle.${lifecycle_case}"
       TIMEOUT 30)
   endforeach()
 endif()
