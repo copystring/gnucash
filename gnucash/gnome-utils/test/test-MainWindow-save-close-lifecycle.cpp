@@ -367,6 +367,9 @@ protected:
             EXPECT_EQ(observed.shutdowns, 1u);
             g_usleep(1000);
         }
+        require(g_main_context_acquire(g_main_context_default()));
+        gnc_test_shutdown_restore();
+        g_main_context_release(g_main_context_default());
     }
 
     void SetUp() override
