@@ -3572,7 +3572,7 @@ gnc_main_window_finalize (GObject *object)
     g_return_if_fail (object != nullptr);
     g_return_if_fail (GNC_IS_MAIN_WINDOW (object));
 
-    if (active_windows == nullptr && !shutdown_started)
+    if (active_windows == nullptr)
     {
         /* Oops. User killed last window and we didn't catch it. */
         g_idle_add (gnc_main_window_shutdown_idle, nullptr);
