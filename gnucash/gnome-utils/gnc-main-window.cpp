@@ -1553,6 +1553,16 @@ gnc_main_window_timed_quit (gpointer dummy)
     return FALSE;
 }
 
+/* The mainwin action namespace points at the window itself. Remove the
+ * GTK action muxer's reference before dropping the toplevel reference;
+ * otherwise finalization disconnects handlers on an already-finalizing object. */
+static void
+gnc_main_window_destroy_window (GncMainWindow *window)
+{
+    gtk_widget_insert_action_group (GTK_WIDGET (window), "mainwin", nullptr);
+    gtk_window_destroy (GTK_WINDOW (window));
+}
+
 static void
 gnc_main_window_begin_shutdown (void)
 {
@@ -1570,7 +1580,7 @@ gnc_main_window_begin_shutdown (void)
 
         window->window_quitting = TRUE;
         if (priv->installed_pages == NULL)
-            gtk_window_destroy (GTK_WINDOW (window));
+            gnc_main_window_destroy_window (window);
         item = next;
     }
 
@@ -1974,7 +1984,7 @@ gnc_main_window_close_request_pending_finished (GncMainWindow *window,
         if (accepted)
         {
             if (request->destroy_window)
-                gtk_window_destroy (GTK_WINDOW (window));
+                gnc_main_window_destroy_window (window);
             else
             {
                 window->close_request_pending = TRUE;
@@ -2178,7 +2188,7 @@ gnc_main_window_event_handler (QofInstance *entity,  QofEventId event_type,
     }
 
     if (GTK_IS_WIDGET(window) && window->window_quitting)
-        gtk_window_destroy (GTK_WINDOW(window));
+        gnc_main_window_destroy_window (window);
 
     LEAVE(" ");
 }
@@ -3562,7 +3572,7 @@ gnc_main_window_finalize (GObject *object)
     g_return_if_fail (object != nullptr);
     g_return_if_fail (GNC_IS_MAIN_WINDOW (object));
 
-    if (active_windows == nullptr)
+    if (active_windows == nullptr && !shutdown_started)
     {
         /* Oops. User killed last window and we didn't catch it. */
         g_idle_add (gnc_main_window_shutdown_idle, nullptr);
@@ -4175,7 +4185,7 @@ gnc_main_window_close_page_pending_finished (GncPluginPage *page, gboolean accep
                 gnc_main_window_remove_prefs (window);
             }
             if (gnc_list_length_cmp (active_windows, 1) > 0)
-                gtk_window_destroy (GTK_WINDOW(window));
+                gnc_main_window_destroy_window (window);
         }
     }
     g_object_unref (request->page);
