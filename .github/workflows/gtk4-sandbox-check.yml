@@ -1,0 +1,46 @@
+name: GTK4 Sandbox Check
+on:
+  push:
+    branches: [aiw-848-gtk4-reference-20261027]
+  workflow_dispatch:
+concurrency:
+  group: gtk4-sandbox-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  gtk4-build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: registry.fedoraproject.org/fedora:45
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel gdb zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb xdotool
+      - name: Configure
+        run: cmake -S . -B build -GNinja -DWITH_GTK4=ON -DWITH_AQBANKING=OFF -DWITH_OFX=OFF -DWITH_PYTHON=OFF -DGNC_ENABLE_SHUTDOWN_TEST_HOOKS=ON -DCMAKE_BUILD_TYPE=Debug
+      - name: Build test targets
+        run: |
+          cmake --build build --parallel 2
+          cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle
+      - name: Run lifecycle tests
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.'
+
+      - name: Verify real shutdown exit marker
+        run: |
+          xvfb-run -a ctest --test-dir build -V -R '^test-MainWindow-real-shutdown$' > real-shutdown.log 2>&1 || { cat real-shutdown.log; exit 1; }
+          cat real-shutdown.log
+          grep -F 'AIW848_REAL_SHUTDOWN_HOOK' real-shutdown.log
+          grep -F 'AIW848_REAL_EXIT_HANDLER' real-shutdown.log
+      - name: Diagnose failing lifecycle cases
+        if: failure()
+        run: |
+          xvfb-run -a ctest --test-dir build -V -R 'test-gnc-plugin-page-register-save-close-lifecycle.ValidationFailure' || true
+          GNC_UNINSTALLED=YES GNC_BUILDDIR=$PWD/build GNC_MODULE_PATH=$PWD/build/lib64:$PWD/build/lib64/gnucash GUILE_LOAD_PATH=$PWD/build/share/guile/site/3.0:$PWD/build/share/guile/site/3.0/gnucash/deprecated GUILE_LOAD_COMPILED_PATH=$PWD/build/lib64/guile/3.0/site-ccache:$PWD/build/lib64/guile/3.0/site-ccache/gnucash/deprecated LD_LIBRARY_PATH=$PWD/build/lib64:$PWD/build/lib64/gnucash GSETTINGS_SCHEMA_DIR=$PWD/build/share/glib-2.0/schemas GSETTINGS_BACKEND=memory xvfb-run -a gdb -batch -ex run -ex 'thread apply all bt' --args build/bin/test-gnc-plugin-page-register-save-close-lifecycle --gtest_filter=RegisterSaveCloseLifecycle.ValidationFailure || true
+
+          GNC_UNINSTALLED=YES GNC_BUILDDIR=$PWD/build GNC_MODULE_PATH=$PWD/build/lib64:$PWD/build/lib64/gnucash GUILE_LOAD_PATH=$PWD/build/share/guile/site/3.0:$PWD/build/share/guile/site/3.0/gnucash/deprecated GUILE_LOAD_COMPILED_PATH=$PWD/build/lib64/guile/3.0/site-ccache:$PWD/build/lib64/guile/3.0/site-ccache/gnucash/deprecated LD_LIBRARY_PATH=$PWD/build/lib64:$PWD/build/lib64/gnucash GSETTINGS_SCHEMA_DIR=$PWD/build/share/glib-2.0/schemas GSETTINGS_BACKEND=memory G_DEBUG=fatal-criticals xvfb-run -a timeout 15s gdb -batch -ex 'set breakpoint pending on' -ex 'break gnc_main_window_finalize' -ex run -ex 'break g_signal_handlers_destroy' -ex continue -ex bt --args build/bin/test-MainWindow-save-close-lifecycle --gtest_filter=MainWindowSaveCloseLifecycle.CleanClose || true
+
+      - name: Exercise interactive GTK shutdown to process exit
+        timeout-minutes: 5
+        run: xvfb-run -a python3 .github/scripts/interactive-shutdown.py build

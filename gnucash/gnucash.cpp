@@ -218,6 +218,17 @@ scm_run_gnucash (void *data, [[maybe_unused]] int argc, [[maybe_unused]] char **
 
     gnc_hook_run(HOOK_UI_POST_STARTUP, NULL);
     gnc_ui_start_event_loop();
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+    if (g_getenv ("AIW848_INTERACTIVE_TEST"))
+    {
+        auto window = gnc_ui_get_main_window (nullptr);
+        if (window && GNC_IS_MAIN_WINDOW (window))
+        {
+            gtk_window_set_title (window, "AIW848_INTERACTIVE_MAIN_WINDOW");
+            g_printerr ("AIW848_UI_READY\n");
+        }
+    }
+#endif
     return;
 }
 

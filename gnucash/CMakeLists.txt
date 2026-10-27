@@ -105,6 +105,9 @@ add_executable (gnucash
 )
 
 target_compile_definitions(gnucash PRIVATE -DG_LOG_DOMAIN=\"gnc.bin\")
+if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  target_compile_definitions(gnucash PRIVATE GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+endif()
 
 target_link_libraries (gnucash
    gnc-ledger-core gnc-gnome gnc-gnome-utils gnc-app-utils

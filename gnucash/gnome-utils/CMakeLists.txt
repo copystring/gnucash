@@ -211,6 +211,15 @@ add_library (gnc-gnome-utils
   ${gnome_utils_noinst_HEADERS}
 )
 
+if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  target_sources(gnc-gnome-utils PRIVATE
+    test/gnc-test-shutdown.cpp
+    test/gnc-test-shutdown.h)
+  target_compile_definitions(gnc-gnome-utils PRIVATE GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  set_source_files_properties(test/gnc-test-shutdown.cpp
+    PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
+endif()
+
 target_link_libraries(gnc-gnome-utils
     gnc-app-utils
     gnc-engine

@@ -67,6 +67,47 @@ gnc_add_test (test-assistant-stock-transaction
   test_assistant-stock-transaction_LIBS
 )
 
+if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  gnc_generate_gresources(
+    BASE gtest-register-save-close-resources
+    RESOURCE_FILES "../../ui/gnc-main-window.ui"
+                   "../../ui/gnc-plugin-page-register.ui"
+                   "../../ui/gnc-plugin-register.ui")
+  set(REGISTER_LIFECYCLE_SOURCES
+    test-gnc-plugin-page-register-save-close-lifecycle.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/gtest-register-save-close-resources.c)
+  set(REGISTER_LIFECYCLE_INCLUDE_DIRS
+    ${GNOME_TEST_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/libgnucash/engine/test-core)
+  set(REGISTER_LIFECYCLE_LIBS
+    ${GNOME_TEST_LIBS}
+    gtest
+    gnc-gnome-utils
+    gnc-register-gnome
+    gnc-register-core
+    gnc-ledger-core)
+  gnc_add_test_with_guile(test-gnc-plugin-page-register-save-close-lifecycle
+    "${REGISTER_LIFECYCLE_SOURCES}"
+    REGISTER_LIFECYCLE_INCLUDE_DIRS REGISTER_LIFECYCLE_LIBS)
+  target_compile_definitions(test-gnc-plugin-page-register-save-close-lifecycle
+    PRIVATE GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  add_dependencies(test-gnc-plugin-page-register-save-close-lifecycle
+    scm-gnome-utils scm-expressions gncmod-backend-xml compiled-schemas)
+  set_tests_properties(test-gnc-plugin-page-register-save-close-lifecycle PROPERTIES DISABLED TRUE)
+  set_property(TEST test-gnc-plugin-page-register-save-close-lifecycle APPEND PROPERTY ENVIRONMENT
+    "GSETTINGS_SCHEMA_DIR=${SCHEMADIR_BUILD}" "GSETTINGS_BACKEND=memory")
+  get_test_property(test-gnc-plugin-page-register-save-close-lifecycle
+    ENVIRONMENT REGISTER_LIFECYCLE_ENVIRONMENT)
+  foreach(lifecycle_case IN ITEMS SaveClose CancelClose ValidationFailure BackendFailure ReentrantClose)
+    add_test(NAME "test-gnc-plugin-page-register-save-close-lifecycle.${lifecycle_case}"
+      COMMAND $<TARGET_FILE:test-gnc-plugin-page-register-save-close-lifecycle>
+        "--gtest_filter=RegisterSaveCloseLifecycle.${lifecycle_case}")
+    set_tests_properties("test-gnc-plugin-page-register-save-close-lifecycle.${lifecycle_case}" PROPERTIES
+      ENVIRONMENT "${REGISTER_LIFECYCLE_ENVIRONMENT}"
+      TIMEOUT 30)
+  endforeach()
+endif()
+
 set_dist_list(test_gnome_DIST
   CMakeLists.txt
   test-invoice-report-builtin-default.cpp
