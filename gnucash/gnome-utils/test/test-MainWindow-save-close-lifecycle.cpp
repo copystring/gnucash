@@ -197,8 +197,8 @@ protected:
             auto candidate = G_OBJECT(g_list_model_get_item(model, i));
             if (GTK_IS_WINDOW(candidate) &&
                 gtk_window_get_transient_for(GTK_WINDOW(candidate)) == GTK_WINDOW(window) &&
-                (error ? (find_button(GTK_WIDGET(candidate), "_OK") ||
-                          find_button(GTK_WIDGET(candidate), "OK")) :
+                (error ? (find_button(GTK_WIDGET(candidate), "_Close") ||
+                          find_button(GTK_WIDGET(candidate), "Close")) :
                          (find_button(GTK_WIDGET(candidate), "_Save") &&
                           find_button(GTK_WIDGET(candidate), "_Cancel"))))
             {
@@ -261,9 +261,9 @@ protected:
 #if GTK_CHECK_VERSION(4, 0, 0)
         auto button = find_button(GTK_WIDGET(question),
                                   response == GTK_RESPONSE_APPLY ? "_Save" :
-                                  response == GTK_RESPONSE_OK ? "_OK" : "_Cancel");
+                                  response == GTK_RESPONSE_OK ? "_Close" : "_Cancel");
         if (!button && response == GTK_RESPONSE_OK)
-            button = find_button(GTK_WIDGET(question), "OK");
+            button = find_button(GTK_WIDGET(question), "Close");
         require(button != nullptr);
 #else
         G_GNUC_BEGIN_IGNORE_DEPRECATIONS
