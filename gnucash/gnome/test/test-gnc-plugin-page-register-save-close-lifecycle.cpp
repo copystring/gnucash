@@ -380,6 +380,8 @@ protected:
 
         window = gnc_main_window_new ();
         g_object_ref_sink (window);
+        /* New main windows install their own global engine error handler. */
+        gnc_engine_add_commit_error_callback (commit_error, &backend_observations);
         page = gnc_plugin_page_register_new (bank, FALSE);
         ASSERT_NE (page, nullptr);
         g_object_ref (page);
