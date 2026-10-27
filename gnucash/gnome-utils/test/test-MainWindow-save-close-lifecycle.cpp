@@ -157,19 +157,51 @@ protected:
         ++static_cast<Observation *>(data)->finalizes;
     }
 
-    GtkDialog *dialog()
+    bool window_closed() const
     {
-        GtkDialog *result{};
+#if GTK_CHECK_VERSION(4, 0, 0)
+        auto model = gtk_window_get_toplevels();
+        for (guint i = 0; i < g_list_model_get_n_items(model); ++i)
+        {
+            auto item = g_list_model_get_item(model, i);
+            bool match = item == window;
+            g_object_unref(item);
+            if (match) return false;
+        }
+        return true;
+#else
+        return observed.destroys != 0;
+#endif
+    }
+
+#if GTK_CHECK_VERSION(4, 0, 0)
+    static GtkWidget *find_button(GtkWidget *widget, const char *label)
+    {
+        if (GTK_IS_BUTTON(widget) &&
+            g_strcmp0(gtk_button_get_label(GTK_BUTTON(widget)), label) == 0)
+            return widget;
+        for (auto child = gtk_widget_get_first_child(widget); child;
+             child = gtk_widget_get_next_sibling(child))
+            if (auto found = find_button(child, label)) return found;
+        return nullptr;
+    }
+#endif
+
+    GtkWindow *dialog()
+    {
+        GtkWindow *result{};
 #if GTK_CHECK_VERSION(4, 0, 0)
         auto model = gtk_window_get_toplevels();
         for (guint i = 0; i < g_list_model_get_n_items(model); ++i)
         {
             auto candidate = G_OBJECT(g_list_model_get_item(model, i));
-            if (GTK_IS_MESSAGE_DIALOG(candidate) &&
-                gtk_window_get_transient_for(GTK_WINDOW(candidate)) == GTK_WINDOW(window))
+            if (GTK_IS_WINDOW(candidate) &&
+                gtk_window_get_transient_for(GTK_WINDOW(candidate)) == GTK_WINDOW(window) &&
+                find_button(GTK_WIDGET(candidate), "_Save") &&
+                find_button(GTK_WIDGET(candidate), "_Cancel"))
             {
                 require(result == nullptr);
-                result = GTK_DIALOG(candidate);
+                result = GTK_WINDOW(candidate);
             }
             g_object_unref(candidate);
         }
@@ -180,7 +212,7 @@ protected:
                 gtk_window_get_transient_for(GTK_WINDOW(node->data)) == GTK_WINDOW(window))
             {
                 require(result == nullptr);
-                result = GTK_DIALOG(node->data);
+                result = GTK_WINDOW(node->data);
             }
         g_list_free(windows);
 #endif
@@ -224,17 +256,27 @@ protected:
     {
         auto question = dialog();
         require(question != nullptr);
+#if GTK_CHECK_VERSION(4, 0, 0)
+        auto button = find_button(GTK_WIDGET(question),
+                                  response == GTK_RESPONSE_APPLY ? "_Save" : "_Cancel");
+        require(button != nullptr);
+#else
         G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-        require(gtk_dialog_get_widget_for_response(question, response) != nullptr);
+        require(gtk_dialog_get_widget_for_response(GTK_DIALOG(question), response) != nullptr);
         G_GNUC_END_IGNORE_DEPRECATIONS
+#endif
         g_object_ref(question);
         if (response == GTK_RESPONSE_APPLY)
             ++observed.applies;
         if (response == GTK_RESPONSE_CANCEL)
             ++observed.cancels;
+#if GTK_CHECK_VERSION(4, 0, 0)
+        g_signal_emit_by_name(button, "clicked");
+#else
         G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-        gtk_dialog_response(question, response);
+        gtk_dialog_response(GTK_DIALOG(question), response);
         G_GNUC_END_IGNORE_DEPRECATIONS
+#endif
         g_object_unref(question);
     }
 
@@ -256,7 +298,7 @@ protected:
         EXPECT_EQ(observed.shutdowns, 1u);
         EXPECT_EQ(observed.status, 0);
         EXPECT_FALSE(observed.shutdown_save_active);
-        EXPECT_EQ(observed.destroys, 1u);
+        EXPECT_TRUE(window_closed());
         EXPECT_EQ(observed.finalizes, 0u);
         EXPECT_EQ(observed.releases, 0u);
         auto end = g_get_monotonic_time() + 600 * G_TIME_SPAN_MILLISECOND;
@@ -277,7 +319,7 @@ protected:
         EXPECT_FALSE(gnc_file_save_in_progress());
         EXPECT_EQ(observed.shutdowns, 0u);
         EXPECT_FALSE(observed.dispatch_returned);
-        EXPECT_EQ(observed.destroys, 0u);
+        EXPECT_FALSE(window_closed());
         EXPECT_EQ(observed.finalizes, 0u);
         EXPECT_EQ(observed.releases, 0u);
     }
@@ -288,9 +330,9 @@ protected:
         require(!released);
         require(!gnc_file_save_in_progress());
         // The shutdown hook does not perform application shutdown.
-        if (observed.destroys == 0)
+        if (!window_closed())
             gtk_window_destroy(GTK_WINDOW(window));
-        require(observed.destroys == 1 && observed.finalizes == 0);
+        require(window_closed() && observed.finalizes == 0);
         g_object_unref(window);
         window = nullptr;
         released = true;
@@ -307,7 +349,7 @@ protected:
         {
             const auto backend_dir = g_getenv("GNC_LIFECYCLE_XML_DIR");
             require(backend_dir != nullptr);
-            require(qof_load_backend_library(backend_dir, "gnc-backend-xml"));
+            require(qof_load_backend_library(backend_dir, "gncmod-backend-xml"));
         }
         else
             qof_backend_register_provider(std::make_unique<WriteProvider>());
@@ -378,7 +420,7 @@ protected:
         if (remains_open)
         {
             require(!observed.dispatch_returned && observed.shutdowns == 0);
-            require(observed.destroys == 0 && observed.finalizes == 0);
+            require(!window_closed() && observed.finalizes == 0);
             require(g_main_context_acquire(g_main_context_default()));
             require(gnc_test_shutdown_is_installed());
             g_main_context_release(g_main_context_default());

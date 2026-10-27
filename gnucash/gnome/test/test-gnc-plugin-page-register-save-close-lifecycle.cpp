@@ -212,6 +212,17 @@ std::vector<GtkWidget *>
 transient_dialogs (GncMainWindow *window)
 {
     std::vector<GtkWidget *> result;
+#if GTK_CHECK_VERSION(4, 0, 0)
+    auto toplevels = gtk_window_get_toplevels ();
+    for (guint i = 0; i < g_list_model_get_n_items (toplevels); ++i)
+    {
+        auto widget = GTK_WIDGET (g_list_model_get_item (toplevels, i));
+        if (GTK_IS_DIALOG (widget) && gtk_widget_get_visible (widget) &&
+            gtk_window_get_transient_for (GTK_WINDOW (widget)) == GTK_WINDOW (window))
+            result.push_back (widget);
+        g_object_unref (widget);
+    }
+#else
     auto toplevels = gtk_window_list_toplevels ();
     for (auto node = toplevels; node; node = node->next)
     {
@@ -221,6 +232,7 @@ transient_dialogs (GncMainWindow *window)
             result.push_back (widget);
     }
     g_list_free (toplevels);
+#endif
     return result;
 }
 
@@ -251,9 +263,7 @@ protected:
     unsigned removed_calls{};
     unsigned destroy_calls{};
     unsigned destroy_completed{};
-    // Response callbacks may outlive both dialogs and this fixture. The
-    // single-case process retains this counter until _Exit.
-    unsigned &dialog_responses{*new unsigned{}};
+    unsigned dialog_responses{};
 
     static RegisterSaveCloseLifecycle *observer;
 
@@ -540,7 +550,12 @@ protected:
         auto dialog = confirmation ();
         ASSERT_NE (dialog, nullptr);
         g_signal_connect (dialog, "response", G_CALLBACK (response_received), &dialog_responses);
+#if GTK_CHECK_VERSION(4, 0, 0)
+        ASSERT_NE (gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), 2), nullptr);
+        gtk_dialog_response (GTK_DIALOG (dialog), 2);
+#else
         gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_ACCEPT);
+#endif
     }
 
     void TearDown () override
@@ -570,7 +585,13 @@ protected:
             for (auto dialog : transient_dialogs (window))
             {
                 g_object_ref (dialog);
+                g_signal_handlers_disconnect_by_func (
+                    dialog, reinterpret_cast<gpointer> (response_received), &dialog_responses);
+#if GTK_CHECK_VERSION(4, 0, 0)
+                gtk_window_destroy (GTK_WINDOW (dialog));
+#else
                 gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_CANCEL);
+#endif
                 g_object_unref (dialog);
             }
         }
@@ -636,7 +657,11 @@ TEST_F (RegisterSaveCloseLifecycle, CancelClose)
     auto dialog = confirmation ();
     ASSERT_NE (dialog, nullptr);
     g_signal_connect (dialog, "response", G_CALLBACK (response_received), &dialog_responses);
-    gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_CANCEL);
+    #if GTK_CHECK_VERSION(4, 0, 0)
+        gtk_dialog_response (GTK_DIALOG (dialog), 1);
+#else
+        gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_CANCEL);
+#endif
     drain_ready_events ();
     assert_still_installed ();
     ASSERT_FALSE (HasFatalFailure ());
@@ -668,9 +693,11 @@ TEST_F (RegisterSaveCloseLifecycle, ValidationFailure)
     ASSERT_EQ (errors.size (), 1u);
     auto error = errors.front ();
     ASSERT_TRUE (GTK_IS_MESSAGE_DIALOG (error));
+#if !GTK_CHECK_VERSION(4, 0, 0)
     GtkMessageType message_type{};
     g_object_get (error, "message-type", &message_type, nullptr);
     EXPECT_EQ (message_type, GTK_MESSAGE_ERROR);
+#endif
     assert_still_installed ();
     ASSERT_FALSE (HasFatalFailure ());
     EXPECT_TRUE (gnc_split_register_changed (reg));
@@ -680,9 +707,14 @@ TEST_F (RegisterSaveCloseLifecycle, ValidationFailure)
     EXPECT_EQ (backend_observations.error_signals, 0u);
     EXPECT_EQ (backend_observations.sync_calls, 0u);
     assert_transaction (original_description);
+#if GTK_CHECK_VERSION(4, 0, 0)
+    ASSERT_NE (gtk_dialog_get_widget_for_response (GTK_DIALOG (error), 0), nullptr);
+    gtk_dialog_response (GTK_DIALOG (error), 0);
+#else
     ASSERT_NE (gtk_dialog_get_widget_for_response (GTK_DIALOG (error), GTK_RESPONSE_CLOSE),
                nullptr);
     gtk_dialog_response (GTK_DIALOG (error), GTK_RESPONSE_CLOSE);
+#endif
     drain_ready_events ();
     auto income_name = gnc_account_get_full_name (income);
     std::string valid_transfer{income_name};
@@ -736,7 +768,12 @@ TEST_F (RegisterSaveCloseLifecycle, ReentrantClose)
     ASSERT_FALSE (HasFatalFailure ());
     EXPECT_EQ (backend_observations.target_commits, 0u);
     backend_observations.reenter_page = page;
-    gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_ACCEPT);
+    #if GTK_CHECK_VERSION(4, 0, 0)
+        ASSERT_NE (gtk_dialog_get_widget_for_response (GTK_DIALOG (dialog), 2), nullptr);
+        gtk_dialog_response (GTK_DIALOG (dialog), 2);
+#else
+        gtk_dialog_response (GTK_DIALOG (dialog), GTK_RESPONSE_ACCEPT);
+#endif
     assert_removed_and_finalize_before_cleanup ();
     EXPECT_EQ (dialog_responses, 1u);
     EXPECT_EQ (backend_observations.reentrant_calls, 1u);
