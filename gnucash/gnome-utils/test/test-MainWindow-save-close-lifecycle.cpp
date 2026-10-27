@@ -420,8 +420,9 @@ protected:
         }
         qof_book_mark_session_saved(book);
         window = gnc_main_window_new();
-        /* gnc_main_window_new uses g_object_new, so the constructor already
-         * supplies the fixture's reference in addition to GTK's toplevel ref. */
+        /* Hold a distinct test reference across the production close path;
+         * GTK may release the constructor/toplevel ownership during destroy. */
+        g_object_ref(window);
         observed.window = window;
         g_signal_connect(window, "destroy", G_CALLBACK(destroyed), &observed);
         g_object_weak_ref(G_OBJECT(window), finalized, &observed);
