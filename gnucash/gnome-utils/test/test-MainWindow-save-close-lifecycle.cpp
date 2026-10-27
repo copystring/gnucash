@@ -338,9 +338,7 @@ protected:
         if (!window_closed())
             gtk_window_destroy(GTK_WINDOW(window));
         require(window_closed() && observed.finalizes == 0);
-        g_printerr("RELEASE START refs=%u\n", G_OBJECT(window)->ref_count);
         g_object_unref(window);
-        g_printerr("RELEASE END finalized=%u\n", observed.finalizes);
         window = nullptr;
         released = true;
         ++observed.releases;
