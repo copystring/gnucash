@@ -17,10 +17,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
-          dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb
+          dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel gdb zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb
       - name: Configure
         run: cmake -S . -B build -GNinja -DWITH_GTK4=ON -DWITH_AQBANKING=OFF -DWITH_OFX=OFF -DWITH_PYTHON=OFF -DGNC_ENABLE_SHUTDOWN_TEST_HOOKS=ON -DCMAKE_BUILD_TYPE=Debug
       - name: Build test targets
         run: cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle
       - name: Run lifecycle tests
         run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-gnc-plugin-page-register-save-close-lifecycle\.'
+
+      - name: Diagnose failing lifecycle cases
+        if: failure()
+        run: |
+          xvfb-run -a ctest --test-dir build -V -R 'test-gnc-plugin-page-register-save-close-lifecycle.ValidationFailure' || true
+          xvfb-run -a gdb -batch -ex run -ex 'thread apply all bt' --args build/gnucash/gnome/test/test-gnc-plugin-page-register-save-close-lifecycle --gtest_filter=RegisterSaveCloseLifecycle.ValidationFailure || true
