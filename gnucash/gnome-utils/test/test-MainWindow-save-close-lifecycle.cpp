@@ -187,7 +187,7 @@ protected:
     }
 #endif
 
-    GtkWindow *dialog()
+    GtkWindow *dialog(bool error = false)
     {
         GtkWindow *result{};
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -197,8 +197,10 @@ protected:
             auto candidate = G_OBJECT(g_list_model_get_item(model, i));
             if (GTK_IS_WINDOW(candidate) &&
                 gtk_window_get_transient_for(GTK_WINDOW(candidate)) == GTK_WINDOW(window) &&
-                find_button(GTK_WIDGET(candidate), "_Save") &&
-                find_button(GTK_WIDGET(candidate), "_Cancel"))
+                (error ? (find_button(GTK_WIDGET(candidate), "_OK") ||
+                          find_button(GTK_WIDGET(candidate), "OK")) :
+                         (find_button(GTK_WIDGET(candidate), "_Save") &&
+                          find_button(GTK_WIDGET(candidate), "_Cancel"))))
             {
                 require(result == nullptr);
                 result = GTK_WINDOW(candidate);
@@ -254,11 +256,14 @@ protected:
 
     void answer(gint response)
     {
-        auto question = dialog();
+        auto question = dialog(response == GTK_RESPONSE_OK);
         require(question != nullptr);
 #if GTK_CHECK_VERSION(4, 0, 0)
         auto button = find_button(GTK_WIDGET(question),
-                                  response == GTK_RESPONSE_APPLY ? "_Save" : "_Cancel");
+                                  response == GTK_RESPONSE_APPLY ? "_Save" :
+                                  response == GTK_RESPONSE_OK ? "_OK" : "_Cancel");
+        if (!button && response == GTK_RESPONSE_OK)
+            button = find_button(GTK_WIDGET(question), "OK");
         require(button != nullptr);
 #else
         G_GNUC_BEGIN_IGNORE_DEPRECATIONS
@@ -515,33 +520,14 @@ TEST_F(MainWindowSaveCloseLifecycle, SaveError)
     observed.fail_write = true;
     qof_book_mark_session_dirty(book);
     close_dirty(GTK_RESPONSE_APPLY);
-    until([&] { return observed.writes == 1 && dialog() != nullptr; });
-    auto deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
-    while (gnc_file_save_in_progress() || dialog() != nullptr)
-    {
-        require(g_get_monotonic_time() < deadline);
-        if (auto question = dialog())
-        {
-            ++observed.errors;
-#if GTK_CHECK_VERSION(4, 0, 0)
-            if (find_button(GTK_WIDGET(question), "Cancel"))
-                answer(GTK_RESPONSE_CANCEL);
-            else
-                answer(GTK_RESPONSE_CLOSE);
-#else
-            G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-            if (gtk_dialog_get_widget_for_response(GTK_DIALOG(question), GTK_RESPONSE_CANCEL))
-                answer(GTK_RESPONSE_CANCEL);
-            else if (gtk_dialog_get_widget_for_response(GTK_DIALOG(question), GTK_RESPONSE_CLOSE))
-                answer(GTK_RESPONSE_CLOSE);
-            else
-                answer(GTK_RESPONSE_OK);
-            G_GNUC_END_IGNORE_DEPRECATIONS
-#endif
-        }
-        iteration();
-        g_usleep(1000);
-    }
+    // The failed write opens an informational error before the dirty-book
+    // question is presented again; these are different asynchronous dialogs.
+    until([&] { return observed.writes == 1 && dialog(true) != nullptr; });
+    ++observed.errors;
+    answer(GTK_RESPONSE_OK);
+    until([&] { return dialog() != nullptr && !gnc_file_save_in_progress(); });
+    answer(GTK_RESPONSE_CANCEL);
+    until([&] { return dialog() == nullptr; });
     quiet();
     assert_still_open();
     EXPECT_EQ(observed.writes, 1u);
