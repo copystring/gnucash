@@ -330,9 +330,6 @@ protected:
             require(observed.shutdowns == 1);
             g_usleep(1000);
         }
-        require(g_main_context_acquire(g_main_context_default()));
-        gnc_test_shutdown_restore();
-        g_main_context_release(g_main_context_default());
     }
 
     void assert_still_open()
@@ -360,6 +357,16 @@ protected:
         ++observed.releases;
         EXPECT_EQ(observed.releases, 1u);
         EXPECT_EQ(observed.finalizes, 1u);
+        // Finalizing the last window must not schedule another shutdown after
+        // the original shutdown has already started. Keep the hook installed
+        // while draining the context so an extra idle cannot escape detection.
+        auto end = g_get_monotonic_time() + 600 * G_TIME_SPAN_MILLISECOND;
+        while (g_get_monotonic_time() < end)
+        {
+            iteration();
+            EXPECT_EQ(observed.shutdowns, 1u);
+            g_usleep(1000);
+        }
     }
 
     void SetUp() override
