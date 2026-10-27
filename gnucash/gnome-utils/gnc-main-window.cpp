@@ -45,6 +45,9 @@
 #include "gnc-plugin.h"
 #include "gnc-plugin-manager.h"
 #include "gnc-main-window.h"
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+#include "test/gnc-test-shutdown.h"
+#endif
 
 #include "dialog-preferences.h"
 #include "dialog-reset-warnings.h"
@@ -1549,6 +1552,10 @@ gnc_main_window_timed_quit (gpointer dummy)
     if (gnc_file_save_in_progress ())
         return TRUE;
 
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+    if (gnc_test_shutdown_dispatch (0))
+        return FALSE;
+#endif
     gnc_shutdown (0);
     return FALSE;
 }
@@ -3492,6 +3499,9 @@ gnc_main_window_class_init (GncMainWindowClass *klass)
 static void
 gnc_main_window_init (GncMainWindow *window)
 {
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+    gnc_test_shutdown_bind_gui_thread();
+#endif
     GncMainWindowPrivate *priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
 
     // Set the name for this dialog so it can be easily manipulated with css

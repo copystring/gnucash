@@ -235,6 +235,45 @@ gnc_add_test (test-gnc-scrub-job-runner "${test_gnc_scrub_job_runner_SOURCES}"
   GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
 
 
+if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+gnc_generate_gresources(BASE test-main-window-resources
+  RESOURCE_FILES ${CMAKE_SOURCE_DIR}/gnucash/ui/gnc-main-window.ui)
+endif()
+
+if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  set(MAIN_WINDOW_LIFECYCLE_SOURCES
+    test-MainWindow-save-close-lifecycle.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/test-main-window-resources.c)
+  set(MAIN_WINDOW_LIFECYCLE_INCLUDE_DIRS
+    ${GNOME_UTILS_GUI_TEST_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/libgnucash/engine/test-core)
+  set(MAIN_WINDOW_LIFECYCLE_LIBS
+    ${GNOME_UTILS_GUI_TEST_LIBS}
+    gnc-test-engine
+    ${GUILE_LDFLAGS})
+  gnc_add_test_with_guile(test-MainWindow-save-close-lifecycle
+    "${MAIN_WINDOW_LIFECYCLE_SOURCES}"
+    MAIN_WINDOW_LIFECYCLE_INCLUDE_DIRS MAIN_WINDOW_LIFECYCLE_LIBS)
+  target_compile_definitions(test-MainWindow-save-close-lifecycle
+    PRIVATE GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  add_dependencies(test-MainWindow-save-close-lifecycle
+    scm-gnome-utils scm-expressions gncmod-backend-xml compiled-schemas)
+  set_tests_properties(test-MainWindow-save-close-lifecycle PROPERTIES DISABLED TRUE)
+  set_property(TEST test-MainWindow-save-close-lifecycle APPEND PROPERTY ENVIRONMENT
+    "GSETTINGS_SCHEMA_DIR=${SCHEMADIR_BUILD}" "GSETTINGS_BACKEND=memory"
+    "GNC_LIFECYCLE_XML_DIR=$<TARGET_FILE_DIR:gncmod-backend-xml>")
+  get_test_property(test-MainWindow-save-close-lifecycle
+    ENVIRONMENT MAIN_WINDOW_LIFECYCLE_ENVIRONMENT)
+  foreach(lifecycle_case IN ITEMS SaveSuccess CleanClose CancelClose SaveError ReentrantClose)
+    add_test(NAME "test-MainWindow-save-close-lifecycle.${lifecycle_case}"
+      COMMAND $<TARGET_FILE:test-MainWindow-save-close-lifecycle>
+        "--gtest_filter=MainWindowSaveCloseLifecycle.${lifecycle_case}")
+    set_tests_properties("test-MainWindow-save-close-lifecycle.${lifecycle_case}" PROPERTIES
+      ENVIRONMENT "${MAIN_WINDOW_LIFECYCLE_ENVIRONMENT}"
+      TIMEOUT 30)
+  endforeach()
+endif()
+
 set_dist_list(test_gnome_utils_DIST
   CMakeLists.txt
   test-load-gnome-utils-module.scm

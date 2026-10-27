@@ -90,6 +90,11 @@ option (ODR "Report One Definition Rule violations in tests in a non-Apple Asan 
 # Use gsettings-desktop-schemas for a better integration with GNOME
 set(COMPILE_GSCHEMAS ON CACHE BOOL "Compile the GSettings schema")
 
+option(GNC_ENABLE_SHUTDOWN_TEST_HOOKS "Enable private GUI shutdown instrumentation for test builds" OFF)
+if(GNC_ENABLE_SHUTDOWN_TEST_HOOKS AND (NOT WITH_GNUCASH OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$" OR NOT COMPILE_GSCHEMAS))
+  message(FATAL_ERROR "Shutdown test hooks require GnuCash, Linux, GNU/Clang, and compiled schemas")
+endif()
+
 
 # Support for downstream packagers
 set(GNUCASH_BUILD_ID "" CACHE STRING "Overrides the GnuCash build identification (Build ID) which defaults to a description of the vcs commit from which gnucash is built. Distributions may want to insert a package management based version number instead")
