@@ -27,7 +27,8 @@ jobs:
 
       - name: Verify real shutdown exit marker
         run: |
-          xvfb-run -a ctest --test-dir build -V -R '^test-MainWindow-real-shutdown$' | tee real-shutdown.log
+          xvfb-run -a ctest --test-dir build -V -R '^test-MainWindow-real-shutdown$' > real-shutdown.log 2>&1 || { cat real-shutdown.log; exit 1; }
+          cat real-shutdown.log
           grep -F 'AIW848_REAL_SHUTDOWN_HOOK' real-shutdown.log
           grep -F 'AIW848_REAL_EXIT_HANDLER' real-shutdown.log
       - name: Diagnose failing lifecycle cases
