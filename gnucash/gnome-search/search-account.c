@@ -26,7 +26,7 @@
 #endif
 
 #include <gtk/gtk.h>
-#include <gdk/gdkkeysyms.h>
+#include <gdk/gdk.h>
 #include <glib/gi18n.h>
 
 #include "Account.h"
