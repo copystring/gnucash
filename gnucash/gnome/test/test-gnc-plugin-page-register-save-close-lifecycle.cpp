@@ -723,11 +723,6 @@ TEST_F (RegisterSaveCloseLifecycle, ValidationFailure)
                nullptr);
     gtk_dialog_response (GTK_DIALOG (error), GTK_RESPONSE_CLOSE);
 #endif
-#if GTK_CHECK_VERSION(4, 0, 0)
-    /* gtk_alert_dialog_show() has no completion callback: its internal
-     * GtkMessageDialog remains until explicitly destroyed after response. */
-    gtk_window_destroy (GTK_WINDOW (error));
-#endif
     ASSERT_TRUE (wait_for ([this] { return transient_dialogs (window).empty (); }));
     drain_ready_events ();
     auto income_name = gnc_account_get_full_name (income);
