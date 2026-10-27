@@ -9,6 +9,9 @@
 #include <vector>
 
 #include <gtk/gtk.h>
+
+/* These tests exercise the application’s existing GtkDialog response protocol. */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 #include <gtest/gtest.h>
 #include <libguile.h>
 
@@ -384,7 +387,7 @@ protected:
         gnc_main_window_open_page (window, page);
         original_transferred = installed_count (page) == 1;
         ASSERT_TRUE (original_transferred);
-        gtk_widget_show (GTK_WIDGET (window));
+        gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
         drain_ready_events ();
         ASSERT_EQ (gnc_main_window_get_current_page (window), page);
         gsr = gnc_plugin_page_register_get_gsr (page);

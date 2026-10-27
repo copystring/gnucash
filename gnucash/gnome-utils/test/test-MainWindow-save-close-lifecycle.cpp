@@ -224,13 +224,17 @@ protected:
     {
         auto question = dialog();
         require(question != nullptr);
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS
         require(gtk_dialog_get_widget_for_response(question, response) != nullptr);
+        G_GNUC_END_IGNORE_DEPRECATIONS
         g_object_ref(question);
         if (response == GTK_RESPONSE_APPLY)
             ++observed.applies;
         if (response == GTK_RESPONSE_CANCEL)
             ++observed.cancels;
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS
         gtk_dialog_response(question, response);
+        G_GNUC_END_IGNORE_DEPRECATIONS
         g_object_unref(question);
     }
 
@@ -317,7 +321,11 @@ protected:
         session = qof_session_new(qof_book_new());
         qof_session_begin(session, uri.c_str(), SESSION_NEW_STORE);
         require(qof_session_get_error(session) == ERR_BACKEND_NO_ERR);
-        previous = gnc_exchange_current_session(session);
+        previous = gnc_current_session_exist() ? gnc_get_current_session() : nullptr;
+        require(!previous || !qof_session_has_active_operation_lease(previous));
+        require(!qof_session_has_active_operation_lease(session));
+        gnc_set_current_session(session);
+        require(gnc_current_session_exist() && gnc_get_current_session() == session);
         book = qof_session_get_book(session);
         auto root = gnc_book_get_root_account(book);
         if (!root)
@@ -383,8 +391,13 @@ protected:
             require(g_main_context_acquire(g_main_context_default()));
             require(!gnc_test_shutdown_is_installed());
             g_main_context_release(g_main_context_default());
-            auto current = gnc_exchange_current_session(previous);
-            require(current == session);
+            require(gnc_current_session_exist() && gnc_get_current_session() == session);
+            require(!qof_session_has_active_operation_lease(session));
+            require(!previous || !qof_session_has_active_operation_lease(previous));
+            gnc_set_current_session(previous);
+            require(previous ? (gnc_current_session_exist() &&
+                                gnc_get_current_session() == previous) :
+                               !gnc_current_session_exist());
             qof_session_destroy(session);
             session = nullptr;
             if (xml)
@@ -468,12 +481,14 @@ TEST_F(MainWindowSaveCloseLifecycle, SaveError)
         if (auto question = dialog())
         {
             ++observed.errors;
+            G_GNUC_BEGIN_IGNORE_DEPRECATIONS
             if (gtk_dialog_get_widget_for_response(question, GTK_RESPONSE_CANCEL))
                 answer(GTK_RESPONSE_CANCEL);
             else if (gtk_dialog_get_widget_for_response(question, GTK_RESPONSE_CLOSE))
                 answer(GTK_RESPONSE_CLOSE);
             else
                 answer(GTK_RESPONSE_OK);
+            G_GNUC_END_IGNORE_DEPRECATIONS
         }
         iteration();
         g_usleep(1000);

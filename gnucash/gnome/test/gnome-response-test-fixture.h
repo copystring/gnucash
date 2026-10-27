@@ -51,7 +51,11 @@ protected:
         g_list_free (windows);
         for (auto window : windows_to_destroy)
         {
+#if GTK_CHECK_VERSION(4, 0, 0)
+            gtk_window_destroy (GTK_WINDOW (window));
+#else
             gtk_widget_destroy (window);
+#endif
             g_object_unref (window);
         }
         while (g_main_context_iteration (nullptr, false))
