@@ -721,6 +721,7 @@ TEST_F (RegisterSaveCloseLifecycle, ValidationFailure)
                nullptr);
     gtk_dialog_response (GTK_DIALOG (error), GTK_RESPONSE_CLOSE);
 #endif
+    ASSERT_TRUE (wait_for ([this] { return transient_dialogs (window).empty (); }));
     drain_ready_events ();
     auto income_name = gnc_account_get_full_name (income);
     std::string valid_transfer{income_name};
@@ -744,6 +745,7 @@ TEST_F (RegisterSaveCloseLifecycle, BackendFailure)
     backend_observations.fail_next_target_commit = true;
     accept_close ();
     ASSERT_FALSE (HasFatalFailure ());
+    ASSERT_TRUE (wait_for ([] { return backend_observations.failed_commits == 1; }));
     EXPECT_EQ (backend_observations.target_commits, 1u);
     EXPECT_EQ (backend_observations.failed_commits, 1u);
     EXPECT_EQ (backend_observations.target_rollbacks, 1u);
