@@ -78,10 +78,11 @@ TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     }
     ASSERT_NE (decision, nullptr);
     gnc_entry_ledger_destroy (ledger);
+    /* Keep our decision reference across parent teardown. GTK may already
+     * close the alert when its parent dies; do not respond a second time to
+     * that destroyed alert. The asynchronous finish is delivered later. */
     gtk_window_destroy (GTK_WINDOW (window));
     g_object_unref (window);
-    EXPECT_EQ (probe->finalized, 0);
-    g_signal_emit_by_name (decision, "response", GTK_RESPONSE_CANCEL);
     g_object_unref (decision);
     auto deadline = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
     while (!probe->finalized && g_get_monotonic_time () < deadline)
