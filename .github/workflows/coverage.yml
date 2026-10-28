@@ -1,5 +1,7 @@
 name: coverage
-on: push
+on:
+  push:
+    branches-ignore: [aiw23-bundled-integration-20261028]
 permissions: {}
 jobs:
   coverage:

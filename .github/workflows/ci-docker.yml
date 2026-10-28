@@ -1,5 +1,8 @@
 name: ci-tests-docker
-on: [push, pull_request]
+on:
+  push:
+    branches-ignore: [aiw23-bundled-integration-20261028]
+  pull_request:
 permissions: {}
 jobs:
   ci_tests_archlinux:

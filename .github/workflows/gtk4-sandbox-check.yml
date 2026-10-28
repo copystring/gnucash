@@ -1,7 +1,7 @@
 name: GTK4 Sandbox Check
 on:
   push:
-    branches: [aiw-848-gtk4-reference-20261027]
+    branches: [aiw23-bundled-integration-20261028]
   workflow_dispatch:
 concurrency:
   group: gtk4-sandbox-${{ github.ref }}

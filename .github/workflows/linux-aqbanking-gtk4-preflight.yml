@@ -2,6 +2,7 @@ name: linux-aqbanking-gtk4-preflight
 
 on:
   push:
+    branches-ignore: [aiw23-bundled-integration-20261028]
   pull_request:
   workflow_dispatch:
 
