@@ -1145,6 +1145,19 @@ show_session_error_async (GtkWindow *parent,
         file_session_error_complete (completed, parent, uh_oh, user_data);
 }
 
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+/* Exercise the real GTK4 SQL-upgrade error dialog without a SQL server. */
+void gnc_test_file_show_upgrade_error (GtkWindow *, GncFileSessionErrorCallback, gpointer);
+void
+gnc_test_file_show_upgrade_error (GtkWindow *parent,
+                                  GncFileSessionErrorCallback completed,
+                                  gpointer user_data)
+{
+    show_session_error_async (parent, ERR_SQL_DB_TOO_OLD, "upgrade-test.gnucash",
+                              GNC_FILE_DIALOG_SAVE, completed, user_data);
+}
+#endif
+
 static void
 gnc_add_history (QofSession * session)
 {
