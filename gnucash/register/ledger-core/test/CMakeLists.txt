@@ -22,7 +22,7 @@ gnc_add_test(test-split-register-copy-ops
     SPLIT_REG_TEST_LIBS
 )
 
-set_dist_list(test_ledger_core_DIST CMakeLists.txt ${SPLIT_REG_TEST_SOURCES})
+set_dist_list(test_ledger_core_DIST CMakeLists.txt ${SPLIT_REG_TEST_SOURCES} gtest-entry-ledger-close-gtk4.cpp)
 
 set(ENTRY_LEDGER_GTK4_INCLUDES
     ${CMAKE_SOURCE_DIR}/libgnucash/engine

@@ -126,7 +126,10 @@ TEST_F (EntryLedgerCloseTest, DestroyLedgerWhileSaveDecisionPending)
     gnc_basic_cell_set_changed (cell, TRUE);
     ASSERT_TRUE (gnc_entry_ledger_changed (ledger));
 
-    RequestProbe probe;
+    /* Keep probe alive even if a failed assertion or timeout leaves the
+     * asynchronous response outstanding. The test process owns it. */
+    static RequestProbe probe;
+    probe = {};
     gnc_entry_ledger_check_close_async_full (parent, ledger, probe_completed,
                                              &probe, probe_destroyed);
     ASSERT_EQ (probe.callbacks, 0);
@@ -153,6 +156,15 @@ TEST_F (EntryLedgerCloseTest, DestroyLedgerWhileSaveDecisionPending)
     g_object_unref (decision);
     const auto deadline = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
     while (!probe.destroys && g_get_monotonic_time () < deadline)
+    {
+        while (g_main_context_iteration (nullptr, FALSE)) ;
+        g_usleep (1000);
+    }
+    EXPECT_EQ (probe.callbacks, 0);
+    EXPECT_EQ (probe.destroys, 1);
+    /* Drain subsequent queued work as well, to catch duplicate completion. */
+    const auto settle = g_get_monotonic_time () + 100 * G_TIME_SPAN_MILLISECOND;
+    while (g_get_monotonic_time () < settle)
     {
         while (g_main_context_iteration (nullptr, FALSE)) ;
         g_usleep (1000);
