@@ -92,6 +92,27 @@ struct PricesDialog
 
 };
 
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+extern "C" {
+GObject *gnc_test_price_delete_request_new (GNCPrice *);
+GObject *gnc_test_price_delete_request_for_book (GtkWidget *, GNCPrice *, QofBook *);
+void gnc_test_price_delete_finished (GObject *, gint);
+gboolean gnc_test_price_delete_request_pending (GObject *);
+void gnc_test_price_old_remove_watch_book (GObject *, QofBook *);
+GListStore *gnc_test_price_old_remove_populate_pending (GObject *, gnc_commodity *);
+gboolean gnc_test_price_old_remove_request_completed (GObject *);
+void gnc_test_price_delete_request_complete (GObject *, gboolean);
+GObject *gnc_test_price_old_remove_request_new (GtkWindow *);
+void gnc_test_price_old_remove_request_complete (GObject *);
+void gnc_test_price_old_remove_confirmation_finished (GObject *, gint);
+gboolean gnc_test_price_old_remove_confirmation_is_delete (gint);
+GObject *gnc_test_price_remove_row_new (gnc_commodity *);
+}
+#endif
+
+GType price_delete_request_get_type (void);
+GType price_old_remove_request_get_type (void);
+
 constexpr const char *PRICE_DIALOG_DATA = "gnc-price-edit-dialog";
 
 struct PriceDeleteRequest
