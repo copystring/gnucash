@@ -5,6 +5,7 @@
 #include "googletest-glib-log-handler.hpp"
 #include "cashobjects.h"
 #include "gncOrder.h"
+#include "gncEntry.h"
 extern "C" {
 #include "gncEntryLedger.h"
 #include "gncEntryLedgerP.h"
@@ -38,6 +39,20 @@ TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     gtk_widget_realize (window);
     gnc_entry_ledger_set_parent (ledger, window);
     gnc_entry_ledger_set_default_order (ledger, order);
+    /* Order ledgers do not create an invoice-style blank row: load an actual
+     * entry and position the cursor there before editing. */
+    auto *entry = gncEntryCreate (book);
+    ASSERT_NE (entry, nullptr);
+    gncOrderAddEntry (order, entry);
+    GList *entries = g_list_append (nullptr, entry);
+    gnc_entry_ledger_load (ledger, entries);
+    g_list_free (entries);
+    VirtualCellLocation cell_location;
+    ASSERT_TRUE (gnc_entry_ledger_get_entry_virt_loc (ledger, entry, &cell_location));
+    VirtualLocation location = ledger->table->current_cursor_loc;
+    location.vcell_loc = cell_location;
+    gnc_table_move_cursor_gui (ledger->table, location);
+    ASSERT_EQ (gnc_entry_ledger_get_current_entry (ledger), entry);
     auto *cell = gnc_cellblock_get_cell_by_name (ledger->table->current_cursor, ENTRY_DESC_CELL, nullptr, nullptr);
     ASSERT_NE (cell, nullptr);
     gnc_basic_cell_set_value (cell, "pending order edit");
