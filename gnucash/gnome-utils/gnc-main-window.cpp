@@ -3506,6 +3506,17 @@ gnc_main_window_class_init (GncMainWindowClass *klass)
  *
  *  @param window The new object instance created by the object system.
  *  */
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+static void
+aiw848_trace_focus (GObject *object, GParamSpec *, gpointer)
+{
+    auto window = GTK_WINDOW (object);
+    g_print ("AIW848_FOCUS active=%d mapped=%d\n",
+             gtk_window_is_active (window), gtk_widget_get_mapped (GTK_WIDGET (window)));
+    fflush (stdout);
+}
+#endif
+
 static void
 gnc_main_window_init (GncMainWindow *window)
 {
@@ -3527,6 +3538,14 @@ gnc_main_window_init (GncMainWindow *window)
 
     priv->previous_plugin_page_name = nullptr;
     priv->previous_menu_qualifier = nullptr;
+
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+    if (g_getenv ("AIW848_INTERACTIVE_TEST"))
+    {
+        g_signal_connect (window, "notify::is-active", G_CALLBACK (aiw848_trace_focus), nullptr);
+        g_signal_connect (window, "notify::mapped", G_CALLBACK (aiw848_trace_focus), nullptr);
+    }
+#endif
 
     priv->shortcut_controller = gtk_shortcut_controller_new ();
     gtk_shortcut_controller_set_scope (GTK_SHORTCUT_CONTROLLER (priv->shortcut_controller),

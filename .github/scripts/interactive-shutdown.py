@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -68,6 +69,24 @@ with tempfile.TemporaryDirectory(prefix='aiw848-ui-') as home:
                 print(f'attempt {attempt + 1}: target={window} focus={focus}', flush=True)
                 if focus != window:
                     raise RuntimeError(f'input focus {focus} differs from main window {window}')
+                # Observe GTK's latest activation, not a stale earlier marker.
+                deadline = time.monotonic() + 10
+                active_since = None
+                while time.monotonic() < deadline:
+                    events = re.findall(r'AIW848_FOCUS active=(\d) mapped=(\d)',
+                                        log_path.read_text(errors='replace'))
+                    now = time.monotonic()
+                    if events and events[-1] == ('1', '1'):
+                        active_since = active_since if active_since is not None else now
+                        if now - active_since >= .3:
+                            break
+                    else:
+                        active_since = None
+                    if process.poll() is not None:
+                        raise RuntimeError(f'application exited awaiting GTK activation: {process.returncode}')
+                    time.sleep(.05)
+                else:
+                    raise RuntimeError(f'GTK activation not stable: {events[-1:]}')
                 subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+q'], check=True)
                 for _ in range(10):
                     time.sleep(0.2)
