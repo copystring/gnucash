@@ -277,8 +277,7 @@ order_save_request_destroyed (GtkWidget *widget, OrderSaveRequest *request)
 static OrderSaveRequest *
 order_save_request_new (OrderWindow *ow)
 {
-    if (!ow || !ow->ledger || !ow->dialog || !ow_get_order (ow))
-        return NULL;
+    g_return_val_if_fail (ow && ow->ledger && ow->dialog && ow_get_order (ow), NULL);
 
     OrderSaveRequest *request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));
     request->ow = ow;
@@ -294,11 +293,16 @@ order_save_request_new (OrderWindow *ow)
 static void gnc_order_window_ok_ledger_finished (GncEntryLedger *, gboolean, gpointer);
 /* Test-only bridge exercises the production object and callback paths. */
 GObject *gnc_test_order_save_request_new (GtkWidget *window);
+GObject *gnc_test_order_save_request_null_owner (void);
 gboolean gnc_test_order_save_request_inert (GObject *object);
 void gnc_test_order_save_request_arm (GObject *object, gpointer owner, gpointer book);
 void gnc_test_order_save_request_complete (GObject *object, gboolean completed);
 GObject *gnc_test_order_save_begin (GtkWidget *, GncEntryLedger *, QofBook *, GncOrder *);
 void gnc_test_order_save_owner_free (void);
+GObject *gnc_test_order_save_request_null_owner (void)
+{
+    return G_OBJECT (order_save_request_new (NULL));
+}
 GObject *gnc_test_order_save_request_new (GtkWidget *window)
 {
     OrderSaveRequest *request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));

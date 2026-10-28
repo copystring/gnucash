@@ -3,9 +3,17 @@
 #include "googletest-glib-log-handler.hpp"
 extern "C" {
 GObject *gnc_test_order_save_request_new (GtkWidget *);
+GObject *gnc_test_order_save_request_null_owner (void);
 gboolean gnc_test_order_save_request_inert (GObject *);
 void gnc_test_order_save_request_arm (GObject *, gpointer, gpointer);
 void gnc_test_order_save_request_complete (GObject *, gboolean);
+}
+TEST (OrderSaveRequestPreconditions, NullOwnerLogsCriticalAndReturnsNull)
+{
+    g_test_expect_message (nullptr, G_LOG_LEVEL_CRITICAL,
+                           "*order_save_request_new*assertion*failed*");
+    EXPECT_EQ (gnc_test_order_save_request_null_owner (), nullptr);
+    g_test_assert_expected_messages ();
 }
 class OrderSaveRequestTest : public ::testing::Test
 {
