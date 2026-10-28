@@ -149,7 +149,8 @@ TEST_P (ChoiceLifetime, CompletesExactlyOnce)
 {
     auto *parent = GTK_WINDOW (gtk_window_new ());
     g_object_ref_sink (parent);
-    gtk_widget_realize (GTK_WIDGET (parent));
+    if (GetParam () < 6)
+        gtk_widget_realize (GTK_WIDGET (parent));
     ChoiceProbe probe;
     GList *buttons = nullptr;
     buttons = g_list_append (buttons, const_cast<char *> ("_Yes"));
@@ -165,7 +166,7 @@ TEST_P (ChoiceLifetime, CompletesExactlyOnce)
     auto *button = find_button (GTK_WIDGET (decision), "_Yes");
     ASSERT_NE (button, nullptr);
     g_object_ref (button);
-    switch (GetParam ())
+    switch (GetParam () % 6)
     {
     case 0: /* Native parent destruction, then delayed retained button. */
         gtk_window_destroy (parent);
@@ -212,8 +213,8 @@ TEST_P (ChoiceLifetime, CompletesExactlyOnce)
     drain ();
     EXPECT_EQ (probe.calls, 1);
     EXPECT_FALSE (probe.reentrant);
-    EXPECT_EQ (probe.response, GetParam () == 1 ? 0 : -1);
-    EXPECT_EQ (probe.parent, GetParam () == 0 || GetParam () == 4 ? nullptr : parent);
+    EXPECT_EQ (probe.response, GetParam () % 6 == 1 ? 0 : -1);
+    EXPECT_EQ (probe.parent, GetParam () % 6 == 0 || GetParam () % 6 == 4 ? nullptr : parent);
     g_signal_emit_by_name (button, "clicked");
     gtk_window_destroy (parent);
     drain ();
@@ -223,7 +224,34 @@ TEST_P (ChoiceLifetime, CompletesExactlyOnce)
     g_object_unref (parent);
 }
 INSTANTIATE_TEST_SUITE_P (NativeLifecycle, ChoiceLifetime,
-                         ::testing::Range (0, 6));
+                         ::testing::Range (0, 12));
+TEST (ChoiceLifetimeCleanup, ParentDestroyedByDialogCleanup)
+{
+    auto *parent = GTK_WINDOW (gtk_window_new ());
+    g_object_ref_sink (parent);
+    ChoiceProbe probe;
+    GList *buttons = g_list_append (nullptr, const_cast<char *> ("_Yes"));
+    gnc_choose_option_dialog_async (parent, "Decision", "Cleanup", buttons,
+                                    0, choice_finished, &probe);
+    g_list_free (buttons);
+    auto *decision = find_decision (parent);
+    ASSERT_NE (decision, nullptr);
+    auto *button = find_button (GTK_WIDGET (decision), "_Yes");
+    ASSERT_NE (button, nullptr);
+    /* The request owns the remaining window reference; its idle cleanup can
+     * synchronously invoke external finalization handlers. */
+    g_object_weak_ref (G_OBJECT (decision), [](gpointer data, GObject *) {
+        gtk_window_destroy (GTK_WINDOW (data));
+    }, parent);
+    g_signal_emit_by_name (button, "clicked");
+    g_object_unref (decision);
+    probe.initiating = false;
+    drain ();
+    EXPECT_EQ (probe.calls, 1);
+    EXPECT_EQ (probe.response, -1);
+    EXPECT_EQ (probe.parent, nullptr);
+    g_object_unref (parent);
+}
 TEST (VerifyLifetime, ParentDestroyAndLateButton)
 {
     auto *parent = GTK_WINDOW (gtk_window_new ());

@@ -42,8 +42,9 @@ typedef struct
 {
     GtkWindow *dialog;
     GWeakRef parent;
-    gulong parent_destroy_handler;
-    gulong parent_unrealize_handler;
+    GListModel *toplevels;
+    gulong toplevels_handler;
+    gboolean has_parent;
     gboolean parent_destroyed;
     GPtrArray *controls;
     GncGuiChoiceCallback completed;
@@ -60,15 +61,15 @@ gnc_gui_choice_dispatch (gpointer data)
     GncGuiChoiceRequest *request = data;
 
     GtkWindow *parent = g_weak_ref_get (&request->parent);
-    if (parent && request->parent_destroy_handler)
-        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
-    if (parent && request->parent_unrealize_handler)
-        g_signal_handler_disconnect (parent, request->parent_unrealize_handler);
     if (request->dialog)
     {
         gtk_window_destroy (request->dialog);
         g_clear_object (&request->dialog);
     }
+    /* Keep observing through synchronous cleanup: external dialog handlers
+     * may destroy the parent here. */
+    g_signal_handler_disconnect (request->toplevels, request->toplevels_handler);
+    g_clear_object (&request->toplevels);
     if (request->parent_destroyed)
         g_clear_object (&parent);
     if (request->completed)
@@ -105,8 +106,8 @@ gnc_gui_choice_complete (GncGuiChoiceRequest *request, gint response)
     g_signal_handlers_disconnect_by_data (dialog, request);
     gtk_widget_set_visible (GTK_WIDGET (dialog), FALSE);
 
-    /* Never call into an owner in the middle of GTK's parent dispose, a button
-     * emission, or the initiating call. */
+    /* Defer the owner continuation and final window release to the main loop,
+     * rather than calling it directly from this signal or initiating call. */
     g_idle_add (gnc_gui_choice_dispatch, request);
 }
 
@@ -128,21 +129,40 @@ gnc_gui_choice_closed (GtkWindow *dialog, GncGuiChoiceRequest *request)
     return TRUE;
 }
 
-static void
-gnc_gui_choice_parent_destroyed (GtkWidget *parent, GncGuiChoiceRequest *request)
+static gboolean
+gnc_gui_choice_is_toplevel (GListModel *windows, GtkWindow *window)
 {
-    request->parent_destroyed = TRUE;
-    g_signal_handler_disconnect (parent, request->parent_destroy_handler);
-    request->parent_destroy_handler = 0;
-    gnc_gui_choice_complete (request, request->cancel_choice);
+    for (guint i = 0; i < g_list_model_get_n_items (windows); i++)
+    {
+        GObject *candidate = g_list_model_get_item (windows, i);
+        gboolean found = candidate == G_OBJECT (window);
+        g_object_unref (candidate);
+        if (found)
+            return TRUE;
+    }
+    return FALSE;
 }
 
 static void
-gnc_gui_choice_parent_unrealized (GtkWidget *parent, GncGuiChoiceRequest *request)
+gnc_gui_choice_toplevels_changed (GListModel *windows, guint position,
+                                   guint removed, guint added, gpointer data)
 {
-    (void)parent;
-    request->parent_destroyed = TRUE;
-    gnc_gui_choice_complete (request, request->cancel_choice);
+    GncGuiChoiceRequest *request = data;
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+    (void)position;
+    (void)added;
+    if (removed)
+    {
+        /* gtk_window_destroy removes the window immediately, independently
+         * of realization and references delaying GtkWidget::destroy. */
+        if (request->has_parent &&
+            (!parent || !gnc_gui_choice_is_toplevel (windows, parent)))
+            request->parent_destroyed = TRUE;
+        if (!request->done && (request->parent_destroyed ||
+            !gnc_gui_choice_is_toplevel (windows, request->dialog)))
+            gnc_gui_choice_complete (request, request->cancel_choice);
+    }
+    g_clear_object (&parent);
 }
 
 static gboolean
@@ -179,6 +199,7 @@ gnc_gui_choice_show (GtkWindow *parent, const gchar *title,
     guint n_buttons = g_strv_length ((gchar **)buttons);
 
     g_weak_ref_init (&request->parent, parent);
+    request->has_parent = parent != NULL;
     request->completed = completed;
     request->user_data = user_data;
     request->destroy = destroy;
@@ -190,13 +211,6 @@ gnc_gui_choice_show (GtkWindow *parent, const gchar *title,
     gtk_window_set_modal (request->dialog, TRUE);
     gtk_window_set_transient_for (request->dialog, parent);
     gtk_window_set_destroy_with_parent (request->dialog, TRUE);
-    if (parent)
-    {
-        request->parent_destroy_handler = g_signal_connect (parent, "destroy",
-            G_CALLBACK (gnc_gui_choice_parent_destroyed), request);
-        request->parent_unrealize_handler = g_signal_connect (parent, "unrealize",
-            G_CALLBACK (gnc_gui_choice_parent_unrealized), request);
-    }
     gtk_window_set_resizable (request->dialog, FALSE);
     g_signal_connect (dialog, "close-request",
                       G_CALLBACK (gnc_gui_choice_closed), request);
@@ -228,6 +242,9 @@ gnc_gui_choice_show (GtkWindow *parent, const gchar *title,
     }
     gtk_box_append (GTK_BOX (content), actions);
     gtk_window_set_child (request->dialog, content);
+    request->toplevels = g_object_ref (gtk_window_get_toplevels ());
+    request->toplevels_handler = g_signal_connect (request->toplevels, "items-changed",
+        G_CALLBACK (gnc_gui_choice_toplevels_changed), request);
     keys = gtk_event_controller_key_new ();
     gtk_event_controller_set_propagation_phase (keys, GTK_PHASE_CAPTURE);
     g_signal_connect (keys, "key-pressed",
