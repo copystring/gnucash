@@ -9,6 +9,7 @@
 #include "googletest-glib-log-handler.hpp"
 #include "dialog-report-style-sheet.h"
 #include "gnc-optiondb.h"
+#include "gnc-optiondb-impl.hpp"
 #include "gnc-report.h"
 #include "gnc-engine.h"
 
@@ -76,11 +77,26 @@ TEST_F(StylesheetOwnershipTest, CloseDoesNotDestroyOwnedOptions)
     auto sheets = scm_c_eval_string("(gnc:get-html-style-sheets)");
     ASSERT_TRUE(scm_is_pair(sheets));
     sheet = scm_car(sheets);
+    auto selected = GTK_STRING_OBJECT(g_list_model_get_item(G_LIST_MODEL(model), 0));
+    ASSERT_NE(selected, nullptr);
+    auto name = scm_to_utf8_string(scm_call_1(scm_c_eval_string("gnc:html-style-sheet-name"), sheet));
+    EXPECT_STREQ(gtk_string_object_get_string(selected), name);
+    for (guint i = 1; i < g_list_model_get_n_items(G_LIST_MODEL(model)); ++i)
+    {
+        auto other = GTK_STRING_OBJECT(g_list_model_get_item(G_LIST_MODEL(model), i));
+        EXPECT_STRNE(gtk_string_object_get_string(other), name);
+        g_object_unref(other);
+    }
+    free(name);
+    g_object_unref(selected);
+    ASSERT_FALSE(::testing::Test::HasFailure());
     scm_gc_protect_object(sheet);
     protected_sheet = true;
     auto options = scm_call_1(scm_c_eval_string("gnc:html-style-sheet-options"), sheet);
     auto odb = gnc_get_optiondb_from_dispatcher(options);
     ASSERT_NE(odb, nullptr);
+    const auto sections = odb->num_sections();
+    ASSERT_GT(sections, 0u);
     for (int i = 0; i < 3; ++i)
     {
         g_signal_emit_by_name(edit, "clicked");
@@ -99,7 +115,9 @@ TEST_F(StylesheetOwnershipTest, CloseDoesNotDestroyOwnedOptions)
         ASSERT_TRUE(child_finalized);
         scm_gc();
         options = scm_call_1(scm_c_eval_string("gnc:html-style-sheet-options"), sheet);
-        EXPECT_EQ(gnc_get_optiondb_from_dispatcher(options), odb);
+        auto after = gnc_get_optiondb_from_dispatcher(options);
+        ASSERT_EQ(after, odb);
+        EXPECT_EQ(after->num_sections(), sections);
     }
 }
 
