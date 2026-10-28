@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb dbus-daemon
+        run: dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel gdb zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb dbus-daemon
       - name: Check stylesheet database ownership
         run: |
           python3 - <<'PY'
@@ -37,3 +37,9 @@ jobs:
           cmake --build build --parallel 2 --target test-invoice-report-builtin-default test-stylesheet-close-ownership
       - name: Run report test
         run: xvfb-run -a dbus-run-session -- ctest --test-dir build --output-on-failure --no-tests=error -R '^test-(invoice-report-builtin-default|stylesheet-close-ownership)$'
+
+      - name: Diagnose stylesheet failure
+        if: failure()
+        run: |
+          xvfb-run -a dbus-run-session -- ctest --test-dir build -V -R '^test-stylesheet-close-ownership$' --overwrite MemoryCheckCommandOptions='' || true
+          GNC_UNINSTALLED=YES GNC_BUILDDIR=$PWD/build GNC_MODULE_PATH=$PWD/build/lib64:$PWD/build/lib64/gnucash GUILE_LOAD_PATH=$PWD/build/share/guile/site/3.0:$PWD/build/share/guile/site/3.0/gnucash/deprecated GUILE_LOAD_COMPILED_PATH=$PWD/build/lib64/guile/3.0/site-ccache:$PWD/build/lib64/guile/3.0/site-ccache/gnucash/deprecated LD_LIBRARY_PATH=$PWD/build/lib64:$PWD/build/lib64/gnucash GSETTINGS_SCHEMA_DIR=$PWD/build/share/glib-2.0/schemas GSETTINGS_BACKEND=memory GSK_RENDERER=cairo xvfb-run -a dbus-run-session -- gdb -batch -ex run -ex 'thread apply all bt' --args build/bin/test-stylesheet-close-ownership || true
