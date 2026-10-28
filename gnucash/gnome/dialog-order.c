@@ -293,6 +293,10 @@ order_save_request_new (OrderWindow *ow)
 #ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
 static void gnc_order_window_ok_ledger_finished (GncEntryLedger *, gboolean, gpointer);
 /* Test-only bridge exercises the production object and callback paths. */
+GObject *gnc_test_order_save_request_new (GtkWidget *window);
+gboolean gnc_test_order_save_request_inert (GObject *object);
+void gnc_test_order_save_request_arm (GObject *object, gpointer owner, gpointer book);
+void gnc_test_order_save_request_complete (GObject *object, gboolean completed);
 GObject *gnc_test_order_save_request_new (GtkWidget *window)
 {
     OrderSaveRequest *request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));
