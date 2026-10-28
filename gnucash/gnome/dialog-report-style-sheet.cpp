@@ -188,7 +188,7 @@ gnc_style_sheet_options_close_cb (G_GNUC_UNUSED GncOptionsDialog *opt_dialog,
         row_data->options_dialog = nullptr;
     g_clear_object (&ssi->row);
     delete ssi->odialog;
-    gnc_option_db_destroy (ssi->odb);
+    /* The Scheme stylesheet retains ownership of its option database. */
     scm_gc_unprotect_object (ssi->stylesheet);
     g_free (ssi);
 }
