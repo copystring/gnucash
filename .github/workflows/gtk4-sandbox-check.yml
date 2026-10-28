@@ -25,7 +25,7 @@ jobs:
           cmake --build build --parallel 2
           cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4
       - name: Run lifecycle tests
-        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.'
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.|^gtest-entry-ledger-close-gtk4$'
 
       - name: Verify real shutdown exit marker
         run: |
