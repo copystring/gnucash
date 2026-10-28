@@ -149,7 +149,7 @@ TEST_F (EntryLedgerCloseTest, DestroyLedgerWhileSaveDecisionPending)
     ledger = nullptr;
     /* Complete the still-owned alert explicitly. Destroying its parent does
      * not guarantee cancellation while another reference keeps it alive. */
-    gtk_window_close (decision);
+    gtk_dialog_response (GTK_DIALOG (decision), GTK_RESPONSE_CANCEL);
     g_object_unref (decision);
     const auto deadline = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
     while (!probe.destroys && g_get_monotonic_time () < deadline)
