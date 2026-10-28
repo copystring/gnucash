@@ -135,3 +135,9 @@ set_dist_list(test_gnome_DIST
   ${test_gnome_SOURCES}
   ${test_assistant-stock-transaction_SOURCES}
 )
+
+gnc_add_test_with_guile(test-stylesheet-close-ownership
+  test-stylesheet-close-ownership.cpp GNOME_TEST_INCLUDE_DIRS GNOME_TEST_LIBS)
+set_property(TEST test-stylesheet-close-ownership APPEND PROPERTY ENVIRONMENT
+  GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas
+  GSETTINGS_BACKEND=memory)

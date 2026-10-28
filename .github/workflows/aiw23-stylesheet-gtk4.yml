@@ -34,6 +34,6 @@ jobs:
       - name: Build report test target and runtime modules
         run: |
           cmake --build build --parallel 2
-          cmake --build build --parallel 2 --target test-invoice-report-builtin-default
+          cmake --build build --parallel 2 --target test-invoice-report-builtin-default test-stylesheet-close-ownership
       - name: Run report test
-        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R '^test-invoice-report-builtin-default$'
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R '^test-(invoice-report-builtin-default|stylesheet-close-ownership)$'
