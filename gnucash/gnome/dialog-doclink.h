@@ -37,9 +37,9 @@ typedef struct
 
 /** Create a window for editing a document link.
  *
- *  The caller presents the returned window and may observe its "destroy"
- *  signal to process the result. The window is modal and transient for
- *  parent when parent is provided. The caller must keep ret_uri alive until
+ *  The function shows the window; the caller may observe its "destroy"
+ *  signal to process the result. The window is modal. When parent is
+ *  provided, the window is transient for it. The caller must keep ret_uri alive until
  *  the window is destroyed; the dialog does not free it or its user_data.
  *
  *  On creation, response is set to GTK_RESPONSE_CANCEL and updated_uri to a
