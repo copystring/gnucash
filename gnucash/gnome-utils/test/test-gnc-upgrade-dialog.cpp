@@ -3,10 +3,11 @@
  */
 #include <config.h>
 #include <gtk/gtk.h>
+#include <gtest/gtest.h>
 #include "gnc-engine.h"
 
 /* Only linked when the sandbox test hooks are enabled. */
-void gnc_test_file_show_upgrade_error (GtkWindow *,
+extern "C" void gnc_test_file_show_upgrade_error (GtkWindow *,
                                       void (*)(GtkWindow *, gboolean, gpointer),
                                       gpointer);
 
@@ -15,7 +16,7 @@ typedef struct { guint calls; gboolean cancelled; } Result;
 static void
 completed (GtkWindow *parent, gboolean cancelled, gpointer data)
 {
-    Result *result = data;
+    Result *result = static_cast<Result *> (data);
     g_assert_nonnull (parent);
     ++result->calls;
     result->cancelled = cancelled;
@@ -27,7 +28,7 @@ find_child (GtkWindow *parent)
     GListModel *windows = gtk_window_get_toplevels ();
     for (guint i = 0; i < g_list_model_get_n_items (windows); ++i)
     {
-        GtkWindow *window = g_list_model_get_item (windows, i);
+        GtkWindow *window = GTK_WINDOW (g_list_model_get_item (windows, i));
         if (window != parent && gtk_window_get_transient_for (window) == parent)
             return window; /* caller owns the reference */
         g_object_unref (window);
@@ -51,9 +52,8 @@ find_choice (GtkWidget *widget, gint index)
 }
 
 static void
-run_response (gconstpointer data)
+run_response (gboolean accept)
 {
-    gboolean accept = GPOINTER_TO_INT (data);
     GtkWindow *parent = GTK_WINDOW (gtk_window_new ());
     Result result = {0, FALSE};
     GtkWindow *dialog;
@@ -82,13 +82,13 @@ run_response (gconstpointer data)
     g_object_unref (parent);
 }
 
-int
-main (int argc, char **argv)
+class UpgradeDialogTest : public ::testing::Test {};
+TEST_F (UpgradeDialogTest, CloseCancels) { run_response (FALSE); }
+TEST_F (UpgradeDialogTest, OkContinues) { run_response (TRUE); }
+int main (int argc, char **argv)
 {
-    g_test_init (&argc, &argv, NULL);
     gtk_init ();
     gnc_engine_init (argc, argv);
-    g_test_add_data_func ("/upgrade/close-cancels", GINT_TO_POINTER (FALSE), run_response);
-    g_test_add_data_func ("/upgrade/ok-continues", GINT_TO_POINTER (TRUE), run_response);
-    return g_test_run ();
+    ::testing::InitGoogleTest (&argc, argv);
+    return RUN_ALL_TESTS ();
 }

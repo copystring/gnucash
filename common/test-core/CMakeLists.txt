@@ -6,6 +6,7 @@ set(test_core_SOURCES
 set(test_core_noinst_HEADERS
   test-stuff.h
   unittest-support.h
+  googletest-glib-log-handler.hpp
 )
 
 include_directories(

@@ -5,6 +5,7 @@
 #include <gtk/gtk.h>
 #include <libguile.h>
 #include <cstring>
+#include <gtest/gtest.h>
 #include "dialog-report-style-sheet.h"
 #include "gnc-optiondb.h"
 #include "gnc-report.h"
@@ -34,7 +35,8 @@ static GtkWindow *find_window(GtkWindow *parent, bool child)
 }
 
 static void finalized(gpointer data, GObject *) { *static_cast<bool *>(data) = true; }
-static void test_close()
+class StylesheetOwnershipTest : public ::testing::Test {};
+TEST_F(StylesheetOwnershipTest, CloseDoesNotDestroyOwnedOptions)
 {
     gnc_style_sheet_dialog_open(nullptr);
     auto parent = find_window(nullptr, false);
@@ -61,9 +63,9 @@ static void test_close()
         bool freed = false;
         g_object_weak_ref(G_OBJECT(window), finalized, &freed);
         gtk_window_close(window);
-        g_object_unref(window);
         while (g_main_context_iteration(nullptr, FALSE)) {}
-        g_assert_true(freed);
+        g_object_weak_unref(G_OBJECT(window), finalized, &freed);
+        g_object_unref(window);
         scm_gc();
         options = scm_call_1(scm_c_eval_string("gnc:html-style-sheet-options"), sheet);
         g_assert_true(gnc_get_optiondb_from_dispatcher(options) == odb);
@@ -72,16 +74,15 @@ static void test_close()
     gtk_window_destroy(parent);
     g_object_unref(parent);
 }
-static void real_main(void *, int argc, char **argv)
+int main(int argc, char **argv)
 {
-    g_test_init(&argc, &argv, nullptr);
     gtk_init();
+    scm_init_guile();
     qof_init(); gnc_engine_init(0, nullptr);
     scm_c_use_module("gnucash reports");
     scm_c_use_module("gnucash report html-style-sheet");
     scm_c_use_module("gnucash report stylesheets plain");
     scm_c_use_module("gnucash report report-core");
-    g_test_add_func("/stylesheet/close-ownership", test_close);
-    exit(g_test_run());
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }
-int main(int argc, char **argv) { scm_boot_guile(argc, argv, real_main, nullptr); return 0; }

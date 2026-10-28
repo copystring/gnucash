@@ -109,7 +109,8 @@ if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
 endif()
 
 if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
-  add_gnome_test(test-order-save-request test-order-save-request.c)
+  set(ORDER_REQUEST_LIBS ${GNOME_TEST_LIBS} gtest)
+  gnc_add_test(test-order-save-request test-order-save-request.cpp GNOME_TEST_INCLUDE_DIRS ORDER_REQUEST_LIBS)
   set(ORDER_ASYNC_INCLUDES ${GNOME_TEST_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/gnucash/register/ledger-core
     ${CMAKE_SOURCE_DIR}/gnucash/register/register-core
@@ -126,7 +127,9 @@ endif()
 set_dist_list(test_gnome_DIST
   CMakeLists.txt
   test-invoice-report-builtin-default.cpp
-  test-order-save-request.c
+  test-order-save-request.cpp
+  test-stylesheet-close-ownership.cpp
+  gnome-response-test-fixture.h
   gtest-order-save-async.cpp
   test-dialog-date-close.c
   test-dialog-lot-viewer-scrub.c
@@ -136,8 +139,9 @@ set_dist_list(test_gnome_DIST
   ${test_assistant-stock-transaction_SOURCES}
 )
 
+set(STYLESHEET_TEST_LIBS ${GNOME_TEST_LIBS} gtest)
 gnc_add_test_with_guile(test-stylesheet-close-ownership
-  test-stylesheet-close-ownership.cpp GNOME_TEST_INCLUDE_DIRS GNOME_TEST_LIBS)
+  test-stylesheet-close-ownership.cpp GNOME_TEST_INCLUDE_DIRS STYLESHEET_TEST_LIBS)
 set_property(TEST test-stylesheet-close-ownership APPEND PROPERTY ENVIRONMENT
   GSETTINGS_SCHEMA_DIR=${CMAKE_BINARY_DIR}/share/glib-2.0/schemas
   GSETTINGS_BACKEND=memory GSK_RENDERER=cairo)

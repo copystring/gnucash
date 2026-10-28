@@ -52,7 +52,29 @@ void drain ()
     while (g_main_context_iteration (nullptr, FALSE))
         ;
 }
-TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
+class OrderSaveAsync : public ::testing::Test
+{
+protected:
+    GtkWidget *window = nullptr;
+    GncEntryLedger *ledger = nullptr;
+    GObject *request = nullptr;
+    GtkWindow *decision = nullptr;
+    GtkWidget *button = nullptr;
+    Probe probe;
+    void TearDown () override
+    {
+        if (request && !probe.finalized)
+            g_object_weak_unref (request, finalized, &probe);
+        if (ledger) gnc_entry_ledger_destroy (ledger);
+        if (window) { gtk_window_destroy (GTK_WINDOW (window)); g_object_unref (window); }
+        if (button) g_object_unref (button);
+        if (decision) g_object_unref (decision);
+        drain ();
+        gnc_test_order_save_owner_free ();
+        if (gnc_current_session_exist ()) gnc_clear_current_session ();
+    }
+};
+TEST_F (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
 {
     auto *book = qof_book_new ();
     ASSERT_NE (book, nullptr);
@@ -61,9 +83,9 @@ TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     gnc_set_current_session (session);
     auto *order = gncOrderCreate (book);
     ASSERT_NE (order, nullptr);
-    auto *ledger = gnc_entry_ledger_new (book, GNCENTRY_ORDER_ENTRY);
+    ledger = gnc_entry_ledger_new (book, GNCENTRY_ORDER_ENTRY);
     ASSERT_NE (ledger, nullptr);
-    auto *window = gtk_window_new ();
+    window = gtk_window_new ();
     g_object_ref_sink (window);
     gtk_widget_realize (window);
     gnc_entry_ledger_set_parent (ledger, window);
@@ -87,45 +109,42 @@ TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     gnc_basic_cell_set_value (cell, "pending order edit");
     gnc_basic_cell_set_changed (cell, TRUE);
     ASSERT_TRUE (gnc_entry_ledger_changed (ledger));
-    auto *request = gnc_test_order_save_begin (window, ledger, book, order);
+    request = gnc_test_order_save_begin (window, ledger, book, order);
     ASSERT_NE (request, nullptr);
     /* Keep probe valid even on assertion failure and late completion. */
-    auto *probe = new Probe;
-    g_object_weak_ref (request, finalized, probe);
-    EXPECT_EQ (probe->finalized, 0);
-    auto *decision = find_decision (GTK_WINDOW (window));
+    g_object_weak_ref (request, finalized, &probe);
+    EXPECT_EQ (probe.finalized, 0);
+    decision = find_decision (GTK_WINDOW (window));
     ASSERT_NE (decision, nullptr);
     ASSERT_TRUE (gtk_window_get_destroy_with_parent (decision));
-    auto *button = find_button (GTK_WIDGET (decision), "Yes");
+    button = find_button (GTK_WIDGET (decision), "Yes");
     ASSERT_NE (button, nullptr);
     g_object_ref (button);
     gnc_entry_ledger_destroy (ledger);
+    ledger = nullptr;
     /* Native GTK parent destruction: no detachment or synthetic response. */
     gtk_window_destroy (GTK_WINDOW (window));
     g_object_unref (window);
+    window = nullptr;
     g_signal_emit_by_name (button, "clicked");
     auto deadline = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
-    while (!probe->finalized && g_get_monotonic_time () < deadline)
+    while (!probe.finalized && g_get_monotonic_time () < deadline)
     {
         g_main_context_iteration (nullptr, FALSE);
         g_usleep (1000);
     }
-    EXPECT_EQ (probe->finalized, 1);
+    EXPECT_EQ (probe.finalized, 1);
     auto settle = g_get_monotonic_time () + 100 * G_TIME_SPAN_MILLISECOND;
     while (g_get_monotonic_time () < settle)
     {
         g_main_context_iteration (nullptr, FALSE);
         g_usleep (1000);
     }
-    EXPECT_EQ (probe->finalized, 1);
+    EXPECT_EQ (probe.finalized, 1);
     g_signal_emit_by_name (button, "clicked");
     drain ();
-    EXPECT_EQ (probe->finalized, 1);
-    g_object_unref (button);
-    g_object_unref (decision);
-    delete probe;
-    gnc_test_order_save_owner_free ();
-    gnc_clear_current_session ();
+    EXPECT_EQ (probe.finalized, 1);
+
 }
 
 struct ChoiceProbe

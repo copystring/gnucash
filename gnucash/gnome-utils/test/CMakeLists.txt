@@ -236,8 +236,9 @@ gnc_add_test (test-gnc-scrub-job-runner "${test_gnc_scrub_job_runner_SOURCES}"
 
 
 if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
-  gnc_add_test (test-gnc-upgrade-dialog "test-gnc-upgrade-dialog.c"
-    GNOME_UTILS_GUI_TEST_INCLUDE_DIRS GNOME_UTILS_GUI_TEST_LIBS)
+  set(UPGRADE_TEST_LIBS ${GNOME_UTILS_GUI_TEST_LIBS} gtest)
+  gnc_add_test (test-gnc-upgrade-dialog "test-gnc-upgrade-dialog.cpp"
+    GNOME_UTILS_GUI_TEST_INCLUDE_DIRS UPGRADE_TEST_LIBS)
 endif()
 
 if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
@@ -288,6 +289,10 @@ if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
 endif()
 
 set_dist_list(test_gnome_utils_DIST
+  gnc-test-shutdown.cpp
+  gnc-test-shutdown.h
+  test-MainWindow-save-close-lifecycle.cpp
+  test-gnc-upgrade-dialog.cpp
   CMakeLists.txt
   test-load-gnome-utils-module.scm
   ${test_gnc_file_dialog_SOURCES}

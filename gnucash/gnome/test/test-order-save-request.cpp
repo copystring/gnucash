@@ -1,17 +1,21 @@
 #include <gtk/gtk.h>
+#include <gtest/gtest.h>
+extern "C" {
 
 GObject *gnc_test_order_save_request_new (GtkWidget *window);
 gboolean gnc_test_order_save_request_inert (GObject *object);
 void gnc_test_order_save_request_arm (GObject *object, gpointer owner, gpointer book);
 void gnc_test_order_save_request_complete (GObject *object, gboolean completed);
 
+}
 static void finalized (gpointer data, GObject *object)
 {
     (void)object;
     ++*(int *)data;
 }
 
-static void repeated_dispose (void)
+class OrderSaveRequestTest : public ::testing::Test {};
+TEST_F (OrderSaveRequestTest, RepeatedDispose)
 {
     GtkWidget *window = gtk_window_new ();
     g_object_ref_sink (window);
@@ -33,7 +37,7 @@ static void repeated_dispose (void)
     g_object_unref (window);
 }
 
-static void destroyed_before_callback (void)
+TEST_F (OrderSaveRequestTest, DestroyedBeforeCallback)
 {
     GtkWidget *window = gtk_window_new ();
     g_object_ref_sink (window);
@@ -53,9 +57,7 @@ static void destroyed_before_callback (void)
 
 int main (int argc, char **argv)
 {
-    g_test_init (&argc, &argv, NULL);
     gtk_init ();
-    g_test_add_func ("/order-save/repeated-dispose-pending-callback", repeated_dispose);
-    g_test_add_func ("/order-save/window-destroyed-before-callback", destroyed_before_callback);
-    return g_test_run ();
+    ::testing::InitGoogleTest (&argc, argv);
+    return RUN_ALL_TESTS ();
 }
