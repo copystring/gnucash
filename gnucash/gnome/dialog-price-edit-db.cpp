@@ -732,6 +732,34 @@ gnc_test_price_old_remove_watch_book (GObject *object, QofBook *book)
     request->book_handler = qof_event_register_handler (price_old_remove_book_event, request);
 }
 
+// Build the same view/model ownership graph as the real removal dialog.
+// Return a separate model ref so tests can observe row removal after UI teardown.
+extern "C" GListStore *
+gnc_test_price_old_remove_populate_pending (GObject *object,
+                                           gnc_commodity *commodity)
+{
+    auto request = reinterpret_cast<PriceOldRemoveRequest *> (object);
+    auto model = g_list_store_new (G_TYPE_OBJECT);
+    auto selection = gtk_multi_selection_new (G_LIST_MODEL (g_object_ref (model)));
+    request->remove_view = gtk_column_view_new (GTK_SELECTION_MODEL (selection));
+    gtk_window_set_child (request->dialog, request->remove_view);
+    g_object_set_data_full (G_OBJECT (request->remove_view), PRICE_REMOVE_MODEL_DATA,
+                            g_object_ref (model), g_object_unref);
+    auto row = price_remove_row_new (gnc_commodity_get_fullname (commodity),
+                                    commodity, "Date", "1");
+    g_list_store_append (model, row);
+    g_object_unref (row);
+    request->waiting_for_confirmation = TRUE;
+    price_old_remove_request_ref (request); // Real pending callback ownership.
+    return model;
+}
+
+extern "C" gboolean
+gnc_test_price_old_remove_request_completed (GObject *object)
+{
+    return reinterpret_cast<PriceOldRemoveRequest *> (object)->completed;
+}
+
 extern "C" void
 gnc_test_price_old_remove_request_complete (GObject *object)
 {

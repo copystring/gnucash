@@ -14,6 +14,8 @@ GObject *gnc_test_price_delete_request_for_book (GtkWidget *, GNCPrice *, QofBoo
 void gnc_test_price_delete_finished (GObject *, gint);
 gboolean gnc_test_price_delete_request_pending (GObject *);
 void gnc_test_price_old_remove_watch_book (GObject *, QofBook *);
+GListStore *gnc_test_price_old_remove_populate_pending (GObject *, gnc_commodity *);
+gboolean gnc_test_price_old_remove_request_completed (GObject *);
 void gnc_test_price_delete_request_complete (GObject *, gboolean);
 GObject *gnc_test_price_old_remove_request_new (GtkWindow *);
 void gnc_test_price_old_remove_request_complete (GObject *);
@@ -207,6 +209,72 @@ TEST (PriceRequests, OldRemoveBookDestroyThenLateConfirmation)
     EXPECT_EQ (destroyed, 0u);
     gnc_test_price_old_remove_confirmation_finished (request, GTK_RESPONSE_ACCEPT);
     EXPECT_EQ (destroyed, 1u);
+}
+
+TEST (PriceRequests, OldRemovePopulatedModelBookDestroyAndLateResponse)
+{
+    for (auto response : {GTK_RESPONSE_ACCEPT, GTK_RESPONSE_CANCEL})
+    {
+        auto session = qof_session_new (qof_book_new ());
+        auto book = qof_session_get_book (session);
+        auto price = book_price (book);
+        auto commodity = gnc_price_get_commodity (price);
+        gnc_price_unref (price); // Database owns the real price.
+        auto request = gnc_test_price_old_remove_request_new (GTK_WINDOW (gtk_window_new ()));
+        gnc_test_price_old_remove_watch_book (request, book);
+        auto model = gnc_test_price_old_remove_populate_pending (request, commodity);
+        ASSERT_EQ (g_list_model_get_n_items (G_LIST_MODEL (model)), 1u);
+        auto row = G_OBJECT (g_list_model_get_item (G_LIST_MODEL (model), 0));
+        EXPECT_EQ (g_object_get_data (row, "gnc-price-remove-commodity"), commodity);
+        unsigned rows_destroyed = 0, requests_destroyed = 0;
+        g_object_weak_ref (row, finalized, &rows_destroyed);
+        g_object_unref (row); // Only the actual model retains the row.
+        g_object_weak_ref (request, finalized, &requests_destroyed);
+        qof_event_suspend ();
+        qof_session_destroy (session);
+        qof_event_resume ();
+        EXPECT_TRUE (gnc_test_price_old_remove_request_completed (request));
+        EXPECT_EQ (g_list_model_get_n_items (G_LIST_MODEL (model)), 0u);
+        EXPECT_EQ (rows_destroyed, 1u); // Productive remove_all branch executed.
+        EXPECT_EQ (requests_destroyed, 0u); // Callback is the only owner.
+        gnc_test_price_old_remove_confirmation_finished (request, response);
+        EXPECT_EQ (requests_destroyed, 1u);
+        EXPECT_EQ (rows_destroyed, 1u);
+        g_object_unref (model);
+    }
+}
+
+TEST (PriceRequests, OldRemovePopulatedModelCommodityDestroyAndLateResponse)
+{
+    for (auto response : {GTK_RESPONSE_ACCEPT, GTK_RESPONSE_CANCEL})
+    {
+        auto session = qof_session_new (qof_book_new ());
+        auto book = qof_session_get_book (session);
+        auto price = book_price (book);
+        auto commodity = gnc_price_get_commodity (price);
+        auto request = gnc_test_price_old_remove_request_new (GTK_WINDOW (gtk_window_new ()));
+        gnc_test_price_old_remove_watch_book (request, book);
+        auto model = gnc_test_price_old_remove_populate_pending (request, commodity);
+        ASSERT_EQ (g_list_model_get_n_items (G_LIST_MODEL (model)), 1u);
+        auto row = G_OBJECT (g_list_model_get_item (G_LIST_MODEL (model), 0));
+        unsigned rows_destroyed = 0, requests_destroyed = 0;
+        g_object_weak_ref (row, finalized, &rows_destroyed);
+        g_object_unref (row);
+        g_object_weak_ref (request, finalized, &requests_destroyed);
+        // Remove the engine's price dependency before semantic destruction.
+        gnc_pricedb_remove_price (gnc_pricedb_get_db (book), price);
+        gnc_price_unref (price);
+        gnc_commodity_destroy (commodity);
+        EXPECT_TRUE (gnc_test_price_old_remove_request_completed (request));
+        EXPECT_EQ (g_list_model_get_n_items (G_LIST_MODEL (model)), 0u);
+        EXPECT_EQ (rows_destroyed, 1u);
+        EXPECT_EQ (requests_destroyed, 0u);
+        qof_session_destroy (session);
+        gnc_test_price_old_remove_confirmation_finished (request, response);
+        EXPECT_EQ (requests_destroyed, 1u);
+        EXPECT_EQ (rows_destroyed, 1u);
+        g_object_unref (model);
+    }
 }
 
 int main (int argc, char **argv)
