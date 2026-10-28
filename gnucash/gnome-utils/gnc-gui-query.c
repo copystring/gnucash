@@ -276,6 +276,10 @@ gnc_choose_option_dialog_async (GtkWindow *parent, const gchar *title,
     request->has_parent = parent != NULL;
     request->callback = completed;
     request->user_data = user_data;
+    request->cancellable = g_cancellable_new ();
+    if (parent)
+        request->parent_destroy_handler = g_signal_connect (parent, "destroy",
+            G_CALLBACK (gnc_gui_choice_parent_destroyed), request);
     request->n_buttons = index;
     request->buttons = g_new0 (gchar *, request->n_buttons + 1);
 
