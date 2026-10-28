@@ -33,288 +33,304 @@
 /* This static indicates the debugging module that this .o belongs to.  */
 /* static short module = MOD_GUI; */
 
+/* GtkAlertDialog in GTK 4.24 keeps a borrowed dialog in its GTask and
+ * leaves the response handler connected after cancellation. Natural transient
+ * parent teardown can therefore destroy that dialog before choose_finish, or
+ * return the task twice. Own the decision window directly, as the input dialog
+ * below does, instead of trying to repair GTK's private task/response state. */
 typedef struct
 {
-    GWeakRef parent;
-    gboolean has_parent;
-    GncGuiQueryResponseCallback callback;
+    GtkWindow *dialog;
+    GSource *cancel_source;
+    GPtrArray *buttons;
+    GncGuiChoiceCallback completed;
     gpointer user_data;
-    gchar **buttons;
-    gint response_map[2];
+    GDestroyNotify destroy;
+    gint cancel_choice;
+    gint response;
+    gboolean done;
+} GncGuiChoiceRequest;
+
+static gboolean
+gnc_gui_choice_dispatch (gpointer data)
+{
+    GncGuiChoiceRequest *request = data;
+
+    if (request->completed)
+        request->completed (request->response, request->user_data);
+    if (request->destroy)
+        request->destroy (request->user_data);
+    g_free (request);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+gnc_gui_choice_disconnect (GncGuiChoiceRequest *request)
+{
+    if (request->cancel_source)
+    {
+        g_source_destroy (request->cancel_source);
+        g_clear_pointer (&request->cancel_source, g_source_unref);
+    }
+    for (guint i = 0; i < request->buttons->len; i++)
+        g_signal_handlers_disconnect_by_data (
+            g_ptr_array_index (request->buttons, i), request);
+    g_clear_pointer (&request->buttons, g_ptr_array_unref);
+}
+
+static void
+gnc_gui_choice_complete (GncGuiChoiceRequest *request, gint response)
+{
+    GtkWindow *dialog;
+
+    if (request->done)
+        return;
+    request->done = TRUE;
+    request->response = response;
+    gnc_gui_choice_disconnect (request);
+    dialog = g_steal_pointer (&request->dialog);
+    g_signal_handlers_disconnect_by_data (dialog, request);
+    gtk_window_destroy (dialog);
+    g_object_unref (dialog);
+
+    /* Never call into an owner in the middle of GTK's parent dispose, a button
+     * emission, or the initiating call (including pre-cancelled requests). */
+    g_idle_add (gnc_gui_choice_dispatch, request);
+}
+
+static void
+gnc_gui_choice_destroyed (GtkWidget *dialog, GncGuiChoiceRequest *request)
+{
+    /* The window is already disposing. Do not recursively destroy it. */
+    request->done = TRUE;
+    request->response = request->cancel_choice;
+    gnc_gui_choice_disconnect (request);
+    g_signal_handlers_disconnect_by_data (dialog, request);
+    g_clear_object (&request->dialog);
+    g_idle_add (gnc_gui_choice_dispatch, request);
+}
+
+static gboolean
+gnc_gui_choice_closed (GtkWindow *dialog, GncGuiChoiceRequest *request)
+{
+    (void)dialog;
+    gnc_gui_choice_complete (request, request->cancel_choice);
+    return TRUE;
+}
+
+static gboolean
+gnc_gui_choice_cancelled (GCancellable *cancellable, gpointer data)
+{
+    GncGuiChoiceRequest *request = data;
+    (void)cancellable;
+    gnc_gui_choice_complete (request, request->cancel_choice);
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean
+gnc_gui_choice_key_pressed (GtkEventControllerKey *controller, guint keyval,
+                            guint keycode, GdkModifierType state, gpointer data)
+{
+    (void)controller;
+    (void)keycode;
+    (void)state;
+    if (keyval != GDK_KEY_Escape)
+        return FALSE;
+    gnc_gui_choice_closed (NULL, data);
+    return TRUE;
+}
+
+static void
+gnc_gui_choice_clicked (GtkButton *button, GncGuiChoiceRequest *request)
+{
+    gint choice = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (button),
+                                                    "gnc-choice")) - 1;
+    gnc_gui_choice_complete (request, choice);
+}
+
+static void
+gnc_gui_choice_show (GtkWindow *parent, const gchar *title,
+                     const gchar *message, const gchar * const *buttons,
+                     gint default_choice, gint cancel_choice,
+                     GCancellable *cancellable, GncGuiChoiceCallback completed,
+                     gpointer user_data, GDestroyNotify destroy)
+{
+    GncGuiChoiceRequest *request = g_new0 (GncGuiChoiceRequest, 1);
+    GtkWidget *dialog, *content, *label, *actions;
+    GtkEventController *keys;
+    guint n_buttons = g_strv_length ((gchar **)buttons);
+
+    request->completed = completed;
+    request->user_data = user_data;
+    request->destroy = destroy;
+    request->cancel_choice = cancel_choice;
+    request->buttons = g_ptr_array_new_with_free_func (g_object_unref);
+    dialog = gtk_window_new ();
+    request->dialog = GTK_WINDOW (g_object_ref_sink (dialog));
+    gtk_window_set_title (request->dialog, title);
+    gtk_window_set_modal (request->dialog, TRUE);
+    gtk_window_set_transient_for (request->dialog, parent);
+    gtk_window_set_destroy_with_parent (request->dialog, TRUE);
+    gtk_window_set_resizable (request->dialog, FALSE);
+    g_signal_connect (dialog, "close-request",
+                      G_CALLBACK (gnc_gui_choice_closed), request);
+    g_signal_connect (dialog, "destroy",
+                      G_CALLBACK (gnc_gui_choice_destroyed), request);
+
+    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_top (content, 12);
+    gtk_widget_set_margin_bottom (content, 12);
+    gtk_widget_set_margin_start (content, 12);
+    gtk_widget_set_margin_end (content, 12);
+    label = gtk_label_new (message);
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+    gtk_label_set_max_width_chars (GTK_LABEL (label), 72);
+    gtk_box_append (GTK_BOX (content), label);
+    actions = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign (actions, GTK_ALIGN_END);
+    for (guint i = 0; i < n_buttons; i++)
+    {
+        GtkWidget *button = gtk_button_new_with_mnemonic (buttons[i]);
+        g_object_set_data (G_OBJECT (button), "gnc-choice", GINT_TO_POINTER (i + 1));
+        g_signal_connect (button, "clicked", G_CALLBACK (gnc_gui_choice_clicked), request);
+        g_ptr_array_add (request->buttons, g_object_ref (button));
+        gtk_box_append (GTK_BOX (actions), button);
+        if (i == CLAMP (default_choice, 0, (gint)n_buttons - 1))
+            gtk_window_set_default_widget (request->dialog, button);
+    }
+    gtk_box_append (GTK_BOX (content), actions);
+    gtk_window_set_child (request->dialog, content);
+    keys = gtk_event_controller_key_new ();
+    g_signal_connect (keys, "key-pressed",
+                      G_CALLBACK (gnc_gui_choice_key_pressed), request);
+    /* Controller lifetime is bound to the dialog and can outlive its destroy
+     * signal. Disconnect it together with the buttons before freeing request. */
+    g_ptr_array_add (request->buttons, g_object_ref (keys));
+    gtk_widget_add_controller (dialog, keys);
+    if (cancellable)
+    {
+        /* A cancellable source marshals even off-thread cancellation to the
+         * GTK main loop. Destroying it also drops any queued cancellation. */
+        request->cancel_source = g_cancellable_source_new (cancellable);
+        g_source_set_callback (request->cancel_source,
+                               (GSourceFunc)gnc_gui_choice_cancelled, request, NULL);
+        g_source_attach (request->cancel_source, NULL);
+    }
+    gtk_window_present (request->dialog);
+}
+
+typedef struct
+{
     gint cancel_response;
-    gboolean completed;
-    GCancellable *cancellable;
-    gulong parent_destroy_handler;
+    gint positive_response;
+    GncGuiQueryResponseCallback completed;
+    gpointer user_data;
 } GncGuiQueryRequest;
 
 static void
-gnc_gui_query_request_free (GncGuiQueryRequest *request)
+gnc_gui_query_finished (gint choice, gpointer data)
 {
-    GtkWindow *parent = g_weak_ref_get (&request->parent);
-    if (parent && request->parent_destroy_handler)
-        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
-    g_clear_object (&parent);
-    g_clear_object (&request->cancellable);
-    g_weak_ref_clear (&request->parent);
-    g_strfreev (request->buttons);
-    g_free (request);
-}
-
-static void
-gnc_gui_query_parent_destroyed (GtkWidget *parent, gpointer user_data)
-{
-    GncGuiQueryRequest *request = user_data;
-    (void)parent;
-    request->parent_destroy_handler = 0;
-    g_cancellable_cancel (request->cancellable);
-}
-
-static void
-gnc_gui_query_complete (GncGuiQueryRequest *request, GtkWindow *parent,
-                        gint response)
-{
+    GncGuiQueryRequest *request = data;
+    gint response = choice == 0 ? request->positive_response :
+                    choice == 1 ? GTK_RESPONSE_NO : request->cancel_response;
     if (request->completed)
-        return;
-
-    request->completed = TRUE;
-    request->callback (parent, response, request->user_data);
+        request->completed (response, request->user_data);
 }
 
 static void
-gnc_gui_query_finished (GObject *source, GAsyncResult *result,
-                        gpointer user_data)
+gnc_message_dialog_async_common (GtkWindow *parent, const gchar *title,
+                                  const gchar *positive_label,
+                                  gint positive_response,
+                                  gint default_response,
+                                  gint cancel_response,
+                                  gboolean include_cancel,
+                                  GncGuiQueryResponseCallback completed,
+                                  gpointer user_data,
+                                  const gchar *format, va_list args)
 {
-    GncGuiQueryRequest *request = user_data;
-    GError *error = NULL;
-    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
-    gint choice = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
-                                                  &error);
-    gint response = request->cancel_response;
+    GncGuiQueryRequest *request = g_new0 (GncGuiQueryRequest, 1);
+    const gchar *buttons[] = { positive_label, _("_No"),
+                               include_cancel ? _("_Cancel") : NULL, NULL };
+    gchar *message = g_strdup_vprintf (format, args);
+    gint default_button = default_response == positive_response ? 0 :
+                          default_response == GTK_RESPONSE_CANCEL && include_cancel ? 2 : 1;
 
-    if (!error && choice >= 0 && choice < (gint)G_N_ELEMENTS (request->response_map))
-        response = request->response_map[choice];
-    else if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        g_warning ("Decision dialog failed: %s", error->message);
-
-    /* Parent destruction and every invalid AlertDialog result are cancellation;
-     * never infer cancellation from the ordering of the visible buttons. */
-    if (request->has_parent && !parent)
-        response = request->cancel_response;
-
-    gnc_gui_query_complete (request, parent, response);
-    g_clear_error (&error);
-    g_clear_object (&parent);
-    gnc_gui_query_request_free (request);
-}
-
-static void
-gnc_gui_query_async_va (GtkWindow *parent, const gchar *first_button,
-                        const gchar *second_button, gint first_response,
-                        gint second_response, gint cancel_button,
-                        gint cancel_response, gint default_button,
-                        GncGuiQueryResponseCallback completed, gpointer user_data,
-                        const gchar *format, va_list args)
-{
-    GncGuiQueryRequest *request;
-    GtkAlertDialog *dialog;
-    gchar *message;
-
-    g_return_if_fail (completed != NULL);
-    if (!parent)
-        parent = gnc_ui_get_main_window (NULL);
-
-    request = g_new0 (GncGuiQueryRequest, 1);
-    g_weak_ref_init (&request->parent, parent);
-    request->has_parent = parent != NULL;
-    request->callback = completed;
-    request->user_data = user_data;
-    request->cancellable = g_cancellable_new ();
-    if (parent)
-        request->parent_destroy_handler = g_signal_connect (parent, "destroy",
-            G_CALLBACK (gnc_gui_query_parent_destroyed), request);
-    request->buttons = g_new0 (gchar *, 3);
-    request->buttons[0] = g_strdup (first_button);
-    request->buttons[1] = g_strdup (second_button);
-    request->response_map[0] = first_response;
-    request->response_map[1] = second_response;
     request->cancel_response = cancel_response;
-
-    message = g_strdup_vprintf (format, args);
-    dialog = gtk_alert_dialog_new ("%s", message);
-    gtk_alert_dialog_set_buttons (dialog, (const char * const *)request->buttons);
-    gtk_alert_dialog_set_default_button (dialog, default_button);
-    gtk_alert_dialog_set_cancel_button (dialog, cancel_button);
-    gtk_alert_dialog_choose (dialog, parent, request->cancellable, gnc_gui_query_finished, request);
-    g_object_unref (dialog);
+    request->positive_response = positive_response;
+    request->completed = completed;
+    request->user_data = user_data;
+    gnc_gui_choice_show (parent ? parent : gnc_ui_get_main_window (NULL),
+                         title, message, buttons, default_button,
+                         include_cancel ? 2 : -1, NULL, gnc_gui_query_finished,
+                         request, g_free);
     g_free (message);
 }
 
 void
 gnc_ok_cancel_dialog_async (GtkWindow *parent, gint default_result,
-                            GncGuiQueryResponseCallback completed,
-                            gpointer user_data, const gchar *format, ...)
+                             GncGuiQueryResponseCallback completed,
+                             gpointer user_data, const gchar *format, ...)
 {
     va_list args;
-
     va_start (args, format);
-    gnc_gui_query_async_va (parent, _("Cancel"), _("OK"), GTK_RESPONSE_CANCEL,
-                            GTK_RESPONSE_OK, 0, GTK_RESPONSE_CANCEL,
-                            default_result == GTK_RESPONSE_OK ? 1 : 0,
-                            completed, user_data, format, args);
+    gnc_message_dialog_async_common (parent, _("Confirm"), _("_OK"),
+                                      GTK_RESPONSE_OK, default_result,
+                                      GTK_RESPONSE_CANCEL, TRUE,
+                                      completed, user_data, format, args);
     va_end (args);
 }
 
 void
 gnc_verify_dialog_async (GtkWindow *parent, gboolean yes_is_default,
-                         GncGuiQueryResponseCallback completed, gpointer user_data,
-                         const gchar *format, ...)
+                          GncGuiQueryResponseCallback completed,
+                          gpointer user_data, const gchar *format, ...)
 {
     va_list args;
-
     va_start (args, format);
-    gnc_gui_query_async_va (parent, _("No"), _("Yes"), GTK_RESPONSE_NO,
-                            GTK_RESPONSE_YES, 0, GTK_RESPONSE_NO,
-                            yes_is_default ? 1 : 0,
-                            completed, user_data, format, args);
+    gnc_message_dialog_async_common (parent, _("Confirm"), _("_Yes"),
+                                      GTK_RESPONSE_YES,
+                                      yes_is_default ? GTK_RESPONSE_YES : GTK_RESPONSE_NO,
+                                      GTK_RESPONSE_CANCEL, FALSE,
+                                      completed, user_data, format, args);
     va_end (args);
 }
 
 void
 gnc_action_dialog_async (GtkWindow *parent, const gchar *action,
-                         gboolean action_default,
-                         GncGuiQueryResponseCallback completed, gpointer user_data,
-                         const gchar *format, ...)
+                          gboolean action_default,
+                          GncGuiQueryResponseCallback completed,
+                          gpointer user_data, const gchar *format, ...)
 {
     va_list args;
-
-    g_return_if_fail (action != NULL);
     va_start (args, format);
-    gnc_gui_query_async_va (parent, action, _("Cancel"), GTK_RESPONSE_ACCEPT,
-                            GTK_RESPONSE_CANCEL, 1, GTK_RESPONSE_CANCEL,
-                            action_default ? 0 : 1,
-                            completed, user_data, format, args);
+    gnc_message_dialog_async_common (parent, _("Confirm"), action,
+                                      GTK_RESPONSE_ACCEPT,
+                                      action_default ? GTK_RESPONSE_ACCEPT : GTK_RESPONSE_NO,
+                                      GTK_RESPONSE_CANCEL, FALSE,
+                                      completed, user_data, format, args);
     va_end (args);
 }
 
-typedef struct
+void
+gnc_gui_choice_async (GtkWindow *parent, const gchar *title,
+                       const gchar *message, const gchar * const *buttons,
+                       gint default_choice, GncGuiChoiceCallback completed,
+                       gpointer user_data)
 {
-    GWeakRef parent;
-    gboolean has_parent;
-    GncGuiChoiceCallback callback;
-    gpointer user_data;
-    gchar **buttons;
-    guint n_buttons;
-    gboolean completed;
-    GCancellable *cancellable;
-    gulong parent_destroy_handler;
-} GncGuiChoiceRequest;
-
-static void
-gnc_gui_choice_request_free (GncGuiChoiceRequest *request)
-{
-    GtkWindow *parent = g_weak_ref_get (&request->parent);
-    if (parent && request->parent_destroy_handler)
-        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
-    g_clear_object (&parent);
-    g_clear_object (&request->cancellable);
-    g_weak_ref_clear (&request->parent);
-    g_strfreev (request->buttons);
-    g_free (request);
-}
-
-static void
-gnc_gui_choice_parent_destroyed (GtkWidget *parent, gpointer user_data)
-{
-    GncGuiChoiceRequest *request = user_data;
-    (void)parent;
-    request->parent_destroy_handler = 0;
-    g_cancellable_cancel (request->cancellable);
-}
-
-static void
-gnc_gui_choice_complete (GncGuiChoiceRequest *request, GtkWindow *parent,
-                         gint choice)
-{
-    if (request->completed)
-        return;
-
-    request->completed = TRUE;
-    request->callback (parent, choice, request->user_data);
-}
-
-static void
-gnc_gui_choice_finished (GObject *source, GAsyncResult *result,
-                         gpointer user_data)
-{
-    GncGuiChoiceRequest *request = user_data;
-    GError *error = NULL;
-    GtkWindow *parent = GTK_WINDOW (g_weak_ref_get (&request->parent));
-    gint choice = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result,
-                                                  &error);
-
-    if (error || choice < 0 || choice >= (gint)request->n_buttons ||
-        (request->has_parent && !parent))
-        choice = -1;
-
-    if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        g_warning ("Option dialog failed: %s", error->message);
-
-    gnc_gui_choice_complete (request, parent, choice);
-    g_clear_error (&error);
-    g_clear_object (&parent);
-    gnc_gui_choice_request_free (request);
+    gnc_gui_choice_async_full (parent, title, message, buttons, default_choice,
+                               NULL, completed, user_data, NULL);
 }
 
 void
-gnc_choose_option_dialog_async (GtkWindow *parent, const gchar *title,
-                                const gchar *message, GList *choices,
-                                gint default_choice,
-                                GncGuiChoiceCallback completed,
-                                gpointer user_data)
+gnc_gui_choice_async_full (GtkWindow *parent, const gchar *title,
+                            const gchar *message, const gchar * const *buttons,
+                            gint default_choice, GCancellable *cancellable,
+                            GncGuiChoiceCallback completed, gpointer user_data,
+                            GDestroyNotify destroy)
 {
-    GncGuiChoiceRequest *request;
-    GtkAlertDialog *dialog;
-    GList *node;
-    guint index;
-
-    g_return_if_fail (title != NULL);
-    g_return_if_fail (message != NULL);
-    g_return_if_fail (choices != NULL);
-    g_return_if_fail (completed != NULL);
-
-    if (!parent)
-        parent = gnc_ui_get_main_window (NULL);
-
-    for (node = choices; node; node = node->next)
-        g_return_if_fail (node->data != NULL);
-
-    index = g_list_length (choices);
-    g_return_if_fail (index > 0);
-
-    request = g_new0 (GncGuiChoiceRequest, 1);
-    g_weak_ref_init (&request->parent, parent);
-    request->has_parent = parent != NULL;
-    request->callback = completed;
-    request->user_data = user_data;
-    request->cancellable = g_cancellable_new ();
-    if (parent)
-        request->parent_destroy_handler = g_signal_connect (parent, "destroy",
-            G_CALLBACK (gnc_gui_choice_parent_destroyed), request);
-    request->n_buttons = index;
-    request->buttons = g_new0 (gchar *, request->n_buttons + 1);
-
-    for (node = choices, index = 0; node; node = node->next, index++)
-        request->buttons[index] = g_strdup (node->data);
-
-    dialog = gtk_alert_dialog_new ("%s", title);
-    gtk_alert_dialog_set_detail (dialog, message);
-    gtk_alert_dialog_set_buttons (dialog, (const char * const *)request->buttons);
-    gtk_alert_dialog_set_default_button (
-        dialog, CLAMP (default_choice, 0, (gint)request->n_buttons - 1));
-    /* Choice dialogs have no semantic cancel item: Escape and close return -1. */
-    gtk_alert_dialog_set_cancel_button (dialog, -1);
-    gtk_alert_dialog_choose (dialog, parent, request->cancellable, gnc_gui_choice_finished, request);
-    g_object_unref (dialog);
+    g_return_if_fail (buttons && buttons[0]);
+    gnc_gui_choice_show (parent, title, message, buttons, default_choice, -1,
+                         cancellable, completed, user_data, destroy);
 }
 
 static void

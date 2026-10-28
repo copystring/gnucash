@@ -11,6 +11,7 @@ extern "C" {
 #include "gncEntryLedgerP.h"
 #include "cellblock.h"
 #include "gnc-component-manager.h"
+#include "gnc-ui.h"
 GObject *gnc_test_order_save_begin (GtkWidget *, GncEntryLedger *, QofBook *, GncOrder *);
 void gnc_test_order_save_owner_free (void);
 }
@@ -23,8 +24,35 @@ void gnc_test_order_save_owner_free (void);
 namespace {
 struct Probe { int finalized{}; };
 void finalized (gpointer p, GObject *) { static_cast<Probe *>(p)->finalized++; }
-class OrderSaveAsync : public ::testing::TestWithParam<bool> {};
-TEST_P (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
+GtkWindow *find_decision (GtkWindow *parent)
+{
+    auto *windows = gtk_window_get_toplevels ();
+    for (guint i = 0; i < g_list_model_get_n_items (windows); i++)
+    {
+        auto *candidate = GTK_WINDOW (g_list_model_get_item (windows, i));
+        if (gtk_window_get_transient_for (candidate) == parent)
+            return candidate;
+        g_object_unref (candidate);
+    }
+    return nullptr;
+}
+GtkWidget *find_button (GtkWidget *widget, const char *label)
+{
+    if (GTK_IS_BUTTON (widget) &&
+        g_strcmp0 (gtk_button_get_label (GTK_BUTTON (widget)), label) == 0)
+        return widget;
+    for (auto *child = gtk_widget_get_first_child (widget); child;
+         child = gtk_widget_get_next_sibling (child))
+        if (auto *button = find_button (child, label))
+            return button;
+    return nullptr;
+}
+void drain ()
+{
+    while (g_main_context_iteration (nullptr, FALSE))
+        ;
+}
+TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
 {
     auto *book = qof_book_new ();
     ASSERT_NE (book, nullptr);
@@ -65,30 +93,17 @@ TEST_P (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     auto *probe = new Probe;
     g_object_weak_ref (request, finalized, probe);
     EXPECT_EQ (probe->finalized, 0);
-    GtkWindow *decision = nullptr;
-    auto *windows = gtk_window_get_toplevels ();
-    for (guint i = 0; i < g_list_model_get_n_items (windows); ++i)
-    {
-        auto *candidate = GTK_WINDOW (g_list_model_get_item (windows, i));
-        if (gtk_window_get_transient_for (candidate) == GTK_WINDOW (window))
-        {
-            ASSERT_EQ (decision, nullptr);
-            decision = candidate;
-        }
-        else g_object_unref (candidate);
-    }
+    auto *decision = find_decision (GTK_WINDOW (window));
     ASSERT_NE (decision, nullptr);
+    ASSERT_TRUE (gtk_window_get_destroy_with_parent (decision));
+    auto *button = find_button (GTK_WIDGET (decision), "_Cancel");
+    ASSERT_NE (button, nullptr);
+    g_object_ref (button);
     gnc_entry_ledger_destroy (ledger);
-    if (GetParam ())
-        gtk_window_set_transient_for (decision, nullptr);
+    /* Native GTK parent destruction: no detachment or synthetic response. */
     gtk_window_destroy (GTK_WINDOW (window));
     g_object_unref (window);
-    if (GetParam ())
-    {
-        EXPECT_EQ (probe->finalized, 0);
-        g_signal_emit_by_name (decision, "response", GTK_RESPONSE_CANCEL);
-    }
-    g_object_unref (decision);
+    g_signal_emit_by_name (button, "clicked");
     auto deadline = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
     while (!probe->finalized && g_get_monotonic_time () < deadline)
     {
@@ -103,10 +118,130 @@ TEST_P (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
         g_usleep (1000);
     }
     EXPECT_EQ (probe->finalized, 1);
+    g_signal_emit_by_name (button, "clicked");
+    drain ();
+    EXPECT_EQ (probe->finalized, 1);
+    g_object_unref (button);
+    g_object_unref (decision);
+    delete probe;
     gnc_test_order_save_owner_free ();
     gnc_clear_current_session ();
 }
-INSTANTIATE_TEST_SUITE_P (ParentLifetime, OrderSaveAsync, ::testing::Bool ());
+
+struct ChoiceProbe
+{
+    int calls{};
+    int destroyed{};
+    int response{99};
+    bool reentrant{};
+    bool initiating{true};
+};
+void choice_finished (gint response, gpointer data)
+{
+    auto *probe = static_cast<ChoiceProbe *>(data);
+    probe->calls++;
+    probe->response = response;
+    probe->reentrant = probe->initiating;
+}
+void choice_freed (gpointer data)
+{
+    static_cast<ChoiceProbe *>(data)->destroyed++;
+}
+class ChoiceLifetime : public ::testing::TestWithParam<int> {};
+TEST_P (ChoiceLifetime, CompletesExactlyOnce)
+{
+    auto *parent = GTK_WINDOW (gtk_window_new ());
+    g_object_ref_sink (parent);
+    gtk_widget_realize (GTK_WIDGET (parent));
+    auto *cancel = g_cancellable_new ();
+    ChoiceProbe probe;
+    const char *buttons[] = {"_Yes", "_No", "_Cancel", nullptr};
+    if (GetParam () == 1)
+        g_cancellable_cancel (cancel);
+    gnc_gui_choice_async_full (parent, "Decision", "Lifetime regression", buttons,
+                               0, cancel, choice_finished, &probe, choice_freed);
+    EXPECT_EQ (probe.calls, 0);
+    auto *decision = find_decision (parent);
+    ASSERT_NE (decision, nullptr);
+    EXPECT_TRUE (gtk_window_get_destroy_with_parent (decision));
+    auto *button = find_button (GTK_WIDGET (decision), "_Yes");
+    ASSERT_NE (button, nullptr);
+    g_object_ref (button);
+    switch (GetParam ())
+    {
+    case 0: /* Native parent destruction, then a delayed retained button. */
+        gtk_window_destroy (parent);
+        break;
+    case 1: /* Pre-cancelled, dispatched by the main context. */
+        break;
+    case 2: /* Explicit cancellation from another thread. */
+    {
+        GThread *thread = g_thread_new ("cancel", [](gpointer data) -> gpointer {
+            g_cancellable_cancel (G_CANCELLABLE (data));
+            return nullptr;
+        }, cancel);
+        g_thread_join (thread);
+        break;
+    }
+    case 3: /* Response wins over queued cancellation. */
+        g_signal_emit_by_name (button, "clicked");
+        g_cancellable_cancel (cancel);
+        break;
+    case 4: /* Native WM close. */
+        gtk_window_close (decision);
+        break;
+    case 5: /* Direct dialog destroy, parent still alive. */
+        gtk_window_destroy (decision);
+        break;
+    case 6: /* Cancellation queued then parent destroyed before dispatch. */
+        g_cancellable_cancel (cancel);
+        gtk_window_destroy (parent);
+        break;
+    }
+    probe.initiating = false;
+    drain ();
+    EXPECT_EQ (probe.calls, 1);
+    EXPECT_EQ (probe.destroyed, 1);
+    EXPECT_FALSE (probe.reentrant);
+    EXPECT_EQ (probe.response, GetParam () == 3 ? 0 : -1);
+    g_signal_emit_by_name (button, "clicked");
+    g_cancellable_cancel (cancel);
+    gtk_window_destroy (parent);
+    drain ();
+    EXPECT_EQ (probe.calls, 1);
+    EXPECT_EQ (probe.destroyed, 1);
+    g_object_unref (button);
+    g_object_unref (decision);
+    g_object_unref (parent);
+    g_object_unref (cancel);
+}
+INSTANTIATE_TEST_SUITE_P (NativeLifecycle, ChoiceLifetime,
+                         ::testing::Range (0, 7));
+TEST (VerifyLifetime, ParentDestroyAndLateButton)
+{
+    auto *parent = GTK_WINDOW (gtk_window_new ());
+    g_object_ref_sink (parent);
+    gtk_widget_realize (GTK_WIDGET (parent));
+    ChoiceProbe probe;
+    gnc_verify_dialog_async (parent, TRUE, choice_finished, &probe, "%s", "Verify");
+    auto *decision = find_decision (parent);
+    ASSERT_NE (decision, nullptr);
+    auto *button = find_button (GTK_WIDGET (decision), "_Yes");
+    ASSERT_NE (button, nullptr);
+    g_object_ref (button);
+    gtk_window_destroy (parent);
+    probe.initiating = false;
+    drain ();
+    EXPECT_EQ (probe.calls, 1);
+    EXPECT_EQ (probe.response, GTK_RESPONSE_CANCEL);
+    g_signal_emit_by_name (button, "clicked");
+    drain ();
+    EXPECT_EQ (probe.calls, 1);
+    g_object_unref (button);
+    g_object_unref (decision);
+    g_object_unref (parent);
+}
+
 }
 int main (int argc, char **argv)
 {
