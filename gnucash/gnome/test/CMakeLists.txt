@@ -110,6 +110,16 @@ endif()
 
 if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
   add_gnome_test(test-order-save-request test-order-save-request.c)
+  set(ORDER_ASYNC_INCLUDES ${GNOME_TEST_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/gnucash/register/ledger-core
+    ${CMAKE_SOURCE_DIR}/gnucash/register/register-core
+    ${CMAKE_SOURCE_DIR}/gnucash/register/register-gnome)
+  set(ORDER_ASYNC_LIBS gnc-gnome gnc-engine gnc-ledger-core gtest)
+  gnc_add_test_with_guile(gtest-order-save-async gtest-order-save-async.cpp ORDER_ASYNC_INCLUDES ORDER_ASYNC_LIBS)
+  add_dependencies(gtest-order-save-async scm-gnome-utils scm-expressions gncmod-backend-xml compiled-schemas)
+  set_tests_properties(gtest-order-save-async PROPERTIES TIMEOUT 30)
+  set_property(TEST gtest-order-save-async APPEND PROPERTY ENVIRONMENT
+    "GSETTINGS_SCHEMA_DIR=${SCHEMADIR_BUILD}" "GSETTINGS_BACKEND=memory")
   set_tests_properties(test-order-save-request PROPERTIES TIMEOUT 30)
 endif()
 
@@ -117,6 +127,7 @@ set_dist_list(test_gnome_DIST
   CMakeLists.txt
   test-invoice-report-builtin-default.cpp
   test-order-save-request.c
+  gtest-order-save-async.cpp
   test-dialog-date-close.c
   test-dialog-lot-viewer-scrub.c
   test-assistant-hierarchy-ownership.cpp

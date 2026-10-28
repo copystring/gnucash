@@ -297,6 +297,8 @@ GObject *gnc_test_order_save_request_new (GtkWidget *window);
 gboolean gnc_test_order_save_request_inert (GObject *object);
 void gnc_test_order_save_request_arm (GObject *object, gpointer owner, gpointer book);
 void gnc_test_order_save_request_complete (GObject *object, gboolean completed);
+GObject *gnc_test_order_save_begin (GtkWidget *, GncEntryLedger *, QofBook *, GncOrder *);
+void gnc_test_order_save_owner_free (void);
 GObject *gnc_test_order_save_request_new (GtkWidget *window)
 {
     OrderSaveRequest *request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));
@@ -324,6 +326,31 @@ void gnc_test_order_save_request_arm (GObject *object, gpointer owner, gpointer 
 void gnc_test_order_save_request_complete (GObject *object, gboolean completed)
 {
     gnc_order_window_ok_ledger_finished (NULL, completed, object);
+}
+
+/* The returned reference belongs to the asynchronous ledger operation. Test
+ * code observes it through a weak reference, without changing ownership. */
+static OrderWindow *test_order_owner;
+GObject *gnc_test_order_save_begin (GtkWidget *window, GncEntryLedger *ledger,
+                                    QofBook *book, GncOrder *order)
+{
+    g_return_val_if_fail (test_order_owner == NULL, NULL);
+    test_order_owner = g_new0 (OrderWindow, 1);
+    test_order_owner->dialog = window;
+    test_order_owner->ledger = ledger;
+    test_order_owner->book = book;
+    test_order_owner->order_guid = *gncOrderGetGUID (order);
+    OrderSaveRequest *request = order_save_request_new (test_order_owner);
+    g_return_val_if_fail (request != NULL, NULL);
+    test_order_owner->save_pending = TRUE;
+    gnc_entry_ledger_check_close_async_full (window, ledger,
+        gnc_order_window_ok_ledger_finished, request, g_object_unref);
+    return G_OBJECT (request);
+}
+
+void gnc_test_order_save_owner_free (void)
+{
+    g_clear_pointer (&test_order_owner, g_free);
 }
 #endif
 
