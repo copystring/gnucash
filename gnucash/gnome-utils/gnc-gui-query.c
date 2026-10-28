@@ -43,14 +43,30 @@ typedef struct
     gint response_map[2];
     gint cancel_response;
     gboolean completed;
+    GCancellable *cancellable;
+    gulong parent_destroy_handler;
 } GncGuiQueryRequest;
 
 static void
 gnc_gui_query_request_free (GncGuiQueryRequest *request)
 {
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    g_clear_object (&parent);
+    g_clear_object (&request->cancellable);
     g_weak_ref_clear (&request->parent);
     g_strfreev (request->buttons);
     g_free (request);
+}
+
+static void
+gnc_gui_query_parent_destroyed (GtkWidget *parent, gpointer user_data)
+{
+    GncGuiQueryRequest *request = user_data;
+    (void)parent;
+    request->parent_destroy_handler = 0;
+    g_cancellable_cancel (request->cancellable);
 }
 
 static void
@@ -112,6 +128,10 @@ gnc_gui_query_async_va (GtkWindow *parent, const gchar *first_button,
     request->has_parent = parent != NULL;
     request->callback = completed;
     request->user_data = user_data;
+    request->cancellable = g_cancellable_new ();
+    if (parent)
+        request->parent_destroy_handler = g_signal_connect (parent, "destroy",
+            G_CALLBACK (gnc_gui_query_parent_destroyed), request);
     request->buttons = g_new0 (gchar *, 3);
     request->buttons[0] = g_strdup (first_button);
     request->buttons[1] = g_strdup (second_button);
@@ -124,7 +144,7 @@ gnc_gui_query_async_va (GtkWindow *parent, const gchar *first_button,
     gtk_alert_dialog_set_buttons (dialog, (const char * const *)request->buttons);
     gtk_alert_dialog_set_default_button (dialog, default_button);
     gtk_alert_dialog_set_cancel_button (dialog, cancel_button);
-    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_gui_query_finished, request);
+    gtk_alert_dialog_choose (dialog, parent, request->cancellable, gnc_gui_query_finished, request);
     g_object_unref (dialog);
     g_free (message);
 }
