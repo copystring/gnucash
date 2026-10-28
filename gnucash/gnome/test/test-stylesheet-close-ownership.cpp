@@ -6,6 +6,7 @@
 #include <libguile.h>
 #include <cstring>
 #include "dialog-report-style-sheet.h"
+#include "gnc-optiondb.h"
 #include "gnc-report.h"
 #include "gnc-engine.h"
 
