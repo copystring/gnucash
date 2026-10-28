@@ -96,7 +96,7 @@ TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     auto *decision = find_decision (GTK_WINDOW (window));
     ASSERT_NE (decision, nullptr);
     ASSERT_TRUE (gtk_window_get_destroy_with_parent (decision));
-    auto *button = find_button (GTK_WIDGET (decision), "_Cancel");
+    auto *button = find_button (GTK_WIDGET (decision), "Yes");
     ASSERT_NE (button, nullptr);
     g_object_ref (button);
     gnc_entry_ledger_destroy (ledger);
@@ -183,6 +183,30 @@ TEST_P (ChoiceLifetime, CompletesExactlyOnce)
         g_signal_emit_by_name (button, "clicked");
         gtk_window_destroy (parent);
         break;
+    case 5: /* Escape, including a delayed duplicate on retained controller. */
+    {
+        auto *controllers = gtk_widget_observe_controllers (GTK_WIDGET (decision));
+        bool found = false;
+        for (guint i = 0; i < g_list_model_get_n_items (controllers); i++)
+        {
+            auto *controller = g_list_model_get_item (controllers, i);
+            if (GTK_IS_EVENT_CONTROLLER_KEY (controller))
+            {
+                gboolean handled = FALSE;
+                g_signal_emit_by_name (controller, "key-pressed", GDK_KEY_Escape,
+                                       0, static_cast<GdkModifierType> (0), &handled);
+                EXPECT_TRUE (handled);
+                handled = FALSE;
+                g_signal_emit_by_name (controller, "key-pressed", GDK_KEY_Escape,
+                                       0, static_cast<GdkModifierType> (0), &handled);
+                found = true;
+            }
+            g_object_unref (controller);
+        }
+        g_object_unref (controllers);
+        EXPECT_TRUE (found);
+        break;
+    }
     }
     probe.initiating = false;
     drain ();
@@ -199,7 +223,7 @@ TEST_P (ChoiceLifetime, CompletesExactlyOnce)
     g_object_unref (parent);
 }
 INSTANTIATE_TEST_SUITE_P (NativeLifecycle, ChoiceLifetime,
-                         ::testing::Range (0, 5));
+                         ::testing::Range (0, 6));
 TEST (VerifyLifetime, ParentDestroyAndLateButton)
 {
     auto *parent = GTK_WINDOW (gtk_window_new ());
