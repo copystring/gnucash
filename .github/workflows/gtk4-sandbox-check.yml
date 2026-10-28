@@ -23,9 +23,11 @@ jobs:
       - name: Build test targets
         run: |
           cmake --build build --parallel 2
-          cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4 test-order-save-request gtest-order-save-async test-stylesheet-close-ownership test-gnc-upgrade-dialog
+          cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4 test-order-save-request gtest-order-save-async test-delete-account-request test-stylesheet-close-ownership test-gnc-upgrade-dialog
       - name: Run order request tests with a private session bus
         run: xvfb-run -a dbus-run-session -- ctest --test-dir build -V --no-tests=error -R '^(test-order-save-request|gtest-order-save-async)$'
+      - name: Run delete account request test
+        run: xvfb-run -a dbus-run-session -- ctest --test-dir build -V --no-tests=error -R '^test-delete-account-request$'
       - name: Run upgrade dialog response test
         run: xvfb-run -a dbus-run-session -- ctest --test-dir build -V --no-tests=error -R '^test-gnc-upgrade-dialog$'
       - name: Run stylesheet ownership test with a private session bus
