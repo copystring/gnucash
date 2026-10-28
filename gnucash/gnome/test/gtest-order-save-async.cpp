@@ -23,7 +23,8 @@ void gnc_test_order_save_owner_free (void);
 namespace {
 struct Probe { int finalized{}; };
 void finalized (gpointer p, GObject *) { static_cast<Probe *>(p)->finalized++; }
-TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
+class OrderSaveAsync : public ::testing::TestWithParam<bool> {};
+TEST_P (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
 {
     auto *book = qof_book_new ();
     ASSERT_NE (book, nullptr);
@@ -78,14 +79,15 @@ TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     }
     ASSERT_NE (decision, nullptr);
     gnc_entry_ledger_destroy (ledger);
-    /* Keep the alert alive, detach it before destroying its parent, then
-     * explicitly supply the delayed cancel response. This avoids GTK
-     * destroying the same dialog twice when its parent disappears. */
-    gtk_window_set_transient_for (decision, nullptr);
+    if (GetParam ())
+        gtk_window_set_transient_for (decision, nullptr);
     gtk_window_destroy (GTK_WINDOW (window));
     g_object_unref (window);
-    EXPECT_EQ (probe->finalized, 0);
-    g_signal_emit_by_name (decision, "response", GTK_RESPONSE_CANCEL);
+    if (GetParam ())
+    {
+        EXPECT_EQ (probe->finalized, 0);
+        g_signal_emit_by_name (decision, "response", GTK_RESPONSE_CANCEL);
+    }
     g_object_unref (decision);
     auto deadline = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
     while (!probe->finalized && g_get_monotonic_time () < deadline)
@@ -104,6 +106,7 @@ TEST (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
     gnc_test_order_save_owner_free ();
     gnc_clear_current_session ();
 }
+INSTANTIATE_TEST_SUITE_P (ParentLifetime, OrderSaveAsync, ::testing::Bool ());
 }
 int main (int argc, char **argv)
 {
