@@ -208,8 +208,9 @@ gnc_order_window_ok_save (OrderWindow *ow)
     return TRUE;
 }
 
-typedef struct
+typedef struct _OrderSaveRequest
 {
+    GObject parent;
     OrderWindow *ow;
     GWeakRef window;
     gulong destroy_handler;
@@ -217,25 +218,58 @@ typedef struct
     GncGUID order_guid;
 } OrderSaveRequest;
 
+typedef struct _OrderSaveRequestClass
+{
+    GObjectClass parent_class;
+} OrderSaveRequestClass;
+
+GType order_save_request_get_type (void);
+#define ORDER_SAVE_REQUEST(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), order_save_request_get_type (), OrderSaveRequest))
+
+G_DEFINE_TYPE (OrderSaveRequest, order_save_request, G_TYPE_OBJECT)
+
+static void
+order_save_request_dispose (GObject *object)
+{
+    OrderSaveRequest *request = ORDER_SAVE_REQUEST (object);
+    GtkWidget *window = g_weak_ref_get (&request->window);
+
+    if (window && request->destroy_handler)
+        g_signal_handler_disconnect (window, request->destroy_handler);
+    g_clear_object (&window);
+    request->destroy_handler = 0;
+    request->ow = NULL;
+    g_weak_ref_set (&request->window, NULL);
+    G_OBJECT_CLASS (order_save_request_parent_class)->dispose (object);
+}
+
+static void
+order_save_request_finalize (GObject *object)
+{
+    OrderSaveRequest *request = ORDER_SAVE_REQUEST (object);
+    g_weak_ref_clear (&request->window);
+    G_OBJECT_CLASS (order_save_request_parent_class)->finalize (object);
+}
+
+static void
+order_save_request_class_init (OrderSaveRequestClass *klass)
+{
+    G_OBJECT_CLASS (klass)->dispose = order_save_request_dispose;
+    G_OBJECT_CLASS (klass)->finalize = order_save_request_finalize;
+}
+
+static void
+order_save_request_init (OrderSaveRequest *request)
+{
+    g_weak_ref_init (&request->window, NULL);
+}
+
 static void
 order_save_request_destroyed (GtkWidget *widget, OrderSaveRequest *request)
 {
     (void)widget;
     request->ow = NULL;
     request->destroy_handler = 0;
-}
-
-static void
-order_save_request_free (gpointer user_data)
-{
-    OrderSaveRequest *request = user_data;
-    GtkWidget *window = g_weak_ref_get (&request->window);
-
-    if (window && request->destroy_handler)
-        g_signal_handler_disconnect (window, request->destroy_handler);
-    g_clear_object (&window);
-    g_weak_ref_clear (&request->window);
-    g_free (request);
 }
 
 static OrderSaveRequest *
@@ -246,11 +280,11 @@ order_save_request_new (OrderWindow *ow)
     if (!ow || !ow->ledger || !ow->dialog || !ow_get_order (ow))
         return NULL;
 
-    request = g_new0 (OrderSaveRequest, 1);
+    request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));
     request->ow = ow;
     request->book = ow->book;
     request->order_guid = ow->order_guid;
-    g_weak_ref_init (&request->window, ow->dialog);
+    g_weak_ref_set (&request->window, ow->dialog);
     request->destroy_handler = g_signal_connect (
         ow->dialog, "destroy", G_CALLBACK (order_save_request_destroyed), request);
     return request;
@@ -303,7 +337,7 @@ gnc_order_window_ok_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
     ow->save_pending = TRUE;
     gnc_entry_ledger_check_close_async_full (
         ow->dialog, ow->ledger, gnc_order_window_ok_ledger_finished, request,
-        order_save_request_free);
+        g_object_unref);
 }
 void
 gnc_order_window_cancel_cb (G_GNUC_UNUSED GtkWidget *widget, gpointer data)
