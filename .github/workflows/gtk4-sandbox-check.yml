@@ -23,9 +23,9 @@ jobs:
       - name: Build test targets
         run: |
           cmake --build build --parallel 2
-          cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4
+          cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4 test-order-save-request
       - name: Run lifecycle tests
-        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.|^gtest-entry-ledger-close-gtk4$'
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.|^gtest-entry-ledger-close-gtk4$|^test-order-save-request$'
 
       - name: Repeat ledger cancellation in one process
         run: |

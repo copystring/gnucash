@@ -239,6 +239,7 @@ order_save_request_dispose (GObject *object)
     g_clear_object (&window);
     request->destroy_handler = 0;
     request->ow = NULL;
+    request->book = NULL;
     g_weak_ref_set (&request->window, NULL);
     G_OBJECT_CLASS (order_save_request_parent_class)->dispose (object);
 }
@@ -269,18 +270,17 @@ order_save_request_destroyed (GtkWidget *widget, OrderSaveRequest *request)
 {
     (void)widget;
     request->ow = NULL;
+    request->book = NULL;
     request->destroy_handler = 0;
 }
 
 static OrderSaveRequest *
 order_save_request_new (OrderWindow *ow)
 {
-    OrderSaveRequest *request;
-
     if (!ow || !ow->ledger || !ow->dialog || !ow_get_order (ow))
         return NULL;
 
-    request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));
+    OrderSaveRequest *request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));
     request->ow = ow;
     request->book = ow->book;
     request->order_guid = ow->order_guid;
@@ -289,6 +289,39 @@ order_save_request_new (OrderWindow *ow)
         ow->dialog, "destroy", G_CALLBACK (order_save_request_destroyed), request);
     return request;
 }
+
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+static void gnc_order_window_ok_ledger_finished (GncEntryLedger *, gboolean, gpointer);
+/* Test-only bridge exercises the production object and callback paths. */
+GObject *gnc_test_order_save_request_new (GtkWidget *window)
+{
+    OrderSaveRequest *request = ORDER_SAVE_REQUEST (g_object_new (order_save_request_get_type (), NULL));
+    g_weak_ref_set (&request->window, window);
+    request->destroy_handler = g_signal_connect (window, "destroy", G_CALLBACK (order_save_request_destroyed), request);
+    return G_OBJECT (request);
+}
+
+gboolean gnc_test_order_save_request_inert (GObject *object)
+{
+    OrderSaveRequest *request = ORDER_SAVE_REQUEST (object);
+    GtkWidget *window = g_weak_ref_get (&request->window);
+    gboolean inert = !request->ow && !request->book && !request->destroy_handler && !window;
+    g_clear_object (&window);
+    return inert;
+}
+
+void gnc_test_order_save_request_arm (GObject *object, gpointer owner, gpointer book)
+{
+    OrderSaveRequest *request = ORDER_SAVE_REQUEST (object);
+    request->ow = owner;
+    request->book = book;
+}
+
+void gnc_test_order_save_request_complete (GObject *object, gboolean completed)
+{
+    gnc_order_window_ok_ledger_finished (NULL, completed, object);
+}
+#endif
 
 static gboolean
 order_save_request_is_current (const OrderSaveRequest *request)

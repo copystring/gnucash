@@ -108,9 +108,15 @@ if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
   endforeach()
 endif()
 
+if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
+  add_gnome_test(test-order-save-request test-order-save-request.c)
+  set_tests_properties(test-order-save-request PROPERTIES TIMEOUT 30)
+endif()
+
 set_dist_list(test_gnome_DIST
   CMakeLists.txt
   test-invoice-report-builtin-default.cpp
+  test-order-save-request.c
   test-dialog-date-close.c
   test-dialog-lot-viewer-scrub.c
   test-assistant-hierarchy-ownership.cpp
