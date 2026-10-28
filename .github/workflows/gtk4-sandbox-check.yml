@@ -17,15 +17,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
-          dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel gdb zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb xdotool dbus-x11
+          dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel gdb zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb xdotool
       - name: Configure
         run: cmake -S . -B build -GNinja -DWITH_GTK4=ON -DWITH_AQBANKING=OFF -DWITH_OFX=OFF -DWITH_PYTHON=OFF -DGNC_ENABLE_SHUTDOWN_TEST_HOOKS=ON -DCMAKE_BUILD_TYPE=Debug
       - name: Build test targets
         run: |
           cmake --build build --parallel 2
           cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4 test-order-save-request
+      - name: Run order request tests with a private session bus
+        run: xvfb-run -a dbus-run-session -- ctest --test-dir build -V --no-tests=error -R '^test-order-save-request$'
       - name: Run lifecycle tests
-        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.|^gtest-entry-ledger-close-gtk4$|^test-order-save-request$'
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.|^gtest-entry-ledger-close-gtk4$'
 
       - name: Repeat ledger cancellation in one process
         run: |
