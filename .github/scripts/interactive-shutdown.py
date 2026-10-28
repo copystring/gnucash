@@ -48,13 +48,27 @@ with tempfile.TemporaryDirectory(prefix='aiw848-ui-') as home:
             # must remain alive; Ctrl+Q invokes the real FileQuitAction accelerator.
             if process.poll() is not None:
                 raise RuntimeError(f'application exited before Ctrl+Q: {process.returncode}')
-            print(f'visible GTK window {window}; sending Ctrl+Q', flush=True)
+            # The X window can map before the application's startup idle hook.
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise RuntimeError(f'application exited before UI ready: {process.returncode}')
+                if 'AIW848_UI_READY' in log_path.read_text(errors='replace'):
+                    break
+                time.sleep(.1)
+            else:
+                raise RuntimeError('main window mapped but UI readiness marker missing')
+            print(f'visible GTK window {window}; UI ready; sending Ctrl+Q', flush=True)
             # X11 mapping/focus can race the GTK event loop. Retry only until the
             # action handler acknowledges the first key, never after admission.
             action_seen = False
             for attempt in range(10):
-                subprocess.run(['xdotool', 'windowfocus', '--sync', window,
-                                'key', '--clearmodifiers', 'ctrl+q'], check=True)
+                subprocess.run(['xdotool', 'windowfocus', '--sync', window], check=True)
+                focus = subprocess.check_output(['xdotool', 'getwindowfocus'], text=True).strip()
+                print(f'attempt {attempt + 1}: target={window} focus={focus}', flush=True)
+                if focus != window:
+                    raise RuntimeError(f'input focus {focus} differs from main window {window}')
+                subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+q'], check=True)
                 for _ in range(10):
                     time.sleep(0.2)
                     if 'AIW848_QUIT_ACTION ui_running=1' in log_path.read_text():
