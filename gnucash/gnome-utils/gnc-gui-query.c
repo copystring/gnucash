@@ -185,14 +185,30 @@ typedef struct
     gchar **buttons;
     guint n_buttons;
     gboolean completed;
+    GCancellable *cancellable;
+    gulong parent_destroy_handler;
 } GncGuiChoiceRequest;
 
 static void
 gnc_gui_choice_request_free (GncGuiChoiceRequest *request)
 {
+    GtkWindow *parent = g_weak_ref_get (&request->parent);
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    g_clear_object (&parent);
+    g_clear_object (&request->cancellable);
     g_weak_ref_clear (&request->parent);
     g_strfreev (request->buttons);
     g_free (request);
+}
+
+static void
+gnc_gui_choice_parent_destroyed (GtkWidget *parent, gpointer user_data)
+{
+    GncGuiChoiceRequest *request = user_data;
+    (void)parent;
+    request->parent_destroy_handler = 0;
+    g_cancellable_cancel (request->cancellable);
 }
 
 static void
@@ -273,7 +289,7 @@ gnc_choose_option_dialog_async (GtkWindow *parent, const gchar *title,
         dialog, CLAMP (default_choice, 0, (gint)request->n_buttons - 1));
     /* Choice dialogs have no semantic cancel item: Escape and close return -1. */
     gtk_alert_dialog_set_cancel_button (dialog, -1);
-    gtk_alert_dialog_choose (dialog, parent, NULL, gnc_gui_choice_finished, request);
+    gtk_alert_dialog_choose (dialog, parent, request->cancellable, gnc_gui_choice_finished, request);
     g_object_unref (dialog);
 }
 
