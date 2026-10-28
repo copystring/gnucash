@@ -1816,8 +1816,8 @@ create_option_widget<GncOptionUIType::COLOR> (GncOption& option, GtkGrid *page_b
 {
     auto dialog = gtk_color_dialog_new ();
     gtk_color_dialog_set_with_alpha (dialog, TRUE);
+    /* The constructor takes ownership of the dialog. */
     auto widget = gtk_color_dialog_button_new (dialog);
-    g_object_unref (dialog);
 
     option.set_ui_item(std::make_unique<GncGtkColorUIItem>(widget));
     option.set_ui_item_from_option();
