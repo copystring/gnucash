@@ -12,15 +12,16 @@ extern "C" void gnc_test_file_show_upgrade_error (GtkWindow *,
                                       void (*)(GtkWindow *, gboolean, gpointer),
                                       gpointer);
 
-typedef struct { guint calls; gboolean cancelled; } Result;
+typedef struct { guint calls; gboolean cancelled; bool detached; } Result;
 
 static void
 completed (GtkWindow *parent, gboolean cancelled, gpointer data)
 {
     Result *result = static_cast<Result *> (data);
-    EXPECT_NE (parent, nullptr);
+    (void)parent;
     ++result->calls;
     result->cancelled = cancelled;
+    if (result->calls == 1 && result->detached) delete result;
 }
 
 static GtkWindow *
@@ -57,21 +58,24 @@ class UpgradeDialogTest : public ::testing::Test
 protected:
     GtkWindow *parent = nullptr;
     GtkWindow *dialog = nullptr;
-    Result result = {0, FALSE};
+    Result *result = new Result {0, FALSE, false};
     void SetUp () override
     {
         parent = GTK_WINDOW (gtk_window_new ());
         g_object_ref_sink (parent);
         gtk_window_present (parent);
-        gnc_test_file_show_upgrade_error (parent, completed, &result);
+        gnc_test_file_show_upgrade_error (parent, completed, result);
         dialog = find_child (parent);
         ASSERT_NE (dialog, nullptr);
     }
     void TearDown () override
     {
         if (dialog) { gtk_window_close (dialog); g_object_unref (dialog); }
-        for (guint i = 0; i < 100; ++i) g_main_context_iteration (NULL, FALSE);
         if (parent) { gtk_window_destroy (parent); g_object_unref (parent); }
+        for (guint i = 0; i < 1000 && !result->calls; ++i)
+            g_main_context_iteration (NULL, FALSE);
+        if (result->calls) delete result;
+        else { ADD_FAILURE () << "Upgrade callback did not finish during cleanup"; result->detached = true; }
     }
     void check (bool accept)
     {
@@ -82,12 +86,12 @@ protected:
             g_signal_emit_by_name (button, "clicked");
         }
         else gtk_window_close (dialog);
-        for (guint i = 0; i < 1000 && !result.calls; ++i)
+        for (guint i = 0; i < 1000 && !result->calls; ++i)
             g_main_context_iteration (NULL, FALSE);
-        EXPECT_EQ (result.calls, 1u);
-        EXPECT_EQ (result.cancelled, !accept);
+        EXPECT_EQ (result->calls, 1u);
+        EXPECT_EQ (result->cancelled, !accept);
         for (guint i = 0; i < 20; ++i) g_main_context_iteration (NULL, FALSE);
-        EXPECT_EQ (result.calls, 1u);
+        EXPECT_EQ (result->calls, 1u);
     }
 };
 TEST_F (UpgradeDialogTest, CloseCancels) { check (false); }

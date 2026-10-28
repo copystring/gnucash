@@ -13,19 +13,25 @@ protected:
     GtkWidget *window = nullptr;
     GObject *request = nullptr;
     int count = 0;
+    GWeakRef weak;
     static void finalized (gpointer data, GObject *) { ++*static_cast<int *> (data); }
     void SetUp () override
     {
+        g_weak_ref_init (&weak, nullptr);
         window = gtk_window_new ();
         g_object_ref_sink (window);
         request = gnc_test_order_save_request_new (window);
         ASSERT_NE (request, nullptr);
+        g_weak_ref_set (&weak, request);
         g_object_weak_ref (request, finalized, &count);
         gnc_test_order_save_request_arm (request, window, window);
     }
     void TearDown () override
     {
-        if (request) { g_object_weak_unref (request, finalized, &count); g_object_unref (request); }
+        auto *live = G_OBJECT (g_weak_ref_get (&weak));
+        if (live) { g_object_weak_unref (live, finalized, &count); g_object_unref (live); }
+        g_weak_ref_clear (&weak);
+        if (request) g_object_unref (request);
         if (window) { gtk_window_destroy (GTK_WINDOW (window)); g_object_unref (window); }
     }
 };
