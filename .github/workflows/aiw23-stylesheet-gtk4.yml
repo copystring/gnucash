@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb
+        run: dnf install -y cmake ninja-build gcc gcc-c++ pkgconf-pkg-config git glib2-devel gtk4-devel webkitgtk6.0-devel libxml2-devel libxslt-devel libicu-devel gettext-devel boost-devel swig guile30-devel gmp-devel mpfr-devel libffi-devel libdbi-devel libdbi-dbd-sqlite gtest-devel gmock-devel python3-devel zlib-devel libsecret-devel xvfb-run xorg-x11-server-Xvfb dbus-daemon
       - name: Check stylesheet database ownership
         run: |
           python3 - <<'PY'
@@ -36,4 +36,4 @@ jobs:
           cmake --build build --parallel 2
           cmake --build build --parallel 2 --target test-invoice-report-builtin-default test-stylesheet-close-ownership
       - name: Run report test
-        run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R '^test-(invoice-report-builtin-default|stylesheet-close-ownership)$'
+        run: xvfb-run -a dbus-run-session -- ctest --test-dir build --output-on-failure --no-tests=error -R '^test-(invoice-report-builtin-default|stylesheet-close-ownership)$'
