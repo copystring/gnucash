@@ -27,6 +27,11 @@ jobs:
       - name: Run lifecycle tests
         run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.|^gtest-entry-ledger-close-gtk4$'
 
+      - name: Repeat ledger cancellation in one process
+        run: |
+          xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R '^gtest-entry-ledger-close-gtk4$' --repeat until-fail:5
+          xvfb-run -a env GNC_UNINSTALLED=YES GSETTINGS_BACKEND=memory GSETTINGS_SCHEMA_DIR="$PWD/build/share/glib-2.0/schemas" build/bin/gtest-entry-ledger-close-gtk4 --gtest_filter=EntryLedgerCloseTest.DestroyLedgerWhileSaveDecisionPending --gtest_repeat=5
+
       - name: Verify real shutdown exit marker
         run: |
           xvfb-run -a ctest --test-dir build -V -R '^test-MainWindow-real-shutdown$' > real-shutdown.log 2>&1 || { cat real-shutdown.log; exit 1; }
