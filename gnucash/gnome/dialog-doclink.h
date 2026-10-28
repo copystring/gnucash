@@ -35,15 +35,25 @@ typedef struct
     int      response;
 }DoclinkReturn;
 
-/** Present the right edit dialog for the uri.
+/** Create a window for editing a document link.
  *
- *  The function allocates memory for the uri. The calling function should
- *  free this memory with g_free when uri is no longer needed.
+ *  The caller presents the returned window and may observe its "destroy"
+ *  signal to process the result. The window is modal and transient for
+ *  parent when parent is provided. The caller must keep ret_uri alive until
+ *  the window is destroyed; the dialog does not free it or its user_data.
  *
- *  @param parent The GtkWindow for the parent widget
- *  @param title The dialog title to be used for the dialog
+ *  On creation, response is set to GTK_RESPONSE_CANCEL and updated_uri to a
+ *  newly allocated copy of existing_uri (which may be NULL). On acceptance,
+ *  response is GTK_RESPONSE_OK and updated_uri contains the selected URI. On
+ *  removal, response is GTK_RESPONSE_REJECT and updated_uri is an empty string.
+ *  Cancelling leaves the initial values in place. The caller must free
+ *  updated_uri with g_free after processing the result.
  *
- *  @return The ammeded uri, can be NULL if deletion required.
+ *  @param parent Optional parent window.
+ *  @param title Dialog window title.
+ *  @param ret_uri Result storage; existing_uri supplies the initial URI and
+ *                 updated_uri must not hold an owned allocation on entry.
+ *  @return The created window, not the amended URI.
  */
 GtkWidget* gnc_doclink_get_uri_dialog (GtkWindow *parent, const gchar *title,
                                        DoclinkReturn *ret_uri);
