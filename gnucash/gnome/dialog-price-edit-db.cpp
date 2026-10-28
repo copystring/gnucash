@@ -606,12 +606,13 @@ price_old_remove_request_close (PriceOldRemoveRequest *request,
     g_clear_object (&window);
 
     // Drop all row-owned engine references while book collections still exist.
-    if (request->remove_view)
+    if (request->dialog && request->remove_view)
     {
         auto model = price_remove_model (request->remove_view);
         if (model)
             g_list_store_remove_all (model);
     }
+    request->remove_view = nullptr;
     if (request->dialog)
     {
         if (request->dialog_destroy_handler)
@@ -633,6 +634,7 @@ price_old_remove_dialog_destroyed_cb (GtkWidget *dialog, gpointer user_data)
 
     (void)dialog;
     request->dialog_destroy_handler = 0;
+    request->remove_view = nullptr; // Children may already be disposed.
     g_clear_object (&request->dialog);
     price_old_remove_request_complete (request, FALSE);
 }

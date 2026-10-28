@@ -134,7 +134,7 @@ TEST (PriceRequests, RealSessionParentCloseThenBookDestroyAndLateResponse)
 {
     for (auto response : {GTK_RESPONSE_YES, GTK_RESPONSE_NO})
     {
-        auto session = qof_session_new (nullptr);
+        auto session = qof_session_new (qof_book_new ());
         auto book = qof_session_get_book (session);
         auto price = book_price (book);
         auto parent = GTK_WIDGET (gtk_window_new ());
@@ -155,7 +155,7 @@ TEST (PriceRequests, RealSessionBookDestroyWhileEventsSuspendedThenLateResponse)
 {
     for (auto response : {GTK_RESPONSE_YES, GTK_RESPONSE_NO})
     {
-        auto session = qof_session_new (nullptr);
+        auto session = qof_session_new (qof_book_new ());
         auto book = qof_session_get_book (session);
         auto price = book_price (book);
         auto request = gnc_test_price_delete_request_for_book (nullptr, price, book);
@@ -176,7 +176,7 @@ TEST (PriceRequests, RealSessionBookDestroyWhileEventsSuspendedThenLateResponse)
 
 TEST (PriceRequests, CommoditySemanticDestroyCancelsPendingPriceRequest)
 {
-    auto session = qof_session_new (nullptr);
+    auto session = qof_session_new (qof_book_new ());
     auto book = qof_session_get_book (session);
     auto price = book_price (book);
     auto commodity = gnc_price_get_commodity (price);
@@ -192,7 +192,7 @@ TEST (PriceRequests, CommoditySemanticDestroyCancelsPendingPriceRequest)
 
 TEST (PriceRequests, OldRemoveBookDestroyThenLateConfirmation)
 {
-    auto session = qof_session_new (nullptr);
+    auto session = qof_session_new (qof_book_new ());
     auto book = qof_session_get_book (session);
     auto price = book_price (book);
     gnc_price_unref (price);
