@@ -48,18 +48,21 @@ TEST (PriceRequests, DeleteCancelAndMissingParentReleasePriceOnce)
         g_object_run_dispose (request);
         EXPECT_EQ (destroyed, 1u);
         g_object_unref (request);
+        qof_session_destroy (session);
     }
 }
 
 TEST (PriceRequests, DeleteDisposeWithoutResponseReleasesPrice)
 {
-    auto price = GNC_PRICE (g_object_new (GNC_TYPE_PRICE, nullptr));
+    auto session = qof_session_new (qof_book_new ());
+    auto price = gnc_price_create (qof_session_get_book (session));
     unsigned destroyed = 0;
     g_object_weak_ref (G_OBJECT (price), finalized, &destroyed);
     auto request = gnc_test_price_delete_request_new (price);
     gnc_price_unref (price);
     g_object_unref (request);
     EXPECT_EQ (destroyed, 1u);
+    qof_session_destroy (session);
 }
 
 TEST (PriceRequests, CommodityRowOwnsDirectObject)
