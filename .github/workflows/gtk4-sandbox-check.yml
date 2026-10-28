@@ -23,9 +23,11 @@ jobs:
       - name: Build test targets
         run: |
           cmake --build build --parallel 2
-          cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4 test-order-save-request gtest-order-save-async
+          cmake --build build --parallel 2 --target test-MainWindow-save-close-lifecycle test-gnc-plugin-page-register-save-close-lifecycle gtest-entry-ledger-close-gtk4 test-order-save-request gtest-order-save-async test-gnc-stylesheet-gtk4
       - name: Run order request tests with a private session bus
         run: xvfb-run -a dbus-run-session -- ctest --test-dir build -V --no-tests=error -R '^(test-order-save-request|gtest-order-save-async)$'
+      - name: Run stylesheet ownership test with a private session bus
+        run: xvfb-run -a dbus-run-session -- env GSK_RENDERER=cairo ctest --test-dir build -V --no-tests=error -R '^test-gnc-stylesheet-gtk4$'
       - name: Run lifecycle tests
         run: xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R 'test-MainWindow-save-close-lifecycle\.|test-MainWindow-real-shutdown|test-gnc-plugin-page-register-save-close-lifecycle\.|^gtest-entry-ledger-close-gtk4$'
 
