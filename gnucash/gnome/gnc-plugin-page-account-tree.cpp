@@ -1569,9 +1569,12 @@ enum DeleteAccountMismatch
     DELETE_ACCOUNT_MISMATCH_SUBACCOUNT_TRANSACTIONS,
 };
 
-struct DeleteAccountRequest
+typedef struct _DeleteAccountRequest DeleteAccountRequest;
+typedef struct _DeleteAccountRequestClass DeleteAccountRequestClass;
+
+struct _DeleteAccountRequest
 {
-    gint ref_count;
+    GObject parent_instance;
     GWeakRef page;
     GWeakRef dialog;
     GncGUID book_guid;
@@ -1588,25 +1591,65 @@ struct DeleteAccountRequest
     DeleteAccountMismatch pending_mismatch;
 };
 
+struct _DeleteAccountRequestClass
+{
+    GObjectClass parent_class;
+};
+
+G_DEFINE_TYPE (DeleteAccountRequest, delete_account_request, G_TYPE_OBJECT)
+
+static void
+delete_account_request_finalize (GObject *object)
+{
+    auto request = reinterpret_cast<DeleteAccountRequest *> (object);
+    g_weak_ref_clear (&request->dialog);
+    g_weak_ref_clear (&request->page);
+    G_OBJECT_CLASS (delete_account_request_parent_class)->finalize (object);
+}
+
+static void
+delete_account_request_class_init (DeleteAccountRequestClass *klass)
+{
+    G_OBJECT_CLASS (klass)->finalize = delete_account_request_finalize;
+}
+
+static void
+delete_account_request_init (DeleteAccountRequest *request)
+{
+    g_weak_ref_init (&request->page, nullptr);
+    g_weak_ref_init (&request->dialog, nullptr);
+}
+
 static DeleteAccountRequest *
 delete_account_request_ref (DeleteAccountRequest *request)
 {
-    g_atomic_int_inc (&request->ref_count);
-    return request;
+    return static_cast<DeleteAccountRequest *> (g_object_ref (request));
 }
 
 static void
 delete_account_request_unref (gpointer user_data)
 {
-    auto request = static_cast<DeleteAccountRequest *> (user_data);
-
-    if (!g_atomic_int_dec_and_test (&request->ref_count))
-        return;
-
-    g_weak_ref_clear (&request->dialog);
-    g_weak_ref_clear (&request->page);
-    g_free (request);
+    g_object_unref (user_data);
 }
+
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+extern "C" GObject *gnc_test_delete_account_request_new (GObject *page);
+extern "C" gboolean gnc_test_delete_account_request_page_alive (GObject *object);
+GObject *gnc_test_delete_account_request_new (GObject *page)
+{
+    auto request = static_cast<DeleteAccountRequest *> (
+        g_object_new (delete_account_request_get_type (), nullptr));
+    g_weak_ref_set (&request->page, page);
+    return G_OBJECT (request);
+}
+gboolean gnc_test_delete_account_request_page_alive (GObject *object)
+{
+    auto request = reinterpret_cast<DeleteAccountRequest *> (object);
+    auto page = g_weak_ref_get (&request->page);
+    if (page) g_object_unref (page);
+    return page != nullptr;
+}
+#endif
 
 static GtkWindow *
 delete_account_request_get_dialog (DeleteAccountRequest *request)
@@ -2042,12 +2085,11 @@ gnc_plugin_page_account_tree_delete_account_after_pending
     if (!book)
         return;
 
-    auto request = g_new0 (DeleteAccountRequest, 1);
-    request->ref_count = 1;
+    auto request = static_cast<DeleteAccountRequest *> (
+        g_object_new (delete_account_request_get_type (), nullptr));
     request->book_guid = *qof_instance_get_guid (QOF_INSTANCE (book));
     request->account_guid = *xaccAccountGetGUID (account);
-    g_weak_ref_init (&request->page, G_OBJECT (page));
-    g_weak_ref_init (&request->dialog, nullptr);
+    g_weak_ref_set (&request->page, G_OBJECT (page));
 
     auto dialog = account_delete_dialog (account, GTK_WINDOW (window));
     if (!dialog)
