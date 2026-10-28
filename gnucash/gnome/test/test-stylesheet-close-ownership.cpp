@@ -7,6 +7,7 @@
 #include <cstring>
 #include "dialog-report-style-sheet.h"
 #include "gnc-optiondb.h"
+#include "gnc-optiondb-impl.hpp"
 #include "gnc-report.h"
 #include "gnc-engine.h"
 
@@ -49,10 +50,28 @@ static void test_close()
     auto sheets = scm_c_eval_string("(gnc:get-html-style-sheets)");
     g_assert_true(scm_is_pair(sheets));
     auto sheet = scm_car(sheets);
+    /* The dialog appends the sorted Scheme list directly to its string model.
+     * Check the selected row against that same sheet, and exclude ambiguous
+     * duplicate display names before using it as the ownership witness. */
+    auto selected = GTK_STRING_OBJECT(g_list_model_get_item(G_LIST_MODEL(model), 0));
+    g_assert_nonnull(selected);
+    auto sheet_name = scm_call_1(scm_c_eval_string("gnc:html-style-sheet-name"), sheet);
+    auto name = scm_to_utf8_string(sheet_name);
+    g_assert_cmpstr(gtk_string_object_get_string(selected), ==, name);
+    for (guint i = 1; i < g_list_model_get_n_items(G_LIST_MODEL(model)); ++i)
+    {
+        auto other = GTK_STRING_OBJECT(g_list_model_get_item(G_LIST_MODEL(model), i));
+        g_assert_cmpstr(gtk_string_object_get_string(other), !=, name);
+        g_object_unref(other);
+    }
+    free(name);
+    g_object_unref(selected);
     scm_gc_protect_object(sheet);
     auto options = scm_call_1(scm_c_eval_string("gnc:html-style-sheet-options"), sheet);
     auto odb = gnc_get_optiondb_from_dispatcher(options);
     g_assert_nonnull(odb);
+    const auto sections = odb->num_sections();
+    g_assert_cmpuint(sections, >, 0);
     for (int i = 0; i < 3; ++i)
     {
         g_signal_emit_by_name(edit, "clicked");
@@ -66,7 +85,9 @@ static void test_close()
         g_assert_true(freed);
         scm_gc();
         options = scm_call_1(scm_c_eval_string("gnc:html-style-sheet-options"), sheet);
-        g_assert_true(gnc_get_optiondb_from_dispatcher(options) == odb);
+        auto after = gnc_get_optiondb_from_dispatcher(options);
+        g_assert_true(after == odb);
+        g_assert_cmpuint(after->num_sections(), ==, sections);
     }
     scm_gc_unprotect_object(sheet);
     gtk_window_destroy(parent);
