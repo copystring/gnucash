@@ -226,14 +226,14 @@ TEST (VerifyLifetime, ParentDestroyAndLateButton)
     gnc_verify_dialog_async (parent, TRUE, choice_finished, &probe, "%s", "Verify");
     auto *decision = find_decision (parent);
     ASSERT_NE (decision, nullptr);
-    auto *button = find_button (GTK_WIDGET (decision), "_Yes");
+    auto *button = find_button (GTK_WIDGET (decision), "Yes");
     ASSERT_NE (button, nullptr);
     g_object_ref (button);
     gtk_window_destroy (parent);
     probe.initiating = false;
     drain ();
     EXPECT_EQ (probe.calls, 1);
-    EXPECT_EQ (probe.response, GTK_RESPONSE_CANCEL);
+    EXPECT_EQ (probe.response, GTK_RESPONSE_NO);
     g_signal_emit_by_name (button, "clicked");
     drain ();
     EXPECT_EQ (probe.calls, 1);
