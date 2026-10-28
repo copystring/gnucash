@@ -31,7 +31,7 @@ static void finalized (gpointer count, GObject *)
 
 TEST (PriceRequests, DeleteCancelAndMissingParentReleasePriceOnce)
 {
-    for (auto confirmed : {FALSE, TRUE})
+    for (auto confirmed : {false, true})
     {
         // The price has no database or book dependencies in this ownership test.
         auto price = GNC_PRICE (g_object_new (GNC_TYPE_PRICE, nullptr));
