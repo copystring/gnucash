@@ -321,12 +321,18 @@ gnc_choose_option_dialog_async (GtkWindow *parent, const gchar *title,
     const gchar **buttons;
     guint i = 0;
 
+    g_return_if_fail (title != NULL);
+    g_return_if_fail (message != NULL);
     g_return_if_fail (n_buttons > 0);
     g_return_if_fail (completed != NULL);
+    for (GList *node = choices; node; node = node->next)
+        g_return_if_fail (node->data != NULL);
+    if (!parent)
+        parent = gnc_ui_get_main_window (NULL);
     buttons = g_new0 (const gchar *, n_buttons + 1);
     for (GList *node = choices; node; node = node->next)
         buttons[i++] = node->data;
-    gnc_gui_choice_show (parent, title ? title : "", message ? message : "",
+    gnc_gui_choice_show (parent, title, message,
                          buttons, default_choice, -1, completed, user_data, NULL);
     g_free (buttons);
 }
