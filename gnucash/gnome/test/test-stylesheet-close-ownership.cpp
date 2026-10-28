@@ -79,6 +79,7 @@ static void real_main(void *, int argc, char **argv)
     qof_init(); gnc_engine_init(0, nullptr);
     scm_c_use_module("gnucash reports");
     scm_c_use_module("gnucash report html-style-sheet");
+    scm_c_use_module("gnucash report stylesheets plain");
     scm_c_use_module("gnucash report report-core");
     g_test_add_func("/stylesheet/close-ownership", test_close);
     exit(g_test_run());
