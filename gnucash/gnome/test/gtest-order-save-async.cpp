@@ -211,25 +211,33 @@ TEST_P (ChoiceLifetime, CompletesExactlyOnce)
     case 5: /* Escape, including a delayed duplicate on retained controller. */
     {
         auto *controllers = gtk_widget_observe_controllers (GTK_WIDGET (decision));
-        bool found = false;
+        GObject *keys = nullptr;
         for (guint i = 0; i < g_list_model_get_n_items (controllers); i++)
         {
-            auto *controller = g_list_model_get_item (controllers, i);
-            if (GTK_IS_EVENT_CONTROLLER_KEY (controller))
+            auto *controller = G_OBJECT (g_list_model_get_item (controllers, i));
+            if (GTK_IS_EVENT_CONTROLLER_KEY (controller) &&
+                g_strcmp0 (gtk_event_controller_get_name (GTK_EVENT_CONTROLLER (controller)),
+                           "gnc-gui-choice-escape") == 0)
             {
-                gboolean handled = FALSE;
-                g_signal_emit_by_name (controller, "key-pressed", GDK_KEY_Escape,
-                                       0, static_cast<GdkModifierType> (0), &handled);
-                EXPECT_TRUE (handled);
-                handled = FALSE;
-                g_signal_emit_by_name (controller, "key-pressed", GDK_KEY_Escape,
-                                       0, static_cast<GdkModifierType> (0), &handled);
-                found = true;
+                EXPECT_EQ (keys, nullptr);
+                if (!keys)
+                {
+                    keys = controller;
+                    continue;
+                }
             }
             g_object_unref (controller);
         }
         g_object_unref (controllers);
-        EXPECT_TRUE (found);
+        ASSERT_NE (keys, nullptr);
+        gboolean handled = FALSE;
+        g_signal_emit_by_name (keys, "key-pressed", GDK_KEY_Escape,
+                               0, static_cast<GdkModifierType> (0), &handled);
+        EXPECT_TRUE (handled);
+        handled = FALSE;
+        g_signal_emit_by_name (keys, "key-pressed", GDK_KEY_Escape,
+                               0, static_cast<GdkModifierType> (0), &handled);
+        g_object_unref (keys);
         break;
     }
     }

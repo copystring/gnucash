@@ -246,6 +246,7 @@ gnc_gui_choice_show (GtkWindow *parent, const gchar *title,
     request->toplevels_handler = g_signal_connect (request->toplevels, "items-changed",
         G_CALLBACK (gnc_gui_choice_toplevels_changed), request);
     keys = gtk_event_controller_key_new ();
+    gtk_event_controller_set_name (keys, "gnc-gui-choice-escape");
     gtk_event_controller_set_propagation_phase (keys, GTK_PHASE_CAPTURE);
     g_signal_connect (keys, "key-pressed",
                       G_CALLBACK (gnc_gui_choice_key_pressed), request);
