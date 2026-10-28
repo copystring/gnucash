@@ -43,6 +43,7 @@ typedef struct
     GtkWindow *dialog;
     GWeakRef parent;
     gulong parent_destroy_handler;
+    gulong parent_unrealize_handler;
     gboolean parent_destroyed;
     GPtrArray *controls;
     GncGuiChoiceCallback completed;
@@ -61,6 +62,13 @@ gnc_gui_choice_dispatch (gpointer data)
     GtkWindow *parent = g_weak_ref_get (&request->parent);
     if (parent && request->parent_destroy_handler)
         g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    if (parent && request->parent_unrealize_handler)
+        g_signal_handler_disconnect (parent, request->parent_unrealize_handler);
+    if (request->dialog)
+    {
+        gtk_window_destroy (request->dialog);
+        g_clear_object (&request->dialog);
+    }
     if (request->parent_destroyed)
         g_clear_object (&parent);
     if (request->completed)
@@ -93,10 +101,9 @@ gnc_gui_choice_complete (GncGuiChoiceRequest *request, gint response)
     request->done = TRUE;
     request->response = response;
     gnc_gui_choice_disconnect (request);
-    dialog = g_steal_pointer (&request->dialog);
+    dialog = request->dialog;
     g_signal_handlers_disconnect_by_data (dialog, request);
-    gtk_window_destroy (dialog);
-    g_object_unref (dialog);
+    gtk_widget_set_visible (GTK_WIDGET (dialog), FALSE);
 
     /* Never call into an owner in the middle of GTK's parent dispose, a button
      * emission, or the initiating call. */
@@ -106,13 +113,11 @@ gnc_gui_choice_complete (GncGuiChoiceRequest *request, gint response)
 static void
 gnc_gui_choice_destroyed (GtkWidget *dialog, GncGuiChoiceRequest *request)
 {
-    /* The window is already disposing. Do not recursively destroy it. */
-    request->done = TRUE;
-    request->response = request->cancel_choice;
-    gnc_gui_choice_disconnect (request);
-    g_signal_handlers_disconnect_by_data (dialog, request);
-    g_clear_object (&request->dialog);
-    g_idle_add (gnc_gui_choice_dispatch, request);
+    (void)dialog;
+    /* gtk_window_destroy unrealizes immediately but destroy/dispose can be
+     * delayed by references (including ours). Finish outside the native
+     * destroy stack; never recursively destroy a window while it unrealizes. */
+    gnc_gui_choice_complete (request, request->cancel_choice);
 }
 
 static gboolean
@@ -129,6 +134,15 @@ gnc_gui_choice_parent_destroyed (GtkWidget *parent, GncGuiChoiceRequest *request
     request->parent_destroyed = TRUE;
     g_signal_handler_disconnect (parent, request->parent_destroy_handler);
     request->parent_destroy_handler = 0;
+    gnc_gui_choice_complete (request, request->cancel_choice);
+}
+
+static void
+gnc_gui_choice_parent_unrealized (GtkWidget *parent, GncGuiChoiceRequest *request)
+{
+    (void)parent;
+    request->parent_destroyed = TRUE;
+    gnc_gui_choice_complete (request, request->cancel_choice);
 }
 
 static gboolean
@@ -177,12 +191,18 @@ gnc_gui_choice_show (GtkWindow *parent, const gchar *title,
     gtk_window_set_transient_for (request->dialog, parent);
     gtk_window_set_destroy_with_parent (request->dialog, TRUE);
     if (parent)
+    {
         request->parent_destroy_handler = g_signal_connect (parent, "destroy",
             G_CALLBACK (gnc_gui_choice_parent_destroyed), request);
+        request->parent_unrealize_handler = g_signal_connect (parent, "unrealize",
+            G_CALLBACK (gnc_gui_choice_parent_unrealized), request);
+    }
     gtk_window_set_resizable (request->dialog, FALSE);
     g_signal_connect (dialog, "close-request",
                       G_CALLBACK (gnc_gui_choice_closed), request);
     g_signal_connect (dialog, "destroy",
+                      G_CALLBACK (gnc_gui_choice_destroyed), request);
+    g_signal_connect (dialog, "unrealize",
                       G_CALLBACK (gnc_gui_choice_destroyed), request);
 
     content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
