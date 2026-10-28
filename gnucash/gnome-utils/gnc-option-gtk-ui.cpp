@@ -1856,8 +1856,8 @@ template<> void
 create_option_widget<GncOptionUIType::FONT> (GncOption& option, GtkGrid *page_box, int row)
 {
     auto dialog = gtk_font_dialog_new ();
+    /* The constructor takes ownership of the dialog. */
     auto widget = gtk_font_dialog_button_new (dialog);
-    g_object_unref (dialog);
     gtk_font_dialog_button_set_level (GTK_FONT_DIALOG_BUTTON (widget),
                                       GTK_FONT_LEVEL_FONT);
     gtk_font_dialog_button_set_use_font (GTK_FONT_DIALOG_BUTTON (widget),
