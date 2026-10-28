@@ -43,6 +43,7 @@
 #include "gnc-gtk-utils.h"
 #include "gnc-gui-query.h"
 #include "gnc-pricedb.h"
+#include "qofevent.h"
 #include "gnc-session.h"
 #include "gnc-tree-view-price.h"
 #include "gnc-ui.h"
@@ -98,6 +99,9 @@ struct PriceDeleteRequest
     GObject parent_instance;
     GWeakRef window;
     GList *prices;
+    QofBook *book; // borrowed; invalidated synchronously by QOF_EVENT_DESTROY
+    gint book_handler;
+    gulong parent_destroy_handler;
     gboolean completed;
 };
 
@@ -130,6 +134,15 @@ price_delete_request_complete (PriceDeleteRequest *request, gboolean confirmed)
     if (request->completed)
         return;
     request->completed = TRUE;
+    if (request->book_handler)
+        qof_event_unregister_handler (request->book_handler);
+    request->book_handler = 0;
+    request->book = nullptr;
+    auto parent = GTK_WIDGET (g_weak_ref_get (&request->window));
+    if (parent && request->parent_destroy_handler)
+        g_signal_handler_disconnect (parent, request->parent_destroy_handler);
+    request->parent_destroy_handler = 0;
+    g_clear_object (&parent);
     auto prices = request->prices;
     request->prices = nullptr;
     auto window = GTK_WIDGET (g_weak_ref_get (&request->window));
@@ -165,13 +178,41 @@ price_delete_request_finalize (GObject *object)
     G_OBJECT_CLASS (price_delete_request_parent_class)->finalize (object);
 }
 
+static void
+price_delete_parent_destroyed (GtkWidget *, gpointer data)
+{
+    auto request = static_cast<PriceDeleteRequest *> (data);
+    request->parent_destroy_handler = 0;
+    price_delete_request_complete (request, FALSE);
+}
+
+static void
+price_delete_book_event (QofInstance *entity, QofEventId event,
+                         gpointer data, gpointer)
+{
+    auto request = static_cast<PriceDeleteRequest *> (data);
+    // qof_book_destroy force-emits this before engine objects/collections die,
+    // even while QOF events are suspended during a session transition.
+    if ((event & QOF_EVENT_DESTROY) &&
+        (entity == QOF_INSTANCE (request->book) ||
+         (GNC_IS_COMMODITY (entity) &&
+          qof_instance_get_book (entity) == request->book)))
+        price_delete_request_complete (request, FALSE);
+}
+
 static PriceDeleteRequest *
-price_delete_request_new (GtkWidget *window, GList *prices)
+price_delete_request_new (GtkWidget *window, GList *prices, QofBook *book)
 {
     auto request = static_cast<PriceDeleteRequest *> (
         g_object_new (price_delete_request_get_type (), nullptr));
     g_weak_ref_set (&request->window, window);
     request->prices = prices;
+    request->book = book;
+    if (book)
+        request->book_handler = qof_event_register_handler (price_delete_book_event, request);
+    if (window)
+        request->parent_destroy_handler = g_signal_connect (
+            window, "destroy", G_CALLBACK (price_delete_parent_destroyed), request);
     // The selection owns only list nodes. Hold each price across the decision.
     for (auto node = prices; node; node = g_list_next (node))
         gnc_price_ref (static_cast<GNCPrice *> (node->data));
@@ -277,7 +318,7 @@ gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
     }
 
     auto length = g_list_length (price_list);
-    auto request = price_delete_request_new (pdb_dialog->window, price_list);
+    auto request = price_delete_request_new (pdb_dialog->window, price_list, pdb_dialog->book);
 
     auto message = g_strdup_printf
         (/* Translators: %d is the number of prices. This is a ngettext(3) message. */
@@ -450,7 +491,8 @@ gnc_prices_dialog_get_commodities (GtkWidget *view)
         auto row = G_OBJECT (g_list_model_get_item (G_LIST_MODEL (model), position));
         auto commodity = static_cast<gnc_commodity *> (
             g_object_get_data (row, PRICE_REMOVE_COMMODITY_DATA));
-        comm_list = g_list_prepend (comm_list, commodity);
+        if (commodity && !qof_instance_get_destroying (QOF_INSTANCE (commodity)))
+            comm_list = g_list_prepend (comm_list, commodity);
         g_object_unref (row);
     }
     gtk_bitset_unref (selection);
@@ -478,6 +520,8 @@ struct PriceOldRemoveRequest
     gboolean waiting_for_confirmation;
     gulong parent_destroy_handler;
     gulong dialog_destroy_handler;
+    QofBook *book; // borrowed; cleared before engine teardown
+    gint book_handler;
 };
 
 struct PriceOldRemoveRequestClass
@@ -551,12 +595,23 @@ price_old_remove_request_close (PriceOldRemoveRequest *request,
         return;
 
     request->completed = TRUE;
+    if (request->book_handler)
+        qof_event_unregister_handler (request->book_handler);
+    request->book_handler = 0;
+    request->book = nullptr;
     window = GTK_WIDGET (g_weak_ref_get (&request->price_window));
     if (window && request->parent_destroy_handler)
         g_signal_handler_disconnect (window, request->parent_destroy_handler);
     request->parent_destroy_handler = 0;
     g_clear_object (&window);
 
+    // Drop all row-owned engine references while book collections still exist.
+    if (request->remove_view)
+    {
+        auto model = price_remove_model (request->remove_view);
+        if (model)
+            g_list_store_remove_all (model);
+    }
     if (request->dialog)
     {
         if (request->dialog_destroy_handler)
@@ -610,13 +665,44 @@ price_old_remove_request_finalize (GObject *object)
     G_OBJECT_CLASS (price_old_remove_request_parent_class)->finalize (object);
 }
 
+static void
+price_old_remove_book_event (QofInstance *entity, QofEventId event,
+                             gpointer data, gpointer)
+{
+    auto request = static_cast<PriceOldRemoveRequest *> (data);
+    if ((event & QOF_EVENT_DESTROY) &&
+        (entity == QOF_INSTANCE (request->book) ||
+         (GNC_IS_COMMODITY (entity) &&
+          qof_instance_get_book (entity) == request->book)))
+        price_old_remove_request_complete (request, FALSE);
+}
+
 #ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
 // Narrow hooks exercise the real allocation, completion and dispose paths.
 extern "C" GObject *
 gnc_test_price_delete_request_new (GNCPrice *price)
 {
     return G_OBJECT (price_delete_request_new (
-        nullptr, price ? g_list_append (nullptr, price) : nullptr));
+        nullptr, price ? g_list_append (nullptr, price) : nullptr, nullptr));
+}
+
+extern "C" GObject *
+gnc_test_price_delete_request_for_book (GtkWidget *parent, GNCPrice *price, QofBook *book)
+{
+    return G_OBJECT (price_delete_request_new (parent, g_list_append (nullptr, price), book));
+}
+
+extern "C" void
+gnc_test_price_delete_finished (GObject *object, gint response)
+{
+    price_delete_finished (response, object);
+}
+
+extern "C" gboolean
+gnc_test_price_delete_request_pending (GObject *object)
+{
+    auto request = reinterpret_cast<PriceDeleteRequest *> (object);
+    return !request->completed && request->prices != nullptr;
 }
 
 extern "C" void
@@ -634,6 +720,14 @@ gnc_test_price_old_remove_request_new (GtkWindow *dialog)
     request->dialog = dialog ? GTK_WINDOW (g_object_ref (dialog)) : nullptr;
     request->target_namespace_name = g_strdup ("CURRENCY");
     return G_OBJECT (request);
+}
+
+extern "C" void
+gnc_test_price_old_remove_watch_book (GObject *object, QofBook *book)
+{
+    auto request = reinterpret_cast<PriceOldRemoveRequest *> (object);
+    request->book = book;
+    request->book_handler = qof_event_register_handler (price_old_remove_book_event, request);
 }
 
 extern "C" void
@@ -968,6 +1062,8 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
     request = static_cast<PriceOldRemoveRequest *> (
         g_object_new (price_old_remove_request_get_type (), nullptr));
     g_weak_ref_set (&request->price_window, pdb_dialog->window);
+    request->book = pdb_dialog->book;
+    request->book_handler = qof_event_register_handler (price_old_remove_book_event, request);
     request->dialog = GTK_WINDOW (g_object_ref (dialog));
     request->date = gnc_date_edit_new (time (nullptr), FALSE, FALSE);
     request->remove_view = GTK_WIDGET (gtk_builder_get_object (builder,
