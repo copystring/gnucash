@@ -21,7 +21,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s = Path('gnucash/gnome/dialog-report-style-sheet.cpp').read_text()
-          start = s.index('gnc_style_sheet_options_dialog_destroy_cb')
+          start = s.index('gnc_style_sheet_options_close_cb')
           end = s.index('static ss_info *', start)
           cleanup = s[start:end]
           assert 'gnc_option_db_destroy' not in cleanup
