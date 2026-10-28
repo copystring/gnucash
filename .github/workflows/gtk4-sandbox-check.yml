@@ -30,7 +30,7 @@ jobs:
       - name: Repeat ledger cancellation in one process
         run: |
           xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error -R '^gtest-entry-ledger-close-gtk4$' --repeat until-fail:5
-          xvfb-run -a env GNC_UNINSTALLED=YES GSETTINGS_BACKEND=memory GSETTINGS_SCHEMA_DIR="$PWD/build/share/glib-2.0/schemas" build/bin/gtest-entry-ledger-close-gtk4 --gtest_filter=EntryLedgerCloseTest.DestroyLedgerWhileSaveDecisionPending --gtest_repeat=5
+          xvfb-run -a env GTEST_FILTER=EntryLedgerCloseTest.DestroyLedgerWhileSaveDecisionPending GTEST_REPEAT=5 ctest --test-dir build -V --no-tests=error -R '^gtest-entry-ledger-close-gtk4$'
 
       - name: Verify real shutdown exit marker
         run: |
