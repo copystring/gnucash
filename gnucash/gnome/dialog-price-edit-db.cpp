@@ -95,49 +95,96 @@ constexpr const char *PRICE_DIALOG_DATA = "gnc-price-edit-dialog";
 
 struct PriceDeleteRequest
 {
+    GObject parent_instance;
     GWeakRef window;
-    GPtrArray *price_guids;
+    GList *prices;
+    gboolean completed;
 };
 
-static void
-price_delete_request_free (PriceDeleteRequest *request)
+struct PriceDeleteRequestClass
 {
+    GObjectClass parent_class;
+};
+
+static void price_delete_request_dispose (GObject *);
+static void price_delete_request_finalize (GObject *);
+G_DEFINE_TYPE (PriceDeleteRequest, price_delete_request, G_TYPE_OBJECT)
+
+static void
+price_delete_request_class_init (PriceDeleteRequestClass *klass)
+{
+    auto object_class = G_OBJECT_CLASS (klass);
+    object_class->dispose = price_delete_request_dispose;
+    object_class->finalize = price_delete_request_finalize;
+}
+
+static void
+price_delete_request_init (PriceDeleteRequest *request)
+{
+    g_weak_ref_init (&request->window, nullptr);
+}
+
+static void
+price_delete_request_complete (PriceDeleteRequest *request, gboolean confirmed)
+{
+    if (request->completed)
+        return;
+    request->completed = TRUE;
+    auto prices = request->prices;
+    request->prices = nullptr;
+    auto window = GTK_WIDGET (g_weak_ref_get (&request->window));
+    auto pdb_dialog = window ? static_cast<PricesDialog *> (
+        g_object_get_data (G_OBJECT (window), PRICE_DIALOG_DATA)) : nullptr;
+
+    if (confirmed && pdb_dialog && pdb_dialog->book == gnc_get_current_book () &&
+        pdb_dialog->price_db && !qof_book_shutting_down (pdb_dialog->book))
+    {
+        for (auto node = prices; node; node = g_list_next (node))
+            gnc_pricedb_remove_price (pdb_dialog->price_db,
+                                     static_cast<GNCPrice *> (node->data));
+        gnc_gui_refresh_all ();
+    }
+    g_list_free_full (prices, reinterpret_cast<GDestroyNotify> (gnc_price_unref));
+    g_clear_object (&window);
+}
+
+static void
+price_delete_request_dispose (GObject *object)
+{
+    auto request = reinterpret_cast<PriceDeleteRequest *> (object);
+    price_delete_request_complete (request, FALSE);
+    g_weak_ref_set (&request->window, nullptr);
+    G_OBJECT_CLASS (price_delete_request_parent_class)->dispose (object);
+}
+
+static void
+price_delete_request_finalize (GObject *object)
+{
+    auto request = reinterpret_cast<PriceDeleteRequest *> (object);
     g_weak_ref_clear (&request->window);
-    g_ptr_array_unref (request->price_guids);
-    g_free (request);
+    G_OBJECT_CLASS (price_delete_request_parent_class)->finalize (object);
+}
+
+static PriceDeleteRequest *
+price_delete_request_new (GtkWidget *window, GList *prices)
+{
+    auto request = static_cast<PriceDeleteRequest *> (
+        g_object_new (price_delete_request_get_type (), nullptr));
+    g_weak_ref_set (&request->window, window);
+    request->prices = prices;
+    // The selection owns only list nodes. Hold each price across the decision.
+    for (auto node = prices; node; node = g_list_next (node))
+        gnc_price_ref (static_cast<GNCPrice *> (node->data));
+    return request;
 }
 
 static void
 price_delete_finished (gint response, gpointer user_data)
 {
     auto request = static_cast<PriceDeleteRequest *> (user_data);
-    auto window = GTK_WIDGET (g_weak_ref_get (&request->window));
-
-    if (response == GTK_RESPONSE_YES && window)
-    {
-        auto pdb_dialog = static_cast<PricesDialog *> (
-            g_object_get_data (G_OBJECT (window), PRICE_DIALOG_DATA));
-
-        if (pdb_dialog && pdb_dialog->book == gnc_get_current_book () &&
-            pdb_dialog->price_db && !qof_book_shutting_down (pdb_dialog->book))
-        {
-            for (guint index = 0; index < request->price_guids->len; index++)
-            {
-                auto guid = static_cast<GncGUID *> (
-                    g_ptr_array_index (request->price_guids, index));
-                auto price = gnc_price_lookup (guid, pdb_dialog->book);
-
-                if (price)
-                    gnc_pricedb_remove_price (pdb_dialog->price_db, price);
-            }
-            gnc_gui_refresh_all ();
-        }
-    }
-
-    g_clear_object (&window);
-    price_delete_request_free (request);
+    price_delete_request_complete (request, response == GTK_RESPONSE_YES);
+    g_object_unref (request);
 }
-
 
 void
 gnc_prices_dialog_destroy_cb (GtkWidget *object, gpointer data)
@@ -229,17 +276,8 @@ gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
         return;
     }
 
-    auto request = g_new0 (PriceDeleteRequest, 1);
     auto length = g_list_length (price_list);
-    request->price_guids = g_ptr_array_new_with_free_func (g_free);
-    g_weak_ref_init (&request->window, pdb_dialog->window);
-    for (auto node = price_list; node; node = g_list_next (node))
-    {
-        auto guid = g_new (GncGUID, 1);
-        *guid = *gnc_price_get_guid (static_cast<GNCPrice *> (node->data));
-        g_ptr_array_add (request->price_guids, guid);
-    }
-    g_list_free (price_list);
+    auto request = price_delete_request_new (pdb_dialog->window, price_list);
 
     auto message = g_strdup_printf
         (/* Translators: %d is the number of prices. This is a ngettext(3) message. */
@@ -274,7 +312,9 @@ price_remove_row_new (const char *full_name, gnc_commodity *commodity,
 {
     auto row = G_OBJECT (g_object_new (G_TYPE_OBJECT, nullptr));
     g_object_set_data_full (row, PRICE_REMOVE_FULL_NAME_DATA, g_strdup (full_name), g_free);
-    g_object_set_data (row, PRICE_REMOVE_COMMODITY_DATA, commodity);
+    // The row retains its selected commodity until the removal dialog closes.
+    g_object_set_data_full (row, PRICE_REMOVE_COMMODITY_DATA,
+                            g_object_ref (commodity), g_object_unref);
     g_object_set_data_full (row, PRICE_REMOVE_DATE_DATA, g_strdup (date), g_free);
     g_object_set_data_full (row, PRICE_REMOVE_COUNT_DATA, g_strdup (count), g_free);
     return row;
@@ -420,7 +460,7 @@ gnc_prices_dialog_get_commodities (GtkWidget *view)
 
 struct PriceOldRemoveRequest
 {
-    gatomicrefcount ref_count;
+    GObject parent_instance;
     GWeakRef price_window;
     GtkWindow *dialog;
     GtkWidget *date;
@@ -440,32 +480,41 @@ struct PriceOldRemoveRequest
     gulong dialog_destroy_handler;
 };
 
+struct PriceOldRemoveRequestClass
+{
+    GObjectClass parent_class;
+};
+
+static void price_old_remove_request_close (PriceOldRemoveRequest *, gboolean);
+static void price_old_remove_request_complete (PriceOldRemoveRequest *, gboolean);
+static void price_old_remove_request_dispose (GObject *);
+static void price_old_remove_request_finalize (GObject *);
+G_DEFINE_TYPE (PriceOldRemoveRequest, price_old_remove_request, G_TYPE_OBJECT)
+
+static void
+price_old_remove_request_class_init (PriceOldRemoveRequestClass *klass)
+{
+    auto object_class = G_OBJECT_CLASS (klass);
+    object_class->dispose = price_old_remove_request_dispose;
+    object_class->finalize = price_old_remove_request_finalize;
+}
+
+static void
+price_old_remove_request_init (PriceOldRemoveRequest *request)
+{
+    g_weak_ref_init (&request->price_window, nullptr);
+}
+
 static PriceOldRemoveRequest *
 price_old_remove_request_ref (PriceOldRemoveRequest *request)
 {
-    g_atomic_ref_count_inc (&request->ref_count);
-    return request;
+    return static_cast<PriceOldRemoveRequest *> (g_object_ref (request));
 }
 
 static void
-price_old_remove_request_free (PriceOldRemoveRequest *request)
+price_old_remove_request_unref (gpointer data)
 {
-    auto window = GTK_WIDGET (g_weak_ref_get (&request->price_window));
-
-    if (window && request->parent_destroy_handler)
-        g_signal_handler_disconnect (window, request->parent_destroy_handler);
-    g_clear_object (&window);
-    g_clear_object (&request->dialog);
-    g_weak_ref_clear (&request->price_window);
-    g_free (request->target_namespace_name);
-    g_free (request);
-}
-
-static void
-price_old_remove_request_unref (PriceOldRemoveRequest *request)
-{
-    if (request && g_atomic_ref_count_dec (&request->ref_count))
-        price_old_remove_request_free (request);
+    g_object_unref (data);
 }
 
 static PricesDialog *
@@ -493,8 +542,8 @@ price_old_remove_get_prices_dialog (PriceOldRemoveRequest *request,
 }
 
 static void
-price_old_remove_request_complete (PriceOldRemoveRequest *request,
-                                   gboolean refresh_prices)
+price_old_remove_request_close (PriceOldRemoveRequest *request,
+                                 gboolean refresh_prices)
 {
     GtkWidget *window;
 
@@ -520,7 +569,6 @@ price_old_remove_request_complete (PriceOldRemoveRequest *request,
 
     if (refresh_prices)
         gnc_gui_refresh_all ();
-    price_old_remove_request_unref (request);
 }
 
 static void
@@ -533,6 +581,74 @@ price_old_remove_dialog_destroyed_cb (GtkWidget *dialog, gpointer user_data)
     g_clear_object (&request->dialog);
     price_old_remove_request_complete (request, FALSE);
 }
+
+static void
+price_old_remove_request_complete (PriceOldRemoveRequest *request,
+                                   gboolean refresh_prices)
+{
+    if (request->completed)
+        return;
+    price_old_remove_request_close (request, refresh_prices);
+    price_old_remove_request_unref (request);
+}
+
+static void
+price_old_remove_request_dispose (GObject *object)
+{
+    auto request = reinterpret_cast<PriceOldRemoveRequest *> (object);
+    price_old_remove_request_close (request, FALSE);
+    g_weak_ref_set (&request->price_window, nullptr);
+    G_OBJECT_CLASS (price_old_remove_request_parent_class)->dispose (object);
+}
+
+static void
+price_old_remove_request_finalize (GObject *object)
+{
+    auto request = reinterpret_cast<PriceOldRemoveRequest *> (object);
+    g_weak_ref_clear (&request->price_window);
+    g_free (request->target_namespace_name);
+    G_OBJECT_CLASS (price_old_remove_request_parent_class)->finalize (object);
+}
+
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+// Narrow hooks exercise the real allocation, completion and dispose paths.
+extern "C" GObject *
+gnc_test_price_delete_request_new (GNCPrice *price)
+{
+    return G_OBJECT (price_delete_request_new (
+        nullptr, price ? g_list_append (nullptr, price) : nullptr));
+}
+
+extern "C" void
+gnc_test_price_delete_request_complete (GObject *object, gboolean confirmed)
+{
+    price_delete_request_complete (
+        reinterpret_cast<PriceDeleteRequest *> (object), confirmed);
+}
+
+extern "C" GObject *
+gnc_test_price_old_remove_request_new (GtkWindow *dialog)
+{
+    auto request = static_cast<PriceOldRemoveRequest *> (
+        g_object_new (price_old_remove_request_get_type (), nullptr));
+    request->dialog = dialog ? GTK_WINDOW (g_object_ref (dialog)) : nullptr;
+    request->target_namespace_name = g_strdup ("CURRENCY");
+    return G_OBJECT (request);
+}
+
+extern "C" void
+gnc_test_price_old_remove_request_complete (GObject *object)
+{
+    price_old_remove_request_complete (
+        reinterpret_cast<PriceOldRemoveRequest *> (object), FALSE);
+}
+
+extern "C" GObject *
+gnc_test_price_remove_row_new (gnc_commodity *commodity)
+{
+    return price_remove_row_new ("Commodity", commodity, "Date", "1");
+}
+#endif
 
 static void
 price_old_remove_parent_destroyed_cb (GtkWidget *window, gpointer user_data)
@@ -729,12 +845,20 @@ price_old_remove_execute (PriceOldRemoveRequest *request)
 static void
 price_old_remove_dialog_present (PriceOldRemoveRequest *request);
 
+static gboolean
+price_old_remove_confirmation_is_delete (gint response)
+{
+    // Action dialogs map the visible action to ACCEPT, not OK.
+    return response == GTK_RESPONSE_ACCEPT;
+}
+
 static void
 price_old_remove_confirmation_finished (GtkWindow *, gint response,
                                         gpointer user_data)
 {
     auto request = static_cast<PriceOldRemoveRequest *> (user_data);
-    const auto deleted = !request->completed && response == GTK_RESPONSE_OK &&
+    const auto deleted = !request->completed &&
+                         price_old_remove_confirmation_is_delete (response) &&
                          price_old_remove_execute (request);
 
     if (deleted)
@@ -747,6 +871,21 @@ price_old_remove_confirmation_finished (GtkWindow *, gint response,
     }
     price_old_remove_request_unref (request);
 }
+
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+extern "C" gboolean
+gnc_test_price_old_remove_confirmation_is_delete (gint response)
+{
+    return price_old_remove_confirmation_is_delete (response);
+}
+
+extern "C" void
+gnc_test_price_old_remove_confirmation_finished (GObject *object, gint response)
+{
+    price_old_remove_confirmation_finished (
+        nullptr, response, reinterpret_cast<PriceOldRemoveRequest *> (object));
+}
+#endif
 
 static void
 price_old_remove_start_confirmation (PriceOldRemoveRequest *request)
@@ -826,9 +965,9 @@ gnc_prices_dialog_remove_old_clicked (GtkWidget *widget, gpointer data)
         return;
     }
 
-    request = g_new0 (PriceOldRemoveRequest, 1);
-    g_atomic_ref_count_init (&request->ref_count);
-    g_weak_ref_init (&request->price_window, pdb_dialog->window);
+    request = static_cast<PriceOldRemoveRequest *> (
+        g_object_new (price_old_remove_request_get_type (), nullptr));
+    g_weak_ref_set (&request->price_window, pdb_dialog->window);
     request->dialog = GTK_WINDOW (g_object_ref (dialog));
     request->date = gnc_date_edit_new (time (nullptr), FALSE, FALSE);
     request->remove_view = GTK_WIDGET (gtk_builder_get_object (builder,

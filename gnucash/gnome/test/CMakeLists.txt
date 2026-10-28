@@ -110,6 +110,8 @@ endif()
 
 if (GNC_ENABLE_SHUTDOWN_TEST_HOOKS)
   set(ORDER_REQUEST_LIBS ${GNOME_TEST_LIBS} gtest)
+  gnc_add_test(test-price-requests test-price-requests.cpp GNOME_TEST_INCLUDE_DIRS ORDER_REQUEST_LIBS)
+  set_tests_properties(test-price-requests PROPERTIES TIMEOUT 30)
   gnc_add_test(test-delete-account-request test-delete-account-request.cpp GNOME_TEST_INCLUDE_DIRS ORDER_REQUEST_LIBS)
   gnc_add_test(test-order-save-request test-order-save-request.cpp GNOME_TEST_INCLUDE_DIRS ORDER_REQUEST_LIBS)
   set(ORDER_ASYNC_INCLUDES ${GNOME_TEST_INCLUDE_DIRS}
@@ -130,6 +132,7 @@ set_dist_list(test_gnome_DIST
   test-invoice-report-builtin-default.cpp
   test-order-save-request.cpp
   test-delete-account-request.cpp
+  test-price-requests.cpp
   test-stylesheet-close-ownership.cpp
   test-gnc-plugin-page-register-save-close-lifecycle.cpp
   gnome-response-test-fixture.h
