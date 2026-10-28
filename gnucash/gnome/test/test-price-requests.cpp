@@ -33,8 +33,9 @@ TEST (PriceRequests, DeleteCancelAndMissingParentReleasePriceOnce)
 {
     for (auto confirmed : {false, true})
     {
-        // The price has no database or book dependencies in this ownership test.
-        auto price = GNC_PRICE (g_object_new (GNC_TYPE_PRICE, nullptr));
+        // Use a real book: price destruction emits a QOF event.
+        auto session = qof_session_new (qof_book_new ());
+        auto price = gnc_price_create (qof_session_get_book (session));
         unsigned destroyed = 0;
         g_object_weak_ref (G_OBJECT (price), finalized, &destroyed);
         auto request = gnc_test_price_delete_request_new (price);
