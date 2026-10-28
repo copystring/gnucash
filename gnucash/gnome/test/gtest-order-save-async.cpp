@@ -61,6 +61,25 @@ protected:
     GtkWindow *decision = nullptr;
     GtkWidget *button = nullptr;
     Probe probe;
+    QofBook *book = nullptr;
+    GncOrder *order = nullptr;
+    void SetUp () override
+    {
+        book = qof_book_new ();
+        ASSERT_NE (book, nullptr);
+        auto *session = qof_session_new (book);
+        ASSERT_NE (session, nullptr);
+        gnc_set_current_session (session);
+        order = gncOrderCreate (book);
+        ASSERT_NE (order, nullptr);
+        ledger = gnc_entry_ledger_new (book, GNCENTRY_ORDER_ENTRY);
+        ASSERT_NE (ledger, nullptr);
+        window = gtk_window_new ();
+        g_object_ref_sink (window);
+        gtk_widget_realize (window);
+        gnc_entry_ledger_set_parent (ledger, window);
+        gnc_entry_ledger_set_default_order (ledger, order);
+    }
     void TearDown () override
     {
         if (request && !probe.finalized)
@@ -76,20 +95,6 @@ protected:
 };
 TEST_F (OrderSaveAsync, DestroyWindowAndLedgerBeforeDelayedAnswer)
 {
-    auto *book = qof_book_new ();
-    ASSERT_NE (book, nullptr);
-    auto *session = qof_session_new (book);
-    ASSERT_NE (session, nullptr);
-    gnc_set_current_session (session);
-    auto *order = gncOrderCreate (book);
-    ASSERT_NE (order, nullptr);
-    ledger = gnc_entry_ledger_new (book, GNCENTRY_ORDER_ENTRY);
-    ASSERT_NE (ledger, nullptr);
-    window = gtk_window_new ();
-    g_object_ref_sink (window);
-    gtk_widget_realize (window);
-    gnc_entry_ledger_set_parent (ledger, window);
-    gnc_entry_ledger_set_default_order (ledger, order);
     /* Order ledgers do not create an invoice-style blank row: load an actual
      * entry and position the cursor there before editing. */
     auto *entry = gncEntryCreate (book);

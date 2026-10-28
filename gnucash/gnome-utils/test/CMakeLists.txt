@@ -1,6 +1,7 @@
 
 set(GNOME_UTILS_GUI_TEST_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}/common
+  ${CMAKE_SOURCE_DIR}/common/test-core
   ${CMAKE_SOURCE_DIR}/gnucash/gnome-utils
   ${CMAKE_SOURCE_DIR}/libgnucash/engine
   ${CMAKE_SOURCE_DIR}/libgnucash/core-utils

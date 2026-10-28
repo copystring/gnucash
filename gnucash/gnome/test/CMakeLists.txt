@@ -129,6 +129,7 @@ set_dist_list(test_gnome_DIST
   test-invoice-report-builtin-default.cpp
   test-order-save-request.cpp
   test-stylesheet-close-ownership.cpp
+  test-gnc-plugin-page-register-save-close-lifecycle.cpp
   gnome-response-test-fixture.h
   gtest-order-save-async.cpp
   test-dialog-date-close.c

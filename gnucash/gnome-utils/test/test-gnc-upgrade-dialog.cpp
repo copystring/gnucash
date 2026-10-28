@@ -4,6 +4,7 @@
 #include <config.h>
 #include <gtk/gtk.h>
 #include <gtest/gtest.h>
+#include "googletest-glib-log-handler.hpp"
 #include "gnc-engine.h"
 
 /* Only linked when the sandbox test hooks are enabled. */
@@ -17,7 +18,7 @@ static void
 completed (GtkWindow *parent, gboolean cancelled, gpointer data)
 {
     Result *result = static_cast<Result *> (data);
-    g_assert_nonnull (parent);
+    EXPECT_NE (parent, nullptr);
     ++result->calls;
     result->cancelled = cancelled;
 }
@@ -51,42 +52,50 @@ find_choice (GtkWidget *widget, gint index)
     return NULL;
 }
 
-static void
-run_response (gboolean accept)
+class UpgradeDialogTest : public ::testing::Test
 {
-    GtkWindow *parent = GTK_WINDOW (gtk_window_new ());
+protected:
+    GtkWindow *parent = nullptr;
+    GtkWindow *dialog = nullptr;
     Result result = {0, FALSE};
-    GtkWindow *dialog;
-    g_object_ref_sink (parent);
-    gtk_window_present (parent);
-    gnc_test_file_show_upgrade_error (parent, completed, &result);
-    dialog = find_child (parent);
-    g_assert_nonnull (dialog);
-    if (accept)
+    void SetUp () override
     {
-        GtkWidget *button = find_choice (GTK_WIDGET (dialog), 2);
-        g_assert_nonnull (button);
-        g_signal_emit_by_name (button, "clicked");
+        parent = GTK_WINDOW (gtk_window_new ());
+        g_object_ref_sink (parent);
+        gtk_window_present (parent);
+        gnc_test_file_show_upgrade_error (parent, completed, &result);
+        dialog = find_child (parent);
+        ASSERT_NE (dialog, nullptr);
     }
-    else
-        gtk_window_close (dialog);
-    for (guint i = 0; i < 1000 && !result.calls; ++i)
-        g_main_context_iteration (NULL, FALSE);
-    g_assert_cmpuint (result.calls, ==, 1);
-    g_assert_cmpint (result.cancelled, ==, !accept);
-    for (guint i = 0; i < 20; ++i)
-        g_main_context_iteration (NULL, FALSE);
-    g_assert_cmpuint (result.calls, ==, 1);
-    g_object_unref (dialog);
-    gtk_window_destroy (parent);
-    g_object_unref (parent);
-}
+    void TearDown () override
+    {
+        if (dialog) { gtk_window_close (dialog); g_object_unref (dialog); }
+        for (guint i = 0; i < 100; ++i) g_main_context_iteration (NULL, FALSE);
+        if (parent) { gtk_window_destroy (parent); g_object_unref (parent); }
+    }
+    void check (bool accept)
+    {
+        if (accept)
+        {
+            GtkWidget *button = find_choice (GTK_WIDGET (dialog), 2);
+            ASSERT_NE (button, nullptr);
+            g_signal_emit_by_name (button, "clicked");
+        }
+        else gtk_window_close (dialog);
+        for (guint i = 0; i < 1000 && !result.calls; ++i)
+            g_main_context_iteration (NULL, FALSE);
+        EXPECT_EQ (result.calls, 1u);
+        EXPECT_EQ (result.cancelled, !accept);
+        for (guint i = 0; i < 20; ++i) g_main_context_iteration (NULL, FALSE);
+        EXPECT_EQ (result.calls, 1u);
+    }
+};
+TEST_F (UpgradeDialogTest, CloseCancels) { check (false); }
+TEST_F (UpgradeDialogTest, OkContinues) { check (true); }
 
-class UpgradeDialogTest : public ::testing::Test {};
-TEST_F (UpgradeDialogTest, CloseCancels) { run_response (FALSE); }
-TEST_F (UpgradeDialogTest, OkContinues) { run_response (TRUE); }
 int main (int argc, char **argv)
 {
+    gnc::test::initialize_logging ();
     gtk_init ();
     gnc_engine_init (argc, argv);
     ::testing::InitGoogleTest (&argc, argv);
