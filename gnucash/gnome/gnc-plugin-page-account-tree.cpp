@@ -1575,6 +1575,9 @@ typedef struct _DeleteAccountRequestClass DeleteAccountRequestClass;
 struct _DeleteAccountRequest
 {
     GObject parent_instance;
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+    int *test_finalize_count;
+#endif
     GWeakRef page;
     GWeakRef dialog;
     GncGUID book_guid;
@@ -1604,6 +1607,10 @@ delete_account_request_finalize (GObject *object)
     auto request = reinterpret_cast<DeleteAccountRequest *> (object);
     g_weak_ref_clear (&request->dialog);
     g_weak_ref_clear (&request->page);
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+    if (request->test_finalize_count)
+        ++*request->test_finalize_count;
+#endif
     G_OBJECT_CLASS (delete_account_request_parent_class)->finalize (object);
 }
 
@@ -1635,12 +1642,17 @@ delete_account_request_unref (gpointer user_data)
 #ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
 extern "C" GObject *gnc_test_delete_account_request_new (GObject *page);
 extern "C" gboolean gnc_test_delete_account_request_page_alive (GObject *object);
+extern "C" void gnc_test_delete_account_request_watch_finalize (GObject *, int *);
 GObject *gnc_test_delete_account_request_new (GObject *page)
 {
     auto request = static_cast<DeleteAccountRequest *> (
         g_object_new (delete_account_request_get_type (), nullptr));
     g_weak_ref_set (&request->page, page);
     return G_OBJECT (request);
+}
+void gnc_test_delete_account_request_watch_finalize (GObject *object, int *count)
+{
+    reinterpret_cast<DeleteAccountRequest *> (object)->test_finalize_count = count;
 }
 gboolean gnc_test_delete_account_request_page_alive (GObject *object)
 {
@@ -1813,6 +1825,15 @@ delete_account_confirmation_finished (GtkWindow *, gint response, gpointer user_
     delete_account_request_close_dialog (request);
     delete_account_request_unref (request);
 }
+
+#ifdef GNC_ENABLE_SHUTDOWN_TEST_HOOKS
+extern "C" void gnc_test_delete_account_confirmation_cancel (GObject *object);
+void gnc_test_delete_account_confirmation_cancel (GObject *object)
+{
+    delete_account_confirmation_finished (nullptr, GTK_RESPONSE_CANCEL,
+                                          g_object_ref (object));
+}
+#endif
 
 static gchar *
 delete_account_request_name (Account *account)
