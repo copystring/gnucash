@@ -1,7 +1,5 @@
 name: AIW23 GTK4 stylesheet review verification
 on:
-  push:
-    branches: [aiw23-bundled-integration-20261028]
   workflow_dispatch:
 permissions:
   contents: read

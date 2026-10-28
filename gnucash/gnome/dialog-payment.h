@@ -39,6 +39,10 @@ PaymentWindow * gnc_ui_payment_new_with_invoice (GtkWindow *parent,
                                                  const GncOwner *owner,
                                                  QofBook *book,
                                                  GncInvoice *invoice);
+/** Start payment assignment. Returns the payment window when one is created
+ * immediately. If multiple payment splits require a choice, the selection
+ * continues asynchronously and this function returns NULL. Invalid input or
+ * an unavailable payment split can also result in NULL. */
 PaymentWindow * gnc_ui_payment_new_with_txn (GtkWindow *parent, GncOwner *owner, Transaction *txn);
 
 /** Returns TRUE if the given transaction (to be used with gnc_ui_payment_new_with_txn() )
