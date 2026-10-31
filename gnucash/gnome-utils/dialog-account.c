@@ -859,6 +859,18 @@ account_creation_complete (AccountCreationRequest *request, const GncGUID *guid)
     g_clear_object(&parent);
 }
 
+static void
+account_request_set_book (QofBook **target, QofBook *book)
+{
+    if (*target == book)
+        return;
+    if (*target)
+        g_object_remove_weak_pointer (G_OBJECT (*target), (gpointer *)target);
+    *target = book;
+    if (*target)
+        g_object_add_weak_pointer (G_OBJECT (*target), (gpointer *)target);
+}
+
 static Account *
 account_children_request_account (AccountChildrenRequest *request)
 {
@@ -988,12 +1000,10 @@ verify_children_compatible (AccountWindow *aw)
 
     request = g_new0 (AccountChildrenRequest, 1);
     request->parent = g_object_ref (aw->dialog);
-    request->book = aw->book;
+    account_request_set_book (&request->book, aw->book);
     request->account_guid = aw->account;
     request->requested_type = aw->type;
     request->original_type = xaccAccountGetType (account);
-    g_object_add_weak_pointer (G_OBJECT (request->book),
-                              (gpointer *)&request->book);
     /* The weak ref is released in account_children_parent_destroyed
      * when the dialog is destroyed, and again in the error path if
      * the dialog cannot be created. Since verify_children_compatible
@@ -2214,11 +2224,10 @@ gnc_ui_new_accounts_from_name_with_defaults_async (
         parent, book, base_account, subaccount_names, valid_types, default_commodity, FALSE);
     AccountCreationRequest *request = g_new0(AccountCreationRequest, 1);
     g_weak_ref_init(&request->parent, parent ? G_OBJECT(parent) : NULL);
-    request->book = book;
+    account_request_set_book (&request->book, book);
     request->session = gnc_get_current_session();
     request->completed = completed;
     request->user_data = user_data;
-    g_object_add_weak_pointer(G_OBJECT(book), (gpointer *)&request->book);
     aw->creation_request = request;
     if (parent)
         g_signal_connect(parent, "destroy", G_CALLBACK(account_creation_parent_destroyed), request);
@@ -2864,12 +2873,10 @@ gnc_account_cascade_properties_dialog (GtkWidget *window, Account *account)
     request->enable_hidden = enable_hidden;
     request->placeholder_button = placeholder_button;
     request->hidden_button = hidden_button;
-    request->book = gnc_account_get_book (account);
+    account_request_set_book (&request->book, gnc_account_get_book (account));
     request->account_guid = guid_copy (xaccAccountGetGUID (account));
     request->old_color = old_color_string;
     old_color_string = NULL;
-    g_object_add_weak_pointer (G_OBJECT (request->book),
-                               (gpointer *)&request->book);
 
     gtk_window_set_modal (GTK_WINDOW (dialog), TRUE);
     gtk_window_set_destroy_with_parent (GTK_WINDOW (dialog), TRUE);
