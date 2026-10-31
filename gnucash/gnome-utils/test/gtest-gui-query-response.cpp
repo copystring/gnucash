@@ -506,7 +506,7 @@ TEST_P (Info2ResponseTest, CopiesStringsAndCompletesOnce)
     auto children = gtk_container_get_children (
         GTK_CONTAINER (gtk_dialog_get_content_area (GTK_DIALOG (dialog))));
     ASSERT_NE (children, nullptr);
-    auto view = gtk_bin_get_child (GTK_BIN (children->data));
+    auto view = gtk_scrolled_window_get_child (GTK_SCROLLED_WINDOW (children->data));
     g_list_free (children);
     EXPECT_TRUE (GTK_IS_TEXT_VIEW (view));
     GtkTextIter start, end;

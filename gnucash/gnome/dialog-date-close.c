@@ -22,6 +22,7 @@
  */
 
 #include <config.h>
+#include "gnc-gtk-utils.h"
 
 #include <glib/gi18n.h>
 
@@ -511,8 +512,8 @@ gnc_dialog_dates_acct_question_async_parented (
     gtk_label_set_text (label, acct_label_message);
     if (question_check_message)
     {
-        gtk_label_set_text (GTK_LABEL (gtk_bin_get_child (
-            GTK_BIN (ddc->question_check))), question_check_message);
+        gtk_label_set_text (GTK_LABEL (gtk_button_get_child (
+            GTK_BUTTON (ddc->question_check))), question_check_message);
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (ddc->question_check),
                                       initial_answer);
     }

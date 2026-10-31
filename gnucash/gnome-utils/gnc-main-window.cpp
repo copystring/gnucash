@@ -2978,7 +2978,7 @@ main_window_update_page_color (GncPluginPage *page,
     {
         if (GTK_IS_EVENT_BOX (tab_widget))
         {
-            GtkWidget *tab_hbox = gtk_bin_get_child(GTK_BIN(tab_widget));
+            GtkWidget *tab_hbox = gtk_event_box_get_child(tab_widget);
             g_object_ref (tab_hbox);
             gtk_container_remove (GTK_CONTAINER(tab_widget), tab_hbox);
             gtk_notebook_set_tab_label (GTK_NOTEBOOK(priv->notebook),
@@ -3021,7 +3021,7 @@ main_window_update_page_set_read_only_icon (GncPluginPage *page,
     }
 
     if (GTK_IS_EVENT_BOX(tab_widget))
-        tab_widget = gtk_bin_get_child (GTK_BIN(tab_widget));
+        tab_widget = gtk_event_box_get_child(tab_widget);
 
     children = gtk_container_get_children (GTK_CONTAINER(tab_widget));
     /* For each, walk the list of container children to get image widget */

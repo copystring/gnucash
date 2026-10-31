@@ -3,6 +3,7 @@
  */
 
 #include <config.h>
+#include "gnc-gtk-utils.h"
 #include <gtk/gtk.h>
 #include <gtest/gtest.h>
 #include "googletest-glib-log-handler.hpp"
@@ -42,7 +43,7 @@ static bool is_account_view (GtkWidget *widget)
 static const gchar *
 button_text (GtkWidget *button)
 {
-    auto label = gtk_bin_get_child (GTK_BIN (button));
+    auto label = gtk_button_get_child (GTK_BUTTON (button));
     return GTK_IS_LABEL (label) ? gtk_label_get_text (GTK_LABEL (label)) : nullptr;
 }
 
@@ -168,7 +169,7 @@ TEST_F (AccountSearchResponseTest, LateResponseAfterParentDestructionKeepsRetain
     auto dialog = open_dialog ();
     ASSERT_NE (dialog, nullptr);
     g_object_ref (dialog);
-    auto label = gtk_bin_get_child (GTK_BIN (button));
+    auto label = gtk_button_get_child (GTK_BUTTON (button));
     ASSERT_NE (label, nullptr);
     g_object_ref (label);
 

@@ -23,6 +23,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
+#include "gnc-gtk-utils.h"
 #endif
 
 #include <gtk/gtk.h>
@@ -360,7 +361,7 @@ account_selection_response (GtkDialog *dialog, gint response, gpointer data)
             GNC_TREE_VIEW_ACCOUNT (view));
         if (selected_guids_set_from_accounts (fi, book, accounts))
         {
-            GtkWidget *label = gtk_bin_get_child (GTK_BIN (button));
+            GtkWidget *label = gtk_button_get_child (GTK_BUTTON (button));
             if (GTK_IS_LABEL (label))
                 gtk_label_set_text (GTK_LABEL (label), describe_button (fi));
         }

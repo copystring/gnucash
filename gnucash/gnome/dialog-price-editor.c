@@ -228,7 +228,7 @@ gui_to_price (PriceEditDialog *pedit_dialog)
     time64 date;
 
     name_space = gnc_ui_namespace_picker_ns (pedit_dialog->namespace_cbwe);
-    fullname = gtk_entry_get_text( GTK_ENTRY( gtk_bin_get_child( GTK_BIN( GTK_COMBO_BOX(pedit_dialog->commodity_cbwe)))));
+    fullname = gtk_entry_get_text( GTK_ENTRY( gtk_combo_box_get_child (GTK_COMBO_BOX(pedit_dialog->commodity_cbwe))));
 
     commodity = gnc_commodity_table_find_full(gnc_get_current_commodities(), name_space, fullname);
     if (!commodity)
@@ -345,8 +345,7 @@ price_replace_decided (GtkWindow *parent, gint response, gpointer user_data)
             if (commodity && currency)
                 current = pedit_existing_price (owner, commodity, currency, request->date);
             gchar *ns = gnc_ui_namespace_picker_ns (owner->namespace_cbwe);
-            const gchar *name = gtk_entry_get_text (GTK_ENTRY (gtk_bin_get_child (
-                GTK_BIN (GTK_COMBO_BOX (owner->commodity_cbwe)))));
+            const gchar *name = gtk_entry_get_text (GTK_ENTRY (gtk_combo_box_get_child (GTK_COMBO_BOX(owner->commodity_cbwe))));
             same_input = currency == gnc_currency_edit_get_currency (GNC_CURRENCY_EDIT (owner->currency_edit)) &&
                 g_strcmp0 (ns, request->name_space) == 0 && g_strcmp0 (name, request->fullname) == 0 &&
                 gnc_date_edit_get_date (GNC_DATE_EDIT (owner->date_edit)) == request->date &&
@@ -382,8 +381,7 @@ static void
 pedit_confirm_replace (PriceEditDialog *owner, gint response)
 {
     gchar *ns = gnc_ui_namespace_picker_ns (owner->namespace_cbwe);
-    const gchar *name = gtk_entry_get_text (GTK_ENTRY (gtk_bin_get_child (
-        GTK_BIN (GTK_COMBO_BOX (owner->commodity_cbwe)))));
+    const gchar *name = gtk_entry_get_text (GTK_ENTRY (gtk_combo_box_get_child (GTK_COMBO_BOX(owner->commodity_cbwe))));
     gnc_commodity *commodity = gnc_commodity_table_find_full (gnc_get_current_commodities (), ns, name);
     g_free (ns);
     gnc_commodity *currency = gnc_currency_edit_get_currency (GNC_CURRENCY_EDIT (owner->currency_edit));
@@ -507,7 +505,7 @@ pedit_commodity_changed_cb (GtkComboBox *cbwe, gpointer data)
     gnc_prices_set_changed (pedit_dialog, TRUE);
 
     name_space = gnc_ui_namespace_picker_ns (pedit_dialog->namespace_cbwe);
-    fullname = gtk_entry_get_text( GTK_ENTRY( gtk_bin_get_child( GTK_BIN( GTK_COMBO_BOX(pedit_dialog->commodity_cbwe)))));
+    fullname = gtk_entry_get_text( GTK_ENTRY( gtk_combo_box_get_child (GTK_COMBO_BOX(pedit_dialog->commodity_cbwe))));
 
     commodity = gnc_commodity_table_find_full(gnc_get_current_commodities(), name_space, fullname);
 
