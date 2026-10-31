@@ -97,7 +97,7 @@ typedef struct _PriceDeleteRequest
 {
     GObject parent;
     GWeakRef window;
-    GPtrArray *price_guids;
+    GPtrArray *prices;
 } PriceDeleteRequest;
 
 typedef struct _PriceDeleteRequestClass
@@ -112,7 +112,7 @@ price_delete_request_finalize (GObject *object)
 {
     auto request = PRICE_DELETE_REQUEST (object);
     g_weak_ref_clear (&request->window);
-    g_ptr_array_unref (request->price_guids);
+    g_ptr_array_unref (request->prices);
     G_OBJECT_CLASS (price_delete_request_parent_class)->finalize (object);
 }
 
@@ -136,7 +136,7 @@ price_delete_request_class_init (PriceDeleteRequestClass *klass)
 static void
 price_delete_request_init (PriceDeleteRequest *request)
 {
-    request->price_guids = g_ptr_array_new_with_free_func (g_free);
+    request->prices = g_ptr_array_new_with_free_func ((GDestroyNotify)gnc_price_unref);
 }
 
 static void
@@ -150,17 +150,13 @@ price_delete_finished (gint response, gpointer user_data)
         auto pdb_dialog = static_cast<PricesDialog *> (
             g_object_get_data (G_OBJECT (window), PRICE_DIALOG_DATA));
 
-        if (pdb_dialog && pdb_dialog->book == gnc_get_current_book () &&
-            pdb_dialog->price_db && !qof_book_shutting_down (pdb_dialog->book))
+        if (pdb_dialog && pdb_dialog->price_db)
         {
-            for (guint index = 0; index < request->price_guids->len; index++)
+            for (guint index = 0; index < request->prices->len; index++)
             {
-                auto guid = static_cast<GncGUID *> (
-                    g_ptr_array_index (request->price_guids, index));
-                auto price = gnc_price_lookup (guid, pdb_dialog->book);
-
-                if (price)
-                    gnc_pricedb_remove_price (pdb_dialog->price_db, price);
+                auto price = static_cast<GNCPrice *> (
+                    g_ptr_array_index (request->prices, index));
+                gnc_pricedb_remove_price (pdb_dialog->price_db, price);
             }
             gnc_gui_refresh_all ();
         }
@@ -267,9 +263,9 @@ gnc_prices_dialog_remove_clicked (GtkWidget *widget, gpointer data)
     g_weak_ref_init (&request->window, pdb_dialog->window);
     for (auto node = price_list; node; node = g_list_next (node))
     {
-        auto guid = g_new (GncGUID, 1);
-        *guid = *gnc_price_get_guid (static_cast<GNCPrice *> (node->data));
-        g_ptr_array_add (request->price_guids, guid);
+        auto price = static_cast<GNCPrice *> (node->data);
+        gnc_price_ref (price);
+        g_ptr_array_add (request->prices, price);
     }
     g_list_free (price_list);
 
