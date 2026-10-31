@@ -965,8 +965,7 @@ gnc_html_webview2_dispose (GObject* obj)
 
      if (priv->socket != nullptr)
      {
-          gtk_container_remove (GTK_CONTAINER(priv->base.container),
-                                priv->socket);
+          gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(priv->base.container), NULL);
 
           priv->socket = nullptr;
      }

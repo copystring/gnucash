@@ -759,7 +759,7 @@ gnc_finish_ok (AccountWindow *aw)
         Account *account;
 
         /* Drop the old parent_tree so we can update it with an up to date one */
-        gtk_container_remove (GTK_CONTAINER(aw->parent_scroll), GTK_WIDGET(aw->parent_tree));
+        gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(aw->parent_scroll), NULL);
         aw->parent_tree = gnc_tree_view_account_new (TRUE);
         gtk_container_add (GTK_CONTAINER(aw->parent_scroll), GTK_WIDGET(aw->parent_tree));
         gtk_widget_show (GTK_WIDGET(aw->parent_tree));

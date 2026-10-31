@@ -1541,7 +1541,7 @@ assistant_insert_book_options_page (hierarchy_data *data)
     auto parent = gtk_widget_get_parent (options);
 
     g_object_ref (options);
-    gtk_container_remove (GTK_CONTAINER(parent), options);
+    gtk_box_remove (GTK_BOX(parent), options);
     gtk_container_add (GTK_CONTAINER(vbox), options);
     g_object_unref (options);
 

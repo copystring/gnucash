@@ -741,9 +741,9 @@ gnc_payment_dialog_owner_type_changed (PaymentWindow *pw)
     g_object_ref (G_OBJECT (pw->amount_credit_edit));
 
     if (gtk_widget_is_ancestor(pw->amount_debit_edit, credit_box))
-        gtk_container_remove (GTK_CONTAINER (credit_box), pw->amount_debit_edit);
+        gtk_box_remove (GTK_BOX (credit_box), pw->amount_debit_edit);
     if (gtk_widget_is_ancestor(pw->amount_credit_edit, debit_box))
-        gtk_container_remove (GTK_CONTAINER (debit_box), pw->amount_credit_edit);
+        gtk_box_remove (GTK_BOX (debit_box), pw->amount_credit_edit);
 
     if (!gtk_widget_is_ancestor(pw->amount_debit_edit, debit_box))
         gtk_box_pack_start (GTK_BOX (debit_box), pw->amount_debit_edit, TRUE, TRUE, 0);

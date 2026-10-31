@@ -234,8 +234,7 @@ gnc_html_webkit_dispose( GObject* obj )
 
      if ( priv->web_view != nullptr )
      {
-          gtk_container_remove (GTK_CONTAINER(priv->base.container),
-                                GTK_WIDGET(priv->web_view));
+          gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(priv->base.container), NULL);
 
           priv->web_view = nullptr;
      }

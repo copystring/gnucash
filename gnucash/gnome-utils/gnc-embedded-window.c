@@ -147,7 +147,7 @@ gnc_embedded_window_close_page (GncEmbeddedWindow *window,
         return;
     }
 
-    gtk_container_remove (GTK_CONTAINER(window), GTK_WIDGET(page->notebook_page));
+    gtk_window_set_child (GTK_WINDOW(window), NULL);
     window->page = NULL;
     gnc_plugin_page_removed (page);
 

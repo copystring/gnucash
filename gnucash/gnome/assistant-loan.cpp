@@ -1535,7 +1535,7 @@ loan_pay_prep( GtkAssistant *assistant, gpointer user_data )
         {
             g_signal_handlers_disconnect_by_func( ldd->payGncFreq,
                                                   (gpointer) loan_pay_page_valid_cb, ldd );
-            gtk_container_remove( GTK_CONTAINER(ldd->payFreqHBox), GTK_WIDGET(ldd->payGncFreq) );
+            gtk_box_remove( GTK_BOX(ldd->payFreqHBox), GTK_WIDGET(ldd->payGncFreq) );
             ldd->payGncFreq = NULL;
             ldd->payGncFreq = GNC_FREQUENCY(gnc_frequency_new_from_recurrence( rod->schedule, rod->startDate ));
             gtk_container_add( GTK_CONTAINER(ldd->payFreqHBox), GTK_WIDGET(ldd->payGncFreq) );

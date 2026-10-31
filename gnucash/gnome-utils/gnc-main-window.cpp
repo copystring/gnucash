@@ -2980,7 +2980,7 @@ main_window_update_page_color (GncPluginPage *page,
         {
             GtkWidget *tab_hbox = gtk_event_box_get_child(tab_widget);
             g_object_ref (tab_hbox);
-            gtk_container_remove (GTK_CONTAINER(tab_widget), tab_hbox);
+            gtk_box_remove (GTK_BOX(tab_widget), tab_hbox);
             gtk_notebook_set_tab_label (GTK_NOTEBOOK(priv->notebook),
                                         page->notebook_page, tab_hbox);
             g_object_unref (tab_hbox);
@@ -3052,7 +3052,7 @@ main_window_update_page_set_read_only_icon (GncPluginPage *page,
         g_free (image_name);
         return;
     }
-    gtk_container_remove (GTK_CONTAINER(tab_widget), image);
+    gtk_box_remove (GTK_BOX(tab_widget), image);
     image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_MENU);
     gtk_widget_show (image);
 
@@ -4310,7 +4310,7 @@ gnc_main_window_update_toolbar (GncMainWindow *window, GncPluginPage *page,
     if (builder)
     {
         gchar *toolbar_name;
-        gtk_container_remove (GTK_CONTAINER(priv->menu_dock), priv->toolbar);
+        gtk_box_remove (GTK_BOX(priv->menu_dock), priv->toolbar);
 
         if (toolbar_qualifier)
             toolbar_name = g_strconcat ("mainwin-toolbar-", toolbar_qualifier, nullptr);

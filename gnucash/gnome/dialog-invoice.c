@@ -2067,7 +2067,7 @@ static void
 gnc_invoice_update_job_choice (InvoiceWindow *iw)
 {
     if (iw->job_choice)
-        gtk_container_remove (GTK_CONTAINER (iw->job_box), iw->job_choice);
+        gtk_box_remove (GTK_BOX (iw->job_box), iw->job_choice);
 
     /* If we don't have a real owner, then we obviously can't have a job */
     if (iw->owner.owner.undefined == NULL)
@@ -2144,7 +2144,7 @@ static void
 gnc_invoice_update_proj_job (InvoiceWindow *iw)
 {
     if (iw->proj_job_choice)
-        gtk_container_remove (GTK_CONTAINER (iw->proj_job_box),
+        gtk_box_remove (GTK_BOX (iw->proj_job_box),
                               iw->proj_job_choice);
 
     switch (iw->dialog_type)
@@ -2444,10 +2444,10 @@ gnc_invoice_update_window (InvoiceWindow *iw, GtkWidget *widget)
     invoice = iw_get_invoice (iw);
 
     if (iw->owner_choice)
-        gtk_container_remove (GTK_CONTAINER (iw->owner_box), iw->owner_choice);
+        gtk_box_remove (GTK_BOX (iw->owner_box), iw->owner_choice);
 
     if (iw->proj_cust_choice)
-        gtk_container_remove (GTK_CONTAINER (iw->proj_cust_box),
+        gtk_box_remove (GTK_BOX (iw->proj_cust_box),
                               iw->proj_cust_choice);
 
     switch (iw->dialog_type)

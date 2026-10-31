@@ -63,6 +63,14 @@ static inline void gtk_combo_box_set_child (GtkComboBox *combo, GtkWidget *child
 
 static inline GtkWidget *gtk_event_box_get_child (GtkWidget *eb) { return gtk_bin_get_child (GTK_BIN (eb)); }
 static inline GtkWidget *gtk_menu_item_get_child (GtkMenuItem *mi) { return gtk_bin_get_child (GTK_BIN (mi)); }
+
+/* GTK4 compatibility wrappers for GtkContainer removal (box, grid, child setters) */
+#if !GTK_CHECK_VERSION(4, 0, 0)
+static inline void gtk_box_append (GtkBox *box, GtkWidget *child) { gtk_box_pack_start (box, child, FALSE, FALSE, 0); }
+static inline void gtk_box_prepend (GtkBox *box, GtkWidget *child) { gtk_box_pack_end (box, child, FALSE, FALSE, 0); }
+static inline void gtk_box_remove (GtkBox *box, GtkWidget *child) { gtk_container_remove (GTK_CONTAINER (box), child); }
+static inline void gtk_grid_remove (GtkGrid *grid, GtkWidget *child) { gtk_container_remove (GTK_CONTAINER (grid), child); }
+#endif
 #endif
 
 

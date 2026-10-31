@@ -958,7 +958,7 @@ check_popup_height_is_true (GtkWidget    *widget,
     if (allocation->height != item_edit->popup_returned_height)
     {
         item_edit->popup_allocation_height = allocation->height;
-        gtk_container_remove (GTK_CONTAINER(item_edit->sheet), item_edit->popup_item);
+        gtk_widget_unparent (GTK_WIDGET (item_edit->popup_item));
 
         g_idle_add_full (G_PRIORITY_HIGH_IDLE,
                         (GSourceFunc)gnc_item_edit_update, item_edit, NULL);
@@ -1102,7 +1102,7 @@ gnc_item_edit_hide_popup (GncItemEdit *item_edit)
     if (gtk_widget_get_parent (GTK_WIDGET(item_edit->popup_item)) != GTK_WIDGET(item_edit->sheet))
         return;
 
-    gtk_container_remove (GTK_CONTAINER(item_edit->sheet), item_edit->popup_item);
+    gtk_widget_unparent (GTK_WIDGET (item_edit->popup_item));
 
     // set the popup arrow direction down
     item_edit->popup_toggle.arrow_down = TRUE;

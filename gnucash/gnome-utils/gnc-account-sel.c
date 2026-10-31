@@ -969,7 +969,7 @@ gnc_account_sel_set_new_account_ability (GNCAccountSel *gas,
     {
         g_assert (state == TRUE);
         /* destroy the existing button. */
-        gtk_container_remove (GTK_CONTAINER(gas), gas->newAccountButton);
+        gtk_box_remove (GTK_BOX(gas), gas->newAccountButton);
         gtk_widget_destroy (gas->newAccountButton);
         gas->newAccountButton = NULL;
         return;
