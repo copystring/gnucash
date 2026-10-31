@@ -29,7 +29,7 @@ set(test_aqb_RESPONSE_LIBS ${test_aqb_LIBS} gtest)
 
 set_dist_list(test_aqb_DIST ${test_aqb_SOURCES} gtest-gwen-worker-response.cpp
   gtest-ab-import-context-response.cpp gtest-gwen-async-dialog.cpp
-  gtest-gwen-async-dialog.dlg file-book.gnucash
+  gtest-gwen-async-dialog.glade file-book.gnucash
   file-book-hbcislot.gnucash CMakeLists.txt )
 if(WITH_AQBANKING)
   gnc_add_test(test-aqb

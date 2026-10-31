@@ -206,7 +206,7 @@ protected:
         const auto source_dir = g_getenv ("SRCDIR");
         ASSERT_NE (source_dir, nullptr);
         auto definition = g_build_filename (source_dir,
-                                            "gtest-gwen-async-dialog.dlg", nullptr);
+                                            "gtest-gwen-async-dialog.glade", nullptr);
         auto read_result = GWEN_Dialog_ReadXmlFile (run.dialog, definition);
         g_free (definition);
         ASSERT_GE (read_result, 0);
