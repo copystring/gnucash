@@ -687,7 +687,7 @@ gnc_account_sel_init (GNCAccountSel *gas)
     gas->combo = GTK_COMBO_BOX(widget);
     gtk_combo_box_set_entry_text_column (GTK_COMBO_BOX(widget), ACCT_COL_NAME);
 
-    gtk_container_add (GTK_CONTAINER(gas), widget);
+    gtk_box_append (GTK_BOX(gas), widget);
 
     // set the default horizontal expansion to TRUE
     gtk_widget_set_hexpand (GTK_WIDGET(gas), TRUE);

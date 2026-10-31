@@ -484,7 +484,7 @@ gnc_choose_radio_option_dialog_async(GtkWidget *parent,
     vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 3);
     gtk_box_set_homogeneous (GTK_BOX (vbox), TRUE);
     gtk_container_set_border_width(GTK_CONTAINER(vbox), 6);
-    gtk_container_add(GTK_CONTAINER(main_vbox), vbox);
+    gtk_box_append (GTK_BOX (main_vbox), vbox);
     gtk_widget_show(vbox);
 
     for (node = radio_list, i = 0; node; node = node->next, i++)
@@ -643,7 +643,7 @@ gnc_info2_dialog (GtkWidget *parent, const gchar *title, const gchar *msg)
     gtk_text_view_set_editable (GTK_TEXT_VIEW (view), FALSE);
     buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
     gtk_text_buffer_set_text (buffer, msg, -1);
-    gtk_container_add (GTK_CONTAINER (scrolledwindow), view);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolledwindow), view);
     
     // run the dialog
     if (parent)
@@ -682,7 +682,7 @@ gnc_info2_dialog_async (GtkWidget *parent, const gchar *title,
     gtk_text_view_set_editable (GTK_TEXT_VIEW (view), FALSE);
     buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
     gtk_text_buffer_set_text (buffer, msg ? msg : "", -1);
-    gtk_container_add (GTK_CONTAINER (scrolledwindow), view);
+    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolledwindow), view);
 
     if (parent_window)
     {

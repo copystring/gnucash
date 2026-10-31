@@ -46,14 +46,14 @@ protected:
         gtk_entry_set_text (GTK_ENTRY (entry), "-");
         g_object_set_data (G_OBJECT (entry), "original_text", const_cast<char *> (":"));
         g_object_set_data (G_OBJECT (parent), "account-separator", entry);
-        gtk_container_add (GTK_CONTAINER (content), entry);
+        gtk_box_append (GTK_BOX (content), entry);
         notebook = gtk_notebook_new ();
         auto first = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
         auto accounts = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
         gtk_widget_set_name (accounts, "accounts_page");
         gtk_notebook_append_page (GTK_NOTEBOOK (notebook), first, nullptr);
         gtk_notebook_append_page (GTK_NOTEBOOK (notebook), accounts, nullptr);
-        gtk_container_add (GTK_CONTAINER (content), notebook);
+        gtk_box_append (GTK_BOX (content), notebook);
         g_object_set_data (G_OBJECT (parent), "notebook", notebook);
         gtk_widget_show_all (GTK_WIDGET (parent));
         g_object_ref (parent);

@@ -79,13 +79,13 @@ protected:
 
         parent = GTK_WINDOW (gtk_window_new (GTK_WINDOW_TOPLEVEL));
         contents = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-        gtk_container_add (GTK_CONTAINER (parent), contents);
+        gtk_window_set_child (GTK_WINDOW (parent), contents);
         search = gnc_search_account_new ();
         gnc_search_core_type_pass_parent (GNC_SEARCH_CORE_TYPE (search),
                                           GTK_WIDGET (parent));
         auto widget = gnc_search_core_type_get_widget (
             GNC_SEARCH_CORE_TYPE (search));
-        gtk_container_add (GTK_CONTAINER (contents), widget);
+        gtk_box_append (GTK_BOX (contents), widget);
         button = find_widget (widget, is_button);
         ASSERT_NE (button, nullptr);
         ASSERT_TRUE (GTK_IS_BUTTON (button));
@@ -150,7 +150,7 @@ TEST_F (AccountSearchResponseTest, OwnerMayBeDestroyedBeforeDialogResponse)
                                       GTK_WIDGET (parent));
     auto owner_widget = gnc_search_core_type_get_widget (
         GNC_SEARCH_CORE_TYPE (owner));
-    gtk_container_add (GTK_CONTAINER (contents), owner_widget);
+    gtk_box_append (GTK_BOX (contents), owner_widget);
     auto owner_button = find_widget (owner_widget, is_button);
     ASSERT_NE (owner_button, nullptr);
     gtk_button_clicked (GTK_BUTTON (owner_button));

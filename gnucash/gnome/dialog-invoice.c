@@ -3271,7 +3271,7 @@ gnc_invoice_create_page (InvoiceWindow *iw, gpointer page)
         gtk_widget_show(regWidget);
 
         frame = GTK_WIDGET (gtk_builder_get_object (builder, "ledger_frame"));
-        gtk_container_add (GTK_CONTAINER (frame), regWidget);
+        gtk_frame_set_child (GTK_FRAME (frame), regWidget);
 
         iw->reg = GNUCASH_REGISTER (regWidget);
         window = gnc_plugin_page_get_window(iw->page);

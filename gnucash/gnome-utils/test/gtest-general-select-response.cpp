@@ -81,7 +81,7 @@ create_select (GtkWidget *parent, Selector &selector)
 {
     auto widget = gnc_general_select_new_async (
         GNC_GENERAL_SELECT_TYPE_SELECT, get_string, select_async, &selector);
-    gtk_container_add (GTK_CONTAINER (parent), widget);
+    gtk_window_set_child (GTK_WINDOW (parent), widget);
     return widget;
 }
 

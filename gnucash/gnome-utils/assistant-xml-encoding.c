@@ -648,8 +648,7 @@ gxi_update_progress_bar (const gchar *message, double percentage)
         progress_window = gtk_window_new (GTK_WINDOW_POPUP);
         progress_bar = GTK_PROGRESS_BAR (gtk_progress_bar_new ());
         gtk_container_set_border_width (GTK_CONTAINER (progress_window), 12);
-        gtk_container_add (GTK_CONTAINER (progress_window),
-                           GTK_WIDGET (progress_bar));
+        gtk_window_set_child (GTK_WINDOW (progress_window), GTK_WIDGET (progress_bar));
         gtk_widget_show (GTK_WIDGET (progress_bar));
     }
 
@@ -693,7 +692,7 @@ gxi_update_default_enc_combo (GncXmlImportData *data)
     /* show encodings */
     g_signal_connect (G_OBJECT (combo), "changed",
                       G_CALLBACK (gxi_default_enc_combo_changed_cb), data);
-    gtk_container_add (GTK_CONTAINER (data->default_encoding_hbox), GTK_WIDGET (combo));
+    gtk_box_append (GTK_BOX (data->default_encoding_hbox), GTK_WIDGET (combo));
     gtk_widget_show (GTK_WIDGET (combo));
 }
 
@@ -857,7 +856,7 @@ gxi_update_string_box (GncXmlImportData *data)
     } /* next word */
 
     /* wire up whole string vbox */
-    gtk_container_add (GTK_CONTAINER (data->string_box_container), GTK_WIDGET (vbox));
+    gtk_box_append (GTK_BOX (data->string_box_container), GTK_WIDGET (vbox));
     gtk_widget_show (GTK_WIDGET (vbox));
 
     /* update label now, n_unassigned is calculated */

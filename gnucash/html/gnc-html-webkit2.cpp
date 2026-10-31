@@ -175,8 +175,8 @@ gnc_html_webkit_init( GncHtmlWebkit* self )
      webkit_web_view_set_zoom_level (priv->web_view, zoom);
 
 
-     gtk_container_add( GTK_CONTAINER(priv->base.container),
-                        GTK_WIDGET(priv->web_view) );
+     gtk_scrolled_window_set_child( GTK_SCROLLED_WINDOW(priv->base.container),
+                                     GTK_WIDGET(priv->web_view) );
 
      g_object_ref_sink( priv->base.container );
 

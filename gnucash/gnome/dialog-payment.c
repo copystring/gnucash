@@ -1526,7 +1526,7 @@ new_payment_window (GtkWindow *parent, QofBook *book, InitialPaymentInfo *tx_inf
 
     box = GTK_WIDGET (gtk_builder_get_object (builder, "acct_window"));
     pw->acct_tree = GTK_WIDGET(gnc_tree_view_account_new (FALSE));
-    gtk_container_add (GTK_CONTAINER (box), pw->acct_tree);
+    gtk_box_append (GTK_BOX (box), pw->acct_tree);
     gtk_tree_view_set_headers_visible (GTK_TREE_VIEW(pw->acct_tree), FALSE);
     gnc_payment_set_account_types (GNC_TREE_VIEW_ACCOUNT (pw->acct_tree));
 

@@ -871,8 +871,8 @@ gnc_html_webview2_init (GncHtmlWebview2* self)
      priv->socket = gtk_event_box_new ();
      gtk_widget_set_can_focus (priv->socket, TRUE);
 
-     gtk_container_add (GTK_CONTAINER(priv->base.container),
-                        priv->socket);
+     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW(priv->base.container),
+                                     priv->socket);
 
      g_object_ref_sink (priv->base.container);
 

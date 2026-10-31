@@ -920,8 +920,7 @@ gnc_item_edit_new (GnucashSheet *sheet)
      * Without one the button would disappear behind the grid object. */
     item_edit->popup_toggle.ebox = gtk_event_box_new ();
     g_object_ref (item_edit->popup_toggle.ebox);
-    gtk_container_add (GTK_CONTAINER(item_edit->popup_toggle.ebox),
-                       item_edit->popup_toggle.tbutton);
+    gtk_box_append (GTK_BOX (item_edit->popup_toggle.ebox), item_edit->popup_toggle.tbutton);
 
     // This call back intercepts the right mouse button event to stop the
     // gnucash_sheet_button_press_event from running.

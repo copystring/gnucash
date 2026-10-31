@@ -448,7 +448,7 @@ gnc_main_window_foreach_page (GncMainWindowPageFunc fn, gpointer user_data)
  *
  *  @param data A data structure containing state about the
  *  window/page restoration process.
- * 
+ *
  *  @return true if page was added else false.
  *  */
 static gboolean
@@ -801,7 +801,7 @@ gnc_main_window_restore_window (GncMainWindow *window, GncMainWindowSaveData *da
         if (!page_added) // if page not added, increase offset to compensate
         {
             offset ++;
-            added_page_offsets = g_slist_append (added_page_offsets, 
+            added_page_offsets = g_slist_append (added_page_offsets,
                                                  GINT_TO_POINTER(-1));
         }
         else
@@ -843,7 +843,7 @@ gnc_main_window_restore_window (GncMainWindow *window, GncMainWindowSaveData *da
         {
             gint zero_based_page_number = order[i] - 1;
 
-            gint offset = GPOINTER_TO_INT(g_slist_nth_data (added_page_offsets, 
+            gint offset = GPOINTER_TO_INT(g_slist_nth_data (added_page_offsets,
                                                             zero_based_page_number));
 
             if (offset == -1)
@@ -2958,7 +2958,7 @@ main_window_update_page_color (GncPluginPage *page,
             g_object_ref (tab_widget);
             gtk_notebook_set_tab_label (GTK_NOTEBOOK(priv->notebook),
                                         page->notebook_page, event_box);
-            gtk_container_add (GTK_CONTAINER(event_box), tab_widget);
+            gtk_box_append (GTK_BOX (event_box), tab_widget);
             g_object_unref (tab_widget);
             tab_widget = event_box;
         }
@@ -3056,7 +3056,7 @@ main_window_update_page_set_read_only_icon (GncPluginPage *page,
     image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_MENU);
     gtk_widget_show (image);
 
-    gtk_container_add (GTK_CONTAINER(tab_widget), image);
+    gtk_box_append (GTK_BOX(tab_widget), image);
     gtk_widget_set_margin_start (GTK_WIDGET(image), 5);
     gtk_box_reorder_child (GTK_BOX(tab_widget), image, 0);
 
@@ -3798,7 +3798,7 @@ gnc_main_window_open_page (GncMainWindow *window,
     // Give it a name so we can find it later (see main_window_find_tab_items)
     GtkWidget *tab_content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_name(tab_content, "tab-content");
-    gtk_container_add(GTK_CONTAINER(tab_clickable_area), tab_content);
+    gtk_box_append(GTK_BOX(tab_clickable_area), tab_content);
     gtk_widget_show(tab_content);
 
     if (icon != nullptr)
@@ -3840,7 +3840,7 @@ gnc_main_window_open_page (GncMainWindow *window,
         gtk_widget_get_preferred_size (close_image, &requisition, nullptr);
         gtk_widget_set_size_request(close_button, requisition.width + 4,
                                     requisition.height + 2);
-        gtk_container_add(GTK_CONTAINER(close_button), close_image);
+        gtk_button_set_child(GTK_BUTTON(close_button), close_image);
         if (gnc_prefs_get_bool(GNC_PREFS_GROUP_GENERAL, GNC_PREF_SHOW_CLOSE_BUTTON))
             gtk_widget_show (close_button);
         else
@@ -4323,7 +4323,7 @@ gnc_main_window_update_toolbar (GncMainWindow *window, GncPluginPage *page,
             priv->toolbar = (GtkWidget *)gtk_builder_get_object (builder, "mainwin-toolbar");
 
         g_object_set (priv->toolbar, "toolbar-style", GTK_TOOLBAR_BOTH, NULL);
-        gtk_container_add (GTK_CONTAINER(priv->menu_dock), priv->toolbar);
+        gtk_box_append (GTK_BOX (priv->menu_dock), priv->toolbar);
         g_free (toolbar_name);
     }
 
@@ -4677,7 +4677,7 @@ gnc_main_window_setup_window (GncMainWindow *window)
     main_vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (main_vbox), FALSE);
     gtk_widget_show (main_vbox);
-    gtk_container_add (GTK_CONTAINER (window), main_vbox);
+    gtk_window_set_child (GTK_WINDOW (window), main_vbox);
 
     priv = GNC_MAIN_WINDOW_GET_PRIVATE(window);
     priv->menu_dock = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
@@ -4733,12 +4733,12 @@ gnc_main_window_setup_window (GncMainWindow *window)
 
     priv->menubar_model = (GMenuModel *)gtk_builder_get_object (builder, "mainwin-menu");
     priv->menubar = gtk_menu_bar_new_from_model (priv->menubar_model);
-    gtk_container_add (GTK_CONTAINER(priv->menu_dock), priv->menubar);
+    gtk_box_append (GTK_BOX (priv->menu_dock), priv->menubar);
     gtk_widget_show (GTK_WIDGET(priv->menubar));
 
     priv->toolbar = (GtkWidget *)gtk_builder_get_object (builder, "mainwin-toolbar");
     g_object_set (priv->toolbar, "toolbar-style", GTK_TOOLBAR_BOTH, NULL);
-    gtk_container_add (GTK_CONTAINER(priv->menu_dock), GTK_WIDGET(priv->toolbar));
+    gtk_box_append (GTK_BOX (priv->menu_dock), GTK_WIDGET(priv->toolbar));
     gtk_widget_show (GTK_WIDGET(priv->toolbar));
 
     g_object_unref (builder);
@@ -5987,7 +5987,7 @@ add_about_paths (GtkDialog *dialog)
     g_signal_connect (G_OBJECT(textview), "motion-notify-event",
                       G_CALLBACK(textview_motion_notify_cb), nullptr);
 
-    gtk_container_add_with_properties (GTK_CONTAINER(page_vbox), textview,
+    gtk_box_append (GTK_BOX(page_vbox), textview);
                                        "position", 1, nullptr);
     gtk_widget_show_all (page_vbox);
 }

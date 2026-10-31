@@ -308,8 +308,8 @@ gnc_search_dialog_display_results (GNCSearchWindow *sw)
                                         GTK_POLICY_AUTOMATIC,
                                         GTK_POLICY_AUTOMATIC);
         gtk_widget_set_size_request(GTK_WIDGET(scroller), 300, 100);
-        gtk_container_add (GTK_CONTAINER (scroller), sw->result_view);
-        gtk_container_add(GTK_CONTAINER(frame), scroller);
+        gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), sw->result_view);
+        gtk_frame_set_child (GTK_FRAME (frame), scroller);
 
         /* Create the button_box */
         button_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 3);

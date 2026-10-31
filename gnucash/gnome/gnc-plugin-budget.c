@@ -365,7 +365,7 @@ budget_selection_dialog_new (GtkWindow *parent, QofBook *book, GtkTreeView **vie
     tm = gnc_tree_model_budget_new (book);
     gnc_tree_view_budget_set_model (tv, tm);
     g_object_unref (tm);
-    gtk_container_add (GTK_CONTAINER(gtk_dialog_get_content_area (dlg)), GTK_WIDGET(tv));
+    gtk_box_append (GTK_BOX(gtk_dialog_get_content_area (dlg)), GTK_WIDGET(tv));
 
     // Preselect the default budget
     bgt = gnc_budget_get_default (book);

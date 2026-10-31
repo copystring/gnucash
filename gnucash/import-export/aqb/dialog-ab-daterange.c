@@ -199,13 +199,13 @@ gnc_ab_enter_daterange_async (GtkWindow *parent, const gchar *heading,
     info->enter_to_button  = GTK_WIDGET(gtk_builder_get_object (builder, "enter_to_button"));
 
     info->from_dateedit = gnc_date_edit_new (from_date, FALSE, FALSE);
-    gtk_container_add(GTK_CONTAINER(gtk_builder_get_object (builder, "enter_from_box")),
-                      info->from_dateedit);
+    gtk_box_append(GTK_BOX(gtk_builder_get_object (builder, "enter_from_box")),
+                    info->from_dateedit);
     gtk_widget_show(info->from_dateedit);
 
     info->to_dateedit = gnc_date_edit_new (to_date, FALSE, FALSE);
-    gtk_container_add(GTK_CONTAINER(gtk_builder_get_object (builder, "enter_to_box")),
-                      info->to_dateedit);
+    gtk_box_append(GTK_BOX(gtk_builder_get_object (builder, "enter_to_box")),
+                    info->to_dateedit);
     gtk_widget_show(info->to_dateedit);
 
     if (last_retrieval_date)

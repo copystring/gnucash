@@ -72,7 +72,7 @@ protected:
     {
         gnc_search_core_type_pass_parent (core, parent);
         auto widget = gnc_search_core_type_get_widget (core);
-        gtk_container_add (GTK_CONTAINER (parent), widget);
+        gtk_window_set_child (GTK_WINDOW (parent), widget);
         auto amount = find_amount (widget);
         ASSERT_NE (amount, nullptr);
         auto entry = gnc_amount_edit_gtk_entry (GNC_AMOUNT_EDIT (amount));

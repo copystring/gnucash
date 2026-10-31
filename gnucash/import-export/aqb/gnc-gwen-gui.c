@@ -2040,10 +2040,10 @@ gwen_messagebox_show_on_main (gpointer user_data)
     vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_set_homogeneous (GTK_BOX (vbox), TRUE);
     gtk_container_set_border_width (GTK_CONTAINER (vbox), 5);
-    gtk_container_add (GTK_CONTAINER (vbox), label);
+    gtk_box_append (GTK_BOX (vbox), label);
     gtk_container_set_border_width (GTK_CONTAINER (dialog), 5);
-    gtk_container_add (GTK_CONTAINER (gtk_dialog_get_content_area (
-                                       GTK_DIALOG (dialog))), vbox);
+    gtk_box_append (GTK_BOX (gtk_dialog_get_content_area (
+                                  GTK_DIALOG (dialog))), vbox);
     gnc_gui_query_bind_dialog_response (GTK_DIALOG (dialog),
                                        gwen_messagebox_completed,
                                        request->wait);

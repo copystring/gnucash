@@ -752,7 +752,7 @@ new_tax_table_dialog (TaxTableWindow *ttw, gboolean new_table,
 
     box = GTK_WIDGET(gtk_builder_get_object (builder, "acct_window"));
     ntt->acct_tree = GTK_WIDGET(gnc_tree_view_account_new (FALSE));
-    gtk_container_add (GTK_CONTAINER(box), ntt->acct_tree);
+    gtk_box_append (GTK_BOX (box), ntt->acct_tree);
     gtk_tree_view_set_headers_visible (GTK_TREE_VIEW(ntt->acct_tree), FALSE);
 
     selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(ntt->acct_tree));
@@ -1175,7 +1175,7 @@ rename_tax_table_dialog (GtkWidget *parent, QofSession *session,
     vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 3);
     gtk_box_set_homogeneous (GTK_BOX(vbox), TRUE);
     gtk_container_set_border_width (GTK_CONTAINER(vbox), 6);
-    gtk_container_add (GTK_CONTAINER(main_vbox), vbox);
+    gtk_box_append (GTK_BOX (main_vbox), vbox);
     gtk_widget_show (vbox);
 
     textbox = gtk_entry_new ();
